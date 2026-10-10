@@ -1,0 +1,21 @@
+feat(quality): ② Top-10 重合率与 ③ 相关性工具（两侧各自编码）
+
+quality_top10.py：
+- 两侧各用自己的运行时编码查询（公平的前提）：
+  旧索引用 search.SearchEngine（torch），新索引用 encode_queries.mjs（ONNX）
+- 搜索都在 Python 侧做（index.bin 可被 numpy 直读），使排序口径一致、可逐行核对
+- ② 平均重合率 ≥0.80、单条 ≥0.50；低于阈值时自动打印旧/新 Top-5 供逐条说明
+- ③ self（Top-1 且余弦 ≥0.999）/ hard（目标在 Top-3）/ user（无标注，仅输出供人工复核）
+- 另输出 top10-diff.csv（逐名次对照，便于人工复核）
+
+两个独立核对顺手完成：
+- 文本塔 torch vs ONNX 逐条余弦：实测 min 0.99999988 / median 1.00000000，
+  在真实 20 条中文查询集上复现了 bit-exact 结论
+- self 参考图同时充当「encode_queries.mjs 与 build_index_onnx.mjs 同源」的断言：
+  实测 排名 1 · 余弦 1.000000 · 同源 1.00000012
+
+环境修正：torch 侧必须 HF_HUB_OFFLINE=1（项目既有做法），否则 sentence-transformers
+会联网探测更新、在 HF 缓存里建临时目录并 chmod，在受限沙箱下以 PermissionError 收场。
+
+机制验证（对 60 条小索引）：全流程跑通；该样本全是 CR+VR，故 ② 重合率必然接近 0
+（新索引只有 60 条，不可能与全量旧索引相交）—— 属样本效应，非实现问题。
