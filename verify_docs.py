@@ -2,9 +2,12 @@
 """verify_docs.py —— 文档清理后的最终核对：死引用、权威关系、清单完整性。"""
 from __future__ import annotations
 
+import sys
 
 # 中文 Windows 的控制台默认是 GBK，直接打印 ✓/✗/⚠ 会抛 UnicodeEncodeError。
 # 这里强制 UTF-8 输出（失败不致命：某些环境不支持 reconfigure）。
+# ⚠️ 必须先 import sys —— 否则这个 try 会静默跳过，脚本照旧在 GBK 下崩。
+#    （本文件真踩过：插入点落在 from __future__ 之后，而文件里没有 import sys。）
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
