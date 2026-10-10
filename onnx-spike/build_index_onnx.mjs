@@ -18,6 +18,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
 import { readImageWithFallback, selfTestBmpLayout, isBmp } from './bmp_decode.mjs';
 
@@ -37,12 +38,23 @@ const DEVICE = arg('device', 'webgpu');
 const LIMIT = parseInt(arg('limit', '0'), 10);
 const SAVE_EVERY = parseInt(arg('save-every', '200'), 10);
 const REBUILD = has('rebuild');
-const LIB_ID = arg('lib-id', 'default');
+const LIB_ID = arg('lib-id', 'L1');
+// 权重精度：决定向量，进 compat（SPEC-identity §6.3）
+const WEIGHTS_DTYPE = arg('weights-dtype', 'fp32');
+const MODEL_REPO = arg('model-repo', 'onnx-community/embeddinggemma-2-ONNX');
 
 if (!MODEL_DIR || !LIB_ROOT || !OUT_DIR) {
-  console.error('用法: node build_index_onnx.mjs --model <目录> --lib <库根> --out <目录> [--seq 140] [--device webgpu] [--limit N]');
+  console.error('用法: node build_index_onnx.mjs --model <目录> --lib <库根> --out <目录>'
+    + ' [--seq 140] [--device webgpu] [--limit N] [--lib-id L1] [--weights-dtype fp32]');
   process.exit(2);
 }
+
+// SPEC-identity §6.2 / §6.3 的版本号与常量
+const FORMAT_VERSION = 1;          // index.bin 布局版本
+const COMPAT_KEY_VERSION = 1;      // 兼容性判定规则版本
+const PREPROCESSING_VERSION = 1;   // 我方预处理配置版本（改动即升版）
+const DIM = 768;                   // EmbeddingGemma 2 统一 768 维
+const ONNX_SPIKE_DIR = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 
 const log = (...a) => { console.log(`[build]`, ...a); };
 const now = () => Number(process.hrtime.bigint()) / 1e6;
@@ -63,6 +75,95 @@ const MAGIC = Buffer.from('4753494458000001', 'hex');   // 字面量 "GSIDX" + 0
 if (MAGIC.length !== 8) throw new Error('MAGIC 必须是 8 字节，实际 ' + MAGIC.length);
 const LEN_OFF = MAGIC.length;                 // u32 headerLen 的位置
 const HEAD_OFF = MAGIC.length + 4;            // headerJSON 的起始位置
+
+// ---------------- 元数据辅助（SPEC-identity §6.2）----------------
+
+/** 从模型路径里取出钉住的 40 位 revision。取不到就返回 null —— 调用方必须报错，不许猜。 */
+function parseRevisionFromPath(p) {
+  const seg = path.normalize(p).split(path.sep).find((s) => /^[0-9a-f]{40}$/.test(s));
+  return seg || null;
+}
+
+/** 读 node_modules 里某个包的实际版本（用于把 runtime 版本写进索引） */
+function readPkgVersion(name) {
+  try {
+    const p = path.join(ONNX_SPIKE_DIR, 'node_modules', name, 'package.json');
+    return JSON.parse(fs.readFileSync(p, 'utf8')).version || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * GPU 型号与驱动。
+ *
+ * 这两个字段**不参与 compat**，缺失允许为 null。
+ *
+ * 为什么优先读环境变量：在受限沙箱里 `execFileSync('nvidia-smi')` 会以 **EPERM** 失败
+ * （沙箱禁止子进程通过管道取输出）。实测三种调用形式（裸名 / 带 .exe / 绝对路径）
+ * 全部 EPERM —— 所以这不是路径问题，不该靠"换个写法"绕。
+ * 正确做法：**由调用方把值传进来**（调用方是自己 shell 里的脚本，能跑 nvidia-smi），
+ * 这里的 spawn 只作尽力而为的回退，失败就老实写 null。
+ */
+function gpuInfo() {
+  const envModel = process.env.GEMMA_GPU_MODEL || null;
+  const envDriver = process.env.GEMMA_GPU_DRIVER || null;
+  if (envModel) {
+    return { gpu_model: envModel, gpu_driver: envDriver, gpu_source: 'env' };
+  }
+  try {
+    const out = execFileSync('nvidia-smi',
+      ['--query-gpu=name,driver_version', '--format=csv,noheader'],
+      { encoding: 'utf8', timeout: 5000 });
+    const [name, drv] = out.trim().split('\n')[0].split(',').map((s) => s.trim());
+    return { gpu_model: name || null, gpu_driver: drv || null, gpu_source: 'nvidia-smi' };
+  } catch (e) {
+    return { gpu_model: null, gpu_driver: null, gpu_source: `unavailable(${e.code || 'error'})` };
+  }
+}
+
+/**
+ * 读回**实际生效**的预处理参数。
+ *
+ * 为什么不直接写常量：实测这三个位置的默认值都是 **280**，构建器必须显式设成 SEQ；
+ * 而且 `image_processor.config.image_seq_length` 与实例属性是两处。若将来
+ * transformers.js 改从 config 读，实际 effective seq 会悄悄变成 280 ——
+ * 那时向量与索引不匹配、检索质量静默下降（本项目最危险的失败模式）。
+ * 所以：**三处都设 + 回读断言 + 把两个值都记进元数据**。
+ */
+function readEffectivePreprocessing(processor, seq) {
+  const ip = processor.image_processor || {};
+  const ipc = ip.config || {};
+  const read = (obj, k) => (obj && k in obj ? obj[k] : null);
+  const meta = {
+    image_seq_length: read(processor, 'image_seq_length'),
+    max_soft_tokens: read(ip, 'max_soft_tokens'),
+    config_image_seq_length: read(ipc, 'image_seq_length'),   // 诊断用：与上面不一致时能看出来
+    patch_size: read(ip, 'patch_size') ?? read(ipc, 'patch_size'),
+    pooling_kernel_size: read(ip, 'pooling_kernel_size') ?? read(ipc, 'pooling_kernel_size'),
+    resample: read(ip, 'resample') ?? read(ipc, 'resample'),
+    rescale: read(ip, 'rescale_factor') ?? read(ipc, 'rescale_factor'),
+    do_normalize: read(ipc, 'do_normalize') ?? read(ip, 'do_normalize'),
+    do_convert_rgb: read(ip, 'do_convert_rgb') ?? read(ipc, 'do_convert_rgb'),
+    color: (read(ip, 'do_convert_rgb') ?? read(ipc, 'do_convert_rgb')) ? 'RGB' : null,
+  };
+  // 硬断言：生效值必须等于请求值
+  if (meta.image_seq_length !== seq) {
+    throw new Error(`预处理 seq 未生效：请求 ${seq}，实际 processor.image_seq_length=${meta.image_seq_length}`);
+  }
+  if (meta.max_soft_tokens !== seq) {
+    throw new Error(`预处理 seq 未生效：请求 ${seq}，实际 image_processor.max_soft_tokens=${meta.max_soft_tokens}`);
+  }
+  return meta;
+}
+
+/** SPEC-identity §6.3 的兼容性判定键 —— 一个字符串，便于比对与写进索引 */
+function compatKey(h) {
+  return [
+    h.model_repo, h.model_revision, h.model_weights_dtype,
+    h.preprocessing_version, h.seq_length, h.dim, h.normalization, h.pooling,
+  ].join('|');
+}
 const IMG_EXT = new Set(['.jpg', '.jpeg', '.png']);
 // 三种压缩包都要认：实测库中 .rar 2329 · .zip 1189 · .7z 76（共 3594）
 // ⚠ 最初只写了 .zip/.rar，导致 76 条 .7z 被误判为"图无包"——旧实现是对的
@@ -237,20 +338,97 @@ async function main() {
   }
   log(`  完成，用时 ${((now() - t0) / 1000).toFixed(1)}s`);
 
-  // 续跑：参数一致则复用已有向量
-  // 索引往返自检：**必须在续跑判定之前**跑 —— 续跑依赖 readIndexBin，
+  // 索引往返自检：**必须在任何 readIndexBin 之前**跑 —— 续跑依赖它，
   // 而这个读写对曾因 MAGIC 长度不一致（7 vs 8）静默失效过。
   log('index.bin 往返自检…');
   const ist = selfTestIndexBin();
   log(`  通过：校验 ${ist.checked} 个浮点 · 并确认"截断文件会被拒绝"`);
 
+  // 注意：续跑判定（按 compat）在**模型载入之后**，因为它要比较预处理实测值。
+  //       不要在模型载入前再放一份续跑逻辑 —— 曾因此留过两份重复判定。
+
+  // BMP 解码布局自检：**必须在编码前**跑，失败即中止（绝不用错的布局算向量）
+  log('BMP 解码布局自检…');
+  const st = await selfTestBmpLayout();
+  log(`  通过：校验 ${st.checked} 个像素（${st.size}）`);
+
+  // 载入模型
+  log(`载入模型（dtype=${WEIGHTS_DTYPE}, seq=${SEQ}, device=${DEVICE}）…`);
+  const tLoad = now();
+  const config = await AutoConfig.from_pretrained(MODEL_DIR);
+  config.audio_config = null;                                    // 不需要音频塔
+  const processor = await AutoProcessor.from_pretrained(MODEL_DIR, { config });
+  // ⚠️ 三个位置都要设：实测它们的默认值都是 280。只设其中一两个，
+  //    将来上游改读另一处就会让 effective seq 悄悄变成 280（向量与索引静默不匹配）。
+  processor.image_seq_length = SEQ;
+  if (processor.image_processor) {
+    processor.image_processor.max_soft_tokens = SEQ;
+    processor.image_processor.image_seq_length = SEQ;
+    if (processor.image_processor.config) {
+      processor.image_processor.config.image_seq_length = SEQ;    // 第三处：config 副本
+    }
+  }
+  const model = await AutoModel.from_pretrained(MODEL_DIR, { config, dtype: 'float32', device: DEVICE });
+  log(`  载入完成 ${((now() - tLoad) / 1000).toFixed(1)}s`);
+
+  // ---------- 元数据（SPEC-identity §6.2）：必须在续跑判定之前建好 ----------
+  const revision = parseRevisionFromPath(MODEL_DIR);
+  if (!revision) {
+    throw new Error(`无法从 --model 路径解析出 40 位 model revision：${MODEL_DIR}
+（不要用猜的：revision 进 compat，猜错会让不同权重的索引被误判为可互换）`);
+  }
+  const pre = readEffectivePreprocessing(processor, SEQ);
+  log(`  预处理实测：seq=${pre.image_seq_length} · max_soft_tokens=${pre.max_soft_tokens}`
+    + ` · config 副本=${pre.config_image_seq_length} · patch=${pre.patch_size}`
+    + ` · pool=${pre.pooling_kernel_size} · resample=${pre.resample} · normalize=${pre.do_normalize}`);
+
+  const header = {
+    format_version: FORMAT_VERSION,
+    compat_key_version: COMPAT_KEY_VERSION,
+
+    model_repo: MODEL_REPO,
+    model_revision: revision,
+    model_weights_dtype: WEIGHTS_DTYPE,
+    model_files: ['onnx/model.onnx', 'onnx/model.onnx_data',
+                  'onnx/vision_encoder.onnx', 'onnx/vision_encoder.onnx_data'],
+    audio_disabled: true,
+
+    preprocessing_version: PREPROCESSING_VERSION,
+    preprocessing: pre,
+
+    seq_length: SEQ,
+    dim: DIM,
+    embedding_dtype: 'float32',          // 向量存储精度（与权重精度是两件事）
+    normalization: 'l2',
+    pooling: 'mean_soft_tokens',
+
+    query_prefix: 'task: search result | query: ',
+    document_prefix: 'title: none | text: ',
+
+    runtime: {
+      'transformers.js': readPkgVersion('@huggingface/transformers'),
+      'onnxruntime-node': readPkgVersion('onnxruntime-node'),
+      device: DEVICE,                    // 诊断用，**不参与 compat**
+      ort_provider: DEVICE,
+      ...gpuInfo(),
+    },
+
+    count: 0,
+    lib_id: LIB_ID,
+    lib_root: LIB_ROOT,
+    built_at: new Date().toISOString(),
+  };
+  header.compat = compatKey(header);
+  log(`  compat = ${header.compat}`);
+
+  // ---------- 续跑：**按 compat 串判定**（fail-closed）----------
+  // 上面那轮 bug 的教训：字段名一漂移，判定就静默失效。收敛成一个字符串能减少漂移面；
+  // 且 meta 缺 compat（旧格式）一律判为不可复用 —— 宁可重编码，也不混用不同配置的向量。
   const old = REBUILD ? null : readIndexBin(INDEX_BIN);
   let oldMeta = null;
   try { oldMeta = JSON.parse(fs.readFileSync(META_JSON, 'utf8')); } catch { /* 无 */ }
   const reusable = new Map();
-  const paramKey = (h) => [h.modelId, h.precision, h.seq, h.dtype, h.dim].join('|');
-  const wantKey = [MODEL_DIR, 'fp32', SEQ, 'float32', 768].join('|');
-  if (old && oldMeta && paramKey(oldMeta) === wantKey) {
+  if (old && oldMeta && oldMeta.compat && oldMeta.compat === header.compat) {
     let oldItems = [];
     try { oldItems = JSON.parse(fs.readFileSync(ITEMS_JSON, 'utf8')); } catch { /* 无 */ }
     for (const oi of oldItems) {
@@ -261,26 +439,9 @@ async function main() {
       if (Math.sqrt(n) > 0.5) reusable.set(oi.uid, Array.from(v));   // 只复用非零向量
     }
     log(`  续跑：已有 ${reusable.size} 条可用向量（跳过重复编码）`);
+  } else if (old && oldMeta) {
+    log(`  续跑：不复用（compat 不符或旧 meta 无 compat）：旧=${oldMeta.compat || '(无)'}`);
   }
-
-  // BMP 解码布局自检：**必须在编码前**跑，失败即中止（绝不用错的布局算向量）
-  log('BMP 解码布局自检…');
-  const st = await selfTestBmpLayout();
-  log(`  通过：校验 ${st.checked} 个像素（${st.size}）`);
-
-  // 载入模型
-  log(`载入模型（dtype=fp32, seq=${SEQ}, device=${DEVICE}）…`);
-  const tLoad = now();
-  const config = await AutoConfig.from_pretrained(MODEL_DIR);
-  config.audio_config = null;                                    // 不需要音频塔
-  const processor = await AutoProcessor.from_pretrained(MODEL_DIR, { config });
-  processor.image_seq_length = SEQ;
-  if (processor.image_processor) {
-    processor.image_processor.max_soft_tokens = SEQ;
-    processor.image_processor.image_seq_length = SEQ;
-  }
-  const model = await AutoModel.from_pretrained(MODEL_DIR, { config, dtype: 'fp32', device: DEVICE });
-  log(`  载入完成 ${((now() - tLoad) / 1000).toFixed(1)}s`);
 
   // 编码
   const vectors = [];          // 扁平数组，行序与 items 一致
@@ -289,14 +450,6 @@ async function main() {
   let dim = 0;
   let reused = 0;
   let fallbackUsed = 0;   // 走 BMP 回退的条数（应为 20）
-  // header 必须在编码循环**之前**声明：中途落盘（save-every）会用到它
-  const header = {
-    version: 1, dim: 0, count: 0, modelId: MODEL_DIR, precision: 'fp32',
-    seq: SEQ, dtype: 'float32', device: DEVICE, libId: LIB_ID, libRoot: LIB_ROOT,
-    prefixQuery: 'task: search result | query: ',
-    prefixDocument: 'title: none | text: ',
-    builtAt: new Date().toISOString(),
-  };
 
   const tEnc = now();
   for (let i = 0; i < items.length; i++) {
@@ -339,16 +492,21 @@ async function main() {
   }
 
   if (!dim) { log('没有编码出任何向量，终止'); process.exit(1); }
+  // dim 是 compat 的成员之一：实测值必须等于规格固定的 768，否则 compat 已经算错
+  if (dim !== DIM) {
+    throw new Error(`实测维度 ${dim} ≠ 规格固定值 ${DIM} —— compat 已按 ${DIM} 计算，不能继续`);
+  }
   const ok = rows.length;
   header.dim = dim;
   header.count = ok;
   persist(items, rows, vectors, dim, failed, 'final');
   log(`完成：${ok} 条 · dim=${dim} · 失败 ${failed.length} · 复用 ${reused} · BMP回退 ${fallbackUsed}`);
+  log(`  compat = ${header.compat}`);
   log(`  ${INDEX_BIN}`);
   log(`  ${ITEMS_JSON}`);
   log(`  ${META_JSON}`);
   if (failed.length) log(`  失败清单已写入 meta.json 的 failed[]（前 5：${failed.slice(0, 5).map((f) => f.relPath).join(', ')}）`);
-  return { ok, dim, failed: failed.length, reused };
+  return { ok, dim, failed: failed.length, reused, compat: header.compat };
 
   function persist(allItems, allRows, vecs, d, fails, phase) {
     const rowByUid = new Map(allRows.map((r) => [r.uid, r.vectorRow]));
