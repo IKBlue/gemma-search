@@ -14,6 +14,16 @@ index_bin.py —— index.bin 的**读取与校验**（Python 侧）
 """
 from __future__ import annotations
 
+
+# 中文 Windows 的控制台默认是 GBK，直接打印 ✓/✗/⚠ 会抛 UnicodeEncodeError。
+# 这里强制 UTF-8 输出（失败不致命：某些环境不支持 reconfigure）。
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:  # noqa: BLE001
+    pass
+
+
 import hashlib
 import json
 import struct
