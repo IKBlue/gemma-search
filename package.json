@@ -4,14 +4,22 @@
   "version": "0.1.0",
   "type": "module",
   "description": "本地素材库语义检索（EmbeddingGemma 2）· 引擎与桌面应用",
-  "main": "app/main/bootstrap.cjs",
+  "main": "./out/main/index.js",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "start": "electron .",
+    "dev": "node scripts/electron-vite.mjs dev",
+    "start": "node scripts/electron-vite.mjs preview",
+    "build": "electron-vite build",
+    "build:unpack": "npm run build && electron-builder --dir",
+    "smoke": "node tools/smoke_app.mjs",
+    "build:win": "npm run build && electron-builder --win",
+    "start:legacy": "electron archive/app-shell-20261010/main/bootstrap.cjs",
     "test": "node --test --test-isolation=none \"tests/*.test.mjs\"",
-    "test:watch": "node --test --watch --test-isolation=none \"tests/*.test.mjs\""
+    "test:watch": "node --test --watch --test-isolation=none \"tests/*.test.mjs\"",
+    "dev:restricted": "node scripts/electron-vite.mjs dev --noSandbox --entry out/main/index.js",
+    "start:restricted": "node scripts/electron-vite.mjs preview --noSandbox --entry out/main/index.js"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.1",
@@ -34,6 +42,7 @@
     "lucide-react": "^1.55.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "sharp": "^0.35.5",
     "tailwind-merge": "^3.7.0",
     "zod": "^4.6.5",
     "zustand": "^5.0.15"
@@ -42,16 +51,24 @@
     "P1 引擎刻意**零依赖**：只用 Node 内置能力（node:test / node:crypto / node:fs）。",
     "理由一：core/ 必须传输无关，零依赖是这一点的最强形式（也不可能 import electron）。",
     "理由二：受限沙箱下 `npm install` 会因 npm 用管道捕获子进程输出而 EPERM。",
-    "zod 与 electron 属 P2（IPC 参数校验与外壳），届时再装。"
+    "P2（2026-10-10）已装 zod（IPC 参数校验）与 electron（外壳）；两者都只被 main/preload 用到。",
+    "sharp 必须**显式声明**：它本是 @huggingface/transformers 的可选传递依赖，",
+    "而 src/main 的编码路径（重采样兼容层）直接 import 它 —— 靠传递依赖迟早会断。",
+    "externals：electron.vite.config.mjs 把 dependencies 全部列为 external（原生模块不能进 bundle）。",
+    "**刻意没有 typecheck 脚本**：迁移期的 main/preload/renderer 还是普通 JS，",
+    "打开 checkJs 会报 222 条 noImplicitAny（实测），而把 `any` 撒进去只是把红灯涂绿。",
+    "tsconfig.*.json 已按 electron-vite 两段布局写好，P3a 转 TS 时直接接上并恢复 typecheck 门禁。"
   ],
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
     "electron": "^44.7.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^7.3.7",

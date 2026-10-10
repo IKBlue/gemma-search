@@ -6,8 +6,9 @@
 //
 // 设计要点（对齐 DESIGN-app-details.md）：
 //   · 配对：**同目录 + 同名主干**（不跨目录），图 .jpg/.jpeg/.png，包 .zip/.rar
-//   · UID：sha1(图像字节) 前 12 位 —— **不依赖路径**，改名/改目录后仍稳定；
-//          首次登记后持久化，之后不再重算
+//   · UID：`sha1(lib_id|目录|主干)[:12]`（SPEC-identity §2 冻结公式）
+//          不依赖图像字节 —— 内容相同的两张图仍是两条素材（本库有 5 组这种）
+//   · 重采样：安装 `resize_compat.mjs`，把 Node 侧钉成与 PIL 等价的那一套（preprocessing v2）
 //   · 格式：index.bin = MAGIC + u32 headerLen + headerJSON + float32 块（count × dim）
 //   · 可续跑：参数一致时复用已有向量，只编码缺的
 //   · 原子落盘：写 .tmp → rename；每 N 条落一次盘
@@ -21,6 +22,7 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
 import { readImageWithFallback, selfTestBmpLayout, isBmp } from './bmp_decode.mjs';
+import { installResizeCompat, selfTestResizeCompat, resizeCompatState, assertResizeCompatInstalled } from './resize_compat.mjs';
 
 // ---------------- 参数 ----------------
 const argv = process.argv.slice(2);
@@ -52,7 +54,12 @@ if (!MODEL_DIR || !LIB_ROOT || !OUT_DIR) {
 // SPEC-identity §6.2 / §6.3 的版本号与常量
 const FORMAT_VERSION = 1;          // index.bin 布局版本
 const COMPAT_KEY_VERSION = 1;      // 兼容性判定规则版本
-const PREPROCESSING_VERSION = 1;   // 我方预处理配置版本（改动即升版）
+// v2（2026-10-10）：重采样实现改用 `resize_compat`（按 PIL 规则分方向）——
+//   起因：G-B v1 实测 min 余弦 0.9153（135 条 < 硬底线 0.970）。定位到
+//   transformers.js 用 `sharp.affine(bicubic)`（无抗锯齿）而 Python 用 `PIL.resize(BICUBIC)`
+//   （降采样时按 1/scale 展宽核支撑 = 抗锯齿）。换实现后与 PIL 的像素差从 4.93/255 降到 0.18/255。
+//   **改了预处理就必须升版**：否则 v1 的索引会被当成可复用（compat 不含实现细节时会静默混用）。
+const PREPROCESSING_VERSION = 2;   // 我方预处理配置版本（改动即升版）
 const DIM = 768;                   // EmbeddingGemma 2 统一 768 维
 const ONNX_SPIKE_DIR = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 
@@ -131,7 +138,7 @@ function gpuInfo() {
  * 那时向量与索引不匹配、检索质量静默下降（本项目最危险的失败模式）。
  * 所以：**三处都设 + 回读断言 + 把两个值都记进元数据**。
  */
-function readEffectivePreprocessing(processor, seq) {
+function readEffectivePreprocessing(processor, seq, resampleImpl) {
   const ip = processor.image_processor || {};
   const ipc = ip.config || {};
   const read = (obj, k) => (obj && k in obj ? obj[k] : null);
@@ -142,10 +149,13 @@ function readEffectivePreprocessing(processor, seq) {
     patch_size: read(ip, 'patch_size') ?? read(ipc, 'patch_size'),
     pooling_kernel_size: read(ip, 'pooling_kernel_size') ?? read(ipc, 'pooling_kernel_size'),
     resample: read(ip, 'resample') ?? read(ipc, 'resample'),
-    rescale: read(ip, 'rescale_factor') ?? read(ipc, 'rescale_factor'),
+    rescale: read(ip, 'rescale_factor') ?? read(ip, 'rescale_factor'),
     do_normalize: read(ipc, 'do_normalize') ?? read(ip, 'do_normalize'),
     do_convert_rgb: read(ip, 'do_convert_rgb') ?? read(ipc, 'do_convert_rgb'),
     color: (read(ip, 'do_convert_rgb') ?? read(ipc, 'do_convert_rgb')) ? 'RGB' : null,
+    // 重采样**实现**（不是配置里的 resample 代号）。进 metadata 供日后追差异；
+    // 真正的兼容性开关是 preprocessing_version。
+    resample_impl: resampleImpl,
   };
   // 硬断言：生效值必须等于请求值
   if (meta.image_seq_length !== seq) {
@@ -363,6 +373,15 @@ async function main() {
   // 注意：续跑判定（按 compat）在**模型载入之后**，因为它要比较预处理实测值。
   //       不要在模型载入前再放一份续跑逻辑 —— 曾因此留过两份重复判定。
 
+  // 预处理兼容层：**必须在任何 processor 调用之前安装**
+  // 踩过的坑：不装也能跑，只是图像向量与参考实现差 ~1.9%（像素尺度）→
+  // 全量 min 余弦 0.9153、135 条低于硬底线；而且**不报错**。
+  log('安装重采样兼容层（resize_compat · pil-like）…');
+  installResizeCompat({ kernel: 'pil-like', RawImage, logger: log });
+  assertResizeCompatInstalled(RawImage);
+  const rst = await selfTestResizeCompat();
+  log(`  自检通过（kernel=${rst.kernel} · 断言 ${rst.calls} 次 resize）`);
+
   // BMP 解码布局自检：**必须在编码前**跑，失败即中止（绝不用错的布局算向量）
   log('BMP 解码布局自检…');
   const st = await selfTestBmpLayout();
@@ -393,10 +412,11 @@ async function main() {
     throw new Error(`无法从 --model 路径解析出 40 位 model revision：${MODEL_DIR}
 （不要用猜的：revision 进 compat，猜错会让不同权重的索引被误判为可互换）`);
   }
-  const pre = readEffectivePreprocessing(processor, SEQ);
+  const pre = readEffectivePreprocessing(processor, SEQ, `resize_compat(${resizeCompatState().kernel})`);
   log(`  预处理实测：seq=${pre.image_seq_length} · max_soft_tokens=${pre.max_soft_tokens}`
     + ` · config 副本=${pre.config_image_seq_length} · patch=${pre.patch_size}`
-    + ` · pool=${pre.pooling_kernel_size} · resample=${pre.resample} · normalize=${pre.do_normalize}`);
+    + ` · pool=${pre.pooling_kernel_size} · resample=${pre.resample} · normalize=${pre.do_normalize}`
+    + ` · impl=${pre.resample_impl}`);
 
   const header = {
     format_version: FORMAT_VERSION,
@@ -494,7 +514,10 @@ async function main() {
         const emb = out.sentence_embedding ?? out.text_embeds;
         if (!emb) throw new Error('输出无 sentence_embedding');
         dim = emb.dims[emb.dims.length - 1];
-        rows.push({ uid: it.uid, vectorRow: vectors.length / dim });
+        // ⚠️ 这里**必须**带上 vectorSource：漏了的话 persist() 里 srcByUid 取不到值，
+        //    全部回落成 'native' —— 实测 meta.bmpFallbackUsed=20 而 items.json 里 3594 条
+        //    全是 'native'（字段静默失真，SPEC-acceptance §2.2 的豁免分组就永远不触发）。
+        rows.push({ uid: it.uid, vectorRow: vectors.length / dim, vectorSource: vectorSourceKind });
         vectors.push(...Array.from(emb.data));
       } catch (e) {
         failed.push({ uid: it.uid, relPath: it.relPath, error: (e && e.message) || String(e) });

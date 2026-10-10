@@ -22,6 +22,11 @@ data/_*
 data/_backup-*/
 # 一次性索引构建输出
 data/idx-*/
+# 诊断中间物（78 MB；原始像素转储 / 库图片副本 / 小批量试点索引）。
+# **证据本体已另存副本**到 reports/G-B-<日期>/evidence/（csv/json，~800 KB，要入库）——
+# 这里忽略的是可重跑生成的中间物（.raw 像素转储 44 MB、worst-48 图片副本 31 MB…）。
+# 2026-10-10 加：此前它没被忽略，`git add -A` 会把 78 MB 一起提交。
+data/diag/
 # 派生预览与外部变更快照
 data/previews/
 data/derived/
@@ -79,15 +84,21 @@ yarn-error.log*
 .uv-cache/
 .pnpm-store/
 
-# ---------- 构建与打包产物（P6 起会用到）----------
+# ---------- 构建与打包产物 ----------
 dist/
 out/
-build/
 release/
 *.asar
 *.exe
 *.msi
 *.nsis
+*.tsbuildinfo
+# 注意：`build/` **不是**产物目录，而是 electron-builder 的 buildResources
+# （图标 / entitlements.mac.plist）—— 必须入库。
+# 上一版把它当产物忽略了，是照搬常见模板留下的错；2026-10-10 迁移时改正。
+
+# 缩略图缓存（thumb:// 生成，可重建）
+data/thumbs/
 
 # ---------- 编辑器 / 系统 ----------
 .vscode/*
@@ -117,3 +128,15 @@ _*.js
 *.pfx
 credentials.json
 secrets.json
+
+# ---------- 2026-10-10 追加 ----------
+# 日志与运行期输出：体积随运行增长（实测 reports/G-D-p2-electron/_app.log 已 29 MB），不入库；
+# 证据以截图 + README 摘录的形式保留（reports/README.md 的证据协议）。
+*.log
+reports/**/_run.*
+
+# 已接受的索引（P0.5-c 的落点 data/libraries/<libId>/）：派生数据、**含本机绝对路径**，
+# 随时可由构建器重建 —— 与 data/idx-*/ 同一条理由（见上面第 24 行）。
+data/libraries/
+reports/**/_*.out
+reports/**/_*.err

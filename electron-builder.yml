@@ -1,0 +1,41 @@
+# electron-builder.yml —— 打包配置（**P6 才真正使用**；现在只保证形状正确、不被误用）
+#
+# 现状（2026-10-10 迁移时如实记录）：
+#   · 图标是 electron-vite 脚手架的**默认图标**，不是本项目的 —— P6 换真图标
+#   · `asarUnpack` 只列了 resources；`onnxruntime-node` / `sharp` 的原生 `.node`
+#     在 asar 里加载不了，P6 必须按实测把它们加进 asarUnpack（**别照抄，要实测**）
+#   · 模型（fp32 1.63 GB）与索引**不进安装器**（SPEC-app §3：NSIS 约 2 GB 封顶）
+appId: com.gemmasearch.app
+productName: gemma-search
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!core/*'
+  - '!onnx-spike/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{.env,.env.*,.npmrc,package-lock.json}'
+  - '!{static,spike,tests,data,reports,reference,archive,scripts}/*'
+asarUnpack:
+  - resources/**
+win:
+  executableName: gemma-search
+  target:
+    - nsis
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+mac:
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: false
+linux:
+  target:
+    - AppImage
+    - deb
+  maintainer: gemma-search
+  category: Utility
+npmRebuild: false

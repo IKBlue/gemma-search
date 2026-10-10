@@ -1,8 +1,8 @@
 {
- "checked_at": "2026-10-10 14:19:54",
+ "checked_at": "2026-10-10 17:04:48",
  "library_root": "G:\\model",
  "model_dir": "D:\\USERS\\Desktop\\Agent\\model-cache\\onnx\\embeddinggemma-2\\daa72c51243991dfcaf9f9137d2c573d8f7790c0\\fp32",
- "builder_sha1": "a23529bc893fc1bb91d468dafdc1cfeb5b035d6f",
+ "builder_sha1": "2bda902342f8df001390ad0b951e10864efbf760",
  "passed": 14,
  "failed": 0,
  "items": [
@@ -14,7 +14,7 @@
   {
    "name": "2 构建器存在且可算 sha1",
    "ok": true,
-   "detail": "sha1 a23529bc893f · 25913 字节"
+   "detail": "sha1 2bda902342f8 · 29551 字节"
   },
   {
    "name": "2b 构建器含 BMP 回退（105/105 的前提）",
@@ -39,7 +39,7 @@
   {
    "name": "4 目标卷空间充足",
    "ok": true,
-   "detail": "可用 104.8 GB · 需要 ≥ 24 MB（新旧索引并存）"
+   "detail": "可用 103.1 GB · 需要 ≥ 24 MB（新旧索引并存）"
   },
   {
    "name": "5 续跑真的复用（不重复编码）",
@@ -54,7 +54,7 @@
   {
    "name": "7 输出目录不覆盖现有索引",
    "ok": true,
-   "detail": "目标 data\\idx-full 尚不存在（将新建）（现有索引在 data/ 根，不受影响）"
+   "detail": "目标 data\\idx-full 已存在（续跑会复用）（现有索引在 data/ 根，不受影响）"
   },
   {
    "name": "7b 现有索引仍在",

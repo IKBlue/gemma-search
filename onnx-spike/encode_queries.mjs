@@ -17,8 +17,9 @@
 //             {"id":"r-self-..","kind":"image","value":"G:\\model\\VR\\ID-x.jpg"}]
 import fs from 'node:fs';
 import path from 'node:path';
-import { AutoConfig, AutoProcessor, AutoModel, env } from '@huggingface/transformers';
+import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
 import { readImageWithFallback, selfTestBmpLayout } from './bmp_decode.mjs';
+import { installResizeCompat, selfTestResizeCompat, assertResizeCompatInstalled } from './resize_compat.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : d; };
@@ -88,6 +89,12 @@ log(`模型载入完成（seq=${SEQ} · device=${DEVICE}）`);
 
 const st = await selfTestBmpLayout();
 log(`BMP 布局自检通过（${st.checked} 像素）`);
+
+// 重采样兼容层：**查询路径必须与索引路径用同一套**（否则结果静默变差）
+installResizeCompat({ kernel: 'pil-like', RawImage, logger: log });
+assertResizeCompatInstalled(RawImage);
+const rst = await selfTestResizeCompat();
+log(`重采样兼容层自检通过（kernel=${rst.kernel}）`);
 
 const out = [];
 let how = null;

@@ -48,7 +48,7 @@ except Exception:                                       # noqa: BLE001
 
 MARKER = "# gemma-search — 素材库语义检索"
 
-BLOCK = """
+BLOCK = r"""
 # gemma-search — 素材库语义检索（EmbeddingGemma 2，MCP Server + SKILL.md）
 # 项目根见 GEMMA_WORKSPACE（或本脚本所在目录的上一级）；技能 .dsh\skills\gemma-search\SKILL.md
 # 环境变量必须随注册项下发：HF_HOME 指向工作区内（工作区外会被沙箱拒绝写），
