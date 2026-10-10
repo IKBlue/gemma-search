@@ -187,6 +187,41 @@ def main() -> int:
     else:
         check("8 105 张已单独验证", False, "缺 %s（先跑 onnx-spike/test_mismatch.mjs）" % os.path.relpath(tr, HERE))
 
+    # ── 9) 库指纹仍等于基线（否则 G-B 的对比基线失效）──────────────
+    # 理由：G-B 是"新旧索引在同一批素材上是否等价"。若库在 P0 之后被改动过，
+    # 旧索引描述的那批素材已经变了，逐条余弦就不再可比 —— 必须先重建基线。
+    base_p = os.path.join(G.DATA_DIR, "baseline-v1.json")
+    if os.path.exists(base_p):
+        base = json.load(open(base_p, encoding="utf-8"))
+        recorded = (base.get("disk") or {}).get("fingerprint_v1")
+        lines, n = [], 0
+        for dp, _dn, fns in os.walk(G.LIBRARY_ROOT):
+            for fn in fns:
+                full = os.path.join(dp, fn)
+                st = os.stat(full)
+                rel = os.path.relpath(full, G.LIBRARY_ROOT)
+                lines.append("%s\t%d\t%d\t%s" % (rel, st.st_size, int(st.st_mtime * 1000),
+                                                 os.path.splitext(fn)[1].lower()))
+                n += 1
+        h = hashlib.sha1()
+        h.update(b"v1\n")
+        for ln in sorted(lines):
+            h.update(ln.encode("utf-8"))
+            h.update(b"\n")
+        now_fp = h.hexdigest()
+        check("9 库指纹 == baseline-v1.json", now_fp == recorded,
+              "%s（记录 %s · 当前 %d 文件）"
+              % ("一致" if now_fp == recorded else "**不一致 → 库变过，需重建基线**",
+                 str(recorded)[:12], n))
+    else:
+        check("9 库指纹 == baseline-v1.json", False, "缺 %s（先跑 baseline_report.py）"
+              % os.path.relpath(base_p, HERE))
+
+    # ── 10) G-B 测试集齐备 ────────────────────────────────────────
+    need = ["queries-v1.json", "refs-v1.json", "labels-v1.json", "env-v1.json"]
+    missing_q = [f for f in need if not os.path.exists(os.path.join(G.DATA_DIR, "quality", f))]
+    check("10 G-B 测试集齐备", not missing_q, "缺 %s" % missing_q if missing_q else "4 个文件均在")
+
     # ── 结论 ──────────────────────────────────────────────────────
     bad = [r for r in results if not r[1]]
     print("=" * 96)
