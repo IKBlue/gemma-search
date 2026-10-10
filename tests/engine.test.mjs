@@ -351,3 +351,80 @@ test('band：阈值随模态不同（分数不可跨模态比较）', () => {
   assert.equal(bandOf(0.70, 'text'), 'mid');    // 文本模态里 0.70 是中
   assert.notDeepEqual(BANDS.text, BANDS.image);
 });
+
+// ---------------- collect（取件） ----------------
+
+function setupCollect() {
+  const s = setup();
+  const dest = path.join(s.tmp, 'dest');
+  s.config.collect = { dirs: { '素材待用': dest }, default: '素材待用' };
+  return { ...s, dest };
+}
+
+test('collect：复制到已配置目录，库侧零变化', async () => {
+  const s = setupCollect();
+  const e = createEngine({ config: s.config, encoder: fakeEncoder() });
+  const before = fs.readdirSync(path.join(s.libRoot, 'VR')).sort();
+  const r = await e.collect({ libId: 'L1', uids: [uidOf('L1', 'VR', 'ID-1')], targetDirName: '素材待用' });
+  assert.equal(r.ok, true, JSON.stringify(r.error));
+  assert.equal(r.data.succeeded.length, 1);
+  assert.equal(r.data.succeeded[0].kind, 'archive', '有包时默认取包');
+  assert.ok(fs.existsSync(path.join(s.dest, 'a.rar')));
+  assert.deepEqual(fs.readdirSync(path.join(s.libRoot, 'VR')).sort(), before, '库目录不应被改动');
+});
+
+test('collect：无同名包时自动取图（auto 语义）', async () => {
+  const s = setupCollect();
+  const e = createEngine({ config: s.config, encoder: fakeEncoder() });
+  const r = await e.collect({ libId: 'L1', uids: [uidOf('L1', 'VR', 'ID-2')], targetDirName: '素材待用' });
+  assert.equal(r.data.succeeded[0].kind, 'image');
+  assert.ok(fs.existsSync(path.join(s.dest, 'ID-2.png')));
+});
+
+test('collect：目标已存在 → skipped（**不覆盖**）', async () => {
+  const s = setupCollect();
+  fs.mkdirSync(s.dest, { recursive: true });
+  fs.writeFileSync(path.join(s.dest, 'a.rar'), '已存在的内容');
+  const e = createEngine({ config: s.config, encoder: fakeEncoder() });
+  const r = await e.collect({ libId: 'L1', uids: [uidOf('L1', 'VR', 'ID-1')], targetDirName: '素材待用' });
+  assert.equal(r.data.succeeded.length, 0);
+  assert.equal(r.data.skipped[0].reason, 'already-exists');
+  assert.equal(fs.readFileSync(path.join(s.dest, 'a.rar'), 'utf8'), '已存在的内容', '原文件不能被改');
+});
+
+test('collect：白名单外/未配置的目标名 → COLLECT_DIR_NOT_ALLOWED', async () => {
+  const s = setupCollect();
+  const e = createEngine({ config: s.config, encoder: fakeEncoder() });
+  const r = await e.collect({ libId: 'L1', uids: [uidOf('L1', 'VR', 'ID-1')], targetDirName: 'C:\\Windows' });
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, ERR.COLLECT_DIR_NOT_ALLOWED);
+});
+
+test('collect：部分成功必须如实呈现（成功/失败/跳过三分）', async () => {
+  const s = setupCollect();
+  fs.rmSync(path.join(s.libRoot, 'VR', 'a.rar'));           // 源文件缺失 → failed
+  const e = createEngine({ config: s.config, encoder: fakeEncoder() });
+  const r = await e.collect({ libId: 'L1',
+    uids: [uidOf('L1', 'VR', 'ID-1'), uidOf('L1', 'VR', 'ID-2'), '不存在000000'],
+    targetDirName: '素材待用' });
+  assert.equal(r.data.failed.length, 2, JSON.stringify(r.data.failed));
+  assert.equal(r.data.succeeded.length, 1);
+  assert.ok(r.data.failed.some((f) => f.error.code === ERR.ITEM_MISSING_ON_DISK));
+  assert.ok(r.data.failed.some((f) => f.error.code === ERR.UID_NOT_FOUND));
+});
+
+test('collect：target=archive 但该素材无包 → failed 且说明原因', async () => {
+  const s = setupCollect();
+  const e = createEngine({ config: s.config, encoder: fakeEncoder() });
+  const r = await e.collect({ libId: 'L1', uids: [uidOf('L1', 'VR', 'ID-2')],
+                              targetDirName: '素材待用', target: 'archive' });
+  assert.equal(r.data.failed.length, 1);
+  assert.match(r.data.failed[0].error.message, /没有同名包/);
+});
+
+test('collect：uids 为空或超量 → BAD_REQUEST', async () => {
+  const s = setupCollect();
+  const e = createEngine({ config: s.config, encoder: fakeEncoder() });
+  assert.equal((await e.collect({ libId: 'L1', uids: [], targetDirName: '素材待用' })).error.code, ERR.BAD_REQUEST);
+  assert.equal((await e.collect({ libId: 'L1', uids: Array(201).fill('x'), targetDirName: '素材待用' })).error.code, ERR.BAD_REQUEST);
+});

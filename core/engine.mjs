@@ -50,6 +50,37 @@ export function indexPathFor(dataDir, libId) {
   return path.join(dataDir, 'libraries', libId);
 }
 
+/**
+ * 取件目标目录：**按名字配置**，不是按路径传。
+ *
+ * 契约 §2.5 的入参是 `targetDirName`（名字），这里把它解析成真实目录。
+ * 这样白名单是**结构性**的 —— 渲染进程连"传一个白名单外的路径"都做不到，
+ * 只能传一个已配置的名字。比"传路径再校验"更不容易出错。
+ */
+export function resolveCollectDir(targetDirName, collectCfg) {
+  const dirs = (collectCfg && collectCfg.dirs) || {};
+  const name = targetDirName || (collectCfg && collectCfg.default) || Object.keys(dirs)[0];
+  const dir = name ? dirs[name] : undefined;
+  if (!dir) {
+    throw fail(ERR.COLLECT_DIR_NOT_ALLOWED,
+      `取件目标不在允许列表：${targetDirName || '(未指定)'}`,
+      { name: targetDirName || null, allowed: Object.keys(dirs) });
+  }
+  return { name, dir: path.resolve(dir) };
+}
+
+/** 取件时复制哪一份：有包取包，无包取图（契约 §2.5 的 auto 语义）。 */
+export function pickCollectSource(item, target = 'auto') {
+  const rel = relOf(item);
+  const arc = item.archiveRelPath || null;
+  if (target === 'archive') {
+    if (!arc) throw fail(ERR.ITEM_MISSING_ON_DISK, `该素材没有同名包：${rel}`, { rel });
+    return { rel: arc, kind: 'archive' };
+  }
+  if (target === 'image') return { rel, kind: 'image' };
+  return arc ? { rel: arc, kind: 'archive' } : { rel, kind: 'image' };
+}
+
 export function createEngine({
   config = {},
   encoder = null,                 // { encodeText(text) -> Float32Array, encodeImage(absPath) -> Float32Array }
@@ -281,6 +312,79 @@ export function createEngine({
     });
   }
 
+  /** 取件：把选中的包（或图）复制到**已配置的**目标目录。库侧零写入。 */
+  function doCollect({ libId, uids, targetDirName, target = 'auto' } = {}) {
+    registry.requireExistingRoot(libId);
+    const e = load(libId);
+    const root = registry.get(libId).root;
+    const list = Array.isArray(uids) ? uids : [];
+    if (!list.length) throw fail(ERR.BAD_REQUEST, 'uids 为空');
+    if (list.length > 200) throw fail(ERR.BAD_REQUEST, `一次最多取 200 件，收到 ${list.length}`);
+
+    const { name, dir } = resolveCollectDir(targetDirName, config.collect);
+    fs.mkdirSync(dir, { recursive: true });
+
+    // 先算总量并做**空间预检**（不要复制到一半才发现不够）
+    const plan = [];
+    const failed = [];
+    const skipped = [];
+    let totalBytes = 0;
+    for (const uid of list) {
+      const it = e.byUid.get(uid);
+      if (!it) { failed.push({ uid, error: { code: ERR.UID_NOT_FOUND, message: 'uid 不在索引中' } }); continue; }
+      let src;
+      try {
+        src = pickCollectSource(it, target);
+      } catch (err) {
+        failed.push({ uid, error: { code: err.code, message: err.message } });
+        continue;
+      }
+      const abs = resolveInLibrary(root, src.rel);          // 含库根包含 + 链接校验
+      if (!fs.existsSync(abs)) {
+        failed.push({ uid, error: { code: ERR.ITEM_MISSING_ON_DISK, message: '源文件不存在', rel: src.rel } });
+        continue;
+      }
+      const size = fs.statSync(abs).size;
+      const dest = path.join(dir, path.basename(abs));
+      if (fs.existsSync(dest)) { skipped.push({ uid, reason: 'already-exists', path: dest }); continue; }
+      plan.push({ uid, abs, dest, size, kind: src.kind, rel: src.rel });
+      totalBytes += size;
+    }
+
+    if (plan.length) {
+      try {
+        const st = fs.statfsSync(dir);
+        const free = Number(st.bavail) * Number(st.bsize);
+        if (free < totalBytes) {
+          throw fail(ERR.DISK_FULL,
+            `目标盘可用 ${free} 字节，需要 ${totalBytes} 字节`,
+            { free, need: totalBytes, dir });
+        }
+      } catch (err) {
+        if (err && err.code === ERR.DISK_FULL) throw err;
+        // statfs 不可用（老平台）→ 不阻断，交给写入时报错
+      }
+    }
+
+    const jobId = `j-${Math.random().toString(16).slice(2, 6)}`;
+    const succeeded = [];
+    for (const p of plan) {
+      try {
+        fs.copyFileSync(p.abs, p.dest, fs.constants.COPYFILE_EXCL);   // EXCL：绝不覆盖
+        succeeded.push({ uid: p.uid, kind: p.kind, path: p.dest, bytes: p.size });
+      } catch (err) {
+        const code = err && err.code === 'EEXIST' ? ERR.COLLECT_TARGET_EXISTS : ERR.INTERNAL;
+        if (code === ERR.COLLECT_TARGET_EXISTS) {
+          skipped.push({ uid: p.uid, reason: 'already-exists', path: p.dest });
+        } else {
+          failed.push({ uid: p.uid, error: { code, message: err.message } });
+        }
+      }
+    }
+    return ok({ jobId, targetDirName: name, targetDir: dir, bytesTotal: totalBytes,
+                succeeded, failed, skipped });
+  }
+
   // ---------------- 公开接口（每个都套信封） ----------------
   const api = {
     registry,
@@ -289,6 +393,7 @@ export function createEngine({
     search: (req) => envelope(() => doSearch(req)),
     indexStatus: () => envelope(async () => doIndexStatus()),
     scan: (req) => envelope(async () => doScan(req)),
+    collect: (req) => envelope(async () => doCollect(req)),
     item: ({ libId, uid } = {}) => envelope(async () => {
       const e = load(libId);
       const it = e.byUid.get(uid);
