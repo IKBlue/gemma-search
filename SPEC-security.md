@@ -139,7 +139,9 @@ new BrowserWindow({
   ```
   - 生产态**不得**出现 `'unsafe-eval'`；开发态若 HMR 需要，必须是**仅开发**且以构建常量区分
   - **离线要求**：`connect-src 'self'` 即隐含"不得连任何远程源"（与 `SPEC-app` §6「禁止 CDN」一致）
-- **`webPreferences.devTools`**：开发态开，生产态关（`--devtools` 可覆盖，供排障）
+- **`webPreferences.devTools`**：**生产态也保留**（2026-10-10 决定，见 §9 决定 3）。
+  理由：这是**本机自用工具**，此处主要威胁（物理接触、管理员权限）本就在 §1「明确不防」里；
+  排障收益更大。代价是"任何能操作这台机器的人都能打开 DevTools" —— 已知并接受。
 
 ---
 
@@ -159,11 +161,65 @@ new BrowserWindow({
 
 ## 7. 依赖与供应链
 
-- 依赖刻意最少：运行时 = React + Radix(按需) + Tailwind + zustand + lucide + zod + clsx/tailwind-merge；**不引入**数据请求库、表单库、图表库
+### 7.1 为什么要逐个交代
+
+安全规格里写"依赖最少"是空话 —— 必须说清**每个依赖换来什么、不装它要付什么代价**，
+否则"最少"无人可审。实测体量：`node_modules` **596 MB / 16,894 文件 / 288 个顶层包**，
+但**生产依赖只有 21 个**（其余是构建工具，不进安装包）。
+
+### 7.2 运行时依赖（21 个，会进安装包）
+
+| 依赖 | 换来什么 | 不装它要付什么 |
+|---|---|---|
+| `react` + `react-dom` 19.3 | 结果网格 / 筛选面板 / 任务状态这类复杂交互的组件模型；也是 shadcn 生态的前提 | 手写 DOM 同步；虚拟列表与弹窗焦点管理都要自己来 |
+| `zustand` 5.0 | 小状态仓库；**IPC 事件流直接灌进 store**（索引进度是推送，不是轮询） | 自建发布订阅；或引入 TanStack Query —— 但本项目**没有 HTTP 层**，那是错配 |
+| `@tanstack/react-virtual` | **仅**用于浏览整库 3594 条时的窗口化 | 3594 个 DOM 节点；搜索 Top-K ≤100 不需要它 |
+| `lucide-react` 1.55 | 图标（**本地包，满足离线要求**，替掉原型里的 Unicode 字符） | 自绘 SVG 或字体图标；CDN 图标违反离线约束 |
+| `zod` 4.6 | **IPC 契约的唯一来源**：一份 schema 同时导出运行时校验与 TS 类型 | 手写校验散落各处 —— 而"IPC 参数白名单"正是要靠它才不是空话 |
+| `clsx` + `tailwind-merge` + `class-variance-authority` | shadcn 三件套：条件类名 / 冲突合并 / 变体定义 | 手写类名拼接，冲突类（`p-2 p-4`）会随机生效 |
+| 12 × `@radix-ui/*` | **无障碍原语**：Dialog / AlertDialog（**文件操作确认弹窗**）/ Popover / Select / Tooltip / Switch / Checkbox / DropdownMenu / Toast / Slot / Tabs / Label | 手写焦点陷阱与 `aria-*` —— a11y bug 的集中地，且确认弹窗是**不可逆操作**的最后一道确认 |
+
+### 7.3 刻意**不引入**的（同样是设计决定）
+
+| 不引入 | 理由 |
+|---|---|
+| 数据请求库（TanStack Query / SWR） | 没有 HTTP 层。传输是 IPC + 事件流 |
+| 表单库（react-hook-form / formik） | 表单极少（设置页）。zod 已能校验 |
+| 组件库（MUI / AntD / Chakra） | 会与 `DESIGN-tokens.md` 的视觉体系打架；shadcn 是**拷进来的代码**，我们拥有它 |
+| CSS-in-JS 运行时（styled-components / emotion） | Tailwind + `tokens.css` 已足够；运行时样式既慢又与 CSP 关系复杂 |
+| 状态机库（xstate） | 事务状态机很小，且必须住在 `core/` 里被无头测试覆盖 —— 引入库反而增加耦合 |
+| 图形库 / 图表库 | 明确不做（`UI-REVIEW-and-migration.md` §8） |
+| `sharp` / `jimp`（缩略图） | Electron 自带 `nativeImage`，省掉一个约 30 MB 的原生依赖 |
+| 数据库（better-sqlite3 等） | 索引是单文件、注册表是 JSON。引入 DB 只增加迁移与打包负担 |
+| `electron-updater` | 不做自动更新（未决策）；它会新增一条**联网**通路 |
+| 自动修复类工具（`npm audit fix --force`） | 会静默做大版本变更，破坏"可复现" |
+
+### 7.4 构建工具链（devDependencies，**不进安装包**）
+
+`electron` 44.7（含 371 MB 平台二进制）· `electron-vite` 5.0（三端构建一体）·
+`vite` 7.3 · `electron-builder` 26.15（NSIS 打包，P6 用）· `typescript` 7.0.2 ·
+`tailwindcss` 4.3 + `@tailwindcss/vite` · `vitest` 5.0.3 · `@types/*`
+
+> `electron-winstaller`（30.7 MB）是 electron-builder 的 Squirrel 依赖，我们用 NSIS，
+> 属**开发期冗余**；清不掉（上游依赖），记录在此以免将来被误认为"我们选了 Squirrel"。
+
+### 7.5 测试运行器的现状（如实记录一处规格偏离）
+
+`SPEC-app` §7 写的是 vitest。**当前 `core/` 的 61 条测试跑在 `node:test` 上** ——
+起因是当时受限沙箱下 `npm install` 会 EPERM，于是 P1 引擎刻意做成**零依赖**
+（这也让"`core/` 传输无关"变成最强的形式：它连测试框架都拉不进来）。
+
+现在依赖已可用，处置如下（**推荐**，待你在 §9 确认）：
+- **`core/` 继续用 `node:test`** —— 零依赖是引擎的一项特性，不是权宜
+- **`app/` 与 `src/shared/` 用 vitest** —— 那里是 TS + React，确实需要 jsdom 与 TS 转换
+- 若你要求全仓统一到 vitest，`core/` 的 4 个测试文件可机械迁移（约半小时）
+
+### 7.6 流水线与约束
+
 - **`package-lock.json` 必须入库**（锁定完整依赖树）
-- 新增依赖要过"Ask first"（`SPEC-app` §8）
-- **不启用** `npm audit fix --force` 之类的自动大版本变更；安全升级单独提交并跑全测试
-- Electron/Chromium 的安全更新：列入 P6 的发布检查（升级 Electron 需重跑权限测试用例）
+- 新增依赖要过 `SPEC-app` §8 的 "Ask first"
+- 安全升级单独提交并跑全测试；**不启用** `npm audit fix --force` 这类自动大版本变更
+- Electron/Chromium 安全更新列入 P6 发布检查：**升级 Electron 必须重跑 §8 的权限测试用例**
 
 ---
 
@@ -194,10 +250,66 @@ new BrowserWindow({
 
 ---
 
-## 9. 待批准项
+## 9. 决定记录（2026-10-10）
 
-1. **本文件是否批准**（P2 编码前）
-2. **依赖最小集**是否接受（§7；当前选了 React+Radix+Tailwind+zustand+lucide+zod，未引入其它）
-3. **生产态关闭 DevTools**（保留 `--devtools` 逃生口）是否可接受
-4. **CSP 里 `style-src 'unsafe-inline'`**：Tailwind 与 Radix 的运行时内联样式需要它。
-   若你要求更严（`style-src 'self'`），需要额外改造（nonce/hash），成本与收益需权衡
+| # | 事项 | 你的决定 | 处置 |
+|---|---|---|---|
+| 1 | **本文件是否批准** | **暂批** | 可作为 P2 编码依据；实质性问题出现时再回头修订，不阻塞开工 |
+| 2 | 依赖最小集 | **要求详细交代** | 已按 §7.1–§7.4 逐个说明"换来什么 / 不装要付什么"，含**刻意不引入**清单与实测体量 |
+| 3 | 生产态 DevTools | **不关闭** | 生产态**保留** DevTools（`webPreferences.devTools: true`）。理由成立：这是**本机自用工具**，主要风险是本机物理接触与管理员 —— 已在 §1「明确不防」里列明。排障收益大于此处的边际风险 |
+| 4 | CSP 的 `style-src 'unsafe-inline'` | **要最终推荐** | 见 §10 |
+
+---
+
+## 10. 关于 CSP `style-src 'unsafe-inline'` 的最终推荐
+
+**推荐：保留 `style-src 'self' 'unsafe-inline'`，不为了"更严"去做 nonce/hash 改造。**
+
+### 10.1 先看清这条风险到底是什么
+
+`'unsafe-inline'` 加在 **`style-src`** 上（不是 `script-src`），它允许的是
+**内联样式**（`<style>` 块与 `style="…"` 属性）。它能造成的后果限于：
+
+- 视觉欺骗 / UI 重排（在**我们自己的窗口内**）
+- 通过 CSS 选择器侧信道做**极有限的**信息推断（本地应用、无远程内容，价值极低）
+
+**它不能**执行脚本。而本项目同时具备三重压制：
+`script-src 'self'`（无内联脚本、无 eval）· **不变量 1**（引擎返回的字符串一律按纯文本渲染，
+`dangerouslySetInnerHTML` 零使用）· 不加载任何远程内容。
+换言之：**要利用样式注入，攻击者得先有脚本执行权，而这三条正是堵脚本执行的。**
+
+### 10.2 为什么"更严"在技术上做不到，做了也是安全剧场
+
+`style-src` 的 nonce/hash 只能覆盖 **`<style>` 元素**，**覆盖不了 `style="…"` 属性**。
+而 Radix 的定位组件（Popover / Select / Tooltip / DropdownMenu）在运行时会往
+`style` 属性写 `transform`/`top`/`left` —— 这些值**随交互动态变化，无法预先算 hash**。
+
+因此要真做到 `style-src 'self'`，只有三条路：
+1. 放弃 Radix 的定位组件，自己实现弹出层定位（**重新引入 a11y 与定位 bug**，与 §7.2 选 Radix 的理由直接冲突）
+2. 加 `'unsafe-hashes'` 或 `style-src-attr 'unsafe-inline'` —— **等于把限制加回来**
+3. 给动态样式值做 nonce 注入 —— 对属性无效，做不到
+
+即：**严格的版本在本项目里不可达**；强行写上去只会让规格看起来更安全，实际一改就破。
+
+### 10.3 真正该花力气的地方（已做/将做）
+
+| 控制 | 状态 |
+|---|---|
+| `script-src 'self'`（无内联、无 eval） | 规格要求；生产态明确禁止 `'unsafe-eval'` |
+| 引擎返回字符串**一律纯文本渲染**（不变量 1） | 已写进 §6；P2 用 grep 检查 `dangerouslySetInnerHTML` 零使用 |
+| `object-src 'none'` · `base-uri 'none'` · `form-action 'none'` · `frame-ancestors 'none'` | 规格要求 |
+| `connect-src 'self'`（**无外联即无外泄**） | 规格要求，与"离线可用"一致 |
+| 不加载远程内容 + 拒绝导航 + 拒绝新窗口 | §4 来源验证 |
+| 只读操作不写库、路径只能由 lib_id+uid 解析 | 引擎层已实现并测试（`CONTRACT-engine-v1.md` §7） |
+
+### 10.4 如果你仍要更严
+
+可接受的**增量**（成本低、收益明确）是把 `style-src` 拆细，明示我们只放开了属性那一半：
+
+```
+style-src-elem 'self' 'unsafe-inline';   /* Tailwind 产出的 <style> */
+style-src-attr 'unsafe-inline';          /* Radix 的运行时定位属性 */
+```
+
+这不提升安全性，但让"我们放开了什么"在 CSP 里一眼可见，便于将来复查。
+**要不要加，你一句话即可**；不加也不影响开工。
