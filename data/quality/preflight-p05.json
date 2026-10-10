@@ -1,0 +1,70 @@
+{
+ "checked_at": "2026-10-10 14:03:25",
+ "library_root": "G:\\model",
+ "model_dir": "D:\\USERS\\Desktop\\Agent\\model-cache\\onnx\\embeddinggemma-2\\daa72c51243991dfcaf9f9137d2c573d8f7790c0\\fp32",
+ "builder_sha1": "b6d28c6e2a8621208f24bed5684cd0e36c727953",
+ "passed": 12,
+ "failed": 0,
+ "items": [
+  {
+   "name": "1 旧索引备份可实际恢复",
+   "ok": true,
+   "detail": "_backup-old-index-20261010-130701：3594 条 · dim 768 · 范数 1.000000~1.000000 · items 3594"
+  },
+  {
+   "name": "2 构建器存在且可算 sha1",
+   "ok": true,
+   "detail": "sha1 b6d28c6e2a86 · 18325 字节"
+  },
+  {
+   "name": "2b 构建器含 BMP 回退（105/105 的前提）",
+   "ok": true,
+   "detail": "readImageWithFallback 在"
+  },
+  {
+   "name": "2c 构建器含续跑逻辑",
+   "ok": true,
+   "detail": "reusable 复用表 在"
+  },
+  {
+   "name": "2d 构建器含 BMP 布局自检",
+   "ok": true,
+   "detail": "selfTestBmpLayout 在"
+  },
+  {
+   "name": "3 模型 revision 与文件齐全",
+   "ok": true,
+   "detail": "revision daa72c512439 · 缺 无 · 权重合计 1.64 GB"
+  },
+  {
+   "name": "4 目标卷空间充足",
+   "ok": true,
+   "detail": "可用 104.8 GB · 需要 ≥ 24 MB（新旧索引并存）"
+  },
+  {
+   "name": "5 续跑真的复用（不重复编码）",
+   "ok": true,
+   "detail": "首跑完成=True · 重跑复用30=True"
+  },
+  {
+   "name": "6 失败项不被误记为成功",
+   "ok": true,
+   "detail": "失败进 failed[] 且退出码非 0 ✓"
+  },
+  {
+   "name": "7 输出目录不覆盖现有索引",
+   "ok": true,
+   "detail": "目标 data\\idx-full 尚不存在（将新建）（现有索引在 data/ 根，不受影响）"
+  },
+  {
+   "name": "7b 现有索引仍在",
+   "ok": true,
+   "detail": "data/embeddings.npy 在"
+  },
+  {
+   "name": "8 105 张已单独验证",
+   "ok": true,
+   "detail": "105/105 可编码 · 失败 0 · 回退 20"
+  }
+ ]
+}

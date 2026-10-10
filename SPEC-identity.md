@@ -280,14 +280,21 @@ compat = ( model_repo, model_revision, model_weights_dtype,
 ## 7. index.bin 格式（补全校验与损坏恢复）
 
 ```
-偏移   内容
-0      MAGIC  "GSIDX\x00\x01"（8 字节）
-8      u32 LE  headerLen
-12     headerJSON（utf8，含 §6.2 全部字段）
-12+headerLen  [可选 4 字节对齐填充]
-...    float32 块（count × dim，行主序）
-末尾   FOOTER: u32 LE footerLen + footerJSON { count, dim, sha1_of_vector_block, complete: true }
+偏移                内容
+0                   MAGIC（**恰好 8 字节**）：hex 47 53 49 44 58 00 00 01（字面量 "GSIDX" + 0x00 0x00 0x01）
+MAGIC.length (=8)   u32 LE headerLen
+MAGIC.length+4 (=12) headerJSON（utf8，含 §6.2 全部字段）
+之后                float32 块（count × dim，行主序）
+末尾                 FOOTER: u32 LE footerLen + footerJSON { count, dim, sha1_of_vector_block, complete: true }
 ```
+
+> ⚠️ **踩过的坑（真实产品 bug，已修）**：MAGIC 最初写成 `Buffer.from('GSIDX\x00\x01','latin1')` ——
+> 那是 **7** 字节，而读端用 `subarray(0,8).equals(MAGIC)` 比较、并按 8/12 取偏移。
+> 后果：**比较永远 false → `readIndexBin` 永远返回 null → "可续跑"从未真正生效**（而文档里写着它可用）。
+> 修法不是把 8 改成 7 了事，而是：
+> **① MAGIC 用显式 hex 定义并在启动时断言长度 = 8；② 读写两端的偏移一律写成 `MAGIC.length` 的表达式；**
+> **③ 增加"写→读→断言一致"的往返自检，并额外断言"截断文件必须被拒绝"。**
+> 这三条一起，才能让同类错误不再静默复发（与 `bmp_decode.mjs` 的布局自检同一思路）。
 
 | 校验 | 时机 | 失败处理 |
 |---|---|---|
