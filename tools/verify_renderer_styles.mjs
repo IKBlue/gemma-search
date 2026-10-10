@@ -1,6 +1,6 @@
 // tools/verify_renderer_styles.mjs —— 设计令牌纪律（渲染层）
 //
-// 为什么需要：DESIGN-tokens.md §12 说「改令牌只改本文件和变量表，**不要在组件里写死十六进制**」，
+// 为什么需要：docs/design/DESIGN-tokens.md §12 说「改令牌只改本文件和变量表，**不要在组件里写死十六进制**」，
 // 但原先的 tools/verify_tokens.py 只查原型套件（static/prototype），渲染层迁移到 React 后
 // 没有任何守卫看着它 —— 于是很容易在 JSX/CSS 里冒出孤立色值和内联视觉值。
 //
@@ -58,7 +58,7 @@ const cssFiles = walk(SRC, ['.css']);
 const jsxFiles = walk(SRC, ['.jsx']);
 
 console.log('='.repeat(96));
-console.log('渲染层令牌纪律（DESIGN-tokens.md §12）');
+console.log('渲染层令牌纪律（docs/design/DESIGN-tokens.md §12）');
 console.log(`  CSS ${cssFiles.length} 个 · JSX ${jsxFiles.length} 个 · 令牌表 ${rel(TOKENS)}`);
 
 // ---------------------------------------------------------------- ① 颜色字面量

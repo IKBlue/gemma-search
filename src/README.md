@@ -19,7 +19,7 @@ src/
 │   └── src/app.css     界面样式（取设计令牌，未改）
 └── shared/ipc.mjs    IPC 契约唯一来源（zod 白名单 + 方法名）—— main 与将来前端共用
 
-core/                 引擎：传输无关、零依赖（**不在这里**，刻意留在根，见 CONTRACT-engine-v1.md）
+core/                 引擎：传输无关、零依赖（**不在这里**，刻意留在根，见 docs/spec/CONTRACT-engine-v1.md）
 ```
 
 ## 2. 命令

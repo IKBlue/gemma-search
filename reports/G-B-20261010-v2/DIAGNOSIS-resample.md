@@ -18,7 +18,7 @@
 | 解码有责任吗？ | **零责任**。把 PIL 解码的**同一份像素**交给 JS 处理器，差异**一模一样**（8 位小数完全相同） |
 | 修法 | `onnx-spike/resize_compat.mjs`：按 PIL 的规则分方向选实现（降采样用 `sharp.resize(kernel=cubic,fit=fill)`，放大沿用上游 affine） |
 | 修后（最差 48 张，真实构建器） | min **0.915311 → 0.995969**，中位 0.950322 → **0.998788**，**48/48 变好、0 变差** |
-| 判据要改吗？ | **不用改**。修完达标，`SPEC-acceptance.md` §2.2 的 0.970/0.990 原样保留 |
+| 判据要改吗？ | **不用改**。修完达标，`docs/spec/SPEC-acceptance.md` §2.2 的 0.970/0.990 原样保留 |
 
 ---
 
@@ -31,7 +31,7 @@
 | **P1** 当前构建器 vs 存盘 spike(GPU) | 20 | **1.000000** | 1.000000 | 构建器与 spike **逐位等价** → 无回归 |
 | **P2** 当前构建器 vs torch | 20 | 0.979794 | 0.992854 | 即 v1 全量里那 20 张的表现 |
 | **P3** 现跑 spike vs 存盘 spike | 20 | **1.000000** | 1.000000 | 环境/依赖未漂移 |
-| **P4** 现跑 spike vs torch | 20 | 0.979794 | 0.992854 | **与 `SPEC-acceptance.md` §2.2 引用的 0.9798 / 0.9929 完全一致** |
+| **P4** 现跑 spike vs torch | 20 | 0.979794 | 0.992854 | **与 `docs/spec/SPEC-acceptance.md` §2.2 引用的 0.9798 / 0.9929 完全一致** |
 | P5 spike(GPU) vs spike(CPU) | 20 | 1.000000 | 1.000000 | 复核"设备不进 compat"这一结论 |
 
 **判读**：阈值依据可逐位复现 → 说明"用 n=20 的最小值当 3594 条硬底线"这个推导**方法上不严谨**，
@@ -41,7 +41,7 @@
 
 ## 2. A5 · 把异常清单补全（先修工具，再谈归因）
 
-`SPEC-acceptance.md` §2.2 要求"余弦 < 0.99 的条目**列出清单**并逐条说明"。
+`docs/spec/SPEC-acceptance.md` §2.2 要求"余弦 < 0.99 的条目**列出清单**并逐条说明"。
 v1 的 `quality_vector_equiv.py` 把清单**截断成 30 条**（1615 条里 1585 条没有清单），
 ④ 人工复核因此**名存实亡**。
 
@@ -141,7 +141,7 @@ patch 级平均绝对差：中位 0.010769 · 最大 0.144470（最大/中位 = 
 - 降采样 → `sharp.resize(kernel=cubic, fit=fill)`（0.18/255）
 - 放大 → 上游 `affine(bicubic)`（0.89/255；若强行用 resize-cubic 反而退化到 2.67/255、余弦 0.980）
 
-于是 shim 定为 `pil-like` 模式，并按此写进 `SPEC-identity.md` §6.2.1。
+于是 shim 定为 `pil-like` 模式，并按此写进 `docs/spec/SPEC-identity.md` §6.2.1。
 
 > **过程中我自己的两个错误（记录在案）**
 > 1. shim 最初把 `kernel` 用**闭包捕获**，导致诊断切换核无效 ——
@@ -172,7 +172,7 @@ patch 级平均绝对差：中位 0.010769 · 最大 0.144470（最大/中位 = 
 | `onnx-spike/build_index_onnx.mjs` | 安装 shim + 自检；`PREPROCESSING_VERSION` 1→**2**；`preprocessing.resample_impl` 落盘；**修 `vectorSource` 丢失**；修正过期的 UID 注释（原文写"sha1(图像字节)"，实为 §2 冻结公式） |
 | `onnx-spike/encode_queries.mjs` | 装同一份 shim（**查询路径必须与索引一致**） |
 | `app/main/encoder.mjs` | 装同一份 shim（产品路径） |
-| `SPEC-identity.md` §6.2/§6.2.1/§6.4 | 版本号、`resample_impl`、差异实测表与理由 |
+| `docs/spec/SPEC-identity.md` §6.2/§6.2.1/§6.4 | 版本号、`resample_impl`、差异实测表与理由 |
 | `quality_vector_equiv.py` | 清单不再截断（`--below-list-limit`/`--below-csv`/`--all-csv`）+ 分位数 |
 | `quality_anchor.py` / `quality_tail_attrib.py` / `quality_resize_variants.py` / `quality_fixture_eval.py` / `verify_resize.py` / `onnx-spike/diagnose_resize_kernel.mjs` / `onnx-spike/check_resize_golden.mjs` / `onnx-spike/probe_resize_pixels.mjs` | **新增**（诊断与守卫） |
 
@@ -187,7 +187,7 @@ v2: onnx-community/embeddinggemma-2-ONNX|daa72c...|fp32|2|140|768|l2|mean_soft_t
 
 ## 9. 与判据的关系（**没有放宽任何阈值**）
 
-`SPEC-acceptance.md` §2.2 的 ①（min ≥ 0.970 / 中位 ≥ 0.990）、②（平均重合率 ≥ 0.80）、
+`docs/spec/SPEC-acceptance.md` §2.2 的 ①（min ≥ 0.970 / 中位 ≥ 0.990）、②（平均重合率 ≥ 0.80）、
 ③（相关性补充）、④（人工复核）**一字未改**。
 本报告走了"先查清、能修就修"的路，而不是"以差异很小为由豁免"（§2.2 明确不受理那种理由）。
 

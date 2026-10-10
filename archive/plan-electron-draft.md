@@ -1,6 +1,6 @@
 # PLAN: 素材库语义检索独立应用
 
-> 对应规格：`SPEC-app.md`（已并入你的 4 项决策）
+> 对应规格：`docs/spec/SPEC-app.md`（已并入你的 4 项决策）
 > 本文档是技术实施方案：组件、顺序、依赖、风险、验证点。
 
 ---
@@ -120,7 +120,7 @@
 ```
 
 > **架构已因 spike 结果改写**：不再有 Python 后端、不再有 HTTP 端口、不再有子进程。
-> 依据见 SPEC-app.md §3（WebGPU 0.42 s/张；文本与 torch bit-exact；DML/CUDA 均不可用）。
+> 依据见 docs/spec/SPEC-app.md §3（WebGPU 0.42 s/张；文本与 torch bit-exact；DML/CUDA 均不可用）。
 
 **关键设计决定**：渲染进程**不直接访问文件系统**，图片一律经 `thumb://<id>` 自定义协议。
 - 好处：不必放宽 `webSecurity`；缩略图天然可缓存；单进程无端口冲突

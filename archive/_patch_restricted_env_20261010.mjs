@@ -73,12 +73,12 @@ for (const [file, content] of changed) {
 }
 
 // ---------------------------------------------------------------- 3) 追加债务与证据
-fs.appendFileSync('DEBT-CLEANUP.md',
+fs.appendFileSync('docs/DEBT-CLEANUP.md',
   '\n| 11 | electron-vite 的 dev 默认把入口传成 `.`（目录形式） | 本机实测该形式会以 `0xC0000005` 崩在 `app.whenReady()` 之前；' +
   '`scripts/electron-vite.mjs` 探测到受限环境时会自动补 `--entry out/main/index.js` | 已修（工具内） |\n' +
   '| 12 | 官方开关一直存在但没人用 | electron-vite 自带 `--noSandbox`（`cli.js` → `NO_SANDBOX=1` → 给 Electron 加 `--no-sandbox`）' +
   '与全局 `--entry`。此前 README 只写了"沙箱里起不了 Electron"，**没写"那怎么起"** | ✅ 已写进 README 与脚本 |\n', 'utf8');
-console.log('  [OK  ] DEBT-CLEANUP.md 追加 2 行');
+console.log('  [OK  ] docs/DEBT-CLEANUP.md 追加 2 行');
 
 fs.appendFileSync('reports/G-D-p2-electron/README.md',
   '\n## 7. 追加：受限环境下的**可用命令**（2026-10-10 晚，实测）\n\n' +

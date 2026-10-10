@@ -1,4 +1,4 @@
-// core/index.mjs —— index.bin 的读取与强校验（CONTRACT-engine-v1.md §0；SPEC-identity §7）
+// core/index.mjs —— index.bin 的读取与强校验（docs/spec/CONTRACT-engine-v1.md §0；SPEC-identity §7）
 //
 // 布局：
 //   [0,8)          MAGIC = 47 53 49 44 58 00 00 01

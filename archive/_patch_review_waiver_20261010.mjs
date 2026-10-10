@@ -8,7 +8,7 @@ import fs from 'node:fs';
 
 const patches = [
   {
-    file: 'SPEC-acceptance.md',
+    file: 'docs/spec/SPEC-acceptance.md',
     label: 'SPEC §2.2 记录 ④ 本轮不执行',
     find: '**通过 = ① ∧ ② ∧ ③ 全达标**（④ 用来解释，不是额外门槛）。',
     repl: '**通过 = ① ∧ ② ∧ ③ 全达标**（④ 用来解释，不是额外门槛）。\n' +
@@ -29,7 +29,7 @@ const patches = [
     find: '# 人工复核清单（轻档）',
     repl: '# 人工复核清单（轻档）\n' +
       '\n' +
-      '> **2026-10-10：本轮不执行**（项目所有者决定，见 `SPEC-acceptance.md` §2.2）。\n' +
+      '> **2026-10-10：本轮不执行**（项目所有者决定，见 `docs/spec/SPEC-acceptance.md` §2.2）。\n' +
       '> 本文件保留为**待查清单**，不作为 G-B 的通过条件（④ 本来就不是门槛）。\n' +
       '> 下面这些条目仍是有价值的信息：尾部集中在 400×300 一档（见同目录 `TAIL-400x300.md`）。\n',
   },
@@ -37,7 +37,7 @@ const patches = [
     file: 'TASK-PLAN.md',
     label: 'TASK-PLAN G-B 行',
     find: '**④ 人工复核（轻档）待所有者确认**',
-    repl: '**④ 按所有者决定本轮不执行**（④ 本就不是门槛，见 `SPEC-acceptance.md` §2.2）',
+    repl: '**④ 按所有者决定本轮不执行**（④ 本就不是门槛，见 `docs/spec/SPEC-acceptance.md` §2.2）',
   },
   {
     file: 'TASK-PLAN.md',
@@ -73,11 +73,11 @@ for (const [f, c] of changed) {
 }
 
 // ---------------- 债务与证据说明（追加，不需要锚点） ----------------
-fs.appendFileSync('DEBT-CLEANUP.md', `
-| 19 | **④ 人工复核本轮不执行**（项目所有者 2026-10-10 决定） | ④ 在 §2.2 里本就不是门槛（通过 = ①∧②∧③），只是"异常项可解释吗"的交代。**代价**：G-B 的结论止于"与旧索引未退化 + 尾部已定位"，**不能**声称检索质量达标（20 条查询仍无相关集标注） | ✅ 已记入 \`SPEC-acceptance.md\` §2.2 与 \`human-review.md\` 头部 |
+fs.appendFileSync('docs/DEBT-CLEANUP.md', `
+| 19 | **④ 人工复核本轮不执行**（项目所有者 2026-10-10 决定） | ④ 在 §2.2 里本就不是门槛（通过 = ①∧②∧③），只是"异常项可解释吗"的交代。**代价**：G-B 的结论止于"与旧索引未退化 + 尾部已定位"，**不能**声称检索质量达标（20 条查询仍无相关集标注） | ✅ 已记入 \`docs/spec/SPEC-acceptance.md\` §2.2 与 \`human-review.md\` 头部 |
 | 20 | **缩略图失败过去完全静默** | 缺陷本身已修（\`thumb://\` 的 URL host 被小写化 → libId \`L1\`→\`l1\` → \`LIB_NOT_FOUND\` → 界面全部"无预览"，无任何日志）。**已补日志**（请求/缓存命中/取路径失败/生成成功），这类问题今后一眼可见 | ✅ 已修 + 已补日志 |
 `, 'utf8');
-console.log('  [OK  ] DEBT-CLEANUP.md 追加 19/20');
+console.log('  [OK  ] docs/DEBT-CLEANUP.md 追加 19/20');
 
 fs.appendFileSync('reports/G-D-p2-electron/README.md', `
 ## 9. 关于截图：本机产物，不入库

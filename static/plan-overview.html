@@ -6,7 +6,7 @@
 <title>gemma-search 应用 · 计划总览</title>
 <!--
   计划总览页（单文件、无 CDN、离线可用、可直接打印）
-  数据来源：TASK-PLAN.md / SPEC-*.md / DESIGN-app-details.md + 本机实测
+  数据来源：TASK-PLAN.md / SPEC-*.md / docs/design/DESIGN-app-details.md + 本机实测
   更新日期：2026-10-10
 -->
 <style>
@@ -500,7 +500,7 @@
   <div class="card warn">
     <h4>⚠ G-B 未定义前不得启动全量重建</h4>
     <p>因为"新旧索引质量对比"的<b>判据必须先存在</b>——否则跑完 25 分钟也说不清是好是坏。
-       判据已在 <code>SPEC-acceptance.md</code> §2 定稿（固定测试集 + Recall@10 阈值 + 回归逐条解释）。</p>
+       判据已在 <code>docs/spec/SPEC-acceptance.md</code> §2 定稿（固定测试集 + Recall@10 阈值 + 回归逐条解释）。</p>
   </div>
 
 </section>
@@ -546,15 +546,15 @@
   <table class="boxed">
     <thead><tr><th style="width:70px">状态</th><th>事项</th><th style="width:340px">产物</th></tr></thead>
     <tbody>
-      <tr><td class="yes">✅</td><td>规格文档（目标/技术栈/成功标准/边界）</td><td class="mono">SPEC-app.md</td></tr>
-      <tr><td class="yes">✅</td><td>详细设计（UI/库管理/索引/模型 + 入库增量 + CRUD多库 + 传输层）</td><td class="mono">DESIGN-app-details.md</td></tr>
+      <tr><td class="yes">✅</td><td>规格文档（目标/技术栈/成功标准/边界）</td><td class="mono">docs/spec/SPEC-app.md</td></tr>
+      <tr><td class="yes">✅</td><td>详细设计（UI/库管理/索引/模型 + 入库增量 + CRUD多库 + 传输层）</td><td class="mono">docs/design/DESIGN-app-details.md</td></tr>
       <tr><td class="yes">✅</td><td><b>最终任务计划书</b>（阶段 P0–P7 / 门禁 / 交付物 / 风险 / 下一步）</td><td class="mono">TASK-PLAN.md</td></tr>
       <tr><td class="yes">✅</td><td>spike：后端路线定稿（Node+ONNX+WebGPU）</td><td class="mono">onnx-spike/spike_*.mjs · spike/spike_compare.py · spike/*.json</td></tr>
       <tr><td class="yes">✅</td><td><b>UI 原型套件</b>（6 页 + 共享样式/脚本，离线可开）</td><td class="mono">static/prototype/index.html</td></tr>
       <tr><td class="yes">✅</td><td>索引构建器 + 100 张试点通过</td><td class="mono">onnx-spike/build_index_onnx.mjs</td></tr>
-      <tr><td class="yes">✅</td><td><b>审核整改</b>：三份规范成文（事务 / 身份 / 验收口径）</td><td class="mono">SPEC-transactions.md · SPEC-identity.md · SPEC-acceptance.md</td></tr>
+      <tr><td class="yes">✅</td><td><b>审核整改</b>：三份规范成文（事务 / 身份 / 验收口径）</td><td class="mono">docs/spec/SPEC-transactions.md · docs/spec/SPEC-identity.md · docs/spec/SPEC-acceptance.md</td></tr>
       <tr><td class="yes">✅</td><td><b>G-A 门禁通过</b>：基线报告可复现 + 旧索引可恢复副本</td><td class="mono">data/baseline-v1.json · data/_backup-old-index-20261010-130701/</td></tr>
-      <tr><td class="yes">✅</td><td><b>债务清理</b>：内联 CSS 去重、21 个死按钮修好、探针归类、被取代原型归档</td><td class="mono">DEBT-CLEANUP.md</td></tr>
+      <tr><td class="yes">✅</td><td><b>债务清理</b>：内联 CSS 去重、21 个死按钮修好、探针归类、被取代原型归档</td><td class="mono">docs/DEBT-CLEANUP.md</td></tr>
       <tr><td class="warn">⏳</td><td>索引全量重建（3594 张，约 25 分钟）<b>—— 暂缓至 G-B 判据就绪</b></td><td class="mono">data/idx-full/</td></tr>
       <tr><td class="no">—</td><td>P1–P7（引擎 / 骨架 / 界面 / 入库增量 / 多库 / 打包 / 退役 MCP）</td><td>—</td></tr>
     </tbody>
@@ -592,7 +592,7 @@
             <span class="mono">PREPARED→STAGED→VERIFIED→COMMITTED→CLEANED</span>（含 <span class="mono">RECOVERY_NEEDED</span>）。
             跨卷一律"<b>目标卷暂存 → 校验 → 提交 → 清源</b>"；<b>源文件在提交且索引更新前绝不删除</b>；
             启动时扫描未完成事务并收敛，<b>判定不唯一就停下来问人</b>。另加 <b>10 项故障注入</b>（真的杀进程）</td>
-        <td class="mono">SPEC-transactions.md<br>（全文，含并发锁、撤销保留期、磁盘空间核算）</td>
+        <td class="mono">docs/spec/SPEC-transactions.md<br>（全文，含并发锁、撤销保留期、磁盘空间核算）</td>
       </tr>
       <tr>
         <td><b>2. 索引身份、文件身份与配对关系未定义</b><br>
@@ -602,7 +602,7 @@
             改为三层身份：<b>uid（素材实体，种子后冻结）/ 文件身份（路径+size+mtime+sha1）/ 内容哈希</b>。
             补全配对防御规则（多包/多图/跨目录同名）、<b>库指纹算法与版本</b>（含排序与字段定义）、
             <b>索引-磁盘一致性状态</b>（ok/changed/missing/<b>suspected-move</b>，可疑移动<b>须人工确认</b>）</td>
-        <td class="mono">SPEC-identity.md<br>§1–§5</td>
+        <td class="mono">docs/spec/SPEC-identity.md<br>§1–§5</td>
       </tr>
       <tr>
         <td><b>3. 模型精度配置自相矛盾</b><br>
@@ -612,7 +612,7 @@
             并定义 <span class="mono">compat</span> 判定键。<b>明确回答"构建器实际加载什么"</b>：
             权重 <b>fp32</b> + 预处理 v1 + seq140 + 向量 float32；<span class="mono">q4f16</span> 是"将来可选的下载档"，
             与构建设置<b>不是一回事</b></td>
-        <td class="mono">SPEC-identity.md §6</td>
+        <td class="mono">docs/spec/SPEC-identity.md §6</td>
       </tr>
     </tbody>
   </table>
@@ -626,17 +626,17 @@
               建固定测试集（22 条查询 + 10 张参考图 + 人工标注相关集），
               <b>先定阈值再跑</b>：Recall@10 ≥ 旧 − 2 个百分点、参考图自检索 Top-1、回归逐条解释。
               明确<b>不要求</b>新旧结果逐条一致（预处理差 0.4%，要求一致是错误标准）</td>
-          <td class="mono">SPEC-acceptance.md §1–§2</td></tr>
+          <td class="mono">docs/spec/SPEC-acceptance.md §1–§2</td></tr>
       <tr><td><b>5. 性能指标缺统一口径</b></td>
           <td>逐项定义<b>计时边界</b>（起点/终点/冷热），规定 P50/P95 + 失败率 + 峰值内存，
               <b>重复 ≥3 轮</b>，且<b>在打包后的应用里测</b>。
               并<b>更正我定错的指标</b>：图像查询从"≤0.5 s"改为"P50 ≤1.0 s / P95 ≤1.5 s"</td>
-          <td class="mono">SPEC-acceptance.md §3</td></tr>
+          <td class="mono">docs/spec/SPEC-acceptance.md §3</td></tr>
       <tr><td><b>6. 离线/自包含/首次运行未闭环</b></td>
           <td>拆成<b>联网准备阶段</b>（下载+校验+钉 revision）与<b>离线运行阶段</b>（禁隐式联网；缺资源明确报出，
               <b>绝不静默换模型或改索引配置</b>）。补<b>打包环境专项验证</b>（WebGPU 失败回落、驱动不兼容、
               原生依赖加载、退出无残留、干净机器首启向导）。明确写入：<b>CPU 回退只证明有替代路径，不证明同样快</b></td>
-          <td class="mono">SPEC-acceptance.md §4</td></tr>
+          <td class="mono">docs/spec/SPEC-acceptance.md §4</td></tr>
     </tbody>
   </table>
 
@@ -650,7 +650,7 @@
       <tr><td>磁盘空间最坏情况（新旧索引并存 + 暂存 + 撤销区）</td><td class="mono">SPEC-transactions §6</td></tr>
       <tr><td>跨库迁移前置条件（compat / 目标库已建索引 / uid 不冲突 / 空间）</td><td class="mono">SPEC-identity §8</td></tr>
       <tr><td>库指纹算法、输入字段、排序、版本</td><td class="mono">SPEC-identity §5</td></tr>
-      <tr><td><b>Electron IPC 参数白名单 / 禁止任意绝对路径 / 调用来源校验</b></td><td class="mono">待写 SPEC-security.md（G-C 前）</td></tr>
+      <tr><td><b>Electron IPC 参数白名单 / 禁止任意绝对路径 / 调用来源校验</b></td><td class="mono">待写 docs/spec/SPEC-security.md（G-C 前）</td></tr>
       <tr><td><b>thumb:// 路径穿越 / 符号链接越界 / 库外读取</b></td><td class="mono">同上</td></tr>
     </tbody>
   </table>
@@ -679,7 +679,7 @@
 </main>
 
 <footer>
-  gemma-search 计划总览 · 数据来源：TASK-PLAN.md / SPEC-*.md / DESIGN-app-details.md + 本机实测 · 2026-10-10
+  gemma-search 计划总览 · 数据来源：TASK-PLAN.md / SPEC-*.md / docs/design/DESIGN-app-details.md + 本机实测 · 2026-10-10
 </footer>
 
 </body>

@@ -552,28 +552,28 @@ table.box{border:1px solid var(--line);border-radius:var(--radius);overflow:hidd
 
       <!-- ---------- 未覆盖页：诚实标注 ---------- -->
       <section class="page" id="page-library"><div class="todo"><h3>图库管理 — 本轮未覆盖</h3>
-        <p class="sub">已定内容见 <span class="mono">DESIGN-app-details.md §7.7</span> 与 <span class="mono">SPEC-identity §6.3</span>。</p>
+        <p class="sub">已定内容见 <span class="mono">docs/design/DESIGN-app-details.md §7.7</span> 与 <span class="mono">SPEC-identity §6.3</span>。</p>
         <ul><li>库注册表：名称 / 根目录 / 素材数 / <b>compat 一致性</b> / 上次扫描 / 库指纹状态</li>
         <li>一致性横幅：「可合并 2 个库 · 1 个被排除（seq280 ≠ 140）」</li>
         <li>动作：重命名 · <b>重新指向</b>（按指纹判断是否同一库）· 扫描 · 重建索引 · <b>移除（绝不删文件）</b></li>
         <li>顶部库选择器：全部库 / 单库；结果卡片带库徽标</li></ul></div></section>
 
       <section class="page" id="page-ingest"><div class="todo"><h3>入库 — 本轮未覆盖</h3>
-        <p class="sub">已定内容见 <span class="mono">DESIGN-app-details.md §六</span>。</p>
+        <p class="sub">已定内容见 <span class="mono">docs/design/DESIGN-app-details.md §六</span>。</p>
         <ul><li>拖入包+图 → 按主干配对 → 取 ID（<b>提不到就停下来问你</b>）</li>
         <li>归档目录<b>可空</b>（默认 <span class="mono">未分类\</span>）；应用<b>不解析压缩包内容</b></li>
         <li>预检：确切目标路径 / 重名 / ID 重复 / 空间核算</li>
         <li>提交走事务；完成后增量编码，显示 <span class="mono">复用 N · 新编码 M</span></li></ul></div></section>
 
       <section class="page" id="page-increment"><div class="todo"><h3>增量 — 本轮未覆盖</h3>
-        <p class="sub">已定内容见 <span class="mono">DESIGN-app-details.md §2.3–§2.4</span> 与 <span class="mono">SPEC-identity §4</span>。</p>
+        <p class="sub">已定内容见 <span class="mono">docs/design/DESIGN-app-details.md §2.3–§2.4</span> 与 <span class="mono">SPEC-identity §4</span>。</p>
         <ul><li>三类差量：新增 / 变更 / <b>消失（只移除索引，绝不删文件）</b></li>
         <li>索引状态：已编码 / 待编码 / 待重编码 / 已从索引移除</li>
         <li><b>疑似移动</b>（内容哈希相同、路径不同）→ 一键「确认重链接」，<b>绝不静默复用旧向量</b></li>
         <li>库指纹前后比对；发现非本流程改动即报警</li></ul></div></section>
 
       <section class="page" id="page-settings"><div class="todo"><h3>设置 — 本轮未覆盖</h3>
-        <p class="sub">已定内容见 <span class="mono">DESIGN-app-details.md §4</span> 与 <span class="mono">SPEC-identity §6</span>。</p>
+        <p class="sub">已定内容见 <span class="mono">docs/design/DESIGN-app-details.md §4</span> 与 <span class="mono">SPEC-identity §6</span>。</p>
         <ul><li>模型：repo · <b>revision（钉住）</b> · 权重精度 · 预处理版本 · seq —— 改动任一项提示「<b>需重建索引</b>」</li>
         <li>设备：webgpu / cpu（<b>回退时明确提示慢约 3 倍</b>，不做延迟承诺）</li>
         <li>取件目录（默认 <span class="mono">E:\素材待用\</span>）· 撤销保留（30 天 / 5 GB）· 缩略图缓存</li>

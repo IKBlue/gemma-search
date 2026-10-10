@@ -1,4 +1,4 @@
-// src/shared/ipc.mjs —— IPC 契约的唯一来源（SPEC-security.md §2.1）
+// src/shared/ipc.mjs —— IPC 契约的唯一来源（docs/spec/SPEC-security.md §2.1）
 //
 // 一份 zod schema 同时给出：① 运行时参数校验 ② 允许的方法名白名单。
 // 主进程与渲染进程都用它 —— 这样"参数白名单校验"不是口号，而是唯一入口。
