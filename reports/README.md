@@ -24,7 +24,7 @@ reports/G-E2-<日期>/     退役就绪（回滚已演练）
 | `B-pairing.md` | 配对正确性 —— **独立按磁盘重算**，不采信索引自述 | `quality_report.py` |
 | `C-quality.md` | ① 向量等价性 ② Top-10 重合率 ③ 相关性补充 + **已知标注缺口声明** | `quality_report.py` |
 | `top10-diff.csv` | 逐名次对照（便于人工复核） | `quality_top10.py --out …/top10.json` |
-| `human-review.md` | 阈值触发的人工复核清单（轻档） | `quality_report.py` |
+| `human-review.md` | 阈值触发的人工复核清单（轻档）——**2026-10-10 起本轮不执行**（所有者决定；④ 非门槛） | `quality_report.py` |
 
 另附 `VERDICT.txt`（自动判定结论）与两份原始 JSON（`vector-equiv.json` / `top10.json`）。
 

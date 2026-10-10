@@ -146,3 +146,19 @@ details.skipped[0].detail = 索引不存在：...\data\libraries\L1\index.bin
 
 > 教训与 `tools/verify_syntax.py` 那次同类：**判据本身也要有否定对照**。
 > 一个"永远成功"的探测比没有探测更危险。
+
+## 9. 关于截图：本机产物，不入库
+
+本目录里的 `electron-window.png` / `ui-final.png` 等**不在 git 里** ——
+证据协议（`reports/README.md`）按体积排除了重媒体（`*.png/*.jpg/*.mp4`）。
+因此本文件里的日志摘录与结论才是**随仓库分发**的证据部分。
+
+复跑截图（应用自截，不受窗口遮挡影响）：
+
+```powershell
+npm run build
+$env:GS_CAPTURE='reports/G-D-p2-electron/ui-final.png'   # 应用自己截自己（webContents.capturePage）
+$env:GS_CAPTURE_QUERY='玻璃球多头吊灯'                     # 可选：截图前先跑一次真实检索
+$env:GS_CAPTURE_DELAY_MS='9000'
+.\node_modules\electron\dist\electron.exe --no-sandbox out\main\index.js
+```
