@@ -81,6 +81,8 @@ python -m venv .venv
 | `SPEC-transactions.md` | 文件事务与崩溃恢复：状态机、事务日志、跨卷流程、启动恢复、撤销、并发、空间核算 |
 | `SPEC-identity.md` | 身份与配对：uid 语义、文件身份、库指纹、索引元数据（拆开含混的 `precision`）、索引格式 |
 | `SPEC-acceptance.md` | 验收与口径：三项独立验收、语义质量阈值、性能计时边界、离线与打包验证、门禁 |
+| **`SPEC-security.md`** | **P2 前置门禁**：威胁模型与**明确不防**的边界 · IPC 单通道白名单 + zod · `thumb://` 加固 · 来源验证 · 渲染进程姿态与 CSP · 4 条渲染层不变量 · **16 条权限测试用例** |
+| **`CONTRACT-engine-v1.md`** | **引擎接口契约**（待 P1 验收时冻结）：19 错误码 + 用户文案 · 10 个方法 · 长任务进度/取消/续跑 · `RECOVERY_NEEDED` 恢复 · 多库结构不兼容原因 · 5 条安全不变量 · P3 用 fixtures |
 | **`DESIGN-tokens.md`** | ⭐ **视觉唯一来源**：Apple 风格设计令牌（颜色 / 字体 / 间距 / 圆角 / 材质 / 控件 / 动效 / 可访问性 + CSS 变量 + Tailwind·shadcn 映射）。可执行版本 = `static/prototype/tokens.css` |
 | `SPEC-security.md` | ⏳ **待写**（P1 编码前）：IPC 参数白名单、`thumb://` 加固、调用来源校验 |
 | `UI-REVIEW-and-migration.md` | UI 评审与迁移：逐页评审、领域差异、技术选型增补、四个关键流程、迁移路线 |
@@ -97,6 +99,9 @@ python -m venv .venv
 - **顺序与进度** → `TASK-PLAN.md` 为准
 - **应用技术栈与目录结构**（`core/` `app/` `src/shared/`）→ `SPEC-app.md` §3–§5 为准
   （2026-10-10 已按锁定决策重写 §4–§10；此前它残留着「Python 子进程 + CUDA + 单库 + 库只读」的旧形态）
+- **传输层与外壳安全**（IPC 白名单 / `thumb://` / 渲染进程姿态 / 权限测试用例）→ `SPEC-security.md` 为准
+  （**P2 的前置门禁**；引擎层的 5 条安全不变量在 `CONTRACT-engine-v1.md` §7，已实现并有测试）
+- **引擎接口形状**（方法 / 错误码 / 事件 / 恢复）→ `CONTRACT-engine-v1.md` 为准
 
 ### 页面
 
