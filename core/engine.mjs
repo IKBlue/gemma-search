@@ -390,6 +390,18 @@ export function createEngine({
     registry,
     /** 供测试与诊断：强制重新读索引 */
     reload(libId) { cache.delete(libId); return load(libId); },
+    /**
+     * 解析某条素材的绝对路径。**仅供主进程内部使用**（`thumb://` 协议处理器），
+     * 刻意**不经 IPC 暴露** —— 契约 §0 要求"路径只能由 lib_id+uid 解析"，
+     * 把这个结果交给渲染进程就等于把绝对路径泄出去了。
+     * 仍走完整的包含校验与符号链接校验。
+     */
+    absPathFor(libId, uid) {
+      const e = load(libId);
+      const it = e.byUid.get(uid);
+      if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
+      return resolveInLibrary(registry.get(libId).root, relOf(it));
+    },
     search: (req) => envelope(() => doSearch(req)),
     indexStatus: () => envelope(async () => doIndexStatus()),
     scan: (req) => envelope(async () => doScan(req)),

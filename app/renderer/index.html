@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <!-- CSP：应用自身 + thumb: 缩略图；不连任何远程源（离线要求） -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+                 img-src 'self' thumb: data:; font-src 'self'; connect-src 'self';
+                 object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" />
+  <title>gemma-search · 素材库语义检索</title>
+  <link rel="stylesheet" href="../../static/prototype/tokens.css" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- 侧栏 -->
+    <aside class="side">
+      <div class="brand">
+        <span class="dot"></span>
+        <span class="brand-name">gemma-search</span>
+      </div>
+
+      <div class="side-block">
+        <div class="side-label">素材库</div>
+        <div id="lib-info" class="side-value">读取中…</div>
+      </div>
+
+      <div class="side-block">
+        <div class="side-label">索引</div>
+        <div id="index-info" class="side-value">读取中…</div>
+      </div>
+
+      <div class="side-block">
+        <div class="side-label">分类筛选</div>
+        <label class="chk"><input type="checkbox" data-folder="VR" checked /> VR</label>
+        <label class="chk"><input type="checkbox" data-folder="CR" checked /> CR</label>
+        <label class="chk"><input type="checkbox" data-folder="CR+VR" checked /> CR+VR</label>
+        <label class="chk"><input type="checkbox" data-folder="其他" checked /> 其他</label>
+      </div>
+
+      <div class="side-block">
+        <div class="side-label">查询方式</div>
+        <div class="seg" id="mode-seg">
+          <button data-mode="text" class="on">文字</button>
+          <button data-mode="image">以图搜图</button>
+        </div>
+        <button id="pick-image" class="btn wide hidden">选择参考图…</button>
+      </div>
+
+      <div class="side-foot">
+        <div id="engine-state" class="state">引擎启动中…</div>
+      </div>
+    </aside>
+
+    <!-- 主工作区 -->
+    <main class="work">
+      <header class="top">
+        <div class="search">
+          <input id="q" type="search" placeholder="用一句中文描述你要找的素材，例如：中古风木质吸顶灯"
+                 autocomplete="off" spellcheck="false" />
+          <button id="go" class="btn primary">搜索</button>
+        </div>
+        <div id="meta" class="meta"></div>
+      </header>
+
+      <section id="hint" class="hint">
+        <p>输入描述后回车即可检索。<b>提示</b>：分数只在本模态内有意义，不同查询方式之间的分数不可比较。</p>
+      </section>
+
+      <section id="results" class="grid" hidden></section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="renderer.js"></script>
+</body>
+</html>
