@@ -193,9 +193,18 @@ def main() -> int:
         in_index = any((it.get("relPath") or it.get("rel_path")) == r.get("rel_path")
                        for it in new_items)
         if not in_index:
+            # user 参考图**本来就不在库里**（用户发的库外图）。按 SPEC-acceptance §2.2
+            # 更正后的规定，它们**不参与自动判定**，只供 ④ 人工目视 ——
+            # 所以"不在索引中"对 user 是预期行为，不是缺陷。
+            # （第一版把它记成 problem，是工具没跟上规格更正，已修。）
+            if r["kind"] == "user":
+                entry["ok"] = None
+                entry["note"] = "用户参考图不在库内 —— 按规格不参与自动判定，仅供人工目视"
+                print("  [n/a] 用户参考图 %-28s 不在库内（规格如此，非缺陷）" % entry["path"][:28])
+                refs_out[r["kind"]].append(entry)
+                continue
             entry["ok"] = False
             entry["note"] = "该图不在新索引中（小样运行正常，全量运行则为问题）"
-            # user 参考图本来就不在库里（没有 rel_path），用文件名报错才有意义
             label = r.get("rel_path") or os.path.basename(r["path"])
             problems.append("③ 参考图不在新索引中：%s" % label)
             print("  [n/a] %-34s 不在新索引中（跳过判定）" % entry["path"][:34])
