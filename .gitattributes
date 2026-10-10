@@ -43,7 +43,9 @@
 
 # 向量转储（spike 证据）：是数据不是文本，标记为二进制避免 diff 爆炸
 spike/*.json -diff linguist-generated
-data/quality/*.json -diff linguist-generated
+# data/quality/ 下的证据**保留文本 diff** —— 它们只有几 KB，
+# 而"两次运行之间改了什么"正是需要看得见的东西（曾误加 -diff，git 显示为 Bin，反而看不见）
+data/quality/*.json linguist-generated
 
 # 让 GitHub 语言统计不把原型 HTML/CSS 当成主要语言
 static/prototype/*.html linguist-documentation

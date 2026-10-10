@@ -1,9 +1,9 @@
 {
- "checked_at": "2026-10-10 14:03:25",
+ "checked_at": "2026-10-10 14:19:54",
  "library_root": "G:\\model",
  "model_dir": "D:\\USERS\\Desktop\\Agent\\model-cache\\onnx\\embeddinggemma-2\\daa72c51243991dfcaf9f9137d2c573d8f7790c0\\fp32",
- "builder_sha1": "b6d28c6e2a8621208f24bed5684cd0e36c727953",
- "passed": 12,
+ "builder_sha1": "a23529bc893fc1bb91d468dafdc1cfeb5b035d6f",
+ "passed": 14,
  "failed": 0,
  "items": [
   {
@@ -14,7 +14,7 @@
   {
    "name": "2 构建器存在且可算 sha1",
    "ok": true,
-   "detail": "sha1 b6d28c6e2a86 · 18325 字节"
+   "detail": "sha1 a23529bc893f · 25913 字节"
   },
   {
    "name": "2b 构建器含 BMP 回退（105/105 的前提）",
@@ -65,6 +65,16 @@
    "name": "8 105 张已单独验证",
    "ok": true,
    "detail": "105/105 可编码 · 失败 0 · 回退 20"
+  },
+  {
+   "name": "9 库指纹 == baseline-v1.json",
+   "ok": true,
+   "detail": "一致（记录 3c62f15c5944 · 当前 7188 文件）"
+  },
+  {
+   "name": "10 G-B 测试集齐备",
+   "ok": true,
+   "detail": "4 个文件均在"
   }
  ]
 }
