@@ -45,6 +45,21 @@ python -m venv .venv
 & .\.venv\Scripts\python.exe build_index.py
 ```
 
+**应用（Node/Electron）依赖** —— 与上面那套 Python 档相互独立：
+
+```powershell
+npm install
+# ⚠️ 若卡在 electron 的二进制下载（报 `fetch failed`，且 %LOCALAPPDATA%\electron\Cache 为空）：
+#    npm 包装上了、平台二进制没下来。用镜像显式取一次：
+$env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
+node node_modules/electron/install.js
+#    实测：直连 GitHub 的 releases 页面 HEAD 返回 200，但**资产下载**会失败；
+#    换 npmmirror 镜像后正常（electron.exe 246 MB）。这一点对"在别的机器上构建"同样适用。
+```
+
+> 注意两者用途不同：**Python 档是当前唯一在用的检索服务**（MCP/CLI/HTTP），
+> **Node 档是新应用**（引擎 `core/` + Electron 外壳 `app/`）。旧档到 P7 才退役。
+
 **可配置项一览**（`config.json` 键 ↔ 环境变量；**环境变量优先**）：
 
 | config.json | 环境变量 | 默认 | 说明 |
