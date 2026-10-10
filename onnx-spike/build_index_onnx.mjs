@@ -328,15 +328,31 @@ async function main() {
   log(`  条目 ${scanned}（有包 ${withArchive} · 无包 ${noArchive}）`);
   if (LIMIT > 0) { items = items.slice(0, LIMIT); log(`  --limit ${LIMIT} → 本次只处理 ${items.length} 条`); }
 
-  // 计算 UID（sha1 图像字节前 12 位）
-  log('计算 UID（sha1 图像字节，与路径无关）…');
+  // 计算 UID —— **必须**用 SPEC-identity §2 冻结的公式：
+  //     uid = sha1( lib_id + "|" + rel_dir + "|" + stem ).slice(0, 12)
+  //
+  // ⚠️ 这里曾经写成 sha1(图像字节)：那正是 SPEC-identity §1 **明确否决**的原设计
+  //    （"相同图像字节不代表同一条素材"）。后果不是"不够好"而是**真出错**：
+  //    实测库里有 5 组内容完全相同的图（sha1 相同），内容哈希会给出**相同 uid**，
+  //    于是 rowByUid 把两组折叠成一行 → 一条向量行被孤立、条目数与行数不等，
+  //    A 项"条目数 = 3594"必然失败。
+  //    用 (目录, 主干) 作种子则天然唯一，内容重复也不影响。
+  log('计算 UID（sha1(lib_id|rel_dir|stem) 前 12 位，SPEC-identity §2）…');
   const t0 = now();
+  const uidSeen = new Map();
   for (const it of items) {
-    const h = crypto.createHash('sha1');
-    h.update(fs.readFileSync(it.absPath));
-    it.uid = h.digest('hex').slice(0, 12);
+    const relDir = path.dirname(it.relPath);
+    const dir = relDir === '.' ? '' : relDir;
+    it.uid = crypto.createHash('sha1')
+      .update(`${LIB_ID}|${dir}|${it.stem}`, 'utf8')
+      .digest('hex').slice(0, 12);
+    if (uidSeen.has(it.uid)) {
+      throw new Error(`UID 碰撞：${it.uid} 同时属于 "${uidSeen.get(it.uid)}" 与 "${it.relPath}"
+（种子是 (lib_id, 目录, 主干)，理论上唯一；出现碰撞说明公式或输入有问题，不能继续）`);
+    }
+    uidSeen.set(it.uid, it.relPath);
   }
-  log(`  完成，用时 ${((now() - t0) / 1000).toFixed(1)}s`);
+  log(`  完成，用时 ${((now() - t0) / 1000).toFixed(1)}s · ${uidSeen.size} 个 uid 无重复`);
 
   // 索引往返自检：**必须在任何 readIndexBin 之前**跑 —— 续跑依赖它，
   // 而这个读写对曾因 MAGIC 长度不一致（7 vs 8）静默失效过。
@@ -424,6 +440,10 @@ async function main() {
   // ---------- 续跑：**按 compat 串判定**（fail-closed）----------
   // 上面那轮 bug 的教训：字段名一漂移，判定就静默失效。收敛成一个字符串能减少漂移面；
   // 且 meta 缺 compat（旧格式）一律判为不可复用 —— 宁可重编码，也不混用不同配置的向量。
+  //
+  // 复用表**按 relPath 作键**，不按 uid：uid 的算法改动（本次就从内容哈希改成
+  // SPEC-identity §2 的 (lib_id,目录,主干)）会让所有旧 uid 失效，从而白白丢掉
+  // 已经编码好的行。relPath 是同一次扫描里的稳定键，与 uid 方案无关。
   const old = REBUILD ? null : readIndexBin(INDEX_BIN);
   let oldMeta = null;
   try { oldMeta = JSON.parse(fs.readFileSync(META_JSON, 'utf8')); } catch { /* 无 */ }
@@ -432,11 +452,13 @@ async function main() {
     let oldItems = [];
     try { oldItems = JSON.parse(fs.readFileSync(ITEMS_JSON, 'utf8')); } catch { /* 无 */ }
     for (const oi of oldItems) {
+      const key = oi.relPath || oi.rel_path;
+      if (!key) continue;
       if (oi.vectorRow == null || oi.vectorRow >= old.header.count) continue;
       const off = oi.vectorRow * old.header.dim;
       const v = old.vectors.subarray(off, off + old.header.dim);
       let n = 0; for (let i = 0; i < v.length; i++) n += v[i] * v[i];
-      if (Math.sqrt(n) > 0.5) reusable.set(oi.uid, Array.from(v));   // 只复用非零向量
+      if (Math.sqrt(n) > 0.5) reusable.set(key, Array.from(v));   // 只复用非零向量
     }
     log(`  续跑：已有 ${reusable.size} 条可用向量（跳过重复编码）`);
   } else if (old && oldMeta) {
@@ -454,7 +476,7 @@ async function main() {
   const tEnc = now();
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
-    const hit = reusable.get(it.uid);
+    const hit = reusable.get(it.relPath);   // 复用表按 relPath 作键（与 uid 方案无关）
     if (hit) {
       dim = dim || hit.length;
       rows.push({ uid: it.uid, vectorRow: vectors.length / dim, vectorSource: it.vectorSource || 'native' });

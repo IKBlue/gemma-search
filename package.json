@@ -1,0 +1,22 @@
+{
+  "name": "gemma-search",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "本地素材库语义检索（EmbeddingGemma 2）· 引擎与桌面应用",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test --test-isolation=none \"tests/*.test.mjs\"",
+    "test:watch": "node --test --watch --test-isolation=none \"tests/*.test.mjs\""
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "//": [
+    "P1 引擎刻意**零依赖**：只用 Node 内置能力（node:test / node:crypto / node:fs）。",
+    "理由一：core/ 必须传输无关，零依赖是这一点的最强形式（也不可能 import electron）。",
+    "理由二：受限沙箱下 `npm install` 会因 npm 用管道捕获子进程输出而 EPERM。",
+    "zod 与 electron 属 P2（IPC 参数校验与外壳），届时再装。"
+  ]
+}
