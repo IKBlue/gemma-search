@@ -1,0 +1,124 @@
+// encode_queries.mjs —— 用 ONNX runtime 编码查询（文本 / 图像）→ 向量 JSON
+//
+// 用途：G-B 的 ②Top-10 重合率 需要"新索引侧"的查询向量。
+// **只编码，不搜索** —— 搜索留在 Python 侧（index.bin 可被 numpy 直接读），
+// 这样两侧的检索逻辑可以放在同一段代码里对齐，避免"两边各写一份排序"。
+//
+// 编码路径与 build_index_onnx.mjs **必须一致**（这是与 torch 侧 bit-exact 结论的前提）：
+//   文本：processor(QUERY_PREFIX + text) → forward → pickEmbedding
+//   图像：readImageWithFallback(path) → processor(null,[img]) → forward → pickEmbedding
+// 两处 pickEmbedding 是各自实现的副本，靠**可执行的交叉核对**保证不漂（见 quality_top10.py）：
+// 它会用本脚本编码一张库内图，与索引里同一张的向量比对，不一致就报错。
+//
+// 用法:
+//   node encode_queries.mjs --model <目录> --in queries.json --out vectors.json
+//        [--seq 140] [--device webgpu]
+// 输入 json: [{"id":"q01","kind":"text","value":"北欧吊灯"},
+//             {"id":"r-self-..","kind":"image","value":"G:\\model\\VR\\ID-x.jpg"}]
+import fs from 'node:fs';
+import path from 'node:path';
+import { AutoConfig, AutoProcessor, AutoModel, env } from '@huggingface/transformers';
+import { readImageWithFallback, selfTestBmpLayout } from './bmp_decode.mjs';
+
+const argv = process.argv.slice(2);
+const arg = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : d; };
+
+const MODEL_DIR = arg('model') || process.env.GEMMA_ONNX_MODEL;
+const IN_JSON = arg('in');
+const OUT_JSON = arg('out');
+const SEQ = parseInt(arg('seq', '140'), 10);
+const DEVICE = arg('device', 'webgpu');
+const QUERY_PREFIX = 'task: search result | query: ';
+
+if (!MODEL_DIR || !IN_JSON || !OUT_JSON) {
+  console.error('用法: node encode_queries.mjs --model <目录> --in <查询.json> --out <向量.json> [--seq 140] [--device webgpu]');
+  process.exit(2);
+}
+
+const log = (...a) => console.log('[enc]', ...a);
+
+env.allowLocalModels = true;
+env.allowRemoteModels = false;
+
+/** 与 build_index_onnx.mjs 的 pickEmbedding 保持一致（改动请同步，并跑交叉核对） */
+function pickEmbedding(out) {
+  if (out.sentence_embedding) {
+    return { data: out.sentence_embedding.data, dims: out.sentence_embedding.dims, how: 'sentence_embedding' };
+  }
+  if (out.text_embeds) {
+    return { data: out.text_embeds.data, dims: out.text_embeds.dims, how: 'text_embeds' };
+  }
+  const lh = out.last_hidden_state;
+  if (!lh) throw new Error('输出里既无 sentence_embedding 也无 last_hidden_state，实际键: ' + Object.keys(out).join(','));
+  const [B, T, D] = lh.dims;
+  const data = new Float32Array(B * D);
+  for (let b = 0; b < B; b++) {
+    for (let t = 0; t < T; t++) {
+      for (let d = 0; d < D; d++) data[b * D + d] += lh.data[(b * T + t) * D + d];
+    }
+    let n = 0;
+    for (let d = 0; d < D; d++) n += data[b * D + d] * data[b * D + d];
+    n = Math.sqrt(n) || 1;
+    for (let d = 0; d < D; d++) data[b * D + d] /= n;
+  }
+  return { data, dims: [B, D], how: 'mean_pool(last_hidden_state)' };
+}
+
+const norm = (a) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * a[i]; return Math.sqrt(s); };
+
+const queries = JSON.parse(fs.readFileSync(IN_JSON, 'utf8'));
+log(`查询 ${queries.length} 条（文本 ${queries.filter((q) => q.kind === 'text').length}`
+  + ` · 图像 ${queries.filter((q) => q.kind === 'image').length}）`);
+
+const config = await AutoConfig.from_pretrained(MODEL_DIR);
+config.audio_config = null;
+const processor = await AutoProcessor.from_pretrained(MODEL_DIR, { config });
+// 三处 + config 副本都要设（实测默认均为 280）
+processor.image_seq_length = SEQ;
+if (processor.image_processor) {
+  processor.image_processor.max_soft_tokens = SEQ;
+  processor.image_processor.image_seq_length = SEQ;
+  if (processor.image_processor.config) processor.image_processor.config.image_seq_length = SEQ;
+}
+if (processor.image_seq_length !== SEQ) {
+  throw new Error(`预处理 seq 未生效：请求 ${SEQ}，实际 ${processor.image_seq_length}`);
+}
+const model = await AutoModel.from_pretrained(MODEL_DIR, { config, dtype: 'float32', device: DEVICE });
+log(`模型载入完成（seq=${SEQ} · device=${DEVICE}）`);
+
+const st = await selfTestBmpLayout();
+log(`BMP 布局自检通过（${st.checked} 像素）`);
+
+const out = [];
+let how = null;
+for (const q of queries) {
+  let emb;
+  if (q.kind === 'text') {
+    const inputs = await processor(QUERY_PREFIX + q.value);
+    emb = pickEmbedding(await model.forward(inputs));
+  } else if (q.kind === 'image') {
+    const { image } = await readImageWithFallback(q.value);
+    const inputs = await processor(null, [image]);
+    emb = pickEmbedding(await model.forward(inputs));
+  } else {
+    throw new Error(`未知 kind: ${q.kind}（${q.id}）`);
+  }
+  how = how || emb.how;
+  const vec = Array.from(emb.data);
+  out.push({ id: q.id, kind: q.kind, value: q.value, dim: vec.length, norm: +norm(vec).toFixed(6), vector: vec });
+}
+
+const revision = (MODEL_DIR.replace(/\\/g, '/').split('/').find((s) => /^[0-9a-f]{40}$/.test(s))) || null;
+fs.writeFileSync(OUT_JSON, JSON.stringify({
+  generated_at: new Date().toISOString(),
+  runtime: { 'transformers.js': 'as-installed', device: DEVICE },
+  model_dir: MODEL_DIR,
+  model_revision: revision,
+  seq_length: SEQ,
+  dim: out.length ? out[0].dim : 0,
+  query_prefix: QUERY_PREFIX,
+  embedding_how: how,
+  count: out.length,
+  queries: out,
+}), 'utf8');
+log(`已写 ${OUT_JSON}（dim=${out.length ? out[0].dim : 0} · embedding=${how}）`);
