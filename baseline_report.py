@@ -69,7 +69,7 @@ def scan_disk():
             ext_counter[ext] += 1
             n_files += 1
             total_bytes += st.st_size
-            lines.append("%s\t%d\t%d\t%s" % (rel, st.st_size, int(st.st_mtime * 1000), ext))
+            lines.append("%s\t%d\t%d\t%s" % (rel, st.st_size, st.st_mtime_ns // 1_000_000   # 精确整数，与 Node 的 mtimeMs 一致（勿改回 float 乘法）, ext))
             if ext in IMG_EXT:
                 stems[(dp, stem)]["img"].append(rel)
             elif ext in ARC_EXT:

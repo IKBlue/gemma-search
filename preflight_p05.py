@@ -200,7 +200,7 @@ def main() -> int:
                 full = os.path.join(dp, fn)
                 st = os.stat(full)
                 rel = os.path.relpath(full, G.LIBRARY_ROOT)
-                lines.append("%s\t%d\t%d\t%s" % (rel, st.st_size, int(st.st_mtime * 1000),
+                lines.append("%s\t%d\t%d\t%s" % (rel, st.st_size, st.st_mtime_ns // 1_000_000   # 精确整数，与 Node 的 mtimeMs 一致（勿改回 float 乘法）,
                                                  os.path.splitext(fn)[1].lower()))
                 n += 1
         h = hashlib.sha1()
