@@ -22,6 +22,52 @@
 > **A 会在新应用验收通过后才退役**（计划里的 P7）。
 > 现在就删会留下"两边都不能用"的空窗，所以 MCP 注册与 `server.py` 都还在。
 
+### 新机器上手（克隆后 3 步）
+
+仓库里**不含**任何本机路径、索引与模型权重（见 `.gitignore`）。克隆后按下面配置：
+
+```powershell
+git clone https://github.com/IKBlue/gemma-search.git
+cd gemma-search
+
+# ① 配置素材库位置（二选一）
+#    a) 写 config.json（不入库）—— 模板见 config.example.json
+#    b) 或用环境变量（优先级更高）：
+#       $env:GEMMA_LIBRARY_ROOT = "G:\model"
+#       $env:GEMMA_MODEL_CACHE  = "D:\models"
+
+# ② 建 Python 环境并下模型
+python -m venv .venv
+& .\.venv\Scripts\pip install -r requirements.txt        # 下限；要复现实测数字用 requirements.lock.txt
+& .\.venv\Scripts\python.exe download_model.py
+
+# ③ 建索引（3594 条约 25 分钟；可中断续跑）
+& .\.venv\Scripts\python.exe build_index.py
+```
+
+**可配置项一览**（`config.json` 键 ↔ 环境变量；**环境变量优先**）：
+
+| config.json | 环境变量 | 默认 | 说明 |
+|---|---|---|---|
+| `workspace` | `GEMMA_WORKSPACE` | 项目根的上一级 | 工作区 |
+| `library_root` | `GEMMA_LIBRARY_ROOT` | `<workspace>/model` | **素材库根目录（必填）** |
+| `data_dir` | `GEMMA_DATA_DIR` | `<项目根>/data` | 索引产物目录 |
+| `model_cache` | `GEMMA_MODEL_CACHE` | `<workspace>/model-cache` | 模型缓存 |
+| `model_id` | `GEMMA_MODEL_ID` | `google/embeddinggemma-2` | 模型 id |
+| — | `GEMMA_CONFIG` | `<项目根>/config.json` | 配置文件位置 |
+
+> 配置没配好时**不会静默扫到 0 张**：`gemma_lib` 会打印「素材库目录不存在 + 当前配置摘要」。
+> 排查：`python -c "import gemma_lib as G; print(G.config_summary())"`
+
+### 克隆后要跑的守卫（全部只读）
+
+```powershell
+& .\.venv\Scripts\python.exe check_staged.py         # 提交前：暂存区规模与违规
+& .\.venv\Scripts\python.exe scan_repo_pollution.py  # 机密 / 本机耦合 / 大文件
+& .\.venv\Scripts\python.exe verify_docs.py          # 文档完整性（死引用 / 索引覆盖）
+& .\.venv\Scripts\python.exe verify_tokens.py        # 设计令牌纪律（写死颜色 / 悬空 var()）
+```
+
 ### 文档索引
 
 **先读 `TASK-PLAN.md`** —— 那是唯一的行动依据（做什么、按什么顺序、什么算做完）。

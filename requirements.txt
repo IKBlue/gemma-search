@@ -1,0 +1,34 @@
+# ============================================================
+# gemma-search · Python 侧依赖（「现有检索档」：MCP / CLI / HTTP）
+#
+# 这里只给**下限**，保证能装上；产生本文档所有实测数字的**精确版本**
+# 记录在 requirements.lock.txt（两者的差别是刻意的：
+#   下限用于"能装"，锁文件用于"复现当时的测量"）。
+# ============================================================
+
+numpy>=1.26
+pillow>=10.0
+torch>=2.4
+sentence-transformers>=3.0
+transformers>=4.44
+huggingface-hub>=0.24
+safetensors>=0.4
+tokenizers>=0.20
+
+# 仅 register_mcp.py（写 DSH profile）需要；该文件计划在 P7 退役
+PyYAML>=6.0
+
+# ------------------------------------------------------------
+# 关于 torch 与 GPU
+#
+# 本项目在本机的实测（见 spike/README.md）：
+#   · 有 NVIDIA GPU 时 torch 走 CUDA：图像编码 0.16 s/张（seq140）
+#   · CPU：1.32 s/张
+#   · **本机 CUDA 在某些运行时上不可用**，所以新应用改走 ONNX + WebGPU
+#
+# 按官方索引装 CUDA 版（示例，cu126）：
+#   pip install torch --index-url https://download.pytorch.org/whl/cu126
+#
+# 注意模型卡的硬性约束：**绝不能用 float16**（会静默返回 NaN）；
+# 统一 768 维空间；任务前缀只作用于文本，图像不加前缀。
+# ------------------------------------------------------------

@@ -117,23 +117,38 @@ git config core.autocrlf false      # 由 .gitattributes 统一控制行尾，�
 
 ---
 
-## 七、推送前最后一次把关（三条命令）
+## 七、推送结果（**已推送并核实**）
 
-```powershell
-cd D:\USERS\Desktop\Agent\gemma-search
-
-# 1) 看"到底会提交什么"（读暂存区，不猜）
-python ..\.venv\Scripts\python.exe check_staged.py     # 或 & ..\.venv\Scripts\python.exe check_staged.py
-
-# 2) 再扫一遍污染（机密 / 耦合 / 大文件）
-& ..\.venv\Scripts\python.exe scan_repo_pollution.py
-
-# 3) 确认无误后提交并推送
-git add -A
-git commit -m "chore: 立项前清理与仓库准备"
-git remote add origin https://github.com/IKBlue/gemma-search.git
-git push -u origin main
+```
+提交      c31aa90  chore: 立项前清理与仓库准备
+推送      112 objects · 2.19 MiB → * [new branch] main -> main
+远端      https://github.com/IKBlue/gemma-search.git
+跟踪      main → origin/main
 ```
 
-> **推送到 GitHub 我没有做** —— 那需要你的凭据，且属于对外发布动作，
-> 应当由你确认 `LICENSE` 与提交内容后自己执行。
+**推送后核实（不是"推完就算"）**：
+
+| 检查 | 结果 |
+|---|---|
+| 本地 HEAD vs 远端 main | `c31aa90` = `c31aa90` ✅ 一致 |
+| 领先 / 落后 | `0 / 0` ✅ |
+| 工作区 | 干净 ✅ |
+| 远端文件总数 | **99** ✅ 与本地一致 |
+| `config.json` 在远端 | ❌ **不在** ✅ |
+| `node_modules` 在远端 | ❌ **不在** ✅ |
+| `.npy`（索引）在远端 | ❌ **不在** ✅ |
+
+**远端顶层**：`.gitattributes` `.gitignore` `LICENSE` `README.md` `PRE-KICKOFF-CHECK.md`
+`TASK-PLAN.md` + 4 份 `SPEC-*.md` + `DESIGN-*.md` + `UI-REVIEW-and-migration.md` +
+`DEBT-CLEANUP.md` + 源码与守卫脚本 + `archive/` `reference/` `spike/` `data/` `static/` `onnx-spike/`
+
+### 推送后补的一处（公开仓库的必要项）
+
+**README 补了「新机器上手（克隆后 3 步）」** —— 公开仓库里没有 `config.json`，
+别人克隆后必须知道去哪配 `library_root`。同时列出 6 个可配置项
+（`config.json` 键 ↔ 环境变量）与"配置没配好不会静默扫到 0 张"的行为说明。
+
+### 仍然待你确认
+
+**`LICENSE` 目前是 MIT**（已随推送公开发布）。若要改（Apache-2.0 / 不授权 / All rights reserved），
+**改完随下次提交即可** —— 目前无阻塞。
