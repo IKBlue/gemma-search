@@ -1,0 +1,110 @@
+{
+ "total": 20,
+ "match_rgba": 0,
+ "match_bgra": 0,
+ "mismatch": 20,
+ "channel_order": "MIXED/FAIL",
+ "details": [
+  [
+   "VR\\ID-12089794.jpg",
+   "sha1 不一致",
+   "3a1a70959ed9 vs 877f9b4756a6"
+  ],
+  [
+   "VR\\ID-1257367.jpg",
+   "sha1 不一致",
+   "41f8d08acfb7 vs aaacbbe0e740"
+  ],
+  [
+   "VR\\ID-1299244.jpg",
+   "sha1 不一致",
+   "b1d06180ed51 vs 7c1a3f80342f"
+  ],
+  [
+   "VR\\ID-1413345.jpg",
+   "sha1 不一致",
+   "0a9792ac87d7 vs 047c93fd9b60"
+  ],
+  [
+   "VR\\ID-1422632.jpg",
+   "sha1 不一致",
+   "75a4de2926c6 vs 3272b064b543"
+  ],
+  [
+   "VR\\ID-1456208.jpg",
+   "sha1 不一致",
+   "d2a802d13fd5 vs a85dbab55da0"
+  ],
+  [
+   "VR\\ID-1472285.jpg",
+   "sha1 不一致",
+   "ef98415305fc vs b5e470ad9585"
+  ],
+  [
+   "VR\\ID-1499683.jpg",
+   "sha1 不一致",
+   "ac8626d753d9 vs f947b66470ac"
+  ],
+  [
+   "VR\\ID-1501265.jpg",
+   "sha1 不一致",
+   "715b73deb8d2 vs 142e217e2b8d"
+  ],
+  [
+   "VR\\ID-1502746.jpg",
+   "sha1 不一致",
+   "ad679a70858f vs 9d7d2bea86ed"
+  ],
+  [
+   "VR\\ID-1505776.jpg",
+   "sha1 不一致",
+   "3d297fd2f6ed vs 2fbcabc1e1a1"
+  ],
+  [
+   "VR\\ID-181657062.jpg",
+   "sha1 不一致",
+   "853f134d0838 vs 5db6a14c75b0"
+  ],
+  [
+   "VR\\ID-183073748.jpg",
+   "sha1 不一致",
+   "0658e9206647 vs 09066a7a5de0"
+  ],
+  [
+   "VR\\ID-610620.jpg",
+   "sha1 不一致",
+   "e6a66a457722 vs f6ff783b75cf"
+  ],
+  [
+   "VR\\ID-628141.jpg",
+   "sha1 不一致",
+   "71bef8cbe4f8 vs dc1d5e5b0984"
+  ],
+  [
+   "VR\\ID-680158601.jpg",
+   "sha1 不一致",
+   "3a688a0f9e5f vs bc2215a16832"
+  ],
+  [
+   "VR\\ID-787548745.jpg",
+   "sha1 不一致",
+   "d7acfbc4dd69 vs 482a26a748ab"
+  ],
+  [
+   "VR\\ID-888181044.jpg",
+   "sha1 不一致",
+   "7caf4e4b56fa vs 1d811746a3c8"
+  ],
+  [
+   "VR\\ID-888793055.jpg",
+   "sha1 不一致",
+   "7b57423af41e vs 7880761df060"
+  ],
+  [
+   "VR\\ID-991224669.jpg",
+   "sha1 不一致",
+   "fe4662743d95 vs 816ac7c9a62b"
+  ]
+ ],
+ "verdict": "fail"
+}

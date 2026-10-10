@@ -1,0 +1,132 @@
+
+@media (prefers-color-scheme: dark){
+}
+
+/* ---------- 按钮补充 ---------- */
+.btn.sm{padding:6px 10px;font-size:11.5px}
+.btn.ghost{background:transparent;color:var(--ink-2)}
+.btn.danger{background:var(--danger);border-color:var(--danger);color:var(--color-on-accent);font-weight:700}
+.btn.danger:hover{filter:brightness(1.06)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.link-btn{border:0;background:none;color:var(--accent);font-weight:600;font-size:12px;padding:0}
+
+/* ---------- 徽标 / 标签 ---------- */
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;padding:2px 8px;border-radius:99px;border:1px solid currentColor;white-space:nowrap}
+.pill.ok{color:var(--green);background:var(--green-soft)}
+.pill.warn{color:var(--amber);background:var(--amber-soft)}
+.pill.bad{color:var(--danger);background:var(--danger-soft)}
+.pill.info{color:var(--accent);background:var(--accent-soft)}
+.pill.plain{color:var(--muted);background:var(--color-selection)}
+.tag{display:inline-block;font-size:10px;padding:2px 6px;border-radius:5px;background:var(--color-selection);color:var(--color-text-secondary);font-weight:600}
+.tag.VR{background:var(--cat-vr-bg);color:var(--cat-vr-fg)}
+.tag.CR{background:var(--cat-cr-bg);color:var(--cat-cr-fg)}
+.tag.CRVR{background:var(--green-soft);color:var(--green)}
+.tag.other{background:var(--cat-other-bg);color:var(--color-text-secondary)}
+.tag.uncat{background:var(--amber-soft);color:var(--amber)}
+
+/* ---------- 真实缩略图（基础里 .photo 是 CSS 假图）---------- */
+.photo-img{height:145px;width:100%;display:block;object-fit:cover;background:var(--color-selection)}
+.photo .ph-fallback{height:145px;display:grid;place-items:center;gap:3px;background:var(--thumb-fallback);color:var(--muted);font-size:10.5px;text-align:center;padding:10px}
+.photo .ph-fallback b{font-size:12px;color:var(--ink-2)}
+/* 图上覆盖信息条（可选，用于列表密度更高的视图） */
+.photo .overlay-cap{position:absolute;left:0;right:0;bottom:0;padding:8px 9px;color:var(--color-bg-elevated);background:linear-gradient(180deg,transparent,var(--scrim-media-strong))}
+.photo .overlay-cap .t{font-size:12px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.photo .overlay-cap .m{font-size:10px;opacity:.85;margin-top:2px;display:flex;gap:7px}
+/* 卡片动作（悬停浮现） */
+.card-acts{position:absolute;left:7px;right:7px;bottom:7px;display:flex;gap:6px;opacity:0;transition:opacity .12s}
+.photo-card:hover .card-acts,.photo-card:focus-within .card-acts{opacity:1}
+.card-acts button{flex:1;font-size:11px;padding:5px 0;border-radius:7px;border:1px solid var(--hairline-on-media);background:var(--scrim-media-strong);color:var(--color-on-accent);backdrop-filter:blur(6px)}
+.card-acts button.pri{background:var(--accent);border-color:var(--accent);font-weight:700}
+/* 选中态 */
+.photo-card.selected{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+
+/* ---------- 分数区间三色（基础只有单色 .score）---------- */
+.score.same{color:var(--green)}
+.score.like{color:var(--amber)}
+.score.weak{color:var(--muted)}
+
+/* ---------- 表格（基础完全没有）---------- */
+.table-wrap{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--color-bg-elevated)}
+table.tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+table.tbl th{text-align:left;font-size:11px;color:var(--muted);font-weight:700;padding:9px 11px;background:var(--color-bg-secondary);border-bottom:1px solid var(--line)}
+table.tbl td{padding:9px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+table.tbl tr:last-child td{border-bottom:0}
+table.tbl tr:hover td{background:var(--color-bg-secondary)}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+.row-warn td{background:var(--danger-soft)}
+
+/* ---------- 弹窗（文件操作确认）---------- */
+.overlay{position:fixed;inset:0;background:var(--scrim);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;padding:24px;z-index:50}
+.overlay.show{display:flex}
+.dialog{width:100%;max-width:540px;background:var(--color-bg-elevated);border-radius:14px;box-shadow:var(--shadow-float);overflow:hidden}
+.dialog .dh{display:flex;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid var(--line)}
+.dialog .dh .ic{width:28px;height:28px;border-radius:9px;background:var(--danger-soft);color:var(--danger);display:grid;place-items:center;font-size:15px}
+.dialog .dh h3{margin:0;font-size:15px}
+.dialog .db{padding:16px 18px;display:grid;gap:13px}
+.dialog .db .lead{margin:0;font-size:13px;color:var(--ink-2)}
+.dialog .df{display:flex;gap:9px;justify-content:flex-end;padding:13px 18px;border-top:1px solid var(--line);background:var(--color-bg-secondary)}
+.changes{border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.changes .r{display:flex;gap:10px;align-items:center;padding:9px 11px;font-size:12px;border-bottom:1px solid var(--line)}
+.changes .r:last-child{border-bottom:0}
+.changes .r .role{width:26px;color:var(--muted);font-size:10.5px}
+.changes .r .nm{flex:1;min-width:0;word-break:break-all}
+.changes .r .sz{color:var(--muted);flex:0 0 auto}
+.checks{display:grid;gap:7px;font-size:12px;color:var(--ink-2)}
+.checks .c{display:flex;gap:8px;align-items:flex-start}
+.checks .c .m{flex:0 0 auto;font-weight:700}
+.checks .c.ok .m{color:var(--green)}
+.checks .c.warn .m{color:var(--amber)}
+.checks .c.bad .m{color:var(--danger)}
+.hint-line{font-size:11.5px;color:var(--muted);margin:0}
+
+/* ---------- 详情页布局 ---------- */
+.detail{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(360px,1fr);gap:16px;align-items:start}
+.bigpic{background:var(--color-bg-elevated);border:1px solid var(--line);border-radius:13px;display:grid;place-items:center;min-height:420px;overflow:hidden;padding:10px}
+.bigpic img{max-width:100%;max-height:68vh;display:block;border-radius:8px}
+.bigpic .ph-fallback{height:400px;width:100%}
+.kv{display:grid;grid-template-columns:86px minmax(0,1fr);gap:7px 12px;font-size:12.5px;margin:0 0 14px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0;word-break:break-all}
+.panel h4{margin:0 0 9px;font-size:12px;color:var(--muted);letter-spacing:.6px;text-transform:uppercase}
+.actgroup{border-top:1px solid var(--line);padding-top:12px;margin-top:13px}
+.actgroup .gh{display:flex;align-items:center;gap:8px;margin-bottom:9px;font-size:12px;font-weight:650;color:var(--ink-2)}
+.actrow{display:flex;flex-wrap:wrap;gap:8px}
+.danger-zone{border:1px solid var(--danger);background:var(--danger-soft);border-radius:12px;padding:13px;margin-top:14px}
+.danger-zone .t{font-size:12.5px;font-weight:750;color:var(--danger);display:flex;align-items:center;gap:7px}
+.danger-zone .d{font-size:12px;color:var(--ink-2);margin:7px 0 10px}
+.crumb-lite{display:flex;align-items:center;gap:10px;margin-bottom:15px;flex-wrap:wrap}
+
+/* ---------- 索引阶段条 ---------- */
+.stages{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:13px 0 11px}
+.stage{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:var(--color-bg-elevated);font-size:11.5px;color:var(--muted)}
+.stage .n{display:block;font-size:10px;letter-spacing:.5px;margin-bottom:3px}
+.stage.done{border-color:var(--green);color:var(--ink-2)}
+.stage.done .n{color:var(--green)}
+.stage.now{border-color:var(--accent);background:var(--accent-soft);color:var(--text);font-weight:600}
+.stage.now .n{color:var(--accent)}
+.bigbar{height:8px;border-radius:99px;background:var(--color-selection);overflow:hidden;margin:4px 0 9px}
+.bigbar span{display:block;height:100%;background:var(--accent)}
+.kpis{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+
+/* ---------- 状态条 ---------- */
+.statusbar{display:flex;align-items:center;gap:10px;margin-top:16px;padding:11px 14px;border:1px solid var(--line);border-radius:11px;background:var(--color-bg-elevated);font-size:11.5px;color:var(--ink-2);flex-wrap:wrap}
+.statusbar .dot{width:7px;height:7px;border-radius:50%;background:var(--green);flex:0 0 auto}
+.statusbar .dot.warn{background:var(--amber)}
+.statusbar .dot.bad{background:var(--danger)}
+.statusbar .r{margin-left:auto;color:var(--muted)}
+
+/* ---------- 未覆盖/说明块 ---------- */
+.todo{border:1px dashed var(--color-separator);border-radius:13px;padding:22px;background:var(--color-bg-elevated)}
+.todo h3{margin:0 0 8px;font-size:15px}
+.todo ul{margin:9px 0 0 18px;color:var(--ink-2);font-size:12.5px}
+.todo li{margin:3px 0}
+
+@media (max-width:1100px){
+  .detail{grid-template-columns:1fr}
+  .stages{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:760px){
+  .kv{grid-template-columns:1fr}
+  .kv dt{margin-top:6px}
+}

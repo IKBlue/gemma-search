@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>图片详情 · gemma-search 原型</title>
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">G</div><div><div class="brand-name">Gemma Search</div><div class="brand-sub">MATERIAL LIBRARY</div></div></div>
+    <div>
+      <div class="nav-label">工作区 WORKSPACE</div>
+      <nav class="nav">
+        <a href="语义搜索.html"><span class="ico">⌕</span><span>语义搜索</span></a>
+        <a class="active" href="图片详情.html"><span class="ico">▣</span><span>图片详情</span></a>
+        <a href="图库与索引任务.html"><span class="ico">▦</span><span>本地图库</span></a>
+        <a href="入库与增量.html"><span class="ico">＋</span><span>入库与增量</span></a>
+        <a href="图库与索引任务.html#tasks"><span class="ico">◴</span><span>索引任务</span></a>
+        <a href="操作记录与设置.html"><span class="ico">↺</span><span>操作记录</span></a>
+        <a href="操作记录与设置.html#settings"><span class="ico">⚙</span><span>设置</span></a>
+      </nav>
+      <div class="nav-label" style="margin-top:14px">原型页 PROTOTYPE</div>
+      <nav class="nav">
+        <a href="文件操作确认.html"><span class="ico">⚠</span><span>文件操作确认</span></a>
+        <a href="index.html"><span class="ico">≡</span><span>原型总览</span></a>
+      </nav>
+    </div>
+    <div class="side-note">
+      <strong>当前库 · 室内素材</strong>
+      G:\model<br />
+      <span style="color:#8b91ff">●</span> 索引 3594 / 3594<br />
+      <span class="progress" style="display:block;margin-top:8px"><span style="width:100%;background:#858aff"></span></span>
+      <span style="display:block;margin-top:6px">fp32 · seq140 · revision daa72c51…</span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="crumb">工作区 <span style="padding:0 7px;color:#c4c7d0">/</span> <strong>图片详情</strong></div>
+      <div class="top-actions">
+        <button class="icon-btn" title="帮助" data-demo="帮助中心将在正式版本中提供">?</button>
+        <button class="icon-btn" title="通知" data-demo="目前没有新的通知">♧</button>
+        <div class="avatar">GS</div>
+      </div>
+    </header>
+
+    <div class="content">
+      <div class="crumb-lite">
+        <a class="btn" href="语义搜索.html">← 返回结果</a>
+        <strong style="font-size:17px">ID-713717</strong>
+        <span class="tag VR">VR</span>
+        <span class="pill ok">已编码</span>
+        <span class="muted small" style="margin-left:auto">余弦 0.9396 · 同款区间</span>
+      </div>
+
+      <div class="detail">
+        <!-- 左：大图 -->
+        <div class="bigpic">
+          <img id="bigimg" alt="ID-713717 预览图" src="file:///G:/model/VR/ID-713717.jpeg" />
+        </div>
+
+        <!-- 右：元数据 + 动作 -->
+        <div>
+          <div class="panel">
+            <h4>身份与位置</h4>
+            <dl class="kv">
+              <dt>uid</dt><dd class="mono">9f3c1a2b4d5e</dd>
+              <dt>库 / 分类</dt><dd>室内素材 · VR</dd>
+              <dt>预览图</dt><dd class="mono">G:\model\VR\ID-713717.jpeg<br /><span class="muted small">600 × 600 · 46 KB · 2026-10-05</span></dd>
+              <dt>压缩包</dt><dd class="mono">G:\model\VR\ID-713717.zip<br /><span class="muted small">2.3 MB · 2026-10-05</span></dd>
+              <dt>配对</dt><dd><span class="pill ok">同目录同名 1:1</span></dd>
+            </dl>
+
+            <h4>索引</h4>
+            <dl class="kv" style="margin-bottom:0">
+              <dt>状态</dt><dd>已编码 · 向量行 1234 · 范数 1.000000</dd>
+              <dt>自检</dt><dd>以图自检索命中自身，余弦 <strong>1.0000</strong></dd>
+              <dt>同内容</dt><dd class="muted">无（本库共 5 组重复预览图，此处不涉及）</dd>
+            </dl>
+          </div>
+
+          <!-- 动作按"是否需重编码"分区：这是本应用独有的判断，必须显式标注 -->
+          <div class="actgroup" style="border-top:0;padding-top:2px;margin-top:14px">
+            <div class="gh">取件 <span class="pill plain">不改动库</span></div>
+            <div class="actrow">
+              <button class="btn primary" data-demo="在资源管理器定位：G:\model\VR\ID-713717.zip">在资源管理器定位</button>
+              <button class="btn" data-demo="复制到 E:\素材待用\ID-713717.zip（2.3 MB）">复制到 待用素材</button>
+              <button class="btn ghost" onclick="copyText('G:\\model\\VR\\ID-713717.zip')">复制包路径</button>
+            </div>
+          </div>
+
+          <div class="actgroup">
+            <div class="gh">维护 <span class="pill ok">复用向量，不重编码</span></div>
+            <div class="actrow">
+              <button class="btn" data-demo="改归档目录：图与包原子移动（事务，可撤销）">改归档目录…</button>
+              <button class="btn" data-demo="改 ID：图与包原子重命名，一个失败即整体回滚">改 ID…</button>
+              <button class="btn" data-demo="修正配对：把另一张图/包与之配对">修正配对…</button>
+              <button class="btn" data-demo="移动到另一个库（目标库 compat 一致时向量随迁）">移动到别库…</button>
+            </div>
+          </div>
+
+          <div class="actgroup">
+            <div class="gh">维护 <span class="pill warn">需重编码（约 0.42 s）</span></div>
+            <div class="actrow">
+              <button class="btn" data-demo="替换预览图：旧图备份到 E:\移出素材\，30 天内可还原">替换预览图…</button>
+              <button class="btn ghost" data-demo="重新编码该条（约 0.42 秒）">重新编码</button>
+            </div>
+          </div>
+
+          <div class="danger-zone">
+            <div class="t">⚠ 危险区</div>
+            <div class="d">移出库会把图与包一起移到 <span class="mono">E:\移出素材\</span>，<strong>30 天内可原样还原</strong>。本应用不提供真删除。</div>
+            <div class="actrow">
+              <button class="btn danger" onclick="openDialog('cf')">移出库…</button>
+              <a class="btn ghost" href="操作记录与设置.html">查看该条的操作记录</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="statusbar">
+        <span class="dot"></span>
+        <span>本地引擎就绪 · 模型 fp32 已加载 · webgpu</span>
+        <span class="r">向量与图片都保存在本机，不联网</span>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ===== 文件操作确认弹窗（关键流程，内嵌在此以便从详情直接触发）===== -->
+<div class="overlay" id="cf" role="dialog" aria-modal="true" aria-labelledby="cf-t">
+  <div class="dialog">
+    <div class="dh"><span class="ic">⚠</span><h3 id="cf-t">将这条素材移出库？</h3></div>
+    <div class="db">
+      <p class="lead">这条素材将从「室内素材」移到：<br /><span class="mono">E:\移出素材\室内素材\20261010-131500\</span></p>
+
+      <div class="changes">
+        <div class="r"><span class="role">图</span><span class="nm mono">VR\ID-713717.jpeg</span><span class="sz">46 KB</span></div>
+        <div class="r"><span class="role">包</span><span class="nm mono">VR\ID-713717.zip</span><span class="sz">2.3 MB</span></div>
+      </div>
+
+      <div class="checks">
+        <div class="c ok"><span class="m">✓</span><span><strong>可还原</strong>：保留 30 天；撤销会走同一个事务状态机</span></div>
+        <div class="c ok"><span class="m">✓</span><span>会写入操作记录（含 uid、前后路径、校验值）</span></div>
+        <div class="c ok"><span class="m">✓</span><span>源文件在<strong>提交且索引更新成功后</strong>才删除</span></div>
+        <div class="c warn"><span class="m">⚠</span><span>目标卷 <span class="mono">E:</span> 可用 484 GB，本次需要 2.4 MB</span></div>
+      </div>
+      <p class="hint-line">共 <strong>2</strong> 个文件 · 不提供真删除，库里不会出现无法还原的丢失。</p>
+    </div>
+    <div class="df">
+      <button class="btn" onclick="closeDialog('cf')">取消</button>
+      <button class="btn danger" onclick="closeDialog('cf');toast('已提交事务；可在操作记录里撤销')">确认移出库</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+<script>
+// 大图加载失败 → 占位（file:// 子资源可能被浏览器拦）
+document.getElementById('bigimg').addEventListener('error', function () {
+  const d = document.createElement('div');
+  d.className = 'ph-fallback';
+  d.innerHTML = '<b>ID-713717</b><span>大图未能内嵌显示</span><span class="mono">G:\\model\\VR\\ID-713717.jpeg</span>';
+  this.replaceWith(d);
+}, { once: true });
+</script>
+</body>
+</html>

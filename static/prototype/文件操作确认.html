@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>文件操作确认 · gemma-search 原型</title>
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">G</div><div><div class="brand-name">Gemma Search</div><div class="brand-sub">MATERIAL LIBRARY</div></div></div>
+    <div>
+      <div class="nav-label">工作区 WORKSPACE</div>
+      <nav class="nav">
+        <a href="语义搜索.html"><span class="ico">⌕</span><span>语义搜索</span></a>
+        <a href="图片详情.html"><span class="ico">▣</span><span>图片详情</span></a>
+        <a href="图库与索引任务.html"><span class="ico">▦</span><span>本地图库</span></a>
+        <a href="入库与增量.html"><span class="ico">＋</span><span>入库与增量</span></a>
+        <a href="图库与索引任务.html#tasks"><span class="ico">◴</span><span>索引任务</span></a>
+        <a href="操作记录与设置.html"><span class="ico">↺</span><span>操作记录</span></a>
+        <a href="操作记录与设置.html#settings"><span class="ico">⚙</span><span>设置</span></a>
+      </nav>
+      <div class="nav-label" style="margin-top:14px">原型页 PROTOTYPE</div>
+      <nav class="nav">
+        <a class="active" href="文件操作确认.html"><span class="ico">⚠</span><span>文件操作确认</span></a>
+        <a href="index.html"><span class="ico">≡</span><span>原型总览</span></a>
+      </nav>
+    </div>
+    <div class="side-note">
+      <strong>为什么单独一页</strong>
+      所有会改动库的操作，都必须先给出<strong>确切的变更清单</strong>——
+      而不是问一句"确定要执行吗？"。本页把 7 种写操作的确认框并排摆出来评审。
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="crumb">工作区 <span style="padding:0 7px;color:#c4c7d0">/</span> <strong>文件操作确认</strong></div>
+      <div class="top-actions">
+        <button class="icon-btn" title="帮助" data-demo="帮助中心将在正式版本中提供">?</button>
+        <button class="icon-btn" title="通知" data-demo="目前没有新的通知">♧</button>
+        <div class="avatar">GS</div>
+      </div>
+    </header>
+
+    <div class="content">
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">CONFIRMATION · 写入前先说清</div>
+          <h1>文件操作确认</h1>
+          <div class="subtitle">每条确认框必须回答四件事：<strong>改什么</strong>、<strong>改成什么</strong>、<strong>能不能还原</strong>、<strong>空间够不够</strong>。</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>点一个操作看它的确认框</h2>
+        <div class="filter-row" style="margin-top:0" id="picker">
+          <button class="chip active" data-v="moveout">移出库</button>
+          <button class="chip" data-v="rename">改 ID</button>
+          <button class="chip" data-v="folder">改归档目录</button>
+          <button class="chip" data-v="replace">替换预览图</button>
+          <button class="chip" data-v="movelib">移动到另一个库</button>
+          <button class="chip" data-v="ingest">入库提交</button>
+          <button class="chip" data-v="undo">撤销</button>
+          <button class="chip" data-v="recovery">待处理事务</button>
+        </div>
+      </div>
+
+      <!-- 规则速查：这些不是文案偏好，而是从规范里来的硬要求 -->
+      <div class="panel">
+        <h2>确认框的硬要求（来自 SPEC-transactions / SPEC-identity）</h2>
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead><tr><th style="width:190px">要求</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td><strong>列出确切变更</strong></td><td>图与包逐条列出：源路径 → 目标路径、体积。含糊的"确定吗"一律不合格</td></tr>
+              <tr><td><strong>标注可撤销性</strong></td><td>能否撤销、保留多久、过期后为什么不能撤销（保留期 / 空间回收）</td></tr>
+              <tr><td><strong>空间核算</strong></td><td>目标卷可用量 vs 本次需要量；<strong>不足则在写任何文件之前拒绝</strong></td></tr>
+              <tr><td><strong>重编码提示</strong></td><td>复用向量 / 需重编码（约 0.42 s）必须显式区分</td></tr>
+              <tr><td><strong>危险按钮用动词</strong></td><td>「确认移出库」而不是「确定」；实心填充 + ⚠ 图标，与强调色区分</td></tr>
+              <tr><td><strong>不作数的情况</strong></td><td>重名冲突、ID 重复、compat 不一致 → 确认框里直接拦住，不给"仍要继续"</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="statusbar">
+        <span class="dot warn"></span>
+        <span>原型：按钮只弹提示，不会真的改动文件</span>
+        <span class="r">写操作仅经事务执行器；其它代码不得直接 rename/unlink</span>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ===== 确认框（内容由 JS 按变体渲染）===== -->
+<div class="overlay" id="cf" role="dialog" aria-modal="true" aria-labelledby="cf-t">
+  <div class="dialog">
+    <div class="dh"><span class="ic" id="cf-ic">⚠</span><h3 id="cf-t">—</h3></div>
+    <div class="db">
+      <p class="lead" id="cf-lead"></p>
+      <div class="changes" id="cf-changes"></div>
+      <div class="checks" id="cf-checks"></div>
+      <p class="hint-line" id="cf-foot"></p>
+    </div>
+    <div class="df" id="cf-foot-btns">
+      <button class="btn" onclick="closeDialog('cf')">取消</button>
+      <button class="btn danger" id="cf-ok" onclick="closeDialog('cf');toast('原型：未真正改动文件')">确认</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+<script>
+/* 7 种写操作的确认框内容。字段刻意与事务日志一一对应：
+   changes 里的每一行 = 事务日志里的一条 file 记录。 */
+const V = {
+  moveout: {
+    title: '将这条素材移出库？', ok: '确认移出库', danger: true,
+    lead: '这条素材将从「室内素材」移到：<br><span class="mono">E:\\移出素材\\室内素材\\20261010-131500\\</span>',
+    changes: [['图','VR\\ID-713717.jpeg','46 KB'],['包','VR\\ID-713717.zip','2.3 MB']],
+    checks: [
+      ['ok','<strong>可还原</strong>：保留 30 天；撤销走同一个事务状态机'],
+      ['ok','会写入操作记录（含 uid、前后路径、校验值）'],
+      ['ok','源文件在<strong>提交且索引更新成功后</strong>才删除'],
+      ['warn','目标卷 <span class="mono">E:</span> 可用 484 GB，本次需要 2.4 MB']
+    ],
+    foot: '共 <strong>2</strong> 个文件 · 不提供真删除'
+  },
+  rename: {
+    title: '改 ID？', ok: '确认改名',
+    lead: '图与包将<strong>一起</strong>改名；任一步失败即整体回滚，<strong>不出现图改了包没改</strong>。',
+    changes: [['图','VR\\ID-116347859.jpg → VR\\ID-116347860.jpg','46 KB'],
+              ['包','VR\\ID-116347859.rar → VR\\ID-116347860.rar','0.25 MB']],
+    checks: [
+      ['ok','<strong>复用向量</strong>，不重编码（图像内容未变）'],
+      ['ok','uid 不变：历史、备注、审计引用都还在'],
+      ['warn','<span class="mono">ID-116347860</span> 在库内不存在，无重复']
+    ],
+    foot: '改名是原子对操作 · 可在操作记录里撤销'
+  },
+  folder: {
+    title: '改归档目录？', ok: '确认移动',
+    lead: '图与包一起移动：<span class="mono">未分类 → VR</span>',
+    changes: [['图','未分类\\ID-595812826.jpg → VR\\ID-595812826.jpg','412 KB'],
+              ['包','未分类\\ID-595812826.rar → VR\\ID-595812826.rar','18.2 MB']],
+    checks: [
+      ['ok','<strong>复用向量</strong>，不重编码'],
+      ['ok','同盘（G:）内移动，逐文件原子 rename'],
+      ['warn','目标目录中无同名文件']
+    ],
+    foot: '共 <strong>2</strong> 个文件 · 18.6 MB'
+  },
+  replace: {
+    title: '替换预览图？', ok: '确认替换',
+    lead: '新图将替代当前预览图；<strong>旧图会保留</strong>在 <span class="mono">E:\\移出素材\\</span>。',
+    changes: [['新','待入库\\595812826_new.jpg','388 KB'],
+              ['旧','VR\\ID-595812826.jpg → E:\\移出素材\\…','412 KB']],
+    checks: [
+      ['warn','<strong>需重编码</strong>：约 0.42 秒（本条）'],
+      ['ok','旧图保留 30 天，可还原'],
+      ['ok','压缩包不动']
+    ],
+    foot: '仅预览图变化 · 压缩包与 uid 不变'
+  },
+  movelib: {
+    title: '移动到另一个库？', ok: '确认移动',
+    lead: '目标库：<span class="mono">灯具专用（E:\\素材库2）</span>',
+    changes: [['图','G:\\model\\VR\\ID-713717.jpeg → E:\\素材库2\\VR\\ID-713717.jpeg','46 KB'],
+              ['包','G:\\model\\VR\\ID-713717.zip → E:\\素材库2\\VR\\ID-713717.zip','2.3 MB']],
+    checks: [
+      ['ok','<strong>compat 一致</strong>（fp32 · v1 · seq140 · 768）→ <strong>向量随迁，零重编码</strong>'],
+      ['ok','跨卷（G: → E:）：目标卷暂存 → 校验 → 提交 → 清源'],
+      ['warn','目标卷 E: 可用 484 GB，本次需要 2.4 MB'],
+      ['ok','两个库各写一条审计']
+    ],
+    foot: '跨库移动以事务执行 · 可在操作记录里撤销'
+  },
+  ingest: {
+    title: '入库 3 项？', ok: '确认入库',
+    lead: '将写入 <span class="mono">G:\\model\\未分类\\</span>（未指定分类时的默认目录）',
+    changes: [['1','ID-595812826.rar + .jpg','18.2 MB'],
+              ['2','装饰画-花卉.rar + 339007616.jpg','7.4 MB'],
+              ['3','ID-16139252.zip（缺预览图，仅入包）','31.0 MB']],
+    checks: [
+      ['ok','配对 3 / 3 项；其中 1 项<strong>仅有包</strong>（允许单边存在）'],
+      ['warn','ID 提取：2 项来自文件名，1 项<strong>需你输入</strong>（提取不到）'],
+      ['ok','不解析压缩包内容 → 入库很快，无解压风险'],
+      ['warn','G: 可用 44.3 GB，本次需要 56.6 MB']
+    ],
+    foot: '提交后进入增量编码：显示 <strong>复用 N · 新编码 M · 失败 K</strong>'
+  },
+  undo: {
+    title: '撤销这次移出库？', ok: '确认撤销',
+    lead: '把 2 个文件从 <span class="mono">E:\\移出素材\\…</span> 移回原位置。',
+    changes: [['图','E:\\移出素材\\…\\ID-713717.jpeg → G:\\model\\VR\\ID-713717.jpeg','46 KB'],
+              ['包','E:\\移出素材\\…\\ID-713717.zip → G:\\model\\VR\\ID-713717.zip','2.3 MB']],
+    checks: [
+      ['ok','撤销是<strong>新事务</strong>，与原事务互斥（同一 uid 锁）'],
+      ['warn','原位置若已被占用 → 事务停在<strong>待处理</strong>，由你决定重试/回退，<strong>绝不覆盖</strong>'],
+      ['ok','撤销本身也记审计']
+    ],
+    foot: '保留期剩余：<strong>29 天</strong>'
+  },
+  recovery: {
+    title: '2 个事务未完成，需要你决定', ok: '重试', danger: false,
+    lead: '原因：<strong>E: 盘不可用</strong>（跨卷移动中断）。源文件完好，暂存副本在 <span class="mono">G:\\model\\VR\\.gs-staging\\…</span>',
+    changes: [['①','改归档目录 · uid 9f3c1a2b… 已到 STAGED',''],
+              ['②','移出库 · uid a1b2c3d4… 已到 COMMITTED（索引未更新）','']],
+    checks: [
+      ['ok','<strong>源文件未被删除</strong> —— 提交且索引更新成功前不删源'],
+      ['ok','可<strong>重试</strong>（从日志状态继续）或<strong>回退</strong>（删暂存，源不动）'],
+      ['warn','判定不唯一时<strong>停下来问人</strong>，绝不猜']
+    ],
+    foot: '三条路：重试 · 回退 · 保持现状（仅标记，不再自动处理）',
+    extra: ['取消', '回退', '保持现状']
+  }
+};
+
+function render(v) {
+  const d = V[v];
+  document.getElementById('cf-t').textContent = d.title;
+  document.getElementById('cf-lead').innerHTML = d.lead;
+  document.getElementById('cf-changes').innerHTML = d.changes.map((c) =>
+    '<div class="r"><span class="role">' + c[0] + '</span><span class="nm mono">' + c[1] + '</span>' +
+    (c[2] ? '<span class="sz">' + c[2] + '</span>' : '') + '</div>').join('');
+  document.getElementById('cf-checks').innerHTML = d.checks.map((c) =>
+    '<div class="c ' + c[0] + '"><span class="m">' + (c[0] === 'ok' ? '✓' : c[0] === 'warn' ? '⚠' : '✕') +
+    '</span><span>' + c[1] + '</span></div>').join('');
+  document.getElementById('cf-foot').innerHTML = d.foot;
+  const ok = document.getElementById('cf-ok');
+  ok.textContent = d.ok;
+  ok.className = 'btn ' + (d.danger ? 'danger' : 'primary');
+  document.getElementById('cf-ic').textContent = d.danger ? '⚠' : '↻';
+}
+
+document.querySelectorAll('#picker .chip').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('#picker .chip').forEach((x) => x.classList.toggle('active', x === b));
+  render(b.dataset.v);
+  openDialog('cf');
+}));
+
+render('moveout');
+/* 直接进来也能看到：先自动弹一次，便于评审 */
+setTimeout(() => openDialog('cf'), 150);
+</script>
+</body>
+</html>

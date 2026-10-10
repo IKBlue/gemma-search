@@ -1,0 +1,108 @@
+# ============================================================
+# gemma-search · .gitignore
+#
+# 原则：**源码与文档入库；派生物、本机配置、大文件不入库。**
+# 每条都注明"为什么"，避免以后有人误删规则把 24 MB 索引提交上去。
+# ============================================================
+
+# ---------- 本机配置（绝对路径在这里，不在代码里）----------
+config.json
+
+# ---------- 派生数据：索引与备份 ----------
+# 索引可由 build_index.py 重建（约 25 分钟 / 3594 条），不该进 git：
+#   embeddings.npy 10.5 MB · items.json 1.6 MB（且含本机绝对路径）
+data/*.npy
+data/items.json
+data/meta.json
+# G-A 门禁要求的"可恢复副本"：本机安全网，不是源码
+data/_backup-*/
+# 一次性索引构建输出
+data/idx-*/
+# 派生预览与外部变更快照
+data/previews/
+data/derived/
+# 首次真写前的"路径+大小+mtime"清单（约 10 MB，且是本机库的快照）
+data/lib-snapshot-*.json
+# 模型清单（含本机缓存路径）
+data/models.json
+
+# 度量与日志：可在本机复跑，不入库（data/quality/ 下的证据**要入库**，见下）
+data/*.log
+data/gpu_speed.json
+data/speed_probe.json
+
+# 门禁证据：体积可能很大，只保留说明文件
+reports/*
+!reports/README.md
+
+# ---------- 模型与缓存（很大且可重新下载）----------
+# ONNX fp32 档约 1.63 GB；HF torch 缓存约 1.42 GB
+model-cache/
+.cache/
+*.onnx
+*.onnx_data
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# ---------- Node / Electron ----------
+node_modules/
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+.npm-cache/
+.uv-cache/
+.pnpm-store/
+
+# ---------- 构建与打包产物（P6 起会用到）----------
+dist/
+out/
+build/
+release/
+*.asar
+*.exe
+*.msi
+*.nsis
+
+# ---------- 编辑器 / 系统 ----------
+.vscode/*
+!.vscode/settings.example.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*~
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ---------- 临时文件 ----------
+*.tmp
+*.bak
+*.orig
+*.rej
+_*.js
+
+# ---------- 机密（双保险：即使手滑也不会提交）----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json

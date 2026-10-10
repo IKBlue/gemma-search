@@ -1,0 +1,32 @@
+{
+ "rel_path": "VR\\ID-12089794.jpg",
+ "width": 982,
+ "height": 618,
+ "variants": {
+  "rgba": "877f9b4756a6e26f4fd6823ccb75d642a453d1e2",
+  "rgba+flip": "28a407088af07601afeb7ccaeecc48a12531ef64",
+  "bgra": "0b6d9d1351a6b3f97e10198782001c9d6181ddc2",
+  "bgra+flip": "4b76209257655e0c9b09c9eb92148f45b1307048",
+  "raw-bytes": "f1590ae7ce5d88023c94a3ec3fc216c74d0c29ff"
+ },
+ "first8": [
+  0,
+  244,
+  244,
+  244,
+  0,
+  244,
+  244,
+  244
+ ],
+ "last8": [
+  0,
+  244,
+  244,
+  244,
+  0,
+  244,
+  244,
+  244
+ ]
+}

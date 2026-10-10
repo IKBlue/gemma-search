@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gemma-search 应用 · 计划总览</title>
+<!--
+  计划总览页（单文件、无 CDN、离线可用、可直接打印）
+  数据来源：TASK-PLAN.md / SPEC-*.md / DESIGN-app-details.md + 本机实测
+  更新日期：2026-10-10
+-->
+<style>
+  :root {
+    --bg:#fff; --bg-2:#f6f7f9; --bg-3:#eceef2; --fg:#14181d; --fg-2:#586170; --fg-3:#8b949e;
+    --line:#dfe3e8; --accent:#2f6feb; --accent-2:#e8f0fe;
+    --ok:#1a7f37; --ok-bg:#e6f4ea; --warn:#9a6700; --warn-bg:#fdf3e0;
+    --bad:#cf222e; --bad-bg:#fdeceb; --info-bg:#eef4ff;
+    --radius:12px; --shadow:0 1px 2px rgba(0,0,0,.05), 0 6px 20px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0d1117; --bg-2:#161b22; --bg-3:#21262d; --fg:#e6edf3; --fg-2:#9ba3ae; --fg-3:#6e7681;
+      --line:#30363d; --accent:#4d8bf5; --accent-2:#16233a;
+      --ok:#3fb950; --ok-bg:#0f2a17; --warn:#d29922; --warn-bg:#2b2110;
+      --bad:#f85149; --bad-bg:#2d1214; --info-bg:#132038;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.65 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif; }
+  a { color:var(--accent); }
+
+  /* 顶栏 */
+  header { position:sticky; top:0; z-index:20; background:color-mix(in srgb,var(--bg) 92%,transparent);
+           backdrop-filter:blur(10px); border-bottom:1px solid var(--line); padding:12px 22px;
+           display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; font-weight:700; letter-spacing:.2px; }
+  header .sub { color:var(--fg-3); font-size:13px; }
+  header .spacer { flex:1; }
+  .pill { font-size:12px; padding:2px 10px; border-radius:999px; border:1px solid currentColor; white-space:nowrap; }
+  .pill.ok { color:var(--ok); background:var(--ok-bg); }
+  .pill.warn { color:var(--warn); background:var(--warn-bg); }
+  .pill.bad { color:var(--bad); background:var(--bad-bg); }
+  .pill.info { color:var(--accent); background:var(--info-bg); }
+  .pill.plain { color:var(--fg-2); background:var(--bg-3); }
+
+  /* 目录 */
+  nav { padding:10px 22px; border-bottom:1px solid var(--line); background:var(--bg-2);
+        display:flex; gap:8px; flex-wrap:wrap; font-size:13px; }
+  nav a { text-decoration:none; color:var(--fg-2); padding:4px 10px; border-radius:8px; border:1px solid transparent; }
+  nav a:hover { background:var(--bg-3); color:var(--fg); }
+
+  main { max-width:1080px; margin:0 auto; padding:26px 22px 80px; }
+  section { margin-bottom:38px; scroll-margin-top:70px; }
+  h2 { font-size:19px; margin:0 0 4px; padding-bottom:8px; border-bottom:2px solid var(--line); }
+  h2 .n { color:var(--fg-3); font-weight:600; margin-right:8px; }
+  h3 { font-size:15px; margin:20px 0 8px; }
+  p.lead { color:var(--fg-2); margin:10px 0 16px; }
+
+  /* 大数字卡 */
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin:14px 0; }
+  .stat { border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-2); padding:14px; }
+  .stat .v { font-size:23px; font-weight:750; font-variant-numeric:tabular-nums; letter-spacing:-.5px; }
+  .stat .k { font-size:12px; color:var(--fg-3); margin-top:2px; }
+  .stat .note { font-size:12px; color:var(--fg-2); margin-top:6px; }
+
+  /* 表格 */
+  table { width:100%; border-collapse:collapse; font-size:13.5px; margin:10px 0; }
+  th { text-align:left; font-size:12px; color:var(--fg-3); font-weight:650; padding:8px 10px;
+       border-bottom:1px solid var(--line); background:var(--bg-2); }
+  td { padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr:last-child td { border-bottom:0; }
+  table.boxed { border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
+  td.mono, .mono { font-family:ui-monospace,Consolas,monospace; font-size:12.5px; }
+  td.num { font-variant-numeric:tabular-nums; text-align:right; }
+  .yes { color:var(--ok); font-weight:650; }
+  .no { color:var(--bad); font-weight:650; }
+  .meh { color:var(--warn); font-weight:650; }
+
+  /* 卡片与提示 */
+  .card { border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-2);
+          padding:16px; margin:12px 0; box-shadow:var(--shadow); }
+  .card.warn { border-left:4px solid var(--warn); background:var(--warn-bg); }
+  .card.bad { border-left:4px solid var(--bad); background:var(--bad-bg); }
+  .card.ok { border-left:4px solid var(--ok); background:var(--ok-bg); }
+  .card h4 { margin:0 0 6px; font-size:14px; }
+  .card p:last-child { margin-bottom:0; }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
+
+  /* 架构图 */
+  .arch { display:flex; flex-direction:column; gap:6px; margin:12px 0; }
+  .layer { border:1px solid var(--line); border-radius:10px; background:var(--bg-2); padding:11px 14px; }
+  .layer b { display:block; margin-bottom:3px; }
+  .layer .d { font-size:12.5px; color:var(--fg-2); }
+  .arrow { text-align:center; color:var(--fg-3); font-size:13px; }
+  .layer.hl { border-color:var(--accent); background:var(--accent-2); }
+
+  /* 阶段时间线 */
+  .phase { display:grid; grid-template-columns:92px 1fr; gap:14px; padding:12px 0;
+           border-bottom:1px solid var(--line); }
+  .phase:last-child { border-bottom:0; }
+  .phase .id { font-weight:750; font-size:14px; color:var(--fg-2); }
+  .phase .body h4 { margin:0 0 4px; font-size:14.5px; }
+  .phase .body ul { margin:6px 0 0 18px; padding:0; color:var(--fg-2); font-size:13.5px; }
+  .phase .body li { margin:2px 0; }
+  .phase .body .acc { font-size:12.5px; color:var(--fg-3); margin-top:6px; }
+
+  code { background:var(--bg-3); padding:1px 5px; border-radius:5px; font-size:12.5px; }
+  .note { font-size:12.5px; color:var(--fg-3); }
+  footer { border-top:1px solid var(--line); padding:18px 22px; color:var(--fg-3); font-size:12.5px;
+           text-align:center; }
+  @media print { header, nav { position:static; } section { page-break-inside:avoid; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>gemma-search 应用 · 计划总览</h1>
+  <span class="sub">本地素材库语义检索 / 入库 / 多库管理</span>
+  <span class="spacer"></span>
+  <span class="pill ok">后端路线已定稿</span>
+  <span class="pill ok">G-A 门禁通过</span>
+  <span class="pill warn">全量重建暂缓（待质量判据）</span>
+  <span class="sub">2026-10-10</span>
+</header>
+
+<nav>
+  <a href="#goal">① 目标</a>
+  <a href="#decisions">② 已定决策</a>
+  <a href="#stack">③ 技术栈</a>
+  <a href="#spike">④ 实测结论</a>
+  <a href="#arch">⑤ 架构</a>
+  <a href="#scope">⑥ 功能范围</a>
+  <a href="#phases">⑦ 阶段计划</a>
+  <a href="#verify">⑧ 检查点与风险</a>
+  <a href="#status">⑨ 当前进度</a>
+  <a href="#review">⑩ 审核整改</a>
+</nav>
+
+<main>
+
+<!-- ============ ① 目标 ============ -->
+<section id="goal">
+  <h2><span class="n">①</span>目标</h2>
+  <p class="lead">
+    做一个<strong>独立桌面应用</strong>，管住本地素材库：<strong>找得到、看得见、取得到、收得进、管得住</strong>。
+    不再依附 DSH（此前做过右栏插件，已撤销并清除）。
+  </p>
+  <div class="card">
+    <h4>为什么不能沿用现有形态</h4>
+    <table>
+      <tr><td style="width:150px"><b>MCP 工具（现状）</b></td>
+          <td>只能在 DSH 会话里用；我给你路径，但<strong>你在 DSH 里打不开 <code>G:\</code> 的图</strong>（实测 <code>present.open</code> 只认工作区文件，返回 500）</td></tr>
+      <tr><td><b>CLI</b></td><td>每次新进程要 <strong>11.2 秒</strong>（载模型固定开销），不适合交互式翻看</td></tr>
+      <tr><td><b>HTTP 界面</b></td><td>已有缩略图网格，但要手动起服务，且不算"应用"</td></tr>
+      <tr><td><b>DSH 右栏插件</b></td><td>侵入配置、槽位契约不确定、<strong>曾导致 DSH 起不来</strong>（已全部移除）</td></tr>
+    </table>
+  </div>
+  <h3>成功标准（可测）</h3>
+  <table class="boxed">
+    <tr><td style="width:38px" class="num">1</td><td>双击启动 ≤ <b>5 秒</b>出可用窗口</td></tr>
+    <tr><td class="num">2</td><td>文本查询（热）<b>P50 ≤ 80 ms</b> · P95 ≤ 150 ms；图像查询（热，webgpu）<b>P50 ≤ 1.0 s</b> · P95 ≤ 1.5 s
+        <br><span class="note">⚠ 原定"图像查询 ≤0.5 s"<b>已修正</b>：0.42 s 只是编码，端到端还要加预处理/检索/渲染。原指标是我拍的，不是从证据推出来的。<br>
+        CPU 回退时<b>不做延迟承诺</b>，界面必须显示回退状态</span></td></tr>
+    <tr><td class="num">3</td><td>结果以缩略图网格呈现，<b>应用内直接可见</b>（不依赖外部工具）</td></tr>
+    <tr><td class="num">4</td><td>任一条可一键在资源管理器<b>定位</b>其同名压缩包</td></tr>
+    <tr><td class="num">5</td><td>可把包<b>复制</b>到指定目录（默认 <code>E:\素材待用\</code>）</td></tr>
+    <tr><td class="num">6</td><td>能<b>入库</b>新素材并索引；能管<b>增量</b>（新增/变更/消失）</td></tr>
+    <tr><td class="num">7</td><td>增删查改齐备；「删」只提供<b>移出库</b>（可还原）</td></tr>
+    <tr><td class="num">8</td><td>支持<b>多库</b>；跨库检索只合并一致性通过的库，不一致的显式标灰说明</td></tr>
+    <tr><td class="num">9</td><td><b>断网可用</b>；全程对素材库的写入只经入库流程（预检+审计+可撤销）</td></tr>
+  </table>
+</section>
+
+<!-- ============ ② 决策 ============ -->
+<section id="decisions">
+  <h2><span class="n">②</span>已定决策（全部拍板）</h2>
+  <table class="boxed">
+    <thead><tr><th style="width:120px">项</th><th>决定</th><th style="width:300px">依据 / 备注</th></tr></thead>
+    <tbody>
+      <tr><td><b>形态</b></td><td>独立应用，<b>不做 DSH 插件</b></td><td>插件方案已撤销并清除（曾导致 DSH 起不来）</td></tr>
+      <tr><td><b>外壳</b></td><td><b>Electron</b></td><td>Node 工具链齐备；Rust <b>实测未安装</b>（PATH 里是卸载残留），MSVC 虽有但 Tauri 优势仅剩体积</td></tr>
+      <tr><td><b>后端</b></td><td><b>Node + ONNX + WebGPU</b>，<b>不再需要 Python</b></td><td>文本塔与 torch <b>bit-exact</b>；WebGPU 0.42 s/张；DML/CUDA 均不可用</td></tr>
+      <tr><td><b>精度</b></td><td><code>fp32</code> + <code>image_seq_length=140</code></td><td>现有索引即 140 且已证明够用；280 慢一倍</td></tr>
+      <tr><td><b>写库</b></td><td><b>允许直接写 <code>G:\model</code></b></td><td>但必须走「写入有纪律」：预检 → 执行 → 审计 → 可撤销</td></tr>
+      <tr><td><b>分类</b></td><td><b>不做自动分类</b>；默认进 <code>未分类\</code>，分类可选、可后改</td><td>自动分类要读压缩包（开销大），且不是每个用户都会分类；<b>应用完全不解析压缩包</b></td></tr>
+      <tr><td><b>ID</b></td><td>从文件名提取 <code>ID-&lt;digits&gt;</code>；<b>提不到就停下来问你</b></td><td>不擅自编号</td></tr>
+      <tr><td><b>删除</b></td><td>只提供<b>移出库</b>（→ <code>E:\移出素材\</code>，可还原）</td><td>不提供真删除</td></tr>
+      <tr><td><b>索引位置</b></td><td><b>应用数据目录</b><br><span class="mono note">%APPDATA%\gemma-search\libraries\&lt;lib_id&gt;\</span></td><td>库目录保持干净；"随库存放"开关推迟</td></tr>
+      <tr><td><b>跨库检索</b></td><td><b>支持</b>，但只合并一致性通过的库</td><td>不一致的显式标灰并写明原因，<b>绝不静默混入</b></td></tr>
+      <tr><td><b>传输层</b></td><td><b>IPC</b>；REST <b>推迟</b></td><td>CRUD 后应用能写库 → localhost HTTP 会引入 CSRF/DNS-rebinding 攻击面；触发条件见 ⑤</td></tr>
+      <tr><td><b>DSH 的 MCP 档</b></td><td><b>最终移除</b>（排在最后）</td><td>避免"DSH 不能用、应用还没好"的空窗</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============ ③ 技术栈 ============ -->
+<section id="stack">
+  <h2><span class="n">③</span>技术栈</h2>
+  <div class="grid2">
+    <div class="card">
+      <h4>采用</h4>
+      <table>
+        <tr><td>推理</td><td class="mono">@huggingface/transformers 4.3.1</td></tr>
+        <tr><td></td><td class="mono">onnxruntime-node 1.30.0</td></tr>
+        <tr><td>设备</td><td><code>device: 'webgpu'</code>（失败回落 <code>cpu</code>）</td></tr>
+        <tr><td>模型</td><td class="mono">onnx-community/embeddinggemma-2-ONNX</td></tr>
+        <tr><td>下的文件</td><td><b>只下文本塔 + 视觉塔</b>，跳过音频塔</td></tr>
+        <tr><td>精度档</td><td>默认 <b>q4f16 243 MB</b> / fp16 837 MB / fp32 1.63 GB</td></tr>
+        <tr><td>外壳</td><td>Electron（单进程 + worker 线程）</td></tr>
+      </table>
+    </div>
+    <div class="card bad">
+      <h4>已排除（都有实测依据）</h4>
+      <table>
+        <tr><td style="width:110px"><b>DirectML</b></td><td class="no">✗ 结构上跑不了</td></tr>
+        <tr><td colspan="2" class="note mono">Reshape node_view_1 → E_INVALIDARG（两次确认，与精度无关）</td></tr>
+        <tr><td><b>CUDA</b></td><td class="no">✗ Windows 不支持</td></tr>
+        <tr><td colspan="2" class="note mono">Unsupported device: "cuda". Should be one of: dml, webgpu, cpu</td></tr>
+        <tr><td><b>ONNX CPU</b></td><td class="meh">⚠ 可用但慢 3.3×</td></tr>
+        <tr><td colspan="2" class="note">仅作 WebGPU 的回退路径</td></tr>
+        <tr><td><b>Tauri</b></td><td class="no">✗ 需先装 Rust 工具链</td></tr>
+        <tr><td colspan="2" class="note">实测 <code>.cargo</code> 目录不存在；优势仅剩体积</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ④ 实测 ============ -->
+<section id="spike">
+  <h2><span class="n">④</span>spike 实测结论</h2>
+  <p class="lead">在写应用之前，用 20 张库内图 + 5 句中文做了跨运行时对照实验，回答一个问题：
+     <strong>ONNX 的向量能不能与现有索引（torch 产出）可比？</strong></p>
+
+  <div class="stats">
+    <div class="stat"><div class="v" style="color:var(--ok)">1.000000</div><div class="k">文本塔 vs torch（余弦）</div>
+      <div class="note">5 条查询、两个 seq 档，全部 <b>bit-exact</b> → ONNX 导出忠实</div></div>
+    <div class="stat"><div class="v" style="color:var(--warn)">0.9957</div><div class="k">图像 vs torch（中位余弦）</div>
+      <div class="note">差 0.4%，来自图像预处理（resize）而非模型 → <b>索引必须用同一运行时重建</b></div></div>
+    <div class="stat"><div class="v">0.42 <span style="font-size:14px">s/张</span></div><div class="k">WebGPU 编码（seq140）</div>
+      <div class="note">CPU 1.32 s；torch/GPU 0.16 s</div></div>
+    <div class="stat"><div class="v" style="color:var(--ok)">逐位一致</div><div class="k">WebGPU vs CPU 向量</div>
+      <div class="note">小数点后 6 位相同 → <b>WebGPU 不引入额外漂移</b></div></div>
+  </div>
+
+  <h3>性能对照（同一批 20 张图）</h3>
+  <table class="boxed">
+    <thead><tr><th>指标</th><th class="num">torch（CUDA/Python）</th><th class="num">ONNX CPU</th><th class="num">ONNX WebGPU</th></tr></thead>
+    <tbody>
+      <tr><td>模型载入</td><td class="num">3.70 s</td><td class="num">2.11 s</td><td class="num"><b>2.57 s</b></td></tr>
+      <tr><td>图像 seq140</td><td class="num">0.16 s/张</td><td class="num">1.32 s/张</td><td class="num"><b>0.42 s/张</b></td></tr>
+      <tr><td>图像 seq280</td><td class="num">0.34 s/张</td><td class="num">3.42 s/张</td><td class="num"><b>0.80 s/张</b></td></tr>
+      <tr><td>文本</td><td class="num">~50 ms/条</td><td class="num">~36 ms/条</td><td class="num"><b>~21 ms/条</b></td></tr>
+      <tr><td>建索引 3594 张 @140</td><td class="num">~10 分钟</td><td class="num">~1.3 小时</td><td class="num"><b>~25 分钟</b></td></tr>
+      <tr><td>向量 vs torch（文本）</td><td class="num">基准</td><td class="num yes">1.000000</td><td class="num yes">1.000000</td></tr>
+      <tr><td>向量 vs torch（图像）</td><td class="num">基准</td><td class="num meh">中位 0.9957</td><td class="num meh">与 CPU 逐位一致</td></tr>
+    </tbody>
+  </table>
+
+  <div class="card warn">
+    <h4>⚠ 由此确立的一条铁律：预处理也绑定索引</h4>
+    <p>跨 seq 混用**绝对不行**：torch(140) vs ONNX(280) 的最差余弦只有 <b>0.7597</b>。
+       所以索引里必须记录 <code>model / precision / seq / dtype</code>，任一不符<b>拒绝检索并提示重建</b>——
+       否则不报错、只是结果悄悄变差，这是本项目最危险的失败模式。</p>
+  </div>
+
+  <div class="card ok">
+    <h4>✓ 索引重建试点已通过</h4>
+    <p>用新写的 Node 构建器跑了 <b>100 张</b>：<b>100/100 编码成功、0 失败、2.41 条/秒</b>
+       → 全量 3594 张约 <b>25 分钟</b>，与实测投影吻合。
+       新格式 <code>index.bin</code>（MAGIC + headerJSON + float32 块）与 <b>稳定 UID 主键</b>已落地。</p>
+  </div>
+</section>
+
+<!-- ============ ⑤ 架构 ============ -->
+<section id="arch">
+  <h2><span class="n">⑤</span>架构</h2>
+  <div class="arch">
+    <div class="layer"><b>渲染进程（界面）</b>
+      <div class="d">三个视图：检索 / 入库 / 增量（+ 库管理）。<code>nodeIntegration:false</code>、<code>contextIsolation:true</code>；
+      图片经自定义协议 <code>thumb://&lt;uid&gt;</code>，<b>渲染进程不接触文件系统</b></div></div>
+    <div class="arrow">▲ IPC（类型化、无端口、无 CORS、无鉴权、<b>浏览器无法调用</b>）</div>
+    <div class="layer hl"><b>core/engine.mjs —— 传输无关的引擎（本期核心）</b>
+      <div class="d">纯逻辑，无 Electron / 无 HTTP / 无全局状态。方法：<code>search · item · thumbPath · reveal · collect ·
+      ingest · mutate · scan · indexStatus · indexStart/Cancel</code>。
+      <b>测试直接打它</b>，所以不需要 HTTP 也能测</div></div>
+    <div class="arrow">▼ worker 线程（编码不冻结界面）</div>
+    <div class="layer"><b>推理层</b>
+      <div class="d">transformers.js + onnxruntime-node，<code>device:'webgpu'</code>（回落 cpu），<code>fp32</code>，<code>seq 140</code>；
+      模型只加载一次，常驻主进程 worker</div></div>
+    <div class="arrow">▼ 文件系统</div>
+    <div class="layer"><b>数据层</b>
+      <div class="d">索引 <code>%APPDATA%\gemma-search\libraries\&lt;lib_id&gt;\{index.bin, items.json, meta.json}</code>；
+      模型 <code>model-cache\onnx\&lt;repo&gt;\&lt;revision&gt;\&lt;precision&gt;\</code>；
+      库（只经入库流程写入）<code>G:\model\&lt;目录&gt;\</code></div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>为什么现在不加 REST</h4>
+      <p><b>决定性理由</b>：应用现在能<b>移动/重命名/移出库</b>。一旦挂到
+      <code>http://127.0.0.1:&lt;port&gt;</code>，<b>你浏览的任意网页都能向 localhost 发请求</b>——
+      本机 HTTP 服务的 <b>CSRF / DNS-rebinding 是已知攻击类</b>，恶意页面可悄悄 <code>POST /api/mutate</code> 移走库里文件。
+      IPC 根本不存在这个攻击面。</p>
+      <p class="note">localhost ≠ 安全：它挡的是"外部网络进来的人"，挡不住"从你浏览器里发起的请求"。</p>
+    </div>
+    <div class="card">
+      <h4>什么时候才值得加（触发条件）</h4>
+      <table>
+        <tr><td>想在<b>手机/平板</b>上浏览素材库</td></tr>
+        <tr><td>想让 <b>DSH/MCP 复用同一个模型实例</b>（否则再常驻一份 243 MB–1.6 GB）</td></tr>
+        <tr><td>想<b>脚本化</b>（定时扫描、从微信目录批量入库）</td></tr>
+        <tr><td>出现第二个客户端</td></tr>
+      </table>
+      <p class="note">届时只需新增 <code>transports/http.mjs</code>（约一天），并遵守安全基线：
+      只绑 <code>127.0.0.1</code> · token 鉴权 · Origin 校验 · 写操作默认关闭 · 只按 <code>lib_id+uid</code> 寻址。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ⑥ 功能范围 ============ -->
+<section id="scope">
+  <h2><span class="n">⑥</span>功能范围</h2>
+
+  <h3>增删查改（全）</h3>
+  <table class="boxed">
+    <thead><tr><th style="width:60px">类</th><th>操作</th><th style="width:170px">需重编码？</th></tr></thead>
+    <tbody>
+      <tr><td><b>增</b></td><td>入库（拖入包+图 → 配对 → 取 ID → 目录(可空) → 预检 → 写入 → 编码）</td><td>✅ 新图需编码</td></tr>
+      <tr><td></td><td><b>补齐</b>：给既有素材补上缺的那一半（复用原 uid）</td><td>补图需，补包不需要</td></tr>
+      <tr><td></td><td>从别库移入</td><td>同 model/seq 时向量随迁</td></tr>
+      <tr><td><b>查</b></td><td>语义检索（中文描述 / 参考图）· 按 ID 精确查 · 按目录浏览 · 健康面板 · 审计历史</td><td>—</td></tr>
+      <tr><td><b>改</b></td><td>改归档目录 · 改 ID（图与包<b>原子</b>重命名）· 修正配对 · 移动到别库</td><td class="yes">❌ 复用向量</td></tr>
+      <tr><td></td><td>替换预览图 · 文件被外部改动</td><td class="meh">✅ 必须重编码</td></tr>
+      <tr><td></td><td>备注/标记（只存应用侧索引，<b>不往库里写文件</b>）</td><td>❌ 与向量无关</td></tr>
+      <tr><td><b>删</b></td><td><b>移出库</b>（→ <code>E:\移出素材\</code>，可还原）· 从索引移除（文件已不在）</td><td>—</td></tr>
+      <tr><td></td><td>真删除</td><td class="no">❌ 不提供</td></tr>
+    </tbody>
+  </table>
+
+  <div class="card bad">
+    <h4>硬规则：绝不允许"半截状态"</h4>
+    <p>「改 ID」「改目录」「移出库」必须<b>图与包同时成功</b>：先都写到目标名 → 校验字节一致 → 再删原件；任何一步失败即回滚。
+       <b>绝不允许出现"图改了包没改"。</b></p>
+  </div>
+
+  <h3>写入纪律（四步，缺一不可）</h3>
+  <table class="boxed">
+    <tr><td style="width:80px"><b>① 预检</b></td><td>算出"将要发生的确切变更清单"：源→目标、重名、ID 冲突、体积</td></tr>
+    <tr><td><b>② 执行</b></td><td>临时名写入 → 校验字节 → 原子替换/移动；多文件要么全成要么全回滚</td></tr>
+    <tr><td><b>③ 审计</b></td><td>记 <code>{时间, 库, uid, 操作, 前后路径, 结果}</code></td></tr>
+    <tr><td><b>④ 撤销</b></td><td>任何一步都能反向执行；撤销本身也记审计</td></tr>
+  </table>
+  <p class="note">只读操作（检索/扫描/缩略图/浏览）<b>永远不写库</b>，且扫描前后比对<b>库指纹</b>，发现非本流程的改动就报警。</p>
+
+  <h3>多库管理</h3>
+  <table class="boxed">
+    <thead><tr><th style="width:130px">操作</th><th>行为</th></tr></thead>
+    <tbody>
+      <tr><td>添加库</td><td>选目录 → 扫描 → 有索引则按<b>指纹校验</b>复用，否则新建（0.42 s/张）</td></tr>
+      <tr><td><b>移除库</b></td><td><b>只从注册表移除，绝不删文件</b>（界面明确写这句）</td></tr>
+      <tr><td>重命名库</td><td>只改显示名</td></tr>
+      <tr><td><b>重新指向</b>（换盘）</td><td>按指纹判断是否同一个库：一致则<b>只改路径、不重建索引</b>；不一致才要求重建</td></tr>
+      <tr><td>跨库移动素材</td><td>图+包一起移；同 model/seq 时<b>向量随迁，零重编码</b></td></tr>
+      <tr><td>扫描 / 重建索引</td><td>按库进行，进度与取消独立</td></tr>
+    </tbody>
+  </table>
+  <div class="card warn">
+    <h4>跨库检索的铁律</h4>
+    <p>只有 <code>model + precision + seq + dtype</code> <b>全一致</b>的库才能一起检索。不一致的库在界面<b>标灰并写明原因</b>
+       （如「seq280，与当前 140 不一致」），<b>绝不静默混入</b>。</p>
+  </div>
+</section>
+
+<!-- ============ ⑦ 阶段 ============ -->
+<section id="phases">
+  <h2><span class="n">⑦</span>阶段计划</h2>
+  <p class="lead">每阶段都有<b>验收条件</b>与<b>验证方式</b>；检查点不通过就停在那里修，不带着问题往下走。</p>
+
+  <div class="phase">
+    <div class="id">P0</div>
+    <div class="body">
+      <h4>基线复核 <span class="pill plain">未开始</span></h4>
+      <ul><li>确认现有索引健康（<code>encoded == indexed == 3594</code>，<code>missing == 0</code>）</li>
+          <li>确认库可读、配对规则与旧实现一致（<b>含核实"76 条无包"是否真实</b>）</li></ul>
+      <div class="acc">验证：<code>cli.py stats</code> · <code>verify_app.py</code>（11 项）</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="id">P0.5</div>
+    <div class="body">
+      <h4>索引重建（Node/ONNX/WebGPU） <span class="pill info">试点已通过</span> <span class="pill warn">全量待跑</span></h4>
+      <ul><li>✅ 构建器已写好：扫描配对 · 稳定 UID（sha1 图像字节）· 新格式 <code>index.bin</code> · 可续跑 · 原子落盘</li>
+          <li>✅ 100 张试点：<b>0 失败、2.41 条/秒</b></li>
+          <li>⏳ 全量 3594 张（约 25 分钟）；顺带验证 WebGPU <b>长时间稳定性</b></li>
+          <li>保留旧索引作对照；重建后做一次检索质量对比</li></ul>
+      <div class="acc">验收：<code>count == 3594</code>、<code>dim == 768</code>、所有向量范数∈[0.99,1.01]、失败清单为空或已解释</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="id">P1</div>
+    <div class="body">
+      <h4>core/engine.mjs（传输无关引擎） <span class="pill plain">未开始</span></h4>
+      <ul><li>方法：<code>search · item · thumbPath · reveal · collect · ingest · mutate · scan · indexStatus · indexStart/Cancel</code></li>
+          <li>索引读写（新格式 + UID 主键）· 库注册表 · 一致性校验（model/precision/seq/dtype）</li>
+          <li>写入纪律四步 · 审计日志 · 库指纹护栏</li>
+          <li>无头单测直接打引擎（不经传输）</li></ul>
+      <div class="acc">验收：单测全过；跨 seq 混用被拒绝且给出明确原因</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="id">P2</div>
+    <div class="body">
+      <h4>Electron 骨架 <span class="pill plain">未开始</span></h4>
+      <ul><li><code>app/</code> 初始化；主进程载引擎；worker 线程跑编码</li>
+          <li><code>thumb://</code> 自定义协议；<code>preload.js</code> 白名单（不开 nodeIntegration）</li>
+          <li>退出时干净收掉 worker 与模型</li></ul>
+      <div class="acc">验收：冷启动 ≤5 秒出窗；关窗无残留进程</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="id">P3</div>
+    <div class="body">
+      <h4>检索界面 <span class="pill plain">未开始</span></h4>
+      <ul><li>文本/图像检索、结果网格（缩略图+分数+区间标签+分类徽标+包名体积）</li>
+          <li>分类筛选、返回条数、键盘操作（↑↓ 选 / Enter 定位 / Ctrl+C 复制路径 / Esc）</li>
+          <li>拖放与粘贴 → 以图搜图；定位与取件</li>
+          <li>四种异常状态：模型未下载 / 下载中 / 索引不完整 / 建索引中</li></ul>
+      <div class="acc">验收：缩略图零 404；定位与取件人工确认</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="id">P4</div>
+    <div class="body">
+      <h4>入库与增量 <span class="pill plain">未开始</span></h4>
+      <ul><li>入库：拖入 → 配对 → 取 ID（提不到就问你）→ 目录(可空) → 预检 → 写入 → 编码</li>
+          <li>增量：新增/变更/消失差量表 + 批量动作 + 库指纹 + 审计历史</li>
+          <li>移出库（可还原）· 从索引移除</li></ul>
+      <div class="acc">验收：入库后立即可检索；移出后可从 <code>E:\移出素材\</code> 原样还原</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="id">P5</div>
+    <div class="body">
+      <h4>多库管理 <span class="pill plain">未开始</span></h4>
+      <ul><li>库注册表 CRUD · 库选择器 · 结果带库徽标</li>
+          <li>跨库合并检索（只合并一致性通过的库，其余标灰说明）</li>
+          <li>重新指向（换盘）· 跨库移动素材</li></ul>
+      <div class="acc">验收：故意注册一个 seq 不一致的库，确认它被排除且原因可见</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="id">P6</div>
+    <div class="body">
+      <h4>交付与离线 <span class="pill plain">未开始</span></h4>
+      <ul><li>打包（Electron + 模型 + 索引 → <b>自包含可分发</b>）· 桌面快捷方式 · 首次运行向导</li>
+          <li>断网验证；库指纹核对（确认只读操作没写库）</li></ul>
+      <div class="acc">验收：断网全功能可用；扫描/检索前后库指纹一致</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="id">P7</div>
+    <div class="body">
+      <h4>退役 MCP 档 <span class="pill bad">必须最后做</span></h4>
+      <ul><li>从 DSH <code>cordis.patch.yml</code> 移除 <code>mcp-gemma-search</code> 注册（<b>先备份 + 写完字节校验</b>）</li>
+          <li>删除 <code>mcp_server.py</code> / <code>register_mcp.py</code> / <code>verify_mcp.py</code>；更新技能与 README</li></ul>
+      <div class="acc">验收：DSH 正常启动；应用功能不受影响。<b>提前做会出现"两边都不能用"的空窗</b></div>
+    </div>
+  </div>
+  <h3 style="margin-top:26px">阶段门禁（审核后新增，通过才允许进入下一阶段）</h3>
+  <table class="boxed">
+    <thead><tr><th style="width:66px">门禁</th><th style="width:130px">位置</th><th>通过条件</th><th style="width:96px">状态</th></tr></thead>
+    <tbody>
+      <tr><td><b>G-A</b></td><td>P0 之后</td>
+          <td>基线报告<b>可复现</b>；<b>旧索引已复制出可恢复副本</b>；配对/缺失/异常清单完整</td>
+          <td><span class="pill ok">已通过</span></td></tr>
+      <tr><td><b>G-B</b></td><td>P0.5 之后</td>
+          <td>三项验收（编码完整性 / 配对正确性 / 语义质量）全过；失败项逐条有归因</td>
+          <td><span class="pill warn">待做</span></td></tr>
+      <tr><td><b>G-C</b></td><td>P1 编码<b>之前</b></td>
+          <td>三份规范评审通过（事务 / 身份 / 验收口径）；故障注入用例设计完成</td>
+          <td><span class="pill ok">规范已成文</span></td></tr>
+      <tr><td><b>G-D</b></td><td>P2–P5 每阶段</td>
+          <td>该阶段单测 + 集成测试 + 验收条件通过</td>
+          <td><span class="pill plain">未开始</span></td></tr>
+      <tr><td><b>G-E</b></td><td>P6 → P7</td>
+          <td><b>打包后</b>应用通过完整验收（含异常场景）；旧 MCP 退役保留明确回退办法</td>
+          <td><span class="pill plain">未开始</span></td></tr>
+    </tbody>
+  </table>
+  <div class="card warn">
+    <h4>⚠ G-B 未定义前不得启动全量重建</h4>
+    <p>因为"新旧索引质量对比"的<b>判据必须先存在</b>——否则跑完 25 分钟也说不清是好是坏。
+       判据已在 <code>SPEC-acceptance.md</code> §2 定稿（固定测试集 + Recall@10 阈值 + 回归逐条解释）。</p>
+  </div>
+
+</section>
+<section id="verify">
+  <h2><span class="n">⑧</span>检查点与风险</h2>
+  <div class="grid2">
+    <div>
+      <h3>验证检查点</h3>
+      <table class="boxed">
+        <thead><tr><th style="width:60px">检查点</th><th>通过条件</th></tr></thead>
+        <tbody>
+          <tr><td>CP1</td><td>基线复核通过（<code>encoded == indexed</code>）</td></tr>
+          <tr><td>CP2</td><td>索引重建完成：3594 条、失败为空、范数达标</td></tr>
+          <tr><td>CP3</td><td>引擎单测全过；跨 seq 被拒绝</td></tr>
+          <tr><td>CP4</td><td>冷启动 ≤5 秒；缩略图零 404</td></tr>
+          <tr><td>CP5</td><td>入库即检索；移出可还原</td></tr>
+          <tr><td>CP6</td><td>不一致的库被排除且原因可见</td></tr>
+          <tr><td>CP7</td><td>断网可用；库指纹一致；DSH 正常启动</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h3>风险与对策</h3>
+      <table class="boxed">
+        <thead><tr><th>风险</th><th>对策</th></tr></thead>
+        <tbody>
+          <tr><td><b>C: 仅剩 19.7 GB</b></td><td>npm 缓存放工作区内（D:）；构建产物不进 C:</td></tr>
+          <tr><td><b>G: 仅剩 44.3 GB</b>（库盘）</td><td>取件目标固定 <code>E:\素材待用\</code>（484 GB）</td></tr>
+          <tr><td>WebGPU 标称"实验性"</td><td>向量已证明与 CPU 逐位一致；实现 <b>webgpu→cpu 回落</b></td></tr>
+          <tr><td>预处理差异导致质量下降</td><td>索引与查询<b>必须同运行时同 seq</b>；元数据不符即拒绝检索</td></tr>
+          <tr><td>写入库时断电/中断</td><td>临时名 → 校验 → 原子 rename；多文件全成或全回滚</td></tr>
+          <tr><td>改 DSH 配置写坏</td><td><b>已发生两次</b>：只用 <code>WriteAllText + UTF8Encoding(false)</code>，写完字节校验，失败自动回滚</td></tr>
+          <tr><td>105 张扩展名与内容不符</td><td>入库/索引时记录失败清单；不当作坏文件删</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ⑨ 进度 ============ -->
+<section id="status">
+  <h2><span class="n">⑨</span>当前进度与交付物</h2>
+  <table class="boxed">
+    <thead><tr><th style="width:70px">状态</th><th>事项</th><th style="width:340px">产物</th></tr></thead>
+    <tbody>
+      <tr><td class="yes">✅</td><td>规格文档（目标/技术栈/成功标准/边界）</td><td class="mono">SPEC-app.md</td></tr>
+      <tr><td class="yes">✅</td><td>详细设计（UI/库管理/索引/模型 + 入库增量 + CRUD多库 + 传输层）</td><td class="mono">DESIGN-app-details.md</td></tr>
+      <tr><td class="yes">✅</td><td><b>最终任务计划书</b>（阶段 P0–P7 / 门禁 / 交付物 / 风险 / 下一步）</td><td class="mono">TASK-PLAN.md</td></tr>
+      <tr><td class="yes">✅</td><td>spike：后端路线定稿（Node+ONNX+WebGPU）</td><td class="mono">onnx-spike/spike_*.mjs · spike/spike_compare.py · spike/*.json</td></tr>
+      <tr><td class="yes">✅</td><td><b>UI 原型套件</b>（6 页 + 共享样式/脚本，离线可开）</td><td class="mono">static/prototype/index.html</td></tr>
+      <tr><td class="yes">✅</td><td>索引构建器 + 100 张试点通过</td><td class="mono">onnx-spike/build_index_onnx.mjs</td></tr>
+      <tr><td class="yes">✅</td><td><b>审核整改</b>：三份规范成文（事务 / 身份 / 验收口径）</td><td class="mono">SPEC-transactions.md · SPEC-identity.md · SPEC-acceptance.md</td></tr>
+      <tr><td class="yes">✅</td><td><b>G-A 门禁通过</b>：基线报告可复现 + 旧索引可恢复副本</td><td class="mono">data/baseline-v1.json · data/_backup-old-index-20261010-130701/</td></tr>
+      <tr><td class="yes">✅</td><td><b>债务清理</b>：内联 CSS 去重、21 个死按钮修好、探针归类、被取代原型归档</td><td class="mono">DEBT-CLEANUP.md</td></tr>
+      <tr><td class="warn">⏳</td><td>索引全量重建（3594 张，约 25 分钟）<b>—— 暂缓至 G-B 判据就绪</b></td><td class="mono">data/idx-full/</td></tr>
+      <tr><td class="no">—</td><td>P1–P7（引擎 / 骨架 / 界面 / 入库增量 / 多库 / 打包 / 退役 MCP）</td><td>—</td></tr>
+    </tbody>
+  </table>
+
+  <div class="card ok">
+    <h4>✓ 一个曾被我自己搞错的数字（已查清）</h4>
+    <p>新写的扫描器最初报 <b>3518 有包 / 76 无包</b>，与我先前"<b>3594/3594 全配对</b>"的结论冲突。
+       我没有直接采信任何一边，而是<b>独立按磁盘统计扩展名</b>：</p>
+    <table style="margin:8px 0">
+      <tr><td class="mono">.jpg 2644 + .jpeg 742 + .png 208</td><td>= <b>3594</b> 张预览图 ✓</td></tr>
+      <tr><td class="mono">.rar 2329 + .zip 1189 + .7z 76</td><td>= <b>3594</b> 个压缩包 ✓</td></tr>
+    </table>
+    <p><b>结论：旧实现是对的，我的新扫描器漏了 <code>.7z</code>。</b>
+       已修正（并写进设计文档，成为共享常量）。<br>
+       <span class="note">教训：扩展名集合这种"到处都要用"的常量，必须在两侧共享，不能各写一份。</span></p>
+  </div>
+</section>
+
+<!-- ============ ⑩ 审核整改 ============ -->
+<section id="review">
+  <h2><span class="n">⑩</span>审核整改对照</h2>
+  <p class="lead">本轮工程审核提出 3 项 P0、3 项 P1 与 8 项补强。<b>P0 三条我全部接受</b>——其中两条指出的是我的真实错误，
+     不是表达不清。下表逐条给出整改与落点。</p>
+
+  <h3>P0（进入开发前必须解决）</h3>
+  <table class="boxed">
+    <thead><tr><th style="width:210px">审核意见</th><th>我的整改</th><th style="width:200px">落点</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>1. 多文件操作的"原子性"承诺过强</b><br>
+            <span class="note">两次 rename 不是原子；跨盘不是 rename；回滚本身也可能失败</span></td>
+        <td><b>接受，并更正承诺</b>：从"多文件原子"降级为"<b>崩溃一致 + 可恢复</b>"。
+            引入<b>持久化事务日志</b>（write-ahead，每事务一文件）+ <b>状态机</b>
+            <span class="mono">PREPARED→STAGED→VERIFIED→COMMITTED→CLEANED</span>（含 <span class="mono">RECOVERY_NEEDED</span>）。
+            跨卷一律"<b>目标卷暂存 → 校验 → 提交 → 清源</b>"；<b>源文件在提交且索引更新前绝不删除</b>；
+            启动时扫描未完成事务并收敛，<b>判定不唯一就停下来问人</b>。另加 <b>10 项故障注入</b>（真的杀进程）</td>
+        <td class="mono">SPEC-transactions.md<br>（全文，含并发锁、撤销保留期、磁盘空间核算）</td>
+      </tr>
+      <tr>
+        <td><b>2. 索引身份、文件身份与配对关系未定义</b><br>
+            <span class="note">相同图像字节不代表同一条素材</span></td>
+        <td><b>接受，而且这不是假设</b>：实测本库就有 <b>5 组内容完全相同的预览图</b>
+            （如 <span class="mono">CR\ID-689938.jpeg ≡ VR\ID-461212.jpeg</span>），内容哈希做 UID <b>会真碰撞</b>。
+            改为三层身份：<b>uid（素材实体，种子后冻结）/ 文件身份（路径+size+mtime+sha1）/ 内容哈希</b>。
+            补全配对防御规则（多包/多图/跨目录同名）、<b>库指纹算法与版本</b>（含排序与字段定义）、
+            <b>索引-磁盘一致性状态</b>（ok/changed/missing/<b>suspected-move</b>，可疑移动<b>须人工确认</b>）</td>
+        <td class="mono">SPEC-identity.md<br>§1–§5</td>
+      </tr>
+      <tr>
+        <td><b>3. 模型精度配置自相矛盾</b><br>
+            <span class="note">权重精度 ≠ 向量存储精度，不能用一个 <span class="mono">precision</span> 混指</span></td>
+        <td><b>接受，这是我的真矛盾</b>。拆分为 <span class="mono">model_revision · model_weights_dtype ·
+            embedding_dtype · preprocessing_version · seq_length · normalization · pooling</span> 等明确字段，
+            并定义 <span class="mono">compat</span> 判定键。<b>明确回答"构建器实际加载什么"</b>：
+            权重 <b>fp32</b> + 预处理 v1 + seq140 + 向量 float32；<span class="mono">q4f16</span> 是"将来可选的下载档"，
+            与构建设置<b>不是一回事</b></td>
+        <td class="mono">SPEC-identity.md §6</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>P1</h3>
+  <table class="boxed">
+    <thead><tr><th style="width:210px">审核意见</th><th>整改</th><th style="width:200px">落点</th></tr></thead>
+    <tbody>
+      <tr><td><b>4. 100 张试点 ≠ 全量质量通过</b></td>
+          <td>验收拆成<b>三项互不替代</b>：编码完整性 / <b>文件配对正确性（独立按磁盘重算）</b> / 语义质量。
+              建固定测试集（22 条查询 + 10 张参考图 + 人工标注相关集），
+              <b>先定阈值再跑</b>：Recall@10 ≥ 旧 − 2 个百分点、参考图自检索 Top-1、回归逐条解释。
+              明确<b>不要求</b>新旧结果逐条一致（预处理差 0.4%，要求一致是错误标准）</td>
+          <td class="mono">SPEC-acceptance.md §1–§2</td></tr>
+      <tr><td><b>5. 性能指标缺统一口径</b></td>
+          <td>逐项定义<b>计时边界</b>（起点/终点/冷热），规定 P50/P95 + 失败率 + 峰值内存，
+              <b>重复 ≥3 轮</b>，且<b>在打包后的应用里测</b>。
+              并<b>更正我定错的指标</b>：图像查询从"≤0.5 s"改为"P50 ≤1.0 s / P95 ≤1.5 s"</td>
+          <td class="mono">SPEC-acceptance.md §3</td></tr>
+      <tr><td><b>6. 离线/自包含/首次运行未闭环</b></td>
+          <td>拆成<b>联网准备阶段</b>（下载+校验+钉 revision）与<b>离线运行阶段</b>（禁隐式联网；缺资源明确报出，
+              <b>绝不静默换模型或改索引配置</b>）。补<b>打包环境专项验证</b>（WebGPU 失败回落、驱动不兼容、
+              原生依赖加载、退出无残留、干净机器首启向导）。明确写入：<b>CPU 回退只证明有替代路径，不证明同样快</b></td>
+          <td class="mono">SPEC-acceptance.md §4</td></tr>
+    </tbody>
+  </table>
+
+  <h3>补强项落点</h3>
+  <table class="boxed">
+    <thead><tr><th>审核提到的缺口</th><th style="width:250px">落点</th></tr></thead>
+    <tbody>
+      <tr><td>索引格式：版本 / 长度校验 / 校验和 / 写入完成标记 / 损坏恢复</td><td class="mono">SPEC-identity §7</td></tr>
+      <tr><td>撤销保留期、磁盘占用、空间不足处理、撤销失败恢复</td><td class="mono">SPEC-transactions §7</td></tr>
+      <tr><td>并发：按库/按素材互斥；任务取消与提交的边界</td><td class="mono">SPEC-transactions §5</td></tr>
+      <tr><td>磁盘空间最坏情况（新旧索引并存 + 暂存 + 撤销区）</td><td class="mono">SPEC-transactions §6</td></tr>
+      <tr><td>跨库迁移前置条件（compat / 目标库已建索引 / uid 不冲突 / 空间）</td><td class="mono">SPEC-identity §8</td></tr>
+      <tr><td>库指纹算法、输入字段、排序、版本</td><td class="mono">SPEC-identity §5</td></tr>
+      <tr><td><b>Electron IPC 参数白名单 / 禁止任意绝对路径 / 调用来源校验</b></td><td class="mono">待写 SPEC-security.md（G-C 前）</td></tr>
+      <tr><td><b>thumb:// 路径穿越 / 符号链接越界 / 库外读取</b></td><td class="mono">同上</td></tr>
+    </tbody>
+  </table>
+
+  <div class="card ok">
+    <h4>✓ 本轮已实际执行（不只是写文档）</h4>
+    <table style="margin:8px 0">
+      <tr><td>G-A 门禁</td><td><b>5/5 通过</b>：库指纹已算、旧索引已备份、配对独立核对、无零/越界向量、条目数=磁盘预览图数</td></tr>
+      <tr><td>基线报告</td><td class="mono">data/baseline-v1.json（可复现）</td></tr>
+      <tr><td>旧索引副本</td><td class="mono">data/_backup-old-index-20261010-130701/</td></tr>
+      <tr><td>独立磁盘核对</td><td>7 188 文件 · 207.3 GB · 图 3594 : 包 3594 · <b>两侧 0 无包</b> · 指纹 <span class="mono">3c62f15c…</span></td></tr>
+      <tr><td>顺手抓到一处分歧</td><td>实现的图扩展名含 <span class="mono">.bmp/.webp</span>，我的基线不含 → 已加入<b>集合分歧自检</b>并报警（这正是 <span class="mono">.7z</span> 那次教训的通用化）</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h4>三件最值得先改的事（审核结论）——已全部成文</h4>
+    <ol style="margin:6px 0 0 18px">
+      <li>多文件事务与崩溃恢复 → <b>可执行规范</b>（状态机 + 日志 + 10 项故障注入）</li>
+      <li>权重精度 / 预处理版本 / UID / 库指纹的<b>定义</b> → 字段与判定键已定</li>
+      <li>全量索引验收从"成功编码"提升为"<b>数据正确且检索质量达标</b>" → 阈值已先于重建定稿</li>
+    </ol>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  gemma-search 计划总览 · 数据来源：TASK-PLAN.md / SPEC-*.md / DESIGN-app-details.md + 本机实测 · 2026-10-10
+</footer>
+
+</body>
+</html>

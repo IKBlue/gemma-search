@@ -1,0 +1,187 @@
+{
+ "files": [
+  {
+   "rel_path": "VR\\ID-12089794.jpg",
+   "ok": true,
+   "width": 982,
+   "height": 618,
+   "channels": 4,
+   "sha1_rgba": "877f9b4756a6e26f4fd6823ccb75d642a453d1e2",
+   "sha1_bgra": "0b6d9d1351a6b3f97e10198782001c9d6181ddc2"
+  },
+  {
+   "rel_path": "VR\\ID-1257367.jpg",
+   "ok": true,
+   "width": 350,
+   "height": 350,
+   "channels": 4,
+   "sha1_rgba": "aaacbbe0e7402ee06cb3869b69476aa5c5823e8a",
+   "sha1_bgra": "603d28f312a8d0b5f8db396a668d951bcbb9a4cf"
+  },
+  {
+   "rel_path": "VR\\ID-1299244.jpg",
+   "ok": true,
+   "width": 400,
+   "height": 300,
+   "channels": 4,
+   "sha1_rgba": "7c1a3f80342f12cb24c7d83c31e6ad1148438972",
+   "sha1_bgra": "bc95d5d0bb904cf479ddb8d1fcc11359aaef1e6e"
+  },
+  {
+   "rel_path": "VR\\ID-1413345.jpg",
+   "ok": true,
+   "width": 400,
+   "height": 300,
+   "channels": 4,
+   "sha1_rgba": "047c93fd9b60c9509befd81194ad23bac577bdfd",
+   "sha1_bgra": "754a3ce09163d13b0a88e441f50db881548e996e"
+  },
+  {
+   "rel_path": "VR\\ID-1422632.jpg",
+   "ok": true,
+   "width": 313,
+   "height": 313,
+   "channels": 4,
+   "sha1_rgba": "3272b064b54314171cd42ea9ea9122e7be251ea6",
+   "sha1_bgra": "eaddb7652d1f561e5173a0ee10c6deebcc8d1df0"
+  },
+  {
+   "rel_path": "VR\\ID-1456208.jpg",
+   "ok": true,
+   "width": 350,
+   "height": 350,
+   "channels": 4,
+   "sha1_rgba": "a85dbab55da0bc1f99ea8274ca36fdc6c9508427",
+   "sha1_bgra": "c323a5779aa219809f2a3f0ec0666952e53b4fea"
+  },
+  {
+   "rel_path": "VR\\ID-1472285.jpg",
+   "ok": true,
+   "width": 400,
+   "height": 300,
+   "channels": 4,
+   "sha1_rgba": "b5e470ad9585e59d0ef102f2bd1ee6993eb67747",
+   "sha1_bgra": "04e120072eb2e950a01e3d4e56f5f2705fa21a9c"
+  },
+  {
+   "rel_path": "VR\\ID-1499683.jpg",
+   "ok": true,
+   "width": 313,
+   "height": 313,
+   "channels": 4,
+   "sha1_rgba": "f947b66470acee541b7e2922f3bdfa027b6db25a",
+   "sha1_bgra": "8e07cab60f59c40616e178acf87394f46506640c"
+  },
+  {
+   "rel_path": "VR\\ID-1501265.jpg",
+   "ok": true,
+   "width": 350,
+   "height": 350,
+   "channels": 4,
+   "sha1_rgba": "142e217e2b8d4baa2379955266ba6050d3286f38",
+   "sha1_bgra": "90f8fed1688700118fb41b7d64189d06d1298d0b"
+  },
+  {
+   "rel_path": "VR\\ID-1502746.jpg",
+   "ok": true,
+   "width": 400,
+   "height": 300,
+   "channels": 4,
+   "sha1_rgba": "9d7d2bea86edebf74e1c84f88c19c922ace5aa08",
+   "sha1_bgra": "5f82b15fe8031ade7a36fc7079020442be265b30"
+  },
+  {
+   "rel_path": "VR\\ID-1505776.jpg",
+   "ok": true,
+   "width": 313,
+   "height": 313,
+   "channels": 4,
+   "sha1_rgba": "2fbcabc1e1a11a1027e0616639ddf156a6bab7c6",
+   "sha1_bgra": "85557e80342b78f153eb25945b6d3f71382b2a27"
+  },
+  {
+   "rel_path": "VR\\ID-181657062.jpg",
+   "ok": true,
+   "width": 400,
+   "height": 300,
+   "channels": 4,
+   "sha1_rgba": "5db6a14c75b0edf3e8c3bba03a163e2fae1e56fd",
+   "sha1_bgra": "b7c8b18bff8a17441b8f39aaf37c418b4cedf766"
+  },
+  {
+   "rel_path": "VR\\ID-183073748.jpg",
+   "ok": true,
+   "width": 400,
+   "height": 300,
+   "channels": 4,
+   "sha1_rgba": "09066a7a5de0da036dba3d8a32fc6d432d14fce8",
+   "sha1_bgra": "f24221b050b0472edec73e99f416e3b57aa6e849"
+  },
+  {
+   "rel_path": "VR\\ID-610620.jpg",
+   "ok": true,
+   "width": 313,
+   "height": 313,
+   "channels": 4,
+   "sha1_rgba": "f6ff783b75cf472d394ccd19ed4996291b9df185",
+   "sha1_bgra": "0b76c3bcd7fbb4bb6f8aa277fe7129ebb35f2fd0"
+  },
+  {
+   "rel_path": "VR\\ID-628141.jpg",
+   "ok": true,
+   "width": 313,
+   "height": 313,
+   "channels": 4,
+   "sha1_rgba": "dc1d5e5b0984b7617f92758a91840d445c9b98bc",
+   "sha1_bgra": "01fe993b6228b6c803b5dcc2fc927ff42ac040f6"
+  },
+  {
+   "rel_path": "VR\\ID-680158601.jpg",
+   "ok": true,
+   "width": 313,
+   "height": 313,
+   "channels": 4,
+   "sha1_rgba": "bc2215a16832220dc82f646c0f52cec3edc401ed",
+   "sha1_bgra": "798bc300080ee84888efb4d04b900ba27eb42da5"
+  },
+  {
+   "rel_path": "VR\\ID-787548745.jpg",
+   "ok": true,
+   "width": 400,
+   "height": 300,
+   "channels": 4,
+   "sha1_rgba": "482a26a748abe3f371b7f22ea24f846e7817b223",
+   "sha1_bgra": "54dc5b715d6d7608f6e1802668126a64f629717f"
+  },
+  {
+   "rel_path": "VR\\ID-888181044.jpg",
+   "ok": true,
+   "width": 313,
+   "height": 313,
+   "channels": 4,
+   "sha1_rgba": "1d811746a3c82c5644ed7d70efda5755bad6949a",
+   "sha1_bgra": "d13c9221be591e1fab77ca0a80fa9d3bd9a886f7"
+  },
+  {
+   "rel_path": "VR\\ID-888793055.jpg",
+   "ok": true,
+   "width": 313,
+   "height": 313,
+   "channels": 4,
+   "sha1_rgba": "7880761df060aea0489cfbea0d7c716a942eea23",
+   "sha1_bgra": "770b6ad5cebea4e0db81f21776f205e692f0f3f1"
+  },
+  {
+   "rel_path": "VR\\ID-991224669.jpg",
+   "ok": true,
+   "width": 400,
+   "height": 300,
+   "channels": 4,
+   "sha1_rgba": "816ac7c9a62b200e3a41de5a5bfbe5c7bcfa8fc6",
+   "sha1_bgra": "fbdf27ee24552e81220490b911ffac93622fd920"
+  }
+ ],
+ "note": "sha1 为顶层 RGB 字节（不含 alpha）",
+ "decodable": 20,
+ "total": 20
+}

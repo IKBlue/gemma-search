@@ -1,0 +1,12 @@
+{
+ "rel_path": "VR\\ID-12089794.jpg",
+ "hits": [
+  {
+   "offset": 1,
+   "order": "bgr",
+   "flip": false,
+   "stride": 4
+  }
+ ],
+ "stride": 4
+}

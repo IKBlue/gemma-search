@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gemma-search · 素材库检索与入库</title>
+<!--
+  gemma-search 应用 UI 原型 v2（单文件、无 CDN、离线可用）
+
+  v2 变更（按反馈）：新增「入库」与「增量」两个视图，应用从"只读检索器"变为
+  "能管库的检索器"。设计依据见 DESIGN-app-details.md §六。
+
+  视图：检索 / 入库 / 增量      右下角可预览五种异常状态
+  样例数据的分数、路径、体积均为本会话实测值。
+-->
+<style>
+  :root {
+    --bg:#fff; --bg-2:#f6f7f9; --bg-3:#eceef2;
+    --fg:#1a1d21; --fg-2:#5b6470; --fg-3:#8b949e;
+    --line:#dfe3e8; --line-2:#eef0f3;
+    --accent:#2f6feb; --accent-fg:#fff;
+    --ok:#1a7f37; --warn:#9a6700; --danger:#cf222e;
+    --vr:#2f6feb; --cr:#8250df; --both:#1a7f37; --other:#8b949e;
+    --shadow:0 1px 2px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.05);
+    --radius:10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0d1117; --bg-2:#161b22; --bg-3:#21262d;
+      --fg:#e6edf3; --fg-2:#9ba3ae; --fg-3:#6e7681;
+      --line:#30363d; --line-2:#21262d;
+      --accent:#4d8bf5; --accent-fg:#0d1117;
+      --ok:#3fb950; --warn:#d29922; --danger:#f85149;
+      --vr:#4d8bf5; --cr:#a371f7; --both:#3fb950; --other:#8b949e;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.35);
+    }
+  }
+  * { box-sizing:border-box; }
+  html,body { height:100%; margin:0; }
+  body {
+    background:var(--bg); color:var(--fg);
+    font:14px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+
+  /* ---------- 顶栏 + 视图页签 ---------- */
+  header { display:flex; align-items:center; gap:14px; padding:8px 16px;
+           border-bottom:1px solid var(--line); background:var(--bg-2); flex:0 0 auto; }
+  .brand { font-weight:650; letter-spacing:.2px; }
+  .brand small { color:var(--fg-3); font-weight:400; margin-left:8px; }
+  nav.tabs { display:flex; gap:4px; }
+  nav.tabs button {
+    border:1px solid transparent; background:transparent; color:var(--fg-2);
+    padding:6px 14px; border-radius:8px; cursor:pointer; font-size:14px;
+  }
+  nav.tabs button:hover { background:var(--bg-3); }
+  nav.tabs button[aria-selected="true"] {
+    background:var(--bg); border-color:var(--line); color:var(--fg); font-weight:650;
+  }
+  nav.tabs .badge { font-size:11px; background:var(--warn); color:#fff; border-radius:999px;
+                    padding:0 6px; margin-left:6px; }
+  header .spacer { flex:1; }
+  .libsel { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--fg-3); }
+  .libsel select { max-width:280px; }
+  /* 库徽标（多库时显示在卡片上） */
+  .libbadge { font-size:10px; padding:1px 5px; border-radius:4px;
+              background:var(--bg-3); color:var(--fg-2); }
+  /* 卡片操作菜单 */
+  #cardmenu { position:fixed; z-index:40; display:none; min-width:200px;
+              background:var(--bg-2); border:1px solid var(--line); border-radius:10px;
+              box-shadow:var(--shadow); padding:5px; }
+  #cardmenu.show { display:block; }
+  #cardmenu button { display:block; width:100%; text-align:left; border:0; background:transparent;
+                     color:var(--fg); padding:7px 10px; border-radius:7px; cursor:pointer; font-size:13px; }
+  #cardmenu button:hover { background:var(--bg-3); }
+  #cardmenu .sep { height:1px; background:var(--line); margin:4px 2px; }
+  #cardmenu .grp { font-size:11px; color:var(--fg-3); padding:5px 10px 2px; }
+  .icon-btn { border:1px solid var(--line); background:var(--bg); color:var(--fg);
+              border-radius:8px; padding:6px 10px; cursor:pointer; font-size:13px; }
+  .icon-btn:hover { background:var(--bg-3); }
+
+  /* ---------- 通用 ---------- */
+  main { flex:1 1 auto; overflow:auto; position:relative; }
+  .view { display:none; height:100%; flex-direction:column; }
+  .view.active { display:flex; }
+  .pad { padding:14px 16px; }
+  .btn { border:1px solid var(--line); background:var(--bg); color:var(--fg);
+         border-radius:var(--radius); padding:7px 14px; cursor:pointer; font-size:13px; white-space:nowrap; }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); font-weight:600; }
+  .btn.ghost { background:transparent; }
+  .btn:hover { filter:brightness(1.05); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .muted { color:var(--fg-3); }
+  .flex { display:flex; align-items:center; gap:10px; }
+  .flex .spacer { flex:1; }
+  select, input[type=text] {
+    border:1px solid var(--line); background:var(--bg); color:var(--fg);
+    border-radius:8px; padding:5px 8px; font-size:13px;
+  }
+
+  /* ---------- 检索视图 ---------- */
+  .searchbar { padding:14px 16px 10px; border-bottom:1px solid var(--line-2);
+               display:flex; flex-direction:column; gap:10px; flex:0 0 auto; }
+  .searchrow { display:flex; gap:8px; }
+  .searchrow #q {
+    flex:1; padding:11px 14px; font-size:15px; border:1px solid var(--line);
+    border-radius:var(--radius); background:var(--bg); color:var(--fg); outline:none;
+  }
+  #q:focus { border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent); }
+  .chips { display:flex; gap:6px; }
+  .chip { border:1px solid var(--line); background:var(--bg); color:var(--fg-2);
+          border-radius:999px; padding:4px 12px; cursor:pointer; font-size:13px; }
+  .chip[aria-pressed="true"] { background:var(--accent); border-color:var(--accent);
+                               color:var(--accent-fg); font-weight:600; }
+  .grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); }
+  .card { border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-2);
+          overflow:hidden; cursor:pointer; position:relative; }
+  .card:hover { border-color:var(--accent); }
+  .card[aria-selected="true"] { border-color:var(--accent);
+      box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 35%,transparent); }
+  .thumb { aspect-ratio:1/1; width:100%; display:block; object-fit:cover; background:var(--bg-3); }
+  .thumb-fallback { aspect-ratio:1/1; display:flex; flex-direction:column; align-items:center;
+      justify-content:center; gap:6px; background:linear-gradient(135deg,var(--bg-3),var(--bg-2));
+      color:var(--fg-3); font-size:12px; text-align:center; padding:8px; }
+  .thumb-fallback b { font-size:15px; color:var(--fg-2); }
+  .meta { padding:8px 10px 10px; display:flex; flex-direction:column; gap:5px; }
+  .meta .row1 { display:flex; align-items:baseline; gap:6px; }
+  .score { font-variant-numeric:tabular-nums; font-weight:700; font-size:15px; }
+  .band { font-size:11px; padding:1px 6px; border-radius:999px; border:1px solid currentColor; }
+  .band.same { color:var(--ok); } .band.like { color:var(--warn); } .band.weak { color:var(--fg-3); }
+  .folder { font-size:11px; font-weight:700; padding:1px 6px; border-radius:4px; color:#fff; margin-left:auto; }
+  .folder.VR { background:var(--vr); } .folder.CR { background:var(--cr); }
+  .folder.CRVR { background:var(--both); } .folder.other { background:var(--other); }
+  .meta .name { font-size:12px; color:var(--fg-2); font-family:ui-monospace,Consolas,monospace;
+                overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .meta .size { font-size:11px; color:var(--fg-3); }
+  .actions { position:absolute; inset:auto 6px 6px 6px; display:flex; gap:6px; opacity:0; transition:opacity .12s; }
+  .card:hover .actions, .card[aria-selected="true"] .actions { opacity:1; }
+  .actions button { flex:1; border:1px solid var(--line);
+      background:color-mix(in srgb,var(--bg) 88%,transparent); backdrop-filter:blur(6px);
+      color:var(--fg); border-radius:7px; padding:5px 0; font-size:12px; cursor:pointer; }
+  .actions button.pri { background:var(--accent); border-color:var(--accent);
+                        color:var(--accent-fg); font-weight:600; }
+
+  /* ---------- 表格（入库 / 增量）---------- */
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; color:var(--fg-3); font-weight:600; font-size:12px;
+       padding:8px 10px; border-bottom:1px solid var(--line); position:sticky; top:0;
+       background:var(--bg-2); z-index:1; }
+  td { padding:8px 10px; border-bottom:1px solid var(--line-2); vertical-align:middle; }
+  tr.row:hover td { background:var(--bg-2); }
+  td.mono { font-family:ui-monospace,Consolas,monospace; font-size:12px; }
+  .pill { font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid currentColor; white-space:nowrap; }
+  .pill.ok { color:var(--ok); } .pill.warn { color:var(--warn); }
+  .pill.bad { color:var(--danger); } .pill.info { color:var(--accent); }
+  .thumb-s { width:38px; height:38px; border-radius:6px; object-fit:cover; background:var(--bg-3); }
+  .thumb-s-fallback { width:38px; height:38px; border-radius:6px; background:var(--bg-3);
+      display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--fg-3); }
+
+  /* ---------- 拖放区 ---------- */
+  .dropzone {
+    border:2px dashed var(--line); border-radius:14px; padding:22px; text-align:center;
+    color:var(--fg-2); background:var(--bg-2); transition:border-color .15s,background .15s;
+  }
+  .dropzone.hot { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 8%,var(--bg-2)); }
+  .dropzone b { color:var(--fg); }
+  .dropzone .sub { font-size:12px; color:var(--fg-3); margin-top:6px; }
+
+  /* ---------- 预检条 ---------- */
+  .preflight { border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-2);
+               padding:10px 12px; font-size:13px; display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
+  .preflight .kv { display:flex; gap:6px; align-items:center; }
+
+  /* ---------- 状态栏 ---------- */
+  footer { flex:0 0 auto; display:flex; align-items:center; gap:14px; padding:8px 16px;
+           border-top:1px solid var(--line); background:var(--bg-2); font-size:12px; color:var(--fg-2); }
+  footer .dot { width:7px; height:7px; border-radius:50%; background:var(--ok);
+                display:inline-block; margin-right:5px; }
+  footer .dot.warn { background:var(--warn); } footer .dot.bad { background:var(--danger); }
+  footer .spacer { flex:1; }
+  #bar { height:3px; background:var(--bg-3); flex:0 0 auto; }
+  #bar > i { display:block; height:100%; width:0; background:var(--accent); transition:width .2s; }
+
+  /* ---------- 遮罩层 ---------- */
+  .overlay { position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+             background:color-mix(in srgb,var(--bg) 92%,transparent); padding:24px; z-index:5; }
+  .overlay.show { display:flex; }
+  .panel { max-width:560px; width:100%; background:var(--bg-2); border:1px solid var(--line);
+           border-radius:14px; padding:22px; box-shadow:var(--shadow); }
+  .panel h2 { margin:0 0 8px; font-size:17px; }
+  .panel p { margin:0 0 14px; color:var(--fg-2); font-size:13px; }
+  .tiers { display:grid; gap:8px; margin-bottom:14px; }
+  .tier { display:flex; align-items:center; gap:10px; border:1px solid var(--line);
+          border-radius:10px; padding:10px 12px; cursor:pointer; background:var(--bg); }
+  .tier[aria-checked="true"] { border-color:var(--accent);
+      box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent); }
+  .tier .t-name { font-weight:650; } .tier .t-size { margin-left:auto; color:var(--fg-3);
+      font-variant-numeric:tabular-nums; } .tier .t-note { color:var(--fg-3); font-size:12px; }
+  .progress { height:8px; background:var(--bg-3); border-radius:999px; overflow:hidden; margin-bottom:10px; }
+  .progress > i { display:block; height:100%; background:var(--accent); }
+
+  /* ---------- 状态切换器 / toast ---------- */
+  #devbar { position:fixed; right:14px; bottom:44px; z-index:20; background:var(--bg-2);
+            border:1px solid var(--line); border-radius:10px; padding:8px 10px;
+            box-shadow:var(--shadow); font-size:12px; max-width:260px; }
+  #devbar summary { cursor:pointer; color:var(--fg-2); font-weight:600; }
+  #devbar .opts { display:flex; flex-direction:column; gap:4px; margin-top:6px; }
+  #devbar button { text-align:left; border:1px solid var(--line); background:var(--bg);
+                   color:var(--fg); border-radius:7px; padding:4px 8px; cursor:pointer; font-size:12px; }
+  #toast { position:fixed; left:50%; bottom:56px; transform:translateX(-50%); background:var(--fg);
+           color:var(--bg); padding:8px 16px; border-radius:999px; font-size:13px; opacity:0;
+           pointer-events:none; transition:opacity .18s; z-index:30; }
+  #toast.show { opacity:.94; }
+  .empty { text-align:center; color:var(--fg-3); padding:50px 0; }
+  .note { font-size:12px; color:var(--fg-3); }
+  .note.warn { color:var(--warn); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">gemma-search<small>素材库检索与入库</small></div>
+  <label class="libsel">库
+    <select id="libsel">
+      <option value="*">全部库（2 个可用 · 1 个被排除）</option>
+      <option value="L1" selected>室内素材 · G:\model</option>
+      <option value="L2">灯具专用 · E:\素材库2</option>
+      <option value="L3" disabled>旧库 · Z:\model（seq280，不一致）</option>
+    </select>
+  </label>
+  <nav class="tabs" id="tabs">
+    <button data-view="search" aria-selected="true">检索</button>
+    <button data-view="ingest" aria-selected="false">入库<span class="badge">3</span></button>
+    <button data-view="changes" aria-selected="false">增量<span class="badge">4</span></button>
+    <button data-view="libs" aria-selected="false">库</button>
+  </nav>
+  <div class="spacer"></div>
+  <button class="icon-btn" onclick="toast('设置：模型精度 / 取件目录 / 入库策略 / 索引存放位置 / 缓存占用')">⚙ 设置</button>
+</header>
+
+<main>
+  <!-- ============ 视图一：检索 ============ -->
+  <section class="view active" id="view-search">
+    <div class="searchbar">
+      <div class="searchrow">
+        <input id="q" placeholder="描述你要找的东西…（中文即可，例如：玻璃球多头吊灯）" autocomplete="off" spellcheck="false">
+        <button class="btn primary" id="btn-search">搜索</button>
+        <button class="btn" id="btn-img" title="选择一张参考图，以图搜图">图搜</button>
+      </div>
+      <div class="flex">
+        <div class="chips" id="chips">
+          <button class="chip" data-folder="" aria-pressed="true">全部</button>
+          <button class="chip" data-folder="VR" aria-pressed="false">VR</button>
+          <button class="chip" data-folder="CR" aria-pressed="false">CR</button>
+          <button class="chip" data-folder="CR+VR" aria-pressed="false">CR+VR</button>
+          <button class="chip" data-folder="其他" aria-pressed="false">其他</button>
+        </div>
+        <div class="spacer"></div>
+        <label class="muted">返回
+          <select id="topk"><option>12</option><option selected>24</option><option>48</option><option>96</option></select>
+        </label>
+        <span class="note" style="border:1px dashed var(--line);border-radius:8px;padding:4px 10px">
+          拖入图片，或 Ctrl+V 粘贴 → 以图搜图
+        </span>
+      </div>
+    </div>
+    <div class="pad" style="flex:1 1 auto;overflow:auto">
+      <div class="grid" id="grid"></div>
+    </div>
+  </section>
+
+  <!-- ============ 视图二：入库 ============ -->
+  <section class="view" id="view-ingest">
+    <div class="pad" style="flex:1 1 auto;overflow:auto;display:flex;flex-direction:column;gap:14px">
+
+      <div class="dropzone" id="dropzone">
+        <div>拖入 <b>压缩包（.zip / .rar）</b> 与 <b>预览图（.jpg / .png）</b></div>
+        <div class="sub">按文件名主干自动配对（<code>ID-123.rar</code> ↔ <code>ID-123.jpg</code>）；配不上的会列出来，不会静默丢弃</div>
+        <div class="sub">应用<b>不解析压缩包内容</b>，所以入库很快；分类可以不管，默认进 <code>未分类\</code></div>
+        <div style="margin-top:12px">
+          <button class="btn">选择文件</button>
+          <button class="btn">选择文件夹</button>
+        </div>
+      </div>
+
+      <div class="flex">
+        <b>待入库 <span id="ing-count">3</span> 项</b>
+        <span class="muted note">配对完成的项才能提交；缺预览图的可以只入包</span>
+        <div class="spacer"></div>
+        <button class="btn ghost" onclick="toast('已清空待入库队列')">全部清空</button>
+        <button class="btn primary" onclick="toast('提交前会再问一次，并显示影响的条目数')">提交入库并索引</button>
+      </div>
+
+      <div style="border:1px solid var(--line);border-radius:var(--radius);overflow:hidden">
+        <table>
+          <thead><tr>
+            <th style="width:52px">预览</th><th>压缩包</th><th style="width:90px">预览图</th>
+            <th style="width:130px">归档目录</th><th>目标路径</th><th style="width:130px">状态</th><th style="width:90px"></th>
+          </tr></thead>
+          <tbody id="ing-rows"></tbody>
+        </table>
+      </div>
+
+      <div class="preflight">
+        <span class="kv"><span class="pill ok">就绪</span> <b>3</b> 项</span>
+        <span class="kv"><span class="pill warn">缺预览图（只入包）</span> <b>1</b> 项</span>
+        <span class="kv"><span class="pill info">重名</span> <b>0</b> 处</span>
+        <span class="kv"><span class="pill info">ID 重复</span> <b>0</b> 处</span>
+        <div class="spacer"></div>
+        <span class="note">提交写入 <code>G:\model\&lt;目录&gt;\</code>，命名规范化；每笔写入记审计，可移出库撤销</span>
+      </div>
+
+      <div class="note">
+        <b>归档目录是可选的</b>：不选就进 <code>G:\model\未分类\</code>；想分就在下拉里点一下（VR / CR / CR+VR / 其他），
+        入库后还能在「增量」里改。ID 从文件名提取，<b>提取不到会停下来问你</b>，不擅自编号。
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 视图三：增量 ============ -->
+  <section class="view" id="view-changes">
+    <div class="pad" style="flex:1 1 auto;overflow:auto;display:flex;flex-direction:column;gap:14px">
+
+      <div class="preflight">
+        <span class="kv"><span class="dot"></span> 库指纹一致</span>
+        <span class="kv muted">上次扫描 12:41</span>
+        <div class="spacer"></div>
+        <span class="pill ok">新增 3</span>
+        <span class="pill warn">变更 1</span>
+        <span class="pill info">消失 0</span>
+        <span class="pill info">待编码 3</span>
+      </div>
+
+      <div class="flex">
+        <b>本次增量</b>
+        <div class="chips" id="chg-filter">
+          <button class="chip" data-kind="" aria-pressed="true">全部</button>
+          <button class="chip" data-kind="add" aria-pressed="false">新增</button>
+          <button class="chip" data-kind="mod" aria-pressed="false">变更</button>
+          <button class="chip" data-kind="del" aria-pressed="false">消失</button>
+        </div>
+        <div class="spacer"></div>
+        <button class="btn primary" onclick="toast('将编码 3 个新增项；建索引期间检索会暂停')">提交索引（编码 3 项）</button>
+        <button class="btn ghost" onclick="toast('已忽略本次列出的项（不改动库与索引）')">忽略</button>
+      </div>
+
+      <div style="border:1px solid var(--line);border-radius:var(--radius);overflow:hidden">
+        <table>
+          <thead><tr>
+            <th style="width:52px">预览</th><th>文件</th><th style="width:80px">类型</th>
+            <th style="width:120px">索引状态</th><th style="width:110px">体积</th>
+            <th>动作</th></tr></thead>
+          <tbody id="chg-rows"></tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        「消失」只从索引移除，<b>绝不删任何文件</b>；「变更」标为待重编码，<b>不自动重编码</b>（重编码很贵，且可能不是你要的）。
+      </div>
+
+      <div>
+        <b>历史审计</b>
+        <table style="margin-top:8px">
+          <thead><tr><th style="width:150px">时间</th><th style="width:110px">操作</th><th>结果</th></tr></thead>
+          <tbody id="audit-rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 视图四：库管理 ============ -->
+  <section class="view" id="view-libs">
+    <div class="pad" style="flex:1 1 auto;overflow:auto;display:flex;flex-direction:column;gap:14px">
+
+      <div class="preflight">
+        <span class="kv"><span class="pill ok">可合并检索</span> <b>2</b> 个库</span>
+        <span class="kv"><span class="pill warn">被排除</span> <b>1</b> 个库（seq280 与当前 140 不一致）</span>
+        <div class="spacer"></div>
+        <span class="note">跨库检索的铁律：只有 <code>model + precision + seq + dtype</code> 全一致的库才能一起检索</span>
+      </div>
+
+      <div class="flex">
+        <b>已注册的库</b>
+        <span class="muted note">「移除」只是从注册表移除，<b>绝不删文件</b></span>
+        <div class="spacer"></div>
+        <button class="btn primary" onclick="toast('添加库：选目录 → 扫描 → 有索引则按指纹校验复用，否则新建（0.42 秒/张）')">添加库…</button>
+      </div>
+
+      <div style="border:1px solid var(--line);border-radius:var(--radius);overflow:hidden">
+        <table>
+          <thead><tr>
+            <th style="width:150px">名称</th><th>根目录</th><th style="width:90px">素材数</th>
+            <th style="width:150px">索引一致性</th><th style="width:110px">上次扫描</th><th style="width:320px">动作</th>
+          </tr></thead>
+          <tbody id="lib-rows"></tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <b>换盘/搬目录怎么办？</b> 用「重新指向」：选新根目录 → 按<b>库指纹</b>（文件数 + 抽样 mtime）判断是不是同一个库；
+        一致则只改路径（<b>索引不重建</b>），不一致则要求重建。索引若设为「随库存放」，换机连索引一起搬走，无需重建。
+      </div>
+
+      <div class="note">
+        <b>索引文件放哪？</b> 默认放应用数据目录（库目录保持干净，只有素材与压缩包）；
+        设置里可开启「把索引存到库内 <code>&lt;root&gt;\.gemma-search\</code>」，便于整库搬移。
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 异常状态遮罩（作用于检索视图）============ -->
+  <div class="overlay" id="ov-model">
+    <div class="panel">
+      <h2>需要先下载模型</h2>
+      <p>EmbeddingGemma 2 的多模态权重不在本地。只需下载一次，之后完全离线运行。
+         本应用<strong>不含音频塔</strong>（占仓库 40% 体积，检索用不到）。</p>
+      <div class="tiers" id="tiers">
+        <div class="tier" role="radio" aria-checked="true">
+          <div><div class="t-name">q4f16</div><div class="t-note">推荐 · 体积最小、最快</div></div>
+          <div class="t-size">243 MB</div></div>
+        <div class="tier" role="radio" aria-checked="false">
+          <div><div class="t-name">fp16</div><div class="t-note">质量优先</div></div>
+          <div class="t-size">837 MB</div></div>
+        <div class="tier" role="radio" aria-checked="false">
+          <div><div class="t-name">fp32</div><div class="t-note">与对照实验同精度</div></div>
+          <div class="t-size">1.63 GB</div></div>
+      </div>
+      <p class="note">⚠ 精度与索引绑定：切换精度需重建索引（图像编码约 1.4–3.4 秒/张）。</p>
+      <button class="btn primary" onclick="setState('downloading')">开始下载</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="ov-downloading">
+    <div class="panel">
+      <h2>正在下载模型</h2>
+      <p class="mono">onnx/vision_encoder_q4f16.onnx_data</p>
+      <div class="progress"><i style="width:37%"></i></div>
+      <p style="font-variant-numeric:tabular-nums">已下载 90.1 MB / 243.4 MB · 11.9 MB/s · 剩余约 13 秒</p>
+      <button class="btn" onclick="setState('search')">暂停</button>
+      <button class="btn" onclick="setState('search')">取消</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="ov-partial">
+    <div class="panel">
+      <h2>索引不完整：1200 / 3594</h2>
+      <p>只有<strong>已编码的前 1200 条</strong>可被检索，其余不会出现在结果里。</p>
+      <button class="btn primary" onclick="setState('search');setTab('changes')">去增量视图处理</button>
+      <button class="btn" onclick="setState('search')">仍然检索</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="ov-indexing">
+    <div class="panel">
+      <h2>正在建立索引</h2>
+      <p>为避免与编码争用 CPU/GPU，检索已暂停。可随时取消，已完成进度会保留。</p>
+      <div class="progress"><i id="ix-bar" style="width:62%"></i></div>
+      <p style="font-variant-numeric:tabular-nums">2228 / 3594 · 1.4 条/秒 · 预计剩余 16 分钟</p>
+      <button class="btn" onclick="setState('search')">取消</button>
+    </div>
+  </div>
+</main>
+
+<div id="bar"><i></i></div>
+
+<footer>
+  <span><span class="dot" id="dot-idx"></span><span id="st-idx">索引 3594 / 3594</span></span>
+  <span><span class="dot" id="dot-model"></span><span id="st-model">模型 fp32 已加载 · CPU</span></span>
+  <span id="st-lib">库 G:\model</span>
+  <span class="muted">待入库 3</span>
+  <div class="spacer"></div>
+  <button class="icon-btn" onclick="setTab('changes')">增量管理</button>
+</footer>
+
+<details id="devbar">
+  <summary>状态预览（评审用）</summary>
+  <div class="opts">
+    <button onclick="setState('search')">① 正常检索</button>
+    <button onclick="setState('model')">② 模型未下载</button>
+    <button onclick="setState('downloading')">③ 模型下载中</button>
+    <button onclick="setState('partial')">④ 索引不完整</button>
+    <button onclick="setState('indexing')">⑤ 正在建索引</button>
+  </div>
+</details>
+
+<div id="toast"></div>
+<div id="cardmenu"></div>
+
+<script>
+'use strict';
+/* ---------------- 样例数据（分数/路径/体积均为实测值） ---------------- */
+const SAMPLE = [
+  { score:0.9396, folder:'VR',    img:'G:/model/VR/ID-713717.jpeg',          pack:'G:/model/VR/ID-713717.zip',          size:'2.3 MB' },
+  { score:0.9382, folder:'VR',    img:'G:/model/VR/ID-16010618.png',         pack:'G:/model/VR/ID-16010618.zip',        size:'9.8 MB' },
+  { score:0.9356, folder:'CR+VR', img:'G:/model/CR+VR/ID-715702.jpeg',       pack:'G:/model/CR+VR/ID-715702.zip',       size:'12.6 MB' },
+  { score:0.9351, folder:'VR',    img:'G:/model/VR/ID-355747.jpg',           pack:'G:/model/VR/ID-355747.zip',          size:'11.1 MB' },
+  { score:0.9302, folder:'VR',    img:'G:/model/VR/ID-928797.jpeg',          pack:'G:/model/VR/ID-928797.zip',          size:'2.3 MB' },
+  { score:0.9298, folder:'VR',    img:'G:/model/VR/ID-104424061.jpg',        pack:'G:/model/VR/ID-104424061.rar',       size:'29.0 MB' },
+  { score:0.9243, folder:'VR',    img:'G:/model/VR/ID-16109557.jpg',         pack:'G:/model/VR/ID-16109557.zip',        size:'6.0 MB' },
+  { score:0.9164, folder:'CR',    img:'G:/model/CR/ID-16126260.png',         pack:'G:/model/CR/ID-16126260.zip',        size:'3.9 MB' },
+  { score:0.9114, folder:'VR',    img:'G:/model/VR/ID-11782507.jpg',         pack:'G:/model/VR/ID-11782507.rar',        size:'50.4 MB' },
+  { score:0.9110, folder:'VR',    img:'G:/model/VR/ID-14172734.jpg',         pack:'G:/model/VR/ID-14172734.rar',        size:'2.2 MB' },
+  { score:0.8028, folder:'VR',    img:'G:/model/VR/ID-14332904.jpg',         pack:'G:/model/VR/ID-14332904.rar',        size:'9.0 MB' },
+  { score:0.7995, folder:'CR',    img:'G:/model/CR/ID-16047383.jpg',         pack:'G:/model/CR/ID-16047383.zip',        size:'29.6 MB' },
+  { score:0.7956, folder:'VR',    img:'G:/model/VR/ID-15661691.jpg',         pack:'G:/model/VR/ID-15661691.zip',        size:'2.6 MB' },
+  { score:0.7948, folder:'CR',    img:'G:/model/CR/ID-460666717032537.jpg',  pack:'G:/model/CR/ID-460666717032537.rar', size:'0.7 MB' },
+  { score:0.9093, folder:'VR',    img:'G:/model/VR/ID-15752092.jpg',         pack:'G:/model/VR/ID-15752092.zip',        size:'57.3 MB' },
+  { score:0.8872, folder:'VR',    img:'G:/model/VR/ID-1171578359.jpg',       pack:'G:/model/VR/ID-1171578359.rar',      size:'0.73 MB' },
+  { score:0.8722, folder:'VR',    img:'G:/model/VR/ID-116347859.jpg',        pack:'G:/model/VR/ID-116347859.rar',       size:'0.25 MB' },
+  { score:0.8701, folder:'其他',  img:'G:/model/其他/ID-14306419.jpg',        pack:'G:/model/其他/ID-14306419.rar',      size:'10.7 MB' }
+];
+
+/* 待入库队列：分类可不管（默认 未分类）；允许只入包 */
+const INGEST = [
+  { pack:'ID-595812826.rar',  img:'ID-595812826.jpg', folder:'VR',     size:'18.2 MB', state:'ready' },
+  { pack:'装饰画-花卉.rar',    img:'339007616.jpg',    folder:'未分类', size:'7.4 MB',  state:'ready' },
+  { pack:'ID-16139252.zip',   img:'',                  folder:'未分类', size:'31.0 MB', state:'need-image' }
+];
+
+/* 本次增量 */
+const CHANGES = [
+  { kind:'add', file:'VR\\ID-595812826.rar',   img:'VR/ID-713717.jpeg',     idx:'待编码',   size:'18.2 MB' },
+  { kind:'add', file:'未分类\\装饰画-花卉.rar', img:'VR/ID-15661691.jpg',    idx:'待编码',   size:'7.4 MB' },
+  { kind:'add', file:'未分类\\ID-17001234.zip', img:'VR/ID-355747.jpg',      idx:'待编码',   size:'4.1 MB' },
+  { kind:'mod', file:'VR\\ID-116347859.rar',   img:'VR/ID-116347859.jpg',   idx:'待重编码', size:'0.25 MB' }
+];
+
+const AUDIT = [
+  { t:'2026-10-10 12:41', op:'扫描', r:'新增 3 · 变更 1 · 消失 0（库指纹一致）' },
+  { t:'2026-10-10 11:20', op:'入库', r:'5 项 → VR 4 / CR 1；全部编码成功' },
+  { t:'2026-10-10 09:03', op:'入库', r:'1 项被拦下：分类存疑，未写入' }
+];
+
+/* 库注册表 */
+const LIBS = [
+  { id:'L1', name:'室内素材', root:'G:\\model',        count:3594, meta:'fp32 · seq140',
+    ok:true,  scan:'12:41', current:true },
+  { id:'L2', name:'灯具专用', root:'E:\\素材库2',       count:412,  meta:'fp32 · seq140',
+    ok:true,  scan:'10:02', current:false },
+  { id:'L3', name:'旧库',     root:'Z:\\model',        count:1280, meta:'fp32 · seq280',
+    ok:false, scan:'09-28', current:false }
+];
+
+/* 素材卡片上的「更多」菜单 —— 增删查改的入口 */
+const CARD_MENU = [
+  { grp:'查' },
+  { act:'copy-img',   label:'复制预览图路径' },
+  { act:'copy-pack',  label:'复制压缩包路径' },
+  { act:'search-same',label:'以此为图搜同款' },
+  { act:'by-id',      label:'按 ID 精确查' },
+  { sep:true },
+  { grp:'改（复用向量，不重编码）' },
+  { act:'move-folder',label:'改归档目录…' },
+  { act:'rename-id',  label:'改 ID（图与包原子重命名）…' },
+  { act:'re-pair',    label:'修正配对…' },
+  { act:'move-lib',   label:'移动到另一个库…' },
+  { sep:true },
+  { grp:'改（需重编码）' },
+  { act:'replace-img',label:'替换预览图…' },
+  { act:'re-encode',  label:'重新编码' },
+  { sep:true },
+  { grp:'增' },
+  { act:'fill-pack',  label:'补齐压缩包…' },
+  { act:'fill-img',   label:'补齐预览图…' },
+  { sep:true },
+  { grp:'删' },
+  { act:'move-out',   label:'移出库（可还原）' }
+];
+
+/* ---------------- 工具 ---------------- */
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+let mode = 'image', filter = '', results = [], cursor = -1;
+
+function fileUrl(p) { return 'file:///' + encodeURI(p); }
+function bindThumb(el, fallbackText) {
+  el.addEventListener('error', () => {
+    const small = el.classList.contains('thumb-s');
+    const fb = document.createElement('div');
+    fb.className = small ? 'thumb-s-fallback' : 'thumb-fallback';
+    fb.innerHTML = small ? '—' : '<b>' + fallbackText + '</b><span>预览图未能内嵌显示</span>';
+    el.replaceWith(fb);
+  }, { once:true });
+}
+let toastTimer;
+function toast(msg) {
+  const el = $('#toast'); el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+/* 分数区间：按查询类型分别判读（跨模态分数不可直接比较） */
+function band(score, m) {
+  if (m === 'text') {
+    if (score >= 0.78) return ['same','很接近'];
+    if (score >= 0.74) return ['like','同类'];
+    if (score >= 0.65) return ['weak','较弱'];
+    return ['weak','可能没有'];
+  }
+  if (score >= 0.999) return ['same','同一张'];
+  if (score >= 0.88)  return ['same','同款区间'];
+  if (score >= 0.84)  return ['like','接近'];
+  return ['weak','较弱'];
+}
+
+/* ---------------- 检索视图 ---------------- */
+function renderGrid() {
+  const rows = results.filter((r) => !filter || r.folder === filter);
+  const grid = $('#grid');
+  grid.innerHTML = '';
+  if (!rows.length) { grid.innerHTML = '<div class="empty">没有匹配结果</div>'; return; }
+  rows.forEach((r, i) => {
+    const [cls, label] = band(r.score, mode);
+    const id = r.img.split('/').pop().replace(/\.[^.]+$/, '');
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.setAttribute('aria-selected', i === cursor ? 'true' : 'false');
+    card.innerHTML =
+      '<img class="thumb" loading="lazy" alt="' + id + ' 预览图" src="' + fileUrl(r.img) + '">' +
+      '<div class="meta"><div class="row1">' +
+        '<span class="score">' + r.score.toFixed(4) + '</span>' +
+        '<span class="band ' + cls + '">' + label + '</span>' +
+        '<span class="folder ' + r.folder.replace('+','') + '">' + r.folder + '</span>' +
+      '</div><div class="name" title="' + r.pack + '">' + r.pack.split('/').pop() + '</div>' +
+      '<div class="size">' + r.size + '</div></div>' +
+      '<div class="actions">' +
+        '<button class="pri" data-act="reveal">定位</button>' +
+        '<button data-act="collect">取件</button>' +
+        '<button data-act="more">更多 ▾</button></div>';
+    bindThumb(card.querySelector('img'), id);
+    card.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-act]');
+      if (b) {
+        const a = b.dataset.act;
+        if (a === 'reveal') toast('定位：' + r.pack);
+        else if (a === 'collect') toast('取件 → E:\\素材待用\\' + r.pack.split('/').pop());
+        else if (a === 'more') openCardMenu(r, b);
+        e.stopPropagation(); return;
+      }
+      cursor = i; renderGrid(); toast('选中 ' + id + '（Enter 定位）');
+    });
+    card.addEventListener('dblclick', () => toast('定位：' + r.pack));
+    grid.appendChild(card);
+  });
+}
+function setResults(rows, m) { results = rows; mode = m; cursor = -1; renderGrid(); }
+
+/* ---------------- 卡片「更多」菜单：增删查改入口 ---------------- */
+function openCardMenu(r, anchor) {
+  const menu = $('#cardmenu');
+  const id = r.img.split('/').pop().replace(/\.[^.]+$/, '');
+  const multi = ($('#libsel').value === '*');
+  menu.innerHTML = CARD_MENU.map((m) => {
+    if (m.sep) return '<div class="sep"></div>';
+    if (m.grp) return '<div class="grp">' + m.grp + '</div>';
+    return '<button data-mact="' + m.act + '">' + m.label + '</button>';
+  }).join('');
+  const box = anchor.getBoundingClientRect();
+  menu.classList.add('show');
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  menu.style.left = Math.max(8, Math.min(window.innerWidth - mw - 8, box.right - mw)) + 'px';
+  menu.style.top = Math.max(8, Math.min(window.innerHeight - mh - 8, box.bottom + 6)) + 'px';
+
+  menu.querySelectorAll('button[data-mact]').forEach((btn) => btn.addEventListener('click', () => {
+    const act = btn.dataset.mact;
+    const msg = {
+      'copy-img':    '已复制预览图路径：' + r.img,
+      'copy-pack':   '已复制压缩包路径：' + r.pack,
+      'search-same': '以此为图搜同款（会替换当前结果）',
+      'by-id':       '按 ID 精确查：' + id,
+      'move-folder': '改归档目录：图与包一起移动；向量复用，不重编码',
+      'rename-id':   '改 ID：图与包原子重命名，一步失败即回滚；向量复用',
+      're-pair':     '修正配对：把另一张图/包与之配对；向量复用',
+      'move-lib':    '移动到另一个库' + (multi ? '（当前是"全部库"视图，请先选定目标库）' : ''),
+      'replace-img': '替换预览图：需重编码；旧图备份到 E:\\移出素材\\，可还原',
+      're-encode':   '重新编码该条（约 0.42 秒）',
+      'fill-pack':   '补齐压缩包：复用原 uid，只补元数据',
+      'fill-img':    '补齐预览图：复用原 uid，需编码新图',
+      'move-out':    '移出库 → E:\\移出素材\\…（可还原；不提供真删除）'
+    }[act] || act;
+    toast(msg);
+    menu.classList.remove('show');
+  }));
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#cardmenu') && !e.target.closest('button[data-act="more"]')) {
+    $('#cardmenu').classList.remove('show');
+  }
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#cardmenu').classList.remove('show'); });
+
+/* ---------------- 库管理视图 ---------------- */
+function renderLibs() {
+  const tb = $('#lib-rows');
+  tb.innerHTML = '';
+  LIBS.forEach((L) => {
+    const tr = document.createElement('tr');
+    tr.className = 'row';
+    const cons = L.ok
+      ? '<span class="pill ok">一致 · ' + L.meta + '</span>'
+      : '<span class="pill warn">不一致 · ' + L.meta + '</span>';
+    tr.innerHTML =
+      '<td><b>' + L.name + '</b>' + (L.current ? ' <span class="pill info">当前</span>' : '') + '</td>' +
+      '<td class="mono">' + L.root + '</td>' +
+      '<td class="muted" style="font-variant-numeric:tabular-nums">' + L.count + '</td>' +
+      '<td>' + cons + '</td>' +
+      '<td class="muted">' + L.scan + '</td>' +
+      '<td>' +
+        '<button class="btn ghost">重命名</button> ' +
+        '<button class="btn ghost">重新指向</button> ' +
+        '<button class="btn ghost">扫描</button> ' +
+        '<button class="btn ghost">重建索引</button> ' +
+        '<button class="btn ghost">移除</button>' +
+      '</td>';
+    tr.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+      const a = b.textContent;
+      toast(a === '移除'
+        ? ('从注册表移除「' + L.name + '」—— 绝不删文件；索引保留在应用数据目录，可重新添加')
+        : (a + '：' + L.name));
+    }));
+    tb.appendChild(tr);
+  });
+}
+
+/* ---------------- 入库视图 ---------------- */
+function renderIngest() {
+  const tb = $('#ing-rows');
+  tb.innerHTML = '';
+  const FOLDERS = ['未分类','VR','CR','CR+VR','其他'];
+  const stateMap = { 'ready':['ok','就绪'], 'need-image':['warn','缺预览图（只入包）'] };
+  INGEST.forEach((it, i) => {
+    const tr = document.createElement('tr');
+    tr.className = 'row';
+    const ext = (it.pack.match(/\.[^.]+$/) || ['.rar'])[0];
+    const stem = it.pack.replace(/\.[^.]+$/, '');
+    const folder = it.folder || '未分类';
+    const [pc, pt] = stateMap[it.state] || ['ok','就绪'];
+    // 缺预览图也照样能定位目标（只入包），不再有"补齐后才确定"
+    const target = '<span class="mono">G:\\model\\' + folder + '\\' + stem + ext + '</span>';
+    const folderCell = '<select>' + FOLDERS.map((f) =>
+      '<option' + (f === folder ? ' selected' : '') + '>' + f + '</option>').join('') + '</select>';
+    const imgSrc = (it.img && it.folder)
+      ? fileUrl('G:/model/' + it.folder + '/' + it.img)
+      : '';
+    tr.innerHTML =
+      '<td>' + (imgSrc
+        ? '<img class="thumb-s" alt="" src="' + imgSrc + '">'
+        : '<div class="thumb-s-fallback">无图</div>') + '</td>' +
+      '<td class="mono">' + it.pack + '</td>' +
+      '<td>' + (it.img ? '<span class="pill ok">已配对</span>' : '<span class="pill warn">缺</span>') + '</td>' +
+      '<td>' + folderCell + '</td>' +
+      '<td>' + target + '</td>' +
+      '<td><span class="pill ' + pc + '">' + pt + '</span></td>' +
+      '<td><button class="btn ghost" data-i="' + i + '">移除</button></td>';
+    const im = tr.querySelector('img');
+    if (im) bindThumb(im, '');
+    tb.appendChild(tr);
+  });
+  $$('#ing-rows button[data-i]').forEach((b) => b.addEventListener('click',
+    () => toast('已从待入库队列移除该项（未写库）')));
+}
+
+/* ---------------- 增量视图 ---------------- */
+let chgFilter = '';
+function renderChanges() {
+  const tb = $('#chg-rows');
+  tb.innerHTML = '';
+  const rows = CHANGES.filter((c) => !chgFilter || c.kind === chgFilter);
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">没有此类增量</td></tr>'; return; }
+  const kindMap = { add:['ok','新增'], mod:['warn','变更'], del:['info','消失'] };
+  rows.forEach((c) => {
+    const [kc, kt] = kindMap[c.kind];
+    const tr = document.createElement('tr');
+    tr.className = 'row';
+    tr.innerHTML =
+      '<td><img class="thumb-s" alt="" src="' + fileUrl('G:/model/' + c.img) + '"></td>' +
+      '<td class="mono">' + c.file + '</td>' +
+      '<td><span class="pill ' + kc + '">' + kt + '</span></td>' +
+      '<td><span class="pill ' + (c.idx === '待编码' ? 'info' : 'warn') + '">' + c.idx + '</span></td>' +
+      '<td class="muted">' + c.size + '</td>' +
+      '<td>' + (c.kind === 'add'
+        ? '<button class="btn">编码</button> <button class="btn ghost">改分类</button> <button class="btn ghost">移出库</button>'
+        : c.kind === 'mod'
+          ? '<button class="btn">重新编码</button> <button class="btn ghost">跳过</button>'
+          : '<button class="btn ghost">从索引移除</button>') + '</td>';
+    const im = tr.querySelector('img');
+    if (im) bindThumb(im, '');
+    tb.appendChild(tr);
+  });
+  $$('#chg-rows button').forEach((b) => b.addEventListener('click',
+    () => toast('批量动作都会二次确认，并显示影响的条目数')));
+}
+function renderAudit() {
+  $('#audit-rows').innerHTML = AUDIT.map((a) =>
+    '<tr class="row"><td class="mono">' + a.t + '</td><td>' + a.op + '</td><td class="muted">' + a.r + '</td></tr>'
+  ).join('');
+}
+
+/* ---------------- 视图与状态切换 ---------------- */
+function setTab(name) {
+  $$('#tabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.view === name ? 'true' : 'false'));
+  $$('.view').forEach((v) => v.classList.toggle('active', v.id === 'view-' + name));
+}
+$$('#tabs button').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.view)));
+
+const OVERLAYS = { model:'#ov-model', downloading:'#ov-downloading', partial:'#ov-partial', indexing:'#ov-indexing' };
+function setState(s) {
+  Object.values(OVERLAYS).forEach((sel) => $(sel).classList.remove('show'));
+  setTab('search');
+  if (OVERLAYS[s]) $(OVERLAYS[s]).classList.add('show');
+  const busy = (s === 'indexing');
+  $('#btn-search').disabled = busy; $('#btn-img').disabled = busy; $('#q').disabled = busy;
+  $('#st-idx').textContent =
+    s === 'partial' ? '索引 1200 / 3594（不完整）'
+    : s === 'indexing' ? '索引 2228 / 3594（建立中）' : '索引 3594 / 3594';
+  $('#dot-idx').className = 'dot' + ((s === 'partial' || s === 'indexing') ? ' warn' : '');
+  $('#st-model').textContent =
+    s === 'model' ? '模型未下载' : s === 'downloading' ? '模型下载中 37%' : '模型 fp32 已加载 · CPU';
+  $('#dot-model').className = 'dot' + (s === 'model' ? ' bad' : s === 'downloading' ? ' warn' : '');
+  clearInterval(window.__ix);
+  if (s === 'indexing') {
+    let w = 62;
+    window.__ix = setInterval(() => { w = Math.min(100, w + 1); $('#ix-bar').style.width = w + '%'; }, 400);
+  }
+}
+
+/* ---------------- 交互 ---------------- */
+$('#btn-search').addEventListener('click', () => {
+  const q = $('#q').value.trim();
+  if (!q) { toast('请输入描述'); return; }
+  setResults(SAMPLE.slice(10, 17), 'text');
+  toast('文本检索 · ' + q + '（原型数据）');
+});
+$('#q').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#btn-search').click(); });
+$('#btn-img').addEventListener('click', () => toast('选择一张参考图（真实应用中转为以图搜图）'));
+$('#chips').addEventListener('click', (e) => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  $$('#chips .chip').forEach((c) => c.setAttribute('aria-pressed', c === b ? 'true' : 'false'));
+  filter = b.dataset.folder; renderGrid();
+});
+$('#chg-filter').addEventListener('click', (e) => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  $$('#chg-filter .chip').forEach((c) => c.setAttribute('aria-pressed', c === b ? 'true' : 'false'));
+  chgFilter = b.dataset.kind; renderChanges();
+});
+
+/* 拖放：检索视图→以图搜图；入库视图→收进队列 */
+['dragover','dragleave','drop'].forEach((t) => document.addEventListener(t, (e) => {
+  const dz = $('#dropzone');
+  const ingesting = $('#view-ingest').classList.contains('active');
+  if (t === 'dragover') { e.preventDefault(); if (ingesting) dz.classList.add('hot'); return; }
+  if (t === 'dragleave') { dz.classList.remove('hot'); return; }
+  e.preventDefault();
+  dz.classList.remove('hot');
+  const files = [...((e.dataTransfer && e.dataTransfer.files) || [])];
+  if (!files.length) return;
+  if (ingesting) toast('已加入待入库队列 ' + files.length + ' 个文件（尚未写库，待配对与预检）');
+  else { setResults(SAMPLE.slice(0, 10), 'image'); toast('以图搜图：' + files[0].name); }
+}));
+document.addEventListener('paste', (e) => {
+  const it = [...((e.clipboardData && e.clipboardData.items) || [])].find((x) => x.type.indexOf('image/') === 0);
+  if (it) { setTab('search'); setResults(SAMPLE.slice(0, 10), 'image'); toast('已从剪贴板读取图片 → 以图搜图'); }
+});
+const tiersEl = $('#tiers');
+if (tiersEl) tiersEl.addEventListener('click', (e) => {
+  const t = e.target.closest('.tier'); if (!t) return;
+  $$('#tiers .tier').forEach((c) => c.setAttribute('aria-checked', c === t ? 'true' : 'false'));
+});
+
+/* 键盘：↑↓ 选择、Enter 定位、Ctrl+C 复制路径、Esc 清空 */
+document.addEventListener('keydown', (e) => {
+  if (e.target === $('#q') || !$('#view-search').classList.contains('active')) return;
+  const rows = results.filter((r) => !filter || r.folder === filter);
+  if (!rows.length) return;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { cursor = Math.min(rows.length - 1, cursor + 1); renderGrid(); e.preventDefault(); }
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { cursor = Math.max(0, cursor - 1); renderGrid(); e.preventDefault(); }
+  else if (e.key === 'Enter' && cursor >= 0) { toast('定位：' + rows[cursor].pack); e.preventDefault(); }
+  else if (e.key === 'Escape') { cursor = -1; $('#q').value = ''; renderGrid(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && cursor >= 0) {
+    navigator.clipboard?.writeText(rows[cursor].pack); toast('已复制路径：' + rows[cursor].pack); e.preventDefault();
+  }
+});
+
+/* ---------------- 启动 ---------------- */
+setResults(SAMPLE.slice(0, 10), 'image');
+renderIngest();
+renderChanges();
+renderAudit();
+renderLibs();
+
+/* 库选择器：切换检索范围 */
+$('#libsel').addEventListener('change', (e) => {
+  const v = e.target.value;
+  if (v === '*') toast('检索范围：全部库（只合并一致性通过的 2 个库；旧库因 seq280 被排除）');
+  else if (v === 'L3') toast('该库索引为 seq280，与当前 140 不一致，已排除');
+  else toast('检索范围：' + e.target.selectedOptions[0].textContent);
+});
+</script>
+</body>
+</html>

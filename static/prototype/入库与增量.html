@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>入库与增量 · gemma-search 原型</title>
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="app.css" />
+<style>
+/* 本页专用：拖放区（只有这一页需要，故不放进共享 app.css） */
+.dropzone{border:2px dashed var(--color-separator);border-radius:13px;padding:26px;text-align:center;background:var(--color-bg-elevated);color:var(--ink-2)}
+.dropzone.hot{border-color:var(--accent);background:var(--accent-soft)}
+.dropzone b{color:var(--text)}
+.dropzone .s{font-size:11.5px;color:var(--muted);margin-top:6px}
+.kpis{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.fp{display:flex;align-items:center;gap:9px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">G</div><div><div class="brand-name">Gemma Search</div><div class="brand-sub">MATERIAL LIBRARY</div></div></div>
+    <div>
+      <div class="nav-label">工作区 WORKSPACE</div>
+      <nav class="nav">
+        <a href="语义搜索.html"><span class="ico">⌕</span><span>语义搜索</span></a>
+        <a href="图片详情.html"><span class="ico">▣</span><span>图片详情</span></a>
+        <a href="图库与索引任务.html"><span class="ico">▦</span><span>本地图库</span></a>
+        <a class="active" href="入库与增量.html"><span class="ico">＋</span><span>入库与增量</span></a>
+        <a href="图库与索引任务.html#tasks"><span class="ico">◴</span><span>索引任务</span></a>
+        <a href="操作记录与设置.html"><span class="ico">↺</span><span>操作记录</span></a>
+        <a href="操作记录与设置.html#settings"><span class="ico">⚙</span><span>设置</span></a>
+      </nav>
+      <div class="nav-label" style="margin-top:14px">原型页 PROTOTYPE</div>
+      <nav class="nav">
+        <a href="文件操作确认.html"><span class="ico">⚠</span><span>文件操作确认</span></a>
+        <a href="index.html"><span class="ico">≡</span><span>原型总览</span></a>
+      </nav>
+    </div>
+    <div class="side-note">
+      <strong>当前库 · 室内素材</strong>
+      G:\model<br />
+      <span style="color:#8b91ff">●</span> 库指纹一致<br />
+      <span style="display:block;margin-top:6px" class="mono">3c62f15c5944ce36…</span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="crumb">工作区 <span style="padding:0 7px;color:#c4c7d0">/</span> <strong>入库与增量</strong></div>
+      <div class="top-actions">
+        <button class="icon-btn" title="帮助" data-demo="帮助中心将在正式版本中提供">?</button>
+        <button class="icon-btn" title="通知" data-demo="目前没有新的通知">♧</button>
+        <div class="avatar">GS</div>
+      </div>
+    </header>
+
+    <div class="content">
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">INGEST · 把新素材收进库</div>
+          <h1>入库与增量</h1>
+          <div class="subtitle">入库只做四件事：配对、取 ID、选目录（可空）、预检。<strong>应用不解析压缩包内容</strong>，所以很快。</div>
+        </div>
+        <div class="head-buttons">
+          <button class="btn" data-demo="选择多个压缩包与预览图">选择文件</button>
+          <button class="btn" data-demo="选择文件夹（批量入库）">选择文件夹</button>
+        </div>
+      </div>
+
+      <!-- ===== 入库 ===== -->
+      <div class="dropzone" id="dz">
+        <div>把 <b>压缩包（.rar / .zip / .7z）</b> 与 <b>预览图（.jpg / .jpeg / .png）</b> 拖到这里</div>
+        <div class="s">按文件名主干自动配对（<span class="mono">ID-123.rar</span> ↔ <span class="mono">ID-123.jpg</span>）；配不上的会列出来，不会静默丢弃</div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <div class="row" style="margin-bottom:12px">
+          <div><b>待入库 3 项</b> <span class="muted small">配对完成的才能提交；缺预览图的可以只入包</span></div>
+          <button class="btn" onclick="openDialog('cf');render('ingest')">提交入库并索引</button>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead><tr>
+              <th style="width:70px">预览</th><th>压缩包</th><th style="width:82px">预览图</th>
+              <th style="width:120px">归档目录</th><th>目标路径</th><th style="width:120px">状态</th><th style="width:60px"></th>
+            </tr></thead>
+            <tbody>
+              <tr>
+                <td><img class="photo-img" style="height:44px;width:44px;border-radius:7px" alt="" src="file:///G:/model/VR/ID-713717.jpeg" /></td>
+                <td class="mono">ID-595812826.rar</td>
+                <td><span class="pill ok">已配对</span></td>
+                <td><select style="border:1px solid var(--line);border-radius:7px;padding:4px 6px"><option>未分类</option><option>VR</option><option>CR</option><option>CR+VR</option><option>其他</option></select></td>
+                <td class="mono">G:\model\未分类\ID-595812826.rar</td>
+                <td><span class="pill info">就绪</span></td>
+                <td><button class="link-btn" data-demo="已从待入库队列移除（未写库）">移除</button></td>
+              </tr>
+              <tr>
+                <td><img class="photo-img" style="height:44px;width:44px;border-radius:7px" alt="" src="file:///G:/model/CR/ID-16047383.jpg" /></td>
+                <td class="mono">装饰画-花卉.rar</td>
+                <td><span class="pill ok">已配对</span></td>
+                <td><select style="border:1px solid var(--line);border-radius:7px;padding:4px 6px"><option>未分类</option><option>VR</option><option selected>CR</option><option>CR+VR</option><option>其他</option></select></td>
+                <td class="mono">G:\model\CR\装饰画-花卉.rar</td>
+                <td><span class="pill warn">ID 需输入</span></td>
+                <td><button class="link-btn" data-demo="已从待入库队列移除（未写库）">移除</button></td>
+              </tr>
+              <tr>
+                <td><div class="mono muted small" style="padding:10px 0;text-align:center">无图</div></td>
+                <td class="mono">ID-16139252.zip</td>
+                <td><span class="pill warn">缺</span></td>
+                <td><select style="border:1px solid var(--line);border-radius:7px;padding:4px 6px"><option>未分类</option><option selected>VR</option><option>CR</option><option>CR+VR</option><option>其他</option></select></td>
+                <td class="mono">G:\model\VR\ID-16139252.zip</td>
+                <td><span class="pill warn">仅入包</span></td>
+                <td><button class="link-btn" data-demo="已从待入库队列移除（未写库）">移除</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="statusbar" style="margin-top:12px">
+          <span class="pill ok">就绪 2</span>
+          <span class="pill warn">ID 需输入 1</span>
+          <span class="pill warn">仅入包 1</span>
+          <span class="pill info">重名 0 · ID 重复 0</span>
+          <span class="r">G: 可用 44.3 GB，本次需要 56.6 MB</span>
+        </div>
+
+        <p class="hint-line" style="margin-top:10px">
+          <strong>归档目录可空</strong>：不选就进 <span class="mono">G:\model\未分类\</span>；
+          ID 从文件名提取，<strong>提取不到会停下来问你</strong>，不擅自编号。
+        </p>
+      </div>
+
+      <!-- ===== 增量 ===== -->
+      <div class="page-head" style="margin:30px 0 14px">
+        <div>
+          <div class="eyebrow">CHANGES · 库里发生了什么</div>
+          <h1 style="font-size:20px">增量</h1>
+          <div class="subtitle">只从索引移除，<strong>绝不删任何文件</strong>；「变更」标为待重编码，<strong>不自动重编码</strong>。</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="fp">
+          <span class="pill ok">库指纹一致</span>
+          <span class="mono muted">3c62f15c5944ce36…</span>
+          <span class="muted small">上次扫描 12:41</span>
+          <span style="flex:1"></span>
+          <span class="kpis"><span>新增 <b>3</b></span><span>变更 <b>1</b></span><span>消失 <b>0</b></span><span>待编码 <b>3</b></span></span>
+        </div>
+        <div class="filter-row">
+          <button class="chip active" data-k="all">全部</button>
+          <button class="chip" data-k="add">新增</button>
+          <button class="chip" data-k="mod">变更</button>
+          <button class="chip" data-k="move">疑似移动</button>
+          <span style="flex:1"></span>
+          <button class="btn primary" data-demo="提交索引：编码 3 个新增项；期间检索暂停以免争用 GPU">提交索引（编码 3 项）</button>
+          <button class="btn ghost" data-demo="已忽略本次列出的项（不改动库与索引）">忽略</button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="tbl" id="chg">
+            <thead><tr>
+              <th style="width:60px">预览</th><th>文件</th><th style="width:84px">类型</th>
+              <th style="width:118px">索引状态</th><th style="width:92px">体积</th><th style="width:180px">动作</th>
+            </tr></thead>
+            <tbody>
+              <tr data-k="add">
+                <td><img class="photo-img" style="height:44px;width:44px;border-radius:7px" alt="" src="file:///G:/model/VR/ID-713717.jpeg" /></td>
+                <td class="mono">未分类\ID-595812826.rar</td>
+                <td><span class="pill ok">新增</span></td>
+                <td><span class="pill info">待编码</span></td>
+                <td class="muted">18.2 MB</td>
+                <td><button class="link-btn" data-demo="编码该条（约 0.42 秒）">编码</button> ·
+                    <button class="link-btn" data-demo="改分类：在目录间移动，复用向量">改分类</button> ·
+                    <button class="link-btn" data-demo="移出库（可还原）">移出库</button></td>
+              </tr>
+              <tr data-k="add">
+                <td><img class="photo-img" style="height:44px;width:44px;border-radius:7px" alt="" src="file:///G:/model/CR/ID-16126260.png" /></td>
+                <td class="mono">CR\装饰画-花卉.rar</td>
+                <td><span class="pill ok">新增</span></td>
+                <td><span class="pill info">待编码</span></td>
+                <td class="muted">7.4 MB</td>
+                <td><button class="link-btn" data-demo="编码该条">编码</button> ·
+                    <button class="link-btn" data-demo="改分类">改分类</button> ·
+                    <button class="link-btn" data-demo="移出库（可还原）">移出库</button></td>
+              </tr>
+              <tr data-k="mod">
+                <td><img class="photo-img" style="height:44px;width:44px;border-radius:7px" alt="" src="file:///G:/model/VR/ID-116347859.jpg" /></td>
+                <td class="mono">VR\ID-116347859.rar</td>
+                <td><span class="pill warn">变更</span></td>
+                <td><span class="pill warn">待重编码</span></td>
+                <td class="muted">0.25 MB</td>
+                <td><button class="link-btn" data-demo="重新编码（文件内容被外部改动过）">重新编码</button> ·
+                    <button class="link-btn" data-demo="跳过本次；旧向量继续使用，但界面会标注该条可能过时">跳过</button></td>
+              </tr>
+              <tr data-k="move">
+                <td><img class="photo-img" style="height:44px;width:44px;border-radius:7px" alt="" src="file:///G:/model/其他/ID-14306419.jpg" /></td>
+                <td class="mono">其他\125229472.jpg → VR\125229472.jpg</td>
+                <td><span class="pill info">疑似移动</span></td>
+                <td><span class="pill plain">待确认</span></td>
+                <td class="muted">0.7 MB</td>
+                <td><button class="link-btn" data-demo="确认重链接：路径更新，复用原向量（不重编码）">确认重链接</button> ·
+                    <button class="link-btn" data-demo="视为新素材：重新编码，并按新 uid 建立记录">视为新增</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="statusbar">
+          <span class="dot warn"></span>
+          <span><strong>绝不静默复用旧向量</strong>：非 ok 状态一律进这张表，由人确认</span>
+          <span class="r">本库已知：105 张扩展名与内容不符 · 5 组重复预览图</span>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+<script>
+/* 拖放高亮（原型：仅视觉反馈） */
+const dz = document.getElementById('dz');
+['dragenter','dragover'].forEach((t) => dz.addEventListener(t, (e) => { e.preventDefault(); dz.classList.add('hot'); }));
+['dragleave','drop'].forEach((t) => dz.addEventListener(t, (e) => {
+  e.preventDefault(); dz.classList.remove('hot');
+  if (t === 'drop') toast('已加入待入库队列 ' + (e.dataTransfer.files.length || 0) + ' 个文件（尚未写库，待配对与预检）');
+}));
+
+/* 增量筛选 */
+document.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-k]').forEach((x) => x.classList.toggle('active', x === b));
+  const k = b.dataset.k;
+  document.querySelectorAll('#chg tbody tr').forEach((tr) => { tr.style.display = (k === 'all' || tr.dataset.k === k) ? '' : 'none'; });
+}));
+
+/* 缩略图失败 → 占位 */
+document.querySelectorAll('img[src^="file:///"]').forEach((im) => im.addEventListener('error', function () {
+  const d = document.createElement('div');
+  d.className = 'ph-fallback';
+  d.style.height = '44px'; d.style.width = '44px'; d.style.borderRadius = '7px';
+  d.textContent = '—';
+  this.replaceWith(d);
+}, { once: true }));
+</script>
+</body>
+</html>

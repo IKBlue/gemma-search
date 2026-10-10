@@ -1,0 +1,8 @@
+{
+  "_说明": "模板：复制为 config.json 后按本机情况填写。config.json 不入库。也可直接用环境变量覆盖（优先级更高）。",
+  "workspace": "C:\\path\\to\\your\\workspace",
+  "library_root": "G:\\model",
+  "data_dir": "",
+  "model_cache": "C:\\path\\to\\your\\workspace\\model-cache",
+  "model_id": "google/embeddinggemma-2"
+}

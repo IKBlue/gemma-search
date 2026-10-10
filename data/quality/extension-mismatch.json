@@ -1,0 +1,754 @@
+{
+ "generated_at": "2026-10-10 13:36:03",
+ "library_root": "G:\\model",
+ "total_images": 3594,
+ "ext_count": {
+  ".png": 208,
+  ".jpg": 2644,
+  ".jpeg": 742
+ },
+ "mismatch_count": 105,
+ "by_pair": {
+  "png→jpeg": 68,
+  "jpg→bmp": 20,
+  "jpg→png": 17
+ },
+ "items": [
+  {
+   "rel_path": "CR\\ID-1115078555.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 48017,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "CR\\ID-1116962226.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 74362,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "CR\\ID-1121651121.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 39387,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "CR\\ID-1123819907.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 58629,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "CR\\ID-1135176139.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 84140,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "CR\\ID-15645567.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 3001977,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "CR+VR\\ID-108614951.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 40298,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-100751063.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 49889,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-100947400.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 50150,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-101799444.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 51886,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-102978431.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 50393,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-103371720.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 73380,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-10367396.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 401794,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-104158615.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 62908,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-104486008.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 45571,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-105469695.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 42195,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-105534568.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 38133,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1057929.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 1464396,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-107828917.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 81752,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-109533049.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 34886,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-110056159.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 65210,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-110384414.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 51875,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-110646302.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 38104,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1109305018.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 237234,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1109878886.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 147598,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1110634897.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 149244,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1114508137.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 48161,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1116231154.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 58554,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1117277143.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 38248,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1117697474.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 44188,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1117727513.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 49513,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1119443469.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 41851,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1120352090.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 43758,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1120555159.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 51128,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-112218857.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 66237,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1122557086.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 51778,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1122808000.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 55365,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1122873229.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 73561,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1123370915.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 85438,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1123382432.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 70633,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1123534068.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 57543,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1123689372.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 62565,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1125086116.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 62875,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1125884233.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 62355,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1126220109.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 41805,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1126853874.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 72819,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1127504283.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 39606,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1128734466.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 100017,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1129491179.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 67426,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1129544935.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 56271,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1129910727.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 32958,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1129971873.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 62857,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1130308590.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 44933,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1130476652.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 54085,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1134120497.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 74208,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1134931625.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 74465,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-113792231.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 86933,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1138901220.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 62965,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1139519215.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 51267,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1143915763.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 43554,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1144534975.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 65582,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-115430952.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 79583,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1158046016.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 1727777,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-115823639.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 48781,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-115824456.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 82559,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-115887729.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 56697,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-115889004.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 40115,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-116347859.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 111222,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-11662653.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 2070249,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-116739589.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 43526,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-11714899.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 254654,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1175244161.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 543421,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1177755883.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 2469334,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1181383029.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 610293,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-11948275.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 61134,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-11964949.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 48745,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-12089794.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 1821918,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-12124414.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 49135,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1257367.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 368254,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1299244.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 360054,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1413345.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 360054,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1422632.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 294274,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1456208.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 368254,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1472285.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 360054,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1499683.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 294274,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1501265.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 368254,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1502746.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 360054,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1505776.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 294274,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1551617.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 52492,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-15602395.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 33460870,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-15605694.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 2831681,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1639957.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 35802,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-1667224.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 44637,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-181657062.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 360054,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-183073748.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 360054,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-610620.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 294274,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-628141.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 294274,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-680158601.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 294274,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-688104.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 9241379,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-787548745.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 360054,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-888181044.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 294274,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-888793055.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 294274,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-970284.jpg",
+   "ext": ".jpg",
+   "actual": "png",
+   "size": 396866,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "VR\\ID-991224669.jpg",
+   "ext": ".jpg",
+   "actual": "bmp",
+   "size": 360054,
+   "reason": "扩展名与实际格式不符"
+  },
+  {
+   "rel_path": "其他\\ID-1118687485.png",
+   "ext": ".png",
+   "actual": "jpeg",
+   "size": 54379,
+   "reason": "扩展名与实际格式不符"
+  }
+ ],
+ "_note": "abs_path 已移除：证据只保留相对路径（相对 library_root），既足够复现，又不把本机绝对路径写进仓库。"
+}

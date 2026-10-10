@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gemma-search · UI 原型 v3（暗色 · 四个关键流程）</title>
+<!--
+  gemma-search 应用 UI 原型 v3
+  ─ 视觉方向：按参考图 Arasaka —— 全暗色、紧凑卡片、**图上覆盖标题条**
+  ─ 数据：**真实库数据**（ID / 包名 / 体积 / 实测余弦分数），缩略图直连 G:\model
+  ─ 重点：补上评审认定的两个缺失关键流程 —— 图片详情、文件操作确认
+  ─ 已按 UI-REVIEW §6 实现四个关键流程：搜索结果 / 图片详情 / 索引任务 / 文件操作确认
+  ─ 未覆盖页（图库 / 入库 / 增量 / 设置）明确标注，不假装完成
+
+  强调色与危险色的冲突：参考图用深红作强调。而本应用的"移出库"等危险操作也需要红。
+  处理：强调色做成 --accent（可一行替换），危险操作另用**实心填充 + 警告图标 + 动词按钮**区分。
+-->
+<style>
+:root{
+  /* 暗色底：参考图是近黑的面板 + 略亮的卡片 */
+  --app:#0d0d10;        --side:#131317;      --panel:#17171c;     --card:#1c1c22;
+  --line:#26262e;       --line-2:#2f2f38;
+  --fg:#ecedf1;         --fg-2:#a2a5b4;     --fg-3:#6f7280;
+  --accent:#e5484d;     /* 参考图的深红；换强调色只改这一行 */
+  --accent-ink:#fff;    --accent-soft:#e5484d1f;
+  --ok:#3fb950;  --ok-soft:#3fb9501f;
+  --warn:#d29922; --warn-soft:#d299221f;
+  --danger:#ff5a5f; --danger-soft:#ff5a5f1f;
+  --same:#3fb950;  --like:#d29922;  --weak:#8b8f9c;
+  --radius:10px; --radius-lg:14px;
+  --shadow:0 8px 30px #0009;
+  --fs:13px;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--app);color:var(--fg);font:var(--fs)/1.5 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;overflow:hidden}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+/* 焦点可见：原型参考图没体现，但我们要求可访问性 */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+
+/* ---------- 骨架 ---------- */
+.app{display:grid;grid-template-columns:238px minmax(0,1fr);height:100vh}
+
+/* ---------- 侧栏（参考图结构，映射到我们的领域）---------- */
+.side{background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.side-top{padding:14px 12px 10px}
+.brand{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:9px}
+.brand:hover{background:#ffffff08}
+.brand .mark{width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,#ff7a7f,var(--accent));display:grid;place-items:center;font-size:12px;font-weight:800;color:#fff}
+.brand .name{font-weight:650;font-size:13.5px;letter-spacing:.1px}
+.brand .switch{margin-left:auto;color:var(--fg-3);font-size:10px}
+.brand .ava{width:22px;height:22px;border-radius:50%;background:#2b2b34;display:grid;place-items:center;font-size:10px;color:var(--fg-2)}
+
+.nav{padding:6px 8px;display:grid;gap:1px}
+.nav-label{font-size:10.5px;color:var(--fg-3);letter-spacing:.6px;padding:12px 10px 6px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;color:var(--fg-2);font-size:13px;text-align:left;width:100%;position:relative}
+.nav-item:hover{background:#ffffff07;color:var(--fg)}
+.nav-item[aria-current="true"]{background:#ffffff0d;color:var(--fg);font-weight:600}
+.nav-item .ic{width:16px;text-align:center;font-size:13px;opacity:.9}
+.nav-item .count{margin-left:auto;font-size:11px;color:var(--fg-3);background:#ffffff0a;padding:1px 6px;border-radius:5px}
+.nav-item[aria-current="true"] .count{color:var(--fg-2)}
+/* 参考图的"当前库"用左侧红条标记 —— 这里用于标记当前库 */
+.nav-item.lib[aria-current="true"]::before{content:"";position:absolute;left:-8px;top:5px;bottom:5px;width:3px;border-radius:2px;background:var(--accent)}
+.nav-item.disabled{opacity:.42;cursor:not-allowed}
+.nav-item .warnflag{margin-left:auto;font-size:10px;color:var(--warn);border:1px solid var(--warn);border-radius:5px;padding:0 4px}
+
+.side-sep{height:1px;background:var(--line);margin:8px 12px}
+.side-bottom{margin-top:auto;padding:10px 12px 14px;display:grid;gap:8px}
+.shortcut{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;color:var(--fg-3);font-size:12px}
+.shortcut:hover{background:#ffffff07;color:var(--fg-2)}
+.shortcut kbd{margin-left:auto;font:inherit;font-size:10px;border:1px solid var(--line-2);border-radius:5px;padding:1px 5px;color:var(--fg-3)}
+.libcard{border:1px solid var(--line);background:#ffffff06;border-radius:11px;padding:10px 11px}
+.libcard .t{font-size:11.5px;color:var(--fg-2);display:flex;justify-content:space-between;align-items:center}
+.libcard .p{font-size:11px;color:var(--fg-3);margin:6px 0 8px;word-break:break-all;font-family:ui-monospace,Consolas,monospace}
+.bar{height:4px;border-radius:99px;background:#ffffff12;overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--accent)}
+.libcard .m{display:flex;justify-content:space-between;font-size:10px;color:var(--fg-3);margin-top:6px}
+
+/* ---------- 主区 ---------- */
+.main{min-width:0;display:flex;flex-direction:column;min-height:0}
+.topbar{height:54px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:0 20px;background:var(--panel);flex:0 0 auto}
+.crumb{font-size:12px;color:var(--fg-3)}
+.crumb b{color:var(--fg);font-weight:600}
+.top-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+.scope{font-size:11.5px;color:var(--fg-2);border:1px solid var(--line);border-radius:7px;padding:4px 8px;display:flex;align-items:center;gap:6px}
+.scope .dot{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.content{flex:1 1 auto;overflow:auto;padding:20px}
+.page{display:none;max-width:1520px;margin:0 auto}
+.page.active{display:block}
+
+/* ---------- 通用控件 ---------- */
+.btn{border:1px solid var(--line-2);background:var(--card);border-radius:8px;padding:7px 11px;font-size:12.5px;color:var(--fg);display:inline-flex;align-items:center;gap:6px}
+.btn:hover{border-color:#3a3a45;background:#232329}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent}
+.btn.danger{background:var(--danger);border-color:var(--danger);color:#1a0d0e;font-weight:650}
+.btn.sm{padding:5px 9px;font-size:12px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.chip{border:1px solid var(--line-2);background:var(--card);border-radius:7px;padding:5px 10px;font-size:11.5px;color:var(--fg-2)}
+.chip[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:#ffb4b7;font-weight:600}
+select{background:var(--card);border:1px solid var(--line-2);border-radius:7px;padding:5px 8px;font-size:12px}
+.h{font-size:19px;font-weight:700;letter-spacing:-.3px;margin:0 0 3px}
+.sub{color:var(--fg-3);font-size:12.5px;margin:0}
+.hint{font-size:11.5px;color:var(--fg-3)}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+.pill{font-size:10.5px;padding:1.5px 7px;border-radius:99px;border:1px solid currentColor;white-space:nowrap}
+.pill.ok{color:var(--ok);background:var(--ok-soft)}
+.pill.warn{color:var(--warn);background:var(--warn-soft)}
+.pill.bad{color:var(--danger);background:var(--danger-soft)}
+.pill.info{color:#9ecbff;background:#9ecbff14}
+.tag{font-size:10px;padding:1px 6px;border-radius:5px;background:#ffffff10;color:var(--fg-2)}
+.tag.VR{background:#2f6feb2e;color:#9ec2ff}
+.tag.CR{background:#8250df2e;color:#d0b4ff}
+.tag.CRVR{background:#1a7f372e;color:#8fe0a6}
+.tag.other{background:#8b949e2e;color:#c3c9d1}
+.tag.未分类{background:#d299222e;color:#f0cf8a}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);padding:15px}
+.grid-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px;margin:14px 0 18px}
+.metric{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px 13px}
+.metric .k{font-size:11px;color:var(--fg-3);display:flex;justify-content:space-between}
+.metric .v{font-size:20px;font-weight:700;letter-spacing:-.4px;margin-top:7px;font-variant-numeric:tabular-nums}
+.metric .n{font-size:10.5px;color:var(--fg-3);margin-top:3px}
+.metric .n.good{color:var(--ok)}
+.metric .n.warn{color:var(--warn)}
+
+/* ---------- 搜索区 ---------- */
+.searchbar{display:flex;gap:9px;margin:16px 0 10px}
+.input{flex:1;display:flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--line-2);border-radius:10px;padding:0 12px;min-width:0}
+.input:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.input input{flex:1;border:0;background:transparent;outline:0;height:40px;min-width:0;font-size:13.5px}
+.input input::placeholder{color:#5c5f6b}
+.input .kbd{font-size:10px;border:1px solid var(--line-2);border-radius:5px;padding:1px 5px;color:var(--fg-3)}
+.filters{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:16px}
+.filters .sp{flex:1}
+.res-head{display:flex;align-items:center;gap:10px;margin:0 0 11px}
+.res-head h2{font-size:14px;margin:0;font-weight:650}
+.res-head .cnt{color:var(--fg-3);font-size:11.5px;font-weight:400}
+.viewtog{display:flex;gap:2px;padding:2px;border:1px solid var(--line-2);border-radius:8px;background:var(--card)}
+.viewtog button{border-radius:6px;padding:4px 8px;font-size:11.5px;color:var(--fg-3)}
+.viewtog button[aria-pressed="true"]{background:var(--accent-soft);color:#ffb4b7}
+
+/* ---------- 结果网格：参考图的关键特征 —— 图上覆盖标题条 ---------- */
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:12px}
+.gallery.list{grid-template-columns:1fr}
+.item{position:relative;border-radius:var(--radius);overflow:hidden;background:#101014;border:1px solid var(--line);cursor:pointer;padding:0;text-align:left;display:block}
+.item:hover{border-color:#3d3d48}
+.item[aria-selected="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.item .thumb{aspect-ratio:1/1;width:100%;display:block;object-fit:cover;background:#0b0b0e}
+.item .fallback{aspect-ratio:1/1;display:grid;place-items:center;background:linear-gradient(150deg,#22222a,#15151a);color:var(--fg-3);font-size:11px;text-align:center;padding:10px;gap:4px}
+/* 覆盖条：名称一行、元信息一行（对应参考图的两行说明） */
+.item .cap{position:absolute;left:0;right:0;bottom:0;padding:9px 10px 8px;background:linear-gradient(180deg,#0b0b0e00,#0b0b0ee6 38%,#0b0b0ef7)}
+.item .cap .l1{display:flex;align-items:baseline;gap:7px}
+.item .cap .pack{font-size:12.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .cap .score{margin-left:auto;font-size:12px;font-weight:750;font-variant-numeric:tabular-nums;flex:0 0 auto}
+.item .cap .l2{display:flex;align-items:center;gap:6px;margin-top:4px;font-size:10.5px;color:var(--fg-2)}
+.item .cap .l2 .size{color:var(--fg-3)}
+.band-same{color:var(--same)} .band-like{color:var(--like)} .band-weak{color:var(--weak)}
+.item .check{position:absolute;top:8px;left:8px;width:19px;height:19px;border-radius:6px;border:1px solid #ffffff5c;background:#00000073;display:grid;place-items:center;font-size:11px;color:transparent;backdrop-filter:blur(6px)}
+.item[aria-selected="true"] .check{background:var(--accent);border-color:var(--accent);color:#fff}
+.item .libb{position:absolute;top:8px;right:8px;font-size:10px;background:#000000a6;border-radius:5px;padding:2px 6px;color:#d6d9e2;backdrop-filter:blur(6px)}
+/* 悬停出动作（评审要求：卡片必须能直接定位/取件） */
+.item .acts{position:absolute;left:8px;right:8px;bottom:52px;display:flex;gap:6px;opacity:0;transition:opacity .12s}
+.item:hover .acts,.item:focus-within .acts,.item[aria-selected="true"] .acts{opacity:1}
+.item .acts button{flex:1;font-size:11.5px;padding:5px 0;border-radius:7px;background:#000000c4;border:1px solid #ffffff2e;color:var(--fg);backdrop-filter:blur(8px)}
+.item .acts button:hover{background:#000000e6}
+.item .acts button.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:650}
+
+.empty{grid-column:1/-1;border:1px dashed var(--line-2);border-radius:var(--radius-lg);padding:40px;text-align:center;color:var(--fg-3)}
+.statusbar{display:flex;align-items:center;gap:10px;margin-top:16px;padding:10px 13px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);font-size:11.5px;color:var(--fg-2)}
+.statusbar .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:0 0 auto}
+.statusbar .r{margin-left:auto;color:var(--fg-3);font-variant-numeric:tabular-nums}
+
+/* ---------- 图片详情 ---------- */
+.detail{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(380px,1fr);gap:16px}
+.bigpic{border:1px solid var(--line);border-radius:var(--radius-lg);background:#0b0b0e;display:grid;place-items:center;min-height:420px;overflow:hidden}
+.bigpic img{max-width:100%;max-height:70vh;display:block}
+.bigpic .fallback{border:0;border-radius:0;width:100%;min-height:420px}
+.meta h4{margin:0 0 8px;font-size:12px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.7px}
+.kv{display:grid;grid-template-columns:88px minmax(0,1fr);gap:6px 10px;font-size:12px;margin-bottom:14px}
+.kv dt{color:var(--fg-3)}
+.kv dd{margin:0;word-break:break-all}
+.actgroup{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.actgroup .gh{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--fg-2);margin-bottom:8px}
+.actgroup .gh .why{color:var(--fg-3);font-size:11px}
+.actrow{display:flex;flex-wrap:wrap;gap:7px}
+.danger-zone{border:1px solid var(--danger);border-radius:var(--radius);padding:11px 12px;background:var(--danger-soft);margin-top:14px}
+.danger-zone .t{font-size:12px;font-weight:650;color:#ffb4b7;display:flex;align-items:center;gap:6px}
+.danger-zone .d{font-size:11.5px;color:var(--fg-2);margin:6px 0 9px}
+
+/* ---------- 索引任务 ---------- */
+.stages{display:flex;gap:5px;margin:14px 0 10px;flex-wrap:wrap}
+.stage{flex:1;min-width:110px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--card);font-size:11.5px;color:var(--fg-3)}
+.stage.done{border-color:var(--ok);color:var(--fg-2)}
+.stage.done .n{color:var(--ok)}
+.stage.now{border-color:var(--accent);background:var(--accent-soft);color:var(--fg)}
+.stage.now .n{color:#ffb4b7}
+.stage .n{display:block;font-size:10px;margin-bottom:2px}
+.bigbar{height:7px;border-radius:99px;background:#ffffff10;overflow:hidden;margin:6px 0 8px}
+.bigbar>i{display:block;height:100%;background:var(--accent)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;font-size:11px;color:var(--fg-3);font-weight:600;padding:8px 9px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0}
+td{padding:8px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+table.box{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+
+/* ---------- 弹窗（关键流程 4）---------- */
+.overlay{position:fixed;inset:0;background:#000000a8;backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;padding:24px;z-index:50}
+.overlay.show{display:flex}
+.dialog{width:100%;max-width:520px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--radius-lg);box-shadow:var(--shadow);overflow:hidden}
+.dialog .dh{display:flex;align-items:center;gap:9px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.dialog .dh .ic{width:26px;height:26px;border-radius:8px;background:var(--danger-soft);color:var(--danger);display:grid;place-items:center;font-size:14px}
+.dialog .dh h3{margin:0;font-size:14px}
+.dialog .db{padding:14px 16px;display:grid;gap:12px}
+.dialog .db .lead{font-size:12.5px;color:var(--fg-2);margin:0}
+.changes{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.changes .row{display:flex;gap:10px;align-items:center;padding:8px 10px;font-size:12px;border-bottom:1px solid var(--line)}
+.changes .row:last-child{border-bottom:0}
+.changes .row .role{width:26px;color:var(--fg-3);font-size:10.5px}
+.changes .row .nm{flex:1;min-width:0;word-break:break-all}
+.changes .row .sz{color:var(--fg-3);flex:0 0 auto}
+.checks{display:grid;gap:6px;font-size:11.5px;color:var(--fg-2)}
+.checks .c{display:flex;gap:7px;align-items:flex-start}
+.checks .c .m{flex:0 0 auto}
+.checks .c.ok .m{color:var(--ok)} .checks .c.warn .m{color:var(--warn)}
+.dialog .df{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--line);background:#131318}
+
+/* ---------- 未覆盖页的诚实说明 ---------- */
+.todo{border:1px dashed var(--line-2);border-radius:var(--radius-lg);padding:22px;background:var(--panel)}
+.todo h3{margin:0 0 8px;font-size:14px}
+.todo ul{margin:8px 0 0 18px;color:var(--fg-2);font-size:12.5px}
+.toast{position:fixed;right:20px;bottom:20px;background:#22222b;border:1px solid var(--line-2);color:var(--fg);padding:11px 14px;border-radius:9px;box-shadow:var(--shadow);font-size:12.5px;opacity:0;transform:translateY(6px);pointer-events:none;transition:.16s;z-index:60;max-width:420px}
+.toast.show{opacity:1;transform:translateY(0)}
+@media (max-width:1180px){.detail{grid-template-columns:1fr}.grid-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:900px){.app{grid-template-columns:62px minmax(0,1fr)}.side .txt,.nav-label,.libcard,.brand .name,.brand .switch,.shortcut span{display:none}.nav-item{justify-content:center}.nav-item .count{display:none}}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ============ 侧栏 ============ -->
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand">
+        <div class="mark">G</div>
+        <div class="name">gemma-search</div>
+        <div class="switch">▾</div>
+        <div class="ava">GS</div>
+      </div>
+    </div>
+
+    <nav class="nav" aria-label="主导航">
+      <button class="nav-item" data-page="search" aria-current="true"><span class="ic">⌕</span><span class="txt">语义搜索</span></button>
+      <button class="nav-item" data-page="ingest"><span class="ic">＋</span><span class="txt">入库</span><span class="count">3</span></button>
+      <button class="nav-item" data-page="index"><span class="ic">◴</span><span class="txt">索引任务</span><span class="count">1</span></button>
+      <button class="nav-item" data-page="activity"><span class="ic">↺</span><span class="txt">操作记录</span><span class="count">2</span></button>
+
+      <div class="nav-label">图库 LIBRARIES</div>
+      <button class="nav-item lib" data-lib="L1" aria-current="true"><span class="ic">▦</span><span class="txt">室内素材</span><span class="count">3594</span></button>
+      <button class="nav-item lib" data-lib="L2"><span class="ic">▦</span><span class="txt">灯具专用</span><span class="count">412</span></button>
+      <button class="nav-item lib disabled" data-lib="L3" title="seq280，与当前 140 不一致"><span class="ic">▦</span><span class="txt">旧库</span><span class="warnflag">不一致</span></button>
+
+      <div class="nav-label">分类 CATEGORY</div>
+      <button class="nav-item" data-cat=""><span class="ic">◇</span><span class="txt">全部素材</span></button>
+      <button class="nav-item" data-cat="VR"><span class="ic">◇</span><span class="txt">VR</span><span class="count">2809</span></button>
+      <button class="nav-item" data-cat="CR"><span class="ic">◇</span><span class="txt">CR</span><span class="count">630</span></button>
+      <button class="nav-item" data-cat="CR+VR"><span class="ic">◇</span><span class="txt">CR+VR</span><span class="count">78</span></button>
+      <button class="nav-item" data-cat="其他"><span class="ic">◇</span><span class="txt">其他</span><span class="count">77</span></button>
+      <button class="nav-item" data-cat="未分类"><span class="ic">◇</span><span class="txt">未分类</span><span class="count">0</span></button>
+
+      <div class="nav-label">应用 APP</div>
+      <button class="nav-item" data-page="library"><span class="ic">▤</span><span class="txt">图库管理</span></button>
+      <button class="nav-item" data-page="increment"><span class="ic">⇅</span><span class="txt">增量</span><span class="count">4</span></button>
+      <button class="nav-item" data-page="settings"><span class="ic">⚙</span><span class="txt">设置</span></button>
+    </nav>
+
+    <div class="side-bottom">
+      <button class="shortcut" onclick="toast('全局搜索（⌘K）—— 正式版实现')"><span class="ic">⌕</span><span>搜索</span><kbd>⌘K</kbd></button>
+      <div class="libcard">
+        <div class="t"><span>当前库 · 室内素材</span><span class="pill ok">就绪</span></div>
+        <div class="p">G:\model</div>
+        <div class="bar"><i style="width:100%"></i></div>
+        <div class="m"><span>索引 3594 / 3594</span><span>fp32 · seq140</span></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ 主区 ============ -->
+  <main class="main">
+    <header class="topbar">
+      <div class="crumb">工作区 <span style="color:#3a3d47">/</span> <b id="crumb">语义搜索</b></div>
+      <div class="top-actions">
+        <span class="scope"><span class="dot"></span> 范围：室内素材 · fp32/seq140</span>
+        <button class="btn sm" onclick="go('increment')">增量 4</button>
+        <button class="btn sm primary" onclick="go('index');toast('已加入索引队列（原型）')">更新索引</button>
+      </div>
+    </header>
+
+    <div class="content">
+
+      <!-- ---------- 流程 1：搜索结果 ---------- -->
+      <section class="page active" id="page-search">
+        <h1 class="h">找到你要的那套素材。</h1>
+        <p class="sub">用中文描述画面，或直接丢一张参考图。检索只在本地图库中进行。</p>
+
+        <div class="searchbar">
+          <label class="input">
+            <span style="color:var(--fg-3)">⌕</span>
+            <input id="q" placeholder="试试：玻璃球多头吊灯 / 中古风木质吸顶灯 / 花卉图案装饰画" aria-label="语义搜索">
+            <span class="kbd">Enter ↵</span>
+          </label>
+          <button class="btn primary" onclick="runSearch()">搜索</button>
+          <button class="btn" onclick="toast('选择参考图（以图搜图）—— 正式版走 IPC')">以图搜图</button>
+        </div>
+
+        <div class="filters">
+          <span class="hint">分类</span>
+          <button class="chip" data-folder="" aria-pressed="true">全部</button>
+          <button class="chip" data-folder="VR" aria-pressed="false">VR</button>
+          <button class="chip" data-folder="CR" aria-pressed="false">CR</button>
+          <button class="chip" data-folder="CR+VR" aria-pressed="false">CR+VR</button>
+          <button class="chip" data-folder="其他" aria-pressed="false">其他</button>
+          <span class="sp"></span>
+          <span class="hint">排序</span>
+          <select id="sort"><option>相关度</option><option>包体积</option><option>ID</option><option>最近添加</option></select>
+          <select id="topk"><option>12</option><option selected>24</option><option>48</option></select>
+        </div>
+
+        <div class="grid-metrics">
+          <div class="metric"><div class="k"><span>素材总数</span><span>▧</span></div><div class="v">3,594</div><div class="n">预览图 3594 · 压缩包 3594</div></div>
+          <div class="metric"><div class="k"><span>已建立索引</span><span>✓</span></div><div class="v">3,594</div><div class="n good">100% · 可参与语义检索</div></div>
+          <div class="metric"><div class="k"><span>索引元数据</span><span>◴</span></div><div class="v" style="font-size:15px;margin-top:10px">fp32 · seq140</div><div class="n">revision daa72c51… · 预处理 v1</div></div>
+          <div class="metric"><div class="k"><span>健康度</span><span>⚑</span></div><div class="v" style="font-size:15px;margin-top:10px">105 张待关注</div><div class="n warn">扩展名与内容不符 · 5 组重复图</div></div>
+        </div>
+
+        <div class="res-head">
+          <h2>搜索结果 <span class="cnt" id="cnt">10 套素材 · 以图搜图（实测分数）</span></h2>
+          <span style="flex:1"></span>
+          <div class="viewtog">
+            <button aria-pressed="true" onclick="setView('grid',this)">▦ 网格</button>
+            <button aria-pressed="false" onclick="setView('list',this)">☷ 列表</button>
+          </div>
+        </div>
+
+        <div class="gallery" id="gallery"></div>
+
+        <div class="statusbar">
+          <span class="dot"></span>
+          <span>本地引擎就绪 · 模型 fp32 已加载 · webgpu</span>
+          <span class="r" id="elapsed">热查询 P50 0.42 s（图像编码实测）</span>
+        </div>
+      </section>
+
+      <!-- ---------- 流程 2：图片详情（评审认定缺失）---------- -->
+      <section class="page" id="page-detail">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <button class="btn sm" onclick="go('search')">← 返回结果</button>
+          <h1 class="h" style="margin:0;font-size:16px" id="d-title">ID-713717</h1>
+          <span class="tag VR">VR</span>
+          <span class="pill ok">已编码</span>
+          <span style="flex:1"></span>
+          <span class="hint" id="d-score">余弦 0.9396 · 同款区间</span>
+        </div>
+
+        <div class="detail">
+          <div class="bigpic" id="d-pic"></div>
+
+          <div class="meta">
+            <div class="card" style="padding:14px">
+              <h4>身份与位置</h4>
+              <dl class="kv">
+                <dt>uid</dt><dd class="mono">9f3c1a2b4d5e</dd>
+                <dt>库 / 分类</dt><dd>室内素材 · VR</dd>
+                <dt>预览图</dt><dd class="mono">G:\model\VR\ID-713717.jpeg<br><span class="hint">600 × 600 · 46 KB · 2026-10-05</span></dd>
+                <dt>压缩包</dt><dd class="mono">G:\model\VR\ID-713717.zip<br><span class="hint">2.3 MB · 2026-10-05</span></dd>
+              </dl>
+
+              <h4>索引</h4>
+              <dl class="kv" style="margin-bottom:0">
+                <dt>状态</dt><dd>已编码 · 向量行 1234 · 范数 1.000000</dd>
+                <dt>自检</dt><dd>以图自检索命中自身，余弦 <b>1.0000</b></dd>
+                <dt>同内容</dt><dd>无（本库共 5 组重复图，此处不涉及）</dd>
+              </dl>
+            </div>
+
+            <!-- 动作按"是否需重编码"分区：评审要求的可测设计 -->
+            <div class="actgroup" style="border-top:0;padding-top:0;margin-top:14px">
+              <div class="gh">取件 <span class="why">不改动库</span></div>
+              <div class="actrow">
+                <button class="btn primary" onclick="toast('在资源管理器定位：G:\\model\\VR\\ID-713717.zip')">在资源管理器定位</button>
+                <button class="btn" onclick="toast('复制到 E:\\素材待用\\ID-713717.zip')">复制到 待用素材</button>
+                <button class="btn ghost" onclick="toast('已复制包路径')">复制包路径</button>
+              </div>
+            </div>
+
+            <div class="actgroup">
+              <div class="gh">维护 <span class="pill ok">复用向量，不重编码</span></div>
+              <div class="actrow">
+                <button class="btn" onclick="toast('改归档目录：图与包原子移动（事务）')">改归档目录…</button>
+                <button class="btn" onclick="toast('改 ID：图与包原子重命名，一个失败即回滚')">改 ID…</button>
+                <button class="btn" onclick="toast('修正配对')">修正配对…</button>
+                <button class="btn" onclick="toast('移动到另一个库（同 compat 时向量随迁）')">移动到别库…</button>
+              </div>
+            </div>
+
+            <div class="actgroup">
+              <div class="gh">维护 <span class="pill warn">需重编码（约 0.42 s）</span></div>
+              <div class="actrow">
+                <button class="btn" onclick="toast('替换预览图：旧图备份到 E:\\移出素材\\，可还原')">替换预览图…</button>
+                <button class="btn ghost" onclick="toast('重新编码该条')">重新编码</button>
+              </div>
+            </div>
+
+            <div class="danger-zone">
+              <div class="t">⚠ 危险区</div>
+              <div class="d">移出库会把图与包一起移到 <span class="mono">E:\移出素材\</span>，<b>30 天内可原样还原</b>。不提供真删除。</div>
+              <div class="actrow">
+                <button class="btn danger" onclick="openConfirm()">移出库…</button>
+                <button class="btn ghost sm" onclick="go('activity')">查看该条的操作记录</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- 流程 3：索引任务 ---------- -->
+      <section class="page" id="page-index">
+        <h1 class="h">索引任务</h1>
+        <p class="sub">扫描 → 配对 → 编码 → 校验 → 落盘。可取消（在当前批次结束后生效），已完成部分会保留。</p>
+
+        <div class="card" style="margin-top:16px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <b style="font-size:13.5px">全量重建 · 室内素材</b>
+            <span class="pill info">运行中</span>
+            <span style="flex:1"></span>
+            <button class="btn sm" onclick="toast('取消将在当前批次结束后生效；已完成 2228 条会保留')">取消</button>
+          </div>
+
+          <div class="stages">
+            <div class="stage done"><span class="n">① 扫描</span>3594 条 · 0.5 s</div>
+            <div class="stage done"><span class="n">② 配对</span>3594 : 3594 · 0 无包</div>
+            <div class="stage now"><span class="n">③ 编码</span>2228 / 3594</div>
+            <div class="stage"><span class="n">④ 校验</span>维度 · 范数 · 配对</div>
+            <div class="stage"><span class="n">⑤ 落盘</span>原子写入</div>
+          </div>
+
+          <div class="bigbar"><i style="width:62%"></i></div>
+          <div style="display:flex;gap:14px;font-size:11.5px;color:var(--fg-2);font-variant-numeric:tabular-nums">
+            <span>已处理 <b>2228 / 3594</b></span>
+            <span>速率 <b>2.41 条/秒</b></span>
+            <span>预计剩余 <b>9 分 30 秒</b></span>
+            <span>复用 <b>0</b> · 新编码 <b>2228</b> · 失败 <b>0</b></span>
+          </div>
+          <div class="hint" style="margin-top:8px">本次使用：<span class="mono">revision daa72c51… · 权重 fp32 · 预处理 v1 · seq 140 · 向量 float32</span></div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:10px;margin:18px 0 10px">
+          <b style="font-size:13.5px">失败项</b>
+          <span class="pill warn">105 条待关注</span>
+          <span class="hint">扩展名与内容不符的预览图；已自动回退 PIL 解码，<b>不影响检索质量</b></span>
+          <span style="flex:1"></span>
+          <button class="btn sm ghost" onclick="toast('导出失败项清单')">导出清单</button>
+        </div>
+        <div class="card" style="padding:0;overflow:hidden">
+          <table class="box" style="border:0;border-radius:0">
+            <thead><tr><th style="width:150px">文件</th><th style="width:120px">扩展名 / 实际</th><th>处理</th><th style="width:90px">结果</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">CR\ID-1115078555.png</td><td>.png → <b>JPEG</b></td><td>PIL 回退解码成功</td><td><span class="pill ok">已编码</span></td></tr>
+              <tr><td class="mono">VR\ID-116347859.jpg</td><td>.jpg → <b>PNG</b></td><td>PIL 回退解码成功</td><td><span class="pill ok">已编码</span></td></tr>
+              <tr><td class="mono">VR\ID-102323707.jpg</td><td>.jpg → <b>BMP</b></td><td>PIL 回退解码成功（余弦 0.9683，最低）</td><td><span class="pill ok">已编码</span></td></tr>
+              <tr><td class="mono">…（共 105 条，此处仅示例 3 条）</td><td></td><td></td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="statusbar">
+          <span class="dot" style="background:var(--warn)"></span>
+          <span>编码期间检索已暂停（避免争用 GPU）—— 完成后自动恢复</span>
+          <span class="r">历史：100 张试点 0 失败 · 2.41 条/秒</span>
+        </div>
+      </section>
+
+      <!-- ---------- 流程 4 的载体：操作记录 + 撤销状态 ---------- -->
+      <section class="page" id="page-activity">
+        <div style="display:flex;align-items:center;gap:10px">
+          <h1 class="h" style="margin:0">操作记录</h1>
+          <span class="pill bad">2 条待处理</span>
+          <span style="flex:1"></span>
+          <button class="btn sm ghost" onclick="toast('导出记录（CSV / JSON）')">导出</button>
+        </div>
+        <p class="sub">每条文件操作都是一个事务。可撤销的给按钮；过期的明确标注原因；<b>未完成的会在这里要求你决定</b>。</p>
+
+        <div class="card" style="border-color:var(--danger);background:var(--danger-soft);margin:16px 0 14px">
+          <div style="display:flex;align-items:center;gap:9px">
+            <span style="color:var(--danger)">⚠</span>
+            <b style="font-size:13px">2 个事务未完成，需要你决定</b>
+            <span style="flex:1"></span>
+            <button class="btn sm" onclick="toast('重试：从日志记录的状态继续')">重试</button>
+            <button class="btn sm ghost" onclick="toast('回退：删除暂存，源文件保持不动')">回退</button>
+            <button class="btn sm ghost" onclick="toast('保持现状：仅标记，不再自动处理')">保持现状</button>
+          </div>
+          <div class="hint" style="margin-top:8px">
+            原因：G: → E: 跨卷移动时 <b>E: 盘不可用</b>。源文件完好，暂存副本在 <span class="mono">G:\model\VR\.gs-staging\…</span>。
+          </div>
+        </div>
+
+        <table class="box">
+          <thead><tr>
+            <th style="width:132px">时间</th><th style="width:96px">操作</th><th>对象</th>
+            <th style="width:210px">变更</th><th style="width:112px">状态</th><th style="width:150px">撤销</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td class="mono">10-10 13:15</td><td>移出库</td>
+              <td class="mono">ID-16139252.zip<br><span class="hint">uid a1b2c3d4e5f6</span></td>
+              <td class="hint">VR → E:\移出素材\室内素材\20261010-131500\</td>
+              <td><span class="pill bad">待处理</span></td>
+              <td><button class="btn sm" disabled>不可用</button> <span class="hint">先处理上面的</span></td>
+            </tr>
+            <tr>
+              <td class="mono">10-10 13:07</td><td>改归档目录</td>
+              <td class="mono">ID-595812826.rar<br><span class="hint">uid 9f3c1a2b4d5e</span></td>
+              <td class="hint">未分类 → VR（图+包 2 个文件）</td>
+              <td><span class="pill ok">已提交</span></td>
+              <td><button class="btn sm" onclick="toast('撤销：VR → 未分类（新事务，走同一状态机）')">撤销</button></td>
+            </tr>
+            <tr>
+              <td class="mono">10-10 12:41</td><td>入库</td>
+              <td class="hint">3 项 · 未分类</td>
+              <td class="hint">新增 3 · 编码 3 · 失败 0</td>
+              <td><span class="pill ok">已提交</span></td>
+              <td><button class="btn sm" onclick="toast('撤销：把 3 项移出库')">撤销</button></td>
+            </tr>
+            <tr>
+              <td class="mono">10-10 09:03</td><td>替换预览图</td>
+              <td class="mono">ID-116347859.jpg</td>
+              <td class="hint">旧图 → E:\移出素材\…（已保留 31 天）</td>
+              <td><span class="pill warn">已过期</span></td>
+              <td><button class="btn sm" disabled>不可撤销</button> <span class="hint">超过 30 天保留期</span></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="statusbar">
+          <span class="dot" style="background:var(--ok)"></span>
+          <span>审计日志永久保留（仅文本）· 撤销所需文件按 30 天 / 5 GB 保留</span>
+          <span class="r">⚠ 审计日志不等于撤销能力；指纹不等于备份</span>
+        </div>
+      </section>
+
+      <!-- ---------- 未覆盖页：诚实标注 ---------- -->
+      <section class="page" id="page-library"><div class="todo"><h3>图库管理 — 本轮未覆盖</h3>
+        <p class="sub">已定内容见 <span class="mono">DESIGN-app-details.md §7.7</span> 与 <span class="mono">SPEC-identity §6.3</span>。</p>
+        <ul><li>库注册表：名称 / 根目录 / 素材数 / <b>compat 一致性</b> / 上次扫描 / 库指纹状态</li>
+        <li>一致性横幅：「可合并 2 个库 · 1 个被排除（seq280 ≠ 140）」</li>
+        <li>动作：重命名 · <b>重新指向</b>（按指纹判断是否同一库）· 扫描 · 重建索引 · <b>移除（绝不删文件）</b></li>
+        <li>顶部库选择器：全部库 / 单库；结果卡片带库徽标</li></ul></div></section>
+
+      <section class="page" id="page-ingest"><div class="todo"><h3>入库 — 本轮未覆盖</h3>
+        <p class="sub">已定内容见 <span class="mono">DESIGN-app-details.md §六</span>。</p>
+        <ul><li>拖入包+图 → 按主干配对 → 取 ID（<b>提不到就停下来问你</b>）</li>
+        <li>归档目录<b>可空</b>（默认 <span class="mono">未分类\</span>）；应用<b>不解析压缩包内容</b></li>
+        <li>预检：确切目标路径 / 重名 / ID 重复 / 空间核算</li>
+        <li>提交走事务；完成后增量编码，显示 <span class="mono">复用 N · 新编码 M</span></li></ul></div></section>
+
+      <section class="page" id="page-increment"><div class="todo"><h3>增量 — 本轮未覆盖</h3>
+        <p class="sub">已定内容见 <span class="mono">DESIGN-app-details.md §2.3–§2.4</span> 与 <span class="mono">SPEC-identity §4</span>。</p>
+        <ul><li>三类差量：新增 / 变更 / <b>消失（只移除索引，绝不删文件）</b></li>
+        <li>索引状态：已编码 / 待编码 / 待重编码 / 已从索引移除</li>
+        <li><b>疑似移动</b>（内容哈希相同、路径不同）→ 一键「确认重链接」，<b>绝不静默复用旧向量</b></li>
+        <li>库指纹前后比对；发现非本流程改动即报警</li></ul></div></section>
+
+      <section class="page" id="page-settings"><div class="todo"><h3>设置 — 本轮未覆盖</h3>
+        <p class="sub">已定内容见 <span class="mono">DESIGN-app-details.md §4</span> 与 <span class="mono">SPEC-identity §6</span>。</p>
+        <ul><li>模型：repo · <b>revision（钉住）</b> · 权重精度 · 预处理版本 · seq —— 改动任一项提示「<b>需重建索引</b>」</li>
+        <li>设备：webgpu / cpu（<b>回退时明确提示慢约 3 倍</b>，不做延迟承诺）</li>
+        <li>取件目录（默认 <span class="mono">E:\素材待用\</span>）· 撤销保留（30 天 / 5 GB）· 缩略图缓存</li>
+        <li>隐私：离线可用、绝不外传；「检查更新」默认关闭</li></ul></div></section>
+
+    </div>
+  </main>
+</div>
+
+<!-- ============ 关键流程 4：文件操作确认弹窗 ============ -->
+<div class="overlay" id="confirm" role="dialog" aria-modal="true" aria-labelledby="cf-title">
+  <div class="dialog">
+    <div class="dh">
+      <span class="ic">⚠</span>
+      <h3 id="cf-title">将这条素材移出库？</h3>
+    </div>
+    <div class="db">
+      <p class="lead">这条素材将从「室内素材」移到：<br><span class="mono">E:\移出素材\室内素材\20261010-131500\</span></p>
+
+      <div class="changes">
+        <div class="row"><span class="role">图</span><span class="nm mono">VR\ID-713717.jpeg</span><span class="sz">46 KB</span></div>
+        <div class="row"><span class="role">包</span><span class="nm mono">VR\ID-713717.zip</span><span class="sz">2.3 MB</span></div>
+      </div>
+
+      <div class="checks">
+        <div class="c ok"><span class="m">✓</span><span><b>可还原</b>：保留 30 天；撤销会走同一个事务状态机</span></div>
+        <div class="c ok"><span class="m">✓</span><span>会写入操作记录（含 uid、前后路径、校验值）</span></div>
+        <div class="c ok"><span class="m">✓</span><span>源文件在<b>提交且索引更新成功后</b>才删除</span></div>
+        <div class="c warn"><span class="m">⚠</span><span>目标卷 <span class="mono">E:</span> 可用 484 GB，本次需要 2.4 MB</span></div>
+      </div>
+      <p class="hint" style="margin:0">共 <b>2</b> 个文件 · <b>不提供真删除</b>，库里不会出现无法还原的丢失。</p>
+    </div>
+    <div class="df">
+      <button class="btn" onclick="closeConfirm()">取消</button>
+      <button class="btn danger" onclick="closeConfirm();toast('已提交事务；可在操作记录里撤销')">确认移出库</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+/* ============ 真实库数据（ID / 包名 / 体积 / 实测余弦） ============ */
+const DATA = [
+  // 「玻璃球多头吊灯」以图搜图 top-10（实测分数）
+  { score:0.9396, folder:'VR',    pack:'ID-713717.zip',        size:'2.3 MB',  img:'G:/model/VR/ID-713717.jpeg',          band:'same', bandTxt:'同款区间' },
+  { score:0.9382, folder:'VR',    pack:'ID-16010618.zip',      size:'9.8 MB',  img:'G:/model/VR/ID-16010618.png',         band:'same', bandTxt:'同款区间' },
+  { score:0.9356, folder:'CR+VR', pack:'ID-715702.zip',        size:'12.6 MB', img:'G:/model/CR+VR/ID-715702.jpeg',       band:'same', bandTxt:'同款区间' },
+  { score:0.9351, folder:'VR',    pack:'ID-355747.zip',        size:'11.1 MB', img:'G:/model/VR/ID-355747.jpg',           band:'same', bandTxt:'同款区间' },
+  { score:0.9302, folder:'VR',    pack:'ID-928797.zip',        size:'2.3 MB',  img:'G:/model/VR/ID-928797.jpeg',          band:'same', bandTxt:'同款区间' },
+  { score:0.9298, folder:'VR',    pack:'ID-104424061.rar',     size:'29.0 MB', img:'G:/model/VR/ID-104424061.jpg',        band:'same', bandTxt:'同款区间' },
+  { score:0.9243, folder:'VR',    pack:'ID-16109557.zip',      size:'6.0 MB',  img:'G:/model/VR/ID-16109557.jpg',         band:'same', bandTxt:'同款区间' },
+  { score:0.9164, folder:'CR',    pack:'ID-16126260.zip',      size:'3.9 MB',  img:'G:/model/CR/ID-16126260.png',         band:'same', bandTxt:'同款区间' },
+  { score:0.9114, folder:'VR',    pack:'ID-11782507.rar',      size:'50.4 MB', img:'G:/model/VR/ID-11782507.jpg',         band:'same', bandTxt:'同款区间' },
+  { score:0.9110, folder:'VR',    pack:'ID-14172734.rar',      size:'2.2 MB',  img:'G:/model/VR/ID-14172734.jpg',         band:'same', bandTxt:'同款区间' },
+  // 「现代吊灯」文本检索（实测分数）—— 切到文本模式时用这批
+  { score:0.8028, folder:'VR',    pack:'ID-14332904.rar',      size:'9.0 MB',  img:'G:/model/VR/ID-14332904.jpg',         band:'like', bandTxt:'很接近' },
+  { score:0.7995, folder:'CR',    pack:'ID-16047383.zip',      size:'29.6 MB', img:'G:/model/CR/ID-16047383.jpg',         band:'like', bandTxt:'很接近' },
+  { score:0.7956, folder:'VR',    pack:'ID-15661691.zip',      size:'2.6 MB',  img:'G:/model/VR/ID-15661691.jpg',         band:'like', bandTxt:'很接近' },
+  { score:0.7948, folder:'CR',    pack:'ID-460666717032537.rar',size:'0.7 MB', img:'G:/model/CR/ID-460666717032537.jpg',  band:'like', bandTxt:'很接近' },
+];
+
+let cur = DATA.slice(0, 10), filter = '', selected = null, view = 'grid';
+
+/* ============ 渲染结果网格 ============ */
+function render() {
+  const g = document.getElementById('gallery');
+  const rows = cur.filter((r) => !filter || r.folder === filter);
+  g.className = 'gallery' + (view === 'list' ? ' list' : '');
+  g.innerHTML = '';
+  if (!rows.length) { g.innerHTML = '<div class="empty">没有匹配结果 —— 试试换词，或去掉分类筛选</div>'; }
+  rows.forEach((r) => {
+    const stem = r.pack.replace(/\.[^.]+$/, '');
+    const el = document.createElement('button');
+    el.className = 'item';
+    el.setAttribute('aria-selected', selected === r.pack ? 'true' : 'false');
+    el.innerHTML =
+      '<img class="thumb" loading="lazy" alt="' + stem + ' 预览图" src="file:///' + encodeURI(r.img) + '">' +
+      '<span class="libb">室内素材</span>' +
+      '<span class="check" aria-hidden="true">✓</span>' +
+      '<span class="acts">' +
+        '<button class="pri" data-act="reveal">定位</button>' +
+        '<button data-act="collect">取件</button>' +
+        '<button data-act="menu">更多 ▾</button>' +
+      '</span>' +
+      '<span class="cap">' +
+        '<span class="l1"><span class="pack">' + r.pack + '</span>' +
+          '<span class="score band-' + r.band + '">' + r.score.toFixed(4) + '</span></span>' +
+        '<span class="l2"><span class="tag ' + r.folder.replace('+','') + '">' + r.folder + '</span>' +
+          '<span>' + r.bandTxt + '</span><span class="size">' + r.size + '</span></span>' +
+      '</span>';
+    // 缩略图失败 → 占位（file:// 子资源可能被拦）
+    const im = el.querySelector('img');
+    im.addEventListener('error', () => {
+      const fb = document.createElement('div');
+      fb.className = 'fallback';
+      fb.innerHTML = '<b>' + stem + '</b><span>缩略图未能内嵌</span><span>' + r.folder + '</span>';
+      im.replaceWith(fb);
+    }, { once:true });
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-act]');
+      if (b) {
+        e.stopPropagation();
+        const a = b.dataset.act;
+        if (a === 'reveal') toast('在资源管理器定位：G:\\model\\' + r.folder + '\\' + r.pack);
+        else if (a === 'collect') toast('取件 → E:\\素材待用\\' + r.pack);
+        else toast('更多：改归档目录 / 改 ID / 修正配对 / 移动到别库 / 替换预览图 / 移出库');
+        return;
+      }
+      selected = (selected === r.pack) ? null : r.pack;
+      render();
+      if (selected) openDetail(r);
+    });
+    el.addEventListener('dblclick', () => toast('在资源管理器定位：G:\\model\\' + r.folder + '\\' + r.pack));
+    g.appendChild(el);
+  });
+  const use = rows.length;
+  document.getElementById('cnt').textContent = use + ' 套素材 · ' + (cur[0] && cur[0].score < 0.85 ? '文本检索（实测分数）' : '以图搜图（实测分数）');
+}
+
+/* ============ 详情页 ============ */
+function openDetail(r) {
+  const stem = r.pack.replace(/\.[^.]+$/, '');
+  document.getElementById('d-title').textContent = stem;
+  document.getElementById('d-score').textContent = '余弦 ' + r.score.toFixed(4) + ' · ' + r.bandTxt;
+  const pic = document.getElementById('d-pic');
+  pic.innerHTML = '<img alt="' + stem + '" src="file:///' + encodeURI(r.img) + '">';
+  const im = pic.querySelector('img');
+  im.addEventListener('error', () => {
+    pic.innerHTML = '<div class="fallback"><b>' + stem + '</b><span>大图未能内嵌显示</span><span>' + r.img + '</span></div>';
+  }, { once:true });
+  go('detail');
+}
+
+/* ============ 页面切换 ============ */
+const NAMES = { search:'语义搜索', detail:'图片详情', index:'索引任务', activity:'操作记录',
+                library:'图库管理', ingest:'入库', increment:'增量', settings:'设置' };
+function go(page) {
+  document.querySelectorAll('.page').forEach((p) => p.classList.toggle('active', p.id === 'page-' + page));
+  document.querySelectorAll('.nav-item[data-page]').forEach((b) =>
+    b.setAttribute('aria-current', b.dataset.page === page ? 'true' : 'false'));
+  document.getElementById('crumb').textContent = NAMES[page] || page;
+}
+document.querySelectorAll('.nav-item[data-page]').forEach((b) =>
+  b.addEventListener('click', () => go(b.dataset.page)));
+
+/* 分类与库切换 */
+document.querySelectorAll('.nav-item[data-cat]').forEach((b) => b.addEventListener('click', () => {
+  filter = b.dataset.cat || '';
+  document.querySelectorAll('.filters .chip').forEach((c) =>
+    c.setAttribute('aria-pressed', (c.dataset.folder || '') === filter ? 'true' : 'false'));
+  go('search'); render();
+  toast(filter ? ('分类筛选：' + filter) : '分类筛选：全部');
+}));
+document.querySelectorAll('.nav-item.lib').forEach((b) => b.addEventListener('click', () => {
+  if (b.classList.contains('disabled')) { toast('该库索引为 seq280，与当前 140 不一致 —— 已排除，需重建后才可合并检索'); return; }
+  document.querySelectorAll('.nav-item.lib').forEach((x) => x.setAttribute('aria-current', x === b ? 'true' : 'false'));
+  toast('已切换库：' + b.querySelector('.txt').textContent);
+}));
+
+/* 筛选与视图 */
+function setView(mode, btn) {
+  view = mode;
+  document.querySelectorAll('.viewtog button').forEach((b) => b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'));
+  render();
+}
+document.querySelectorAll('.filters .chip').forEach((c) => c.addEventListener('click', () => {
+  filter = c.dataset.folder || '';
+  document.querySelectorAll('.filters .chip').forEach((x) => x.setAttribute('aria-pressed', x === c ? 'true' : 'false'));
+  render();
+}));
+
+/* 搜索（原型：切换数据集，真实版走 IPC） */
+function runSearch() {
+  const q = document.getElementById('q').value.trim();
+  if (!q) { toast('请输入画面描述'); return; }
+  cur = DATA.slice(10);
+  render();
+  go('search');
+  toast('文本检索「' + q + '」—— 原型用实测分数展示；正式版调用本地模型（热查询 P50 ≤ 80 ms）');
+}
+document.getElementById('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
+
+/* ============ 流程 4：确认弹窗 ============ */
+function openConfirm() { document.getElementById('confirm').classList.add('show'); }
+function closeConfirm() { document.getElementById('confirm').classList.remove('show'); }
+document.getElementById('confirm').addEventListener('click', (e) => { if (e.target.id === 'confirm') closeConfirm(); });
+
+/* Esc 关弹窗 + 清空选择；拖放与粘贴 → 以图搜图 */
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (document.getElementById('confirm').classList.contains('show')) { closeConfirm(); return; }
+    selected = null; render();
+  }
+});
+['dragover','drop'].forEach((t) => document.addEventListener(t, (e) => {
+  e.preventDefault();
+  if (t === 'drop') { toast('以图搜图：' + ((e.dataTransfer.files[0] || {}).name || '未识别到图片')); go('search'); }
+}));
+document.addEventListener('paste', (e) => {
+  const it = [...((e.clipboardData || {}).items || [])].find((x) => x.type.indexOf('image/') === 0);
+  if (it) { toast('已从剪贴板读取图片 → 以图搜图'); go('search'); }
+});
+
+/* 提示条 */
+let tt;
+function toast(msg) {
+  const el = document.getElementById('toast'); el.textContent = msg; el.classList.add('show');
+  clearTimeout(tt); tt = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+/* 启动 */
+render();
+</script>
+</body>
+</html>

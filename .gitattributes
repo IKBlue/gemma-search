@@ -1,0 +1,50 @@
+# ============================================================
+# gemma-search · .gitattributes
+#
+# 目的：跨平台一致 + 明确哪些是二进制（避免 git 尝试做行尾转换/文本 diff）
+# ============================================================
+
+# 默认：入库统一 LF，检出时按平台自动
+* text=auto eol=lf
+
+# 源码
+*.py    text eol=lf
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# Windows 脚本必须 CRLF（否则某些 cmd 解析会出问题）
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+
+# 二进制：不做行尾转换、不做文本 diff
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.gif   binary
+*.npy   binary
+*.npz   binary
+*.onnx  binary
+*.zip   binary
+*.rar   binary
+*.7z    binary
+*.exe   binary
+*.dll   binary
+*.node  binary
+
+# 向量转储（spike 证据）：是数据不是文本，标记为二进制避免 diff 爆炸
+spike/*.json -diff linguist-generated
+data/quality/*.json -diff linguist-generated
+
+# 让 GitHub 语言统计不把原型 HTML/CSS 当成主要语言
+static/prototype/*.html linguist-documentation
+static/prototype/*.css  linguist-documentation

@@ -1,0 +1,559 @@
+{
+  "tested_at": "2026-10-10T05:44:35.912Z",
+  "device": "webgpu",
+  "total": 105,
+  "encodable": 105,
+  "native": 85,
+  "fallback": 20,
+  "failed": 0,
+  "by_pair": {
+    "png→jpeg": {
+      "native": 68,
+      "fallback": 0,
+      "failed": 0
+    },
+    "jpg→png": {
+      "native": 17,
+      "fallback": 0,
+      "failed": 0
+    },
+    "jpg→bmp": {
+      "native": 0,
+      "fallback": 20,
+      "failed": 0
+    }
+  },
+  "norm_out_of_range": 0,
+  "details": {
+    "native": [
+      {
+        "rel_path": "CR\\ID-1115078555.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "CR\\ID-1116962226.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "CR\\ID-1121651121.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "CR\\ID-1123819907.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "CR\\ID-1135176139.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "CR\\ID-15645567.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "CR+VR\\ID-108614951.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-100751063.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-100947400.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-101799444.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-102978431.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-103371720.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-10367396.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-104158615.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-104486008.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-105469695.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-105534568.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1057929.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-107828917.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-109533049.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-110056159.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-110384414.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-110646302.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1109305018.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1109878886.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1110634897.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1114508137.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1116231154.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1117277143.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1117697474.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1117727513.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1119443469.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1120352090.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1120555159.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-112218857.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1122557086.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1122808000.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1122873229.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1123370915.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1123382432.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1123534068.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1123689372.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1125086116.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1125884233.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1126220109.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1126853874.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1127504283.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1128734466.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1129491179.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1129544935.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1129910727.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1129971873.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1130308590.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1130476652.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1134120497.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1134931625.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-113792231.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1138901220.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1139519215.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1143915763.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1144534975.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-115430952.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1158046016.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-115823639.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-115824456.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-115887729.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-115889004.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-116347859.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-11662653.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-116739589.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-11714899.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1175244161.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1177755883.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1181383029.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-11948275.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-11964949.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-12124414.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1551617.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-15602395.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-15605694.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1639957.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1667224.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-688104.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-970284.jpg",
+        "pair": "jpg→png",
+        "norm": 1
+      },
+      {
+        "rel_path": "其他\\ID-1118687485.png",
+        "pair": "png→jpeg",
+        "norm": 1
+      }
+    ],
+    "fallback": [
+      {
+        "rel_path": "VR\\ID-12089794.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1257367.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1299244.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1413345.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1422632.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1456208.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1472285.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1499683.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1501265.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1502746.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-1505776.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-181657062.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-183073748.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-610620.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-628141.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-680158601.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-787548745.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-888181044.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-888793055.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      },
+      {
+        "rel_path": "VR\\ID-991224669.jpg",
+        "pair": "jpg→bmp",
+        "norm": 1
+      }
+    ],
+    "failed": []
+  }
+}

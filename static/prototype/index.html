@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>原型总览 · gemma-search</title>
+<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="app.css" />
+<style>
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:13px}
+.pcard{background:var(--color-bg-elevated);border:1px solid var(--line);border-radius:13px;padding:16px;text-decoration:none;color:inherit;display:block}
+.pcard:hover{border-color:var(--color-accent)}   /* 令牌 §6：卡片不用投影，靠描边 */
+.pcard .n{font-size:10px;color:var(--muted);letter-spacing:.6px}
+.pcard h3{margin:6px 0 6px;font-size:15px}
+.pcard .d{font-size:12px;color:var(--ink-2);min-height:34px}
+.pcard .m{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">G</div><div><div class="brand-name">Gemma Search</div><div class="brand-sub">MATERIAL LIBRARY</div></div></div>
+    <div>
+      <div class="nav-label">工作区 WORKSPACE</div>
+      <nav class="nav">
+        <a href="语义搜索.html"><span class="ico">⌕</span><span>语义搜索</span></a>
+        <a href="图片详情.html"><span class="ico">▣</span><span>图片详情</span></a>
+        <a href="图库与索引任务.html"><span class="ico">▦</span><span>本地图库</span></a>
+        <a href="入库与增量.html"><span class="ico">＋</span><span>入库与增量</span></a>
+        <a href="图库与索引任务.html#tasks"><span class="ico">◴</span><span>索引任务</span></a>
+        <a href="操作记录与设置.html"><span class="ico">↺</span><span>操作记录</span></a>
+        <a href="操作记录与设置.html#settings"><span class="ico">⚙</span><span>设置</span></a>
+      </nav>
+      <div class="nav-label" style="margin-top:14px">原型页 PROTOTYPE</div>
+      <nav class="nav">
+        <a href="文件操作确认.html"><span class="ico">⚠</span><span>文件操作确认</span></a>
+        <a class="active" href="index.html"><span class="ico">≡</span><span>原型总览</span></a>
+      </nav>
+    </div>
+    <div class="side-note">
+      <strong>原型套件 · 6 页</strong>
+      3 页来自你的 HTML 页面包，3 页是补充（本套原先缺）。
+      共享 <span class="mono">style.css</span> + <span class="mono">app.css</span> + <span class="mono">app.js</span>。
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="crumb">工作区 <span style="padding:0 7px;color:#c4c7d0">/</span> <strong>原型总览</strong></div>
+      <div class="top-actions">
+        <button class="icon-btn" title="帮助" data-demo="帮助中心将在正式版本中提供">?</button>
+        <div class="avatar">GS</div>
+      </div>
+    </header>
+
+    <div class="content">
+      <div class="page-head">
+        <div>
+          <div class="eyebrow">PROTOTYPE SET · 用于评审布局与流程</div>
+          <h1>原型总览</h1>
+          <div class="subtitle">这是<strong>设计验证文件</strong>，不是正式应用：未连接模型、索引与文件系统。正式版必须走
+            <strong>隔离渲染进程 + 受控 Preload + 校验过的 IPC 参数</strong>，不能把这里的 JS 当作安全边界。</div>
+        </div>
+      </div>
+
+      <div class="cards">
+        <a class="pcard" href="语义搜索.html">
+          <div class="n">① 流程 1</div><h3>语义搜索</h3>
+          <div class="d">自然语言搜索、分类筛选、相关度排序、图片网格与匹配分数、卡片动作。</div>
+          <div class="m"><span class="pill plain">来自你的页面包</span><span class="pill info">已补领域字段</span></div>
+        </a>
+        <a class="pcard" href="图片详情.html">
+          <div class="n">② 流程 2</div><h3>图片详情</h3>
+          <div class="d">大图 + 元数据（两条绝对路径、索引状态）+ 动作按「是否需重编码」分区 + 危险区。</div>
+          <div class="m"><span class="pill ok">补充</span><span class="pill warn">原套缺失</span></div>
+        </a>
+        <a class="pcard" href="图库与索引任务.html">
+          <div class="n">③ 流程 3</div><h3>本地图库 / 索引任务</h3>
+          <div class="d">多库注册表与一致性、索引阶段与进度、失败项、取消与续跑。</div>
+          <div class="m"><span class="pill plain">来自你的页面包</span><span class="pill info">已补领域字段</span></div>
+        </a>
+        <a class="pcard" href="入库与增量.html">
+          <div class="n">④ 增删改</div><h3>入库与增量</h3>
+          <div class="d">拖入配对、取 ID、归档目录（可空）、预检；增量差量、疑似移动、库指纹。</div>
+          <div class="m"><span class="pill ok">补充</span><span class="pill warn">原套缺失</span></div>
+        </a>
+        <a class="pcard" href="文件操作确认.html">
+          <div class="n">⑤ 流程 4</div><h3>文件操作确认</h3>
+          <div class="d">7 种写操作的确认框并排：确切变更清单 + 可撤销性 + 空间核算。</div>
+          <div class="m"><span class="pill ok">补充</span><span class="pill warn">原套缺失</span></div>
+        </a>
+        <a class="pcard" href="操作记录与设置.html">
+          <div class="n">⑥ 审计与配置</div><h3>操作记录 / 设置</h3>
+          <div class="d">事务记录与撤销状态、待处理事务；模型/精度/索引/隐私设置。</div>
+          <div class="m"><span class="pill plain">来自你的页面包</span><span class="pill info">已补领域字段</span></div>
+        </a>
+      </div>
+
+      <!-- ===== 本套原型修掉的一个真实缺陷 ===== -->
+      <div class="panel" style="margin-top:22px;border-left:4px solid var(--amber)">
+        <h2>补充时发现并修掉的缺陷</h2>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:0 0 10px">
+          你给的三页里共有 <strong>21 个 <span class="mono">data-demo</span> 按钮</strong>与 <strong>14 处 <span class="mono">onclick="toast(...)"</span></strong>，
+          但<strong>没有任何一页定义 <span class="mono">toast()</span>，也没有 <span class="mono">data-demo</span> 的处理器</strong>——
+          点这些按钮会抛 <span class="mono">ReferenceError</span>，表现出来就是"没反应"。
+        </p>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:0">
+          处理：抽出共享 <span class="mono">app.js</span>（toast + data-demo + 弹窗开关 + Esc 关闭），三页一次修好，不再各写一份。
+        </p>
+      </div>
+
+      <!-- ===== 领域差异清单：迁移到 React 时必须处理 ===== -->
+      <div class="panel">
+        <h2>领域差异清单（迁移到 React + TS 时的必办项）</h2>
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead><tr><th style="width:34px">#</th><th style="width:280px">原型里的假设</th><th>我们的实际</th><th style="width:104px">原型状态</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>一个图库，一张卡片</td><td><strong>多库 + 注册表 + compat 一致性校验</strong></td><td><span class="pill warn">待补</span></td></tr>
+              <tr><td>2</td><td>图片就是终点</td><td>每张图配一个<strong>同名压缩包</strong>，包才是产物</td><td><span class="pill info">已补字段</span></td></tr>
+              <tr><td>3</td><td>按内容分类（人物/风景/建筑）</td><td>按<strong>渲染器分类</strong>（VR / CR / CR+VR / 其他 / 未分类）</td><td><span class="pill info">已补</span></td></tr>
+              <tr><td>4</td><td>尺寸 3840×2560 是重要信息</td><td>尺寸<strong>无关紧要</strong>；要的是包名、体积、ID、日期</td><td><span class="pill info">已补</span></td></tr>
+              <tr><td>5</td><td>相似度"98% 匹配"</td><td>余弦 <strong>0.74~0.94</strong>，且分区间有意义（同款 ≥0.88 / 文本 0.74~0.80）</td><td><span class="pill info">已补</span></td></tr>
+              <tr><td>6</td><td>无写入操作</td><td>可写库：入库、改目录、改 ID、替换图、移出库</td><td><span class="pill ok">已补页</span></td></tr>
+              <tr><td>7</td><td>无"操作可恢复"概念</td><td><strong>事务 + 审计 + 撤销 + 待处理（RECOVERY_NEEDED）</strong></td><td><span class="pill warn">待补</span></td></tr>
+              <tr><td>8</td><td>索引只是进度条</td><td>索引有 <strong>revision / 权重精度 / 预处理版本 / seq</strong> 绑定与<strong>失败项</strong></td><td><span class="pill warn">待补</span></td></tr>
+              <tr><td>9</td><td>无健康度概念</td><td>图无包 / 包无图 / <strong>扩展名与内容不符（实测 105 张）</strong> / 重复内容（实测 5 组）</td><td><span class="pill warn">待补</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="hint-line" style="margin-top:10px">「待补」= 差异已在本总览登记，但三页原型尚未改写；迁移到 React 时按 <span class="mono">UI-REVIEW-and-migration.md</span> §3 执行。</p>
+      </div>
+
+      <!-- ===== 打开方式 ===== -->
+      <div class="panel">
+        <h2>打开方式</h2>
+        <p style="font-size:12.5px;color:var(--ink-2);margin:0">
+          直接双击 <span class="mono">index.html</span> 即可（本套<strong>无外部依赖、离线可用</strong>）。
+          页面之间已互相链接；缩略图直连 <span class="mono">G:\model</span>，
+          若浏览器拦截 <span class="mono">file://</span> 子资源，会自动降级为带 ID 的占位块，版面不受影响。
+        </p>
+      </div>
+
+      <div class="statusbar">
+        <span class="dot"></span>
+        <span>6 页原型 · 共享 style.css / app.css / app.js</span>
+        <span class="r">债务清理记录见 DEBT-CLEANUP.md</span>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>

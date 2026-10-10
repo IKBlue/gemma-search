@@ -1,0 +1,80 @@
+{
+ "generated_at": "2026-10-10 13:07:01",
+ "spec_version": "baseline-v1",
+ "disk": {
+  "library_root": "G:\\model",
+  "files_total": 7188,
+  "files_total_bytes": 222581236811,
+  "by_ext": {
+   ".jpg": 2644,
+   ".rar": 2329,
+   ".zip": 1189,
+   ".jpeg": 742,
+   ".png": 208,
+   ".7z": 76
+  },
+  "images": 3594,
+  "archives": 3594,
+  "unpaired_images": 0,
+  "unpaired_archives": 0,
+  "unpaired_image_samples": [],
+  "unpaired_archive_samples": [],
+  "multi_archive_stems": 0,
+  "multi_image_stems": 0,
+  "fingerprint_v1": "3c62f15c5944ce363f82d83a454de94f4c34f15d"
+ },
+ "ext_set_divergence": [
+  "图扩展名分歧：实现=['.bmp', '.jpeg', '.jpg', '.png', '.webp'] 基线=['.jpeg', '.jpg', '.png']（实现多出 ['.bmp', '.webp']，基线多出 []）"
+ ],
+ "old_index": {
+  "path": "D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\embeddings.npy",
+  "count": 3594,
+  "dim": 768,
+  "dtype": "float32",
+  "norm_min": 0.9999998807907104,
+  "norm_max": 1.0000001192092896,
+  "norm_mean": 1.0,
+  "zero_rows": 0,
+  "out_of_range_rows": 0,
+  "sha1": "1428ab9e84c3f1cf0472e34efb5bc8b1a8ad0c00",
+  "items_sha1": "48e215ff9a5b512f4044df9a436d6088f8af4987",
+  "items_count": 3594,
+  "meta_sha1": "78050ecd0c4edecc80da162bb79f25be5a301c25",
+  "meta": {
+   "model_id": "google/embeddinggemma-2",
+   "dim": 768,
+   "count": 3594,
+   "encoded": null,
+   "missing": 0,
+   "paired_archives": 3594,
+   "image_seq_length": 140,
+   "built_at": "2026-10-10 10:53:38",
+   "store": "numpy"
+  }
+ },
+ "backup": {
+  "dir": "D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_backup-old-index-20261010-130701",
+  "files": [
+   {
+    "src": "D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\embeddings.npy",
+    "dst": "D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_backup-old-index-20261010-130701\\embeddings.npy",
+    "bytes": 11040896,
+    "sha1": "1428ab9e84c3f1cf0472e34efb5bc8b1a8ad0c00"
+   },
+   {
+    "src": "D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\items.json",
+    "dst": "D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_backup-old-index-20261010-130701\\items.json",
+    "bytes": 1672018,
+    "sha1": "48e215ff9a5b512f4044df9a436d6088f8af4987"
+   },
+   {
+    "src": "D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\meta.json",
+    "dst": "D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_backup-old-index-20261010-130701\\meta.json",
+    "bytes": 381,
+    "sha1": "78050ecd0c4edecc80da162bb79f25be5a301c25"
+   }
+  ]
+ },
+ "elapsed_seconds": 0.5,
+ "note": "磁盘统计独立于索引自述；库指纹算法见 SPEC-identity §5（v1）"
+}

@@ -1,0 +1,35 @@
+MIT License
+
+Copyright (c) 2026 IKBlue
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-------------------------------------------------------------------------------
+第三方组件与模型的授权（与本项目代码的授权相互独立）：
+
+· google/embeddinggemma-2   模型权重 —— Apache License 2.0（由 Google 发布）
+· onnx-community/embeddinggemma-2-ONNX   ONNX 导出 —— 随上游模型授权
+· @huggingface/transformers —— Apache License 2.0
+· onnxruntime-node          —— MIT License
+· bmp-js                    —— MIT License
+· Electron / React / Tailwind CSS / shadcn-ui / Lucide —— 各自授权（MIT 等）
+
+本项目**不随仓库分发**任何模型权重；模型由使用者按 DESIGN-app-details.md §4
+与 P6 的分发方案自行获取（首次运行下载 / 指向本地副本）。
+-------------------------------------------------------------------------------
