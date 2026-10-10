@@ -41,7 +41,13 @@ import { CH_INVOKE, CH_EVENT, validateCall, METHOD_NAMES } from '../../src/share
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(__dirname, '..', '..');          // 项目根
 
-const log = (...a) => console.log('[main]', ...a);
+// 日志：写文件 + stdout。**必须写文件** ——
+// Windows 上 Electron 是 GUI 子系统程序，主进程 stdout 不连终端，
+// 只 console.log 的话在自己的终端里什么也看不到（这是实测踩到的）。
+const log = (...a) => {
+  if (typeof globalThis.__GS_LOG === 'function') { globalThis.__GS_LOG('main:', ...a); return; }
+  console.log('[main]', ...a);
+};
 
 // ---------------------------------------------------------------- 配置
 function loadConfig() {

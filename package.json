@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "本地素材库语义检索（EmbeddingGemma 2）· 引擎与桌面应用",
-  "main": "app/main/index.mjs",
+  "main": "app/main/bootstrap.cjs",
   "engines": {
     "node": ">=20"
   },
