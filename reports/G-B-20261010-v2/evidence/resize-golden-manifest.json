@@ -1,0 +1,148 @@
+{
+ "cases": [
+  {
+   "id": "ID-1109393506__800x609",
+   "rel_path": "VR\\ID-1109393506.jpeg",
+   "cos_old": 0.915311,
+   "src_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-1109393506__800x609.src.raw",
+   "pil_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-1109393506__800x609.pil.raw",
+   "src_w": 1600,
+   "src_h": 1219,
+   "channels": 3,
+   "target_w": 800,
+   "target_h": 609
+  },
+  {
+   "id": "ID-1109393506__320x240",
+   "rel_path": "VR\\ID-1109393506.jpeg",
+   "cos_old": 0.915311,
+   "src_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-1109393506__320x240.src.raw",
+   "pil_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-1109393506__320x240.pil.raw",
+   "src_w": 1600,
+   "src_h": 1219,
+   "channels": 3,
+   "target_w": 320,
+   "target_h": 240
+  },
+  {
+   "id": "ID-1109393506__2080x1584",
+   "rel_path": "VR\\ID-1109393506.jpeg",
+   "cos_old": 0.915311,
+   "src_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-1109393506__2080x1584.src.raw",
+   "pil_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-1109393506__2080x1584.pil.raw",
+   "src_w": 1600,
+   "src_h": 1219,
+   "channels": 3,
+   "target_w": 2080,
+   "target_h": 1584
+  },
+  {
+   "id": "ID-14257437__506x380",
+   "rel_path": "VR\\ID-14257437.jpg",
+   "cos_old": 0.991005,
+   "src_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-14257437__506x380.src.raw",
+   "pil_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-14257437__506x380.pil.raw",
+   "src_w": 1013,
+   "src_h": 760,
+   "channels": 3,
+   "target_w": 506,
+   "target_h": 380
+  },
+  {
+   "id": "ID-14257437__320x240",
+   "rel_path": "VR\\ID-14257437.jpg",
+   "cos_old": 0.991005,
+   "src_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-14257437__320x240.src.raw",
+   "pil_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-14257437__320x240.pil.raw",
+   "src_w": 1013,
+   "src_h": 760,
+   "channels": 3,
+   "target_w": 320,
+   "target_h": 240
+  },
+  {
+   "id": "ID-14257437__1316x988",
+   "rel_path": "VR\\ID-14257437.jpg",
+   "cos_old": 0.991005,
+   "src_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-14257437__1316x988.src.raw",
+   "pil_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-14257437__1316x988.pil.raw",
+   "src_w": 1013,
+   "src_h": 760,
+   "channels": 3,
+   "target_w": 1316,
+   "target_h": 988
+  },
+  {
+   "id": "ID-15871625__310x233",
+   "rel_path": "VR\\ID-15871625.jpg",
+   "cos_old": 0.999989,
+   "src_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-15871625__310x233.src.raw",
+   "pil_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-15871625__310x233.pil.raw",
+   "src_w": 621,
+   "src_h": 466,
+   "channels": 3,
+   "target_w": 310,
+   "target_h": 233
+  },
+  {
+   "id": "ID-15871625__320x240",
+   "rel_path": "VR\\ID-15871625.jpg",
+   "cos_old": 0.999989,
+   "src_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-15871625__320x240.src.raw",
+   "pil_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-15871625__320x240.pil.raw",
+   "src_w": 621,
+   "src_h": 466,
+   "channels": 3,
+   "target_w": 320,
+   "target_h": 240
+  },
+  {
+   "id": "ID-15871625__807x605",
+   "rel_path": "VR\\ID-15871625.jpg",
+   "cos_old": 0.999989,
+   "src_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-15871625__807x605.src.raw",
+   "pil_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-15871625__807x605.pil.raw",
+   "src_w": 621,
+   "src_h": 466,
+   "channels": 3,
+   "target_w": 807,
+   "target_h": 605
+  },
+  {
+   "id": "ID-1123534068__175x145",
+   "rel_path": "VR\\ID-1123534068.png",
+   "cos_old": 0.991459,
+   "src_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-1123534068__175x145.src.raw",
+   "pil_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-1123534068__175x145.pil.raw",
+   "src_w": 350,
+   "src_h": 290,
+   "channels": 3,
+   "target_w": 175,
+   "target_h": 145
+  },
+  {
+   "id": "ID-1123534068__320x240",
+   "rel_path": "VR\\ID-1123534068.png",
+   "cos_old": 0.991459,
+   "src_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-1123534068__320x240.src.raw",
+   "pil_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-1123534068__320x240.pil.raw",
+   "src_w": 350,
+   "src_h": 290,
+   "channels": 3,
+   "target_w": 320,
+   "target_h": 240
+  },
+  {
+   "id": "ID-1123534068__455x377",
+   "rel_path": "VR\\ID-1123534068.png",
+   "cos_old": 0.991459,
+   "src_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-1123534068__455x377.src.raw",
+   "pil_raw": "D:/USERS/Desktop/Agent/gemma-search/data/diag/resize-golden/ID-1123534068__455x377.pil.raw",
+   "src_w": 350,
+   "src_h": 290,
+   "channels": 3,
+   "target_w": 455,
+   "target_h": 377
+  }
+ ]
+}

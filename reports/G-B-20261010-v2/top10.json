@@ -1,0 +1,831 @@
+{
+ "judgement": "PASS",
+ "thresholds": {
+  "overlap_avg": 0.8,
+  "overlap_each": 0.5,
+  "self_min_cos": 0.999,
+  "hard_max_rank": 3
+ },
+ "new_index": "data\\idx-full-v2",
+ "top10_overlap": {
+  "average": 0.905,
+  "min": 0.6,
+  "per_query": [
+   {
+    "id": "q01",
+    "text": "现代简约布艺沙发",
+    "overlap": 0.9,
+    "old_top10": [
+     "CR\\ID-880289.jpeg",
+     "VR\\ID-15364878.jpg",
+     "CR\\ID-873356.jpeg",
+     "VR\\ID-1109852329.jpg",
+     "CR\\ID-1133198350.jpg",
+     "CR\\ID-760463.jpg",
+     "VR\\ID-15661210.png",
+     "VR\\ID-15870725.jpg",
+     "VR\\ID-15119513.jpg",
+     "CR\\ID-1124436292.jpg"
+    ],
+    "new_top10": [
+     "CR\\ID-880289.jpeg",
+     "VR\\ID-15364878.jpg",
+     "CR\\ID-873356.jpeg",
+     "CR\\ID-1133198350.jpg",
+     "CR\\ID-760463.jpg",
+     "VR\\ID-1108039726.jpg",
+     "VR\\ID-1109852329.jpg",
+     "VR\\ID-15661210.png",
+     "VR\\ID-15870725.jpg",
+     "VR\\ID-15119513.jpg"
+    ]
+   },
+   {
+    "id": "q02",
+    "text": "北欧实木餐椅",
+    "overlap": 0.8,
+    "old_top10": [
+     "VR\\ID-1121985446.jpg",
+     "VR\\ID-15613814.jpg",
+     "VR\\ID-12156366.jpg",
+     "VR\\ID-1188000995.jpg",
+     "VR\\ID-13009473.png",
+     "VR\\ID-1114783287.jpeg",
+     "CR\\ID-692638.jpeg",
+     "CR\\ID-395300419.png",
+     "VR\\ID-1166485311.jpg",
+     "VR\\ID-1190697874.jpg"
+    ],
+    "new_top10": [
+     "VR\\ID-1121985446.jpg",
+     "VR\\ID-15613814.jpg",
+     "VR\\ID-1188000995.jpg",
+     "VR\\ID-12156366.jpg",
+     "VR\\ID-13009473.png",
+     "VR\\ID-1114783287.jpeg",
+     "CR\\ID-1115078555.png",
+     "VR\\ID-1101147776.jpg",
+     "CR\\ID-692638.jpeg",
+     "CR\\ID-395300419.png"
+    ]
+   },
+   {
+    "id": "q03",
+    "text": "意式极简茶几",
+    "overlap": 0.9,
+    "old_top10": [
+     "CR\\ID-15464299.jpg",
+     "VR\\ID-15339520.jpg",
+     "VR\\ID-391434.jpg",
+     "VR\\ID-115559146.jpg",
+     "VR\\ID-111233784.jpg",
+     "VR\\ID-1164025362.jpg",
+     "CR\\ID-1049944.jpeg",
+     "CR+VR\\ID-15507965.jpg",
+     "CR\\ID-1136159661.jpg",
+     "CR+VR\\ID-750571.jpeg"
+    ],
+    "new_top10": [
+     "CR\\ID-15464299.jpg",
+     "VR\\ID-15339520.jpg",
+     "VR\\ID-391434.jpg",
+     "VR\\ID-111233784.jpg",
+     "VR\\ID-115559146.jpg",
+     "VR\\ID-1164025362.jpg",
+     "CR\\ID-1049944.jpeg",
+     "CR\\ID-1136159661.jpg",
+     "CR+VR\\ID-15507965.jpg",
+     "CR\\ID-15503162.jpg"
+    ]
+   },
+   {
+    "id": "q04",
+    "text": "现代双人床",
+    "overlap": 0.7,
+    "old_top10": [
+     "VR\\ID-15441040.jpg",
+     "VR\\ID-15227660.jpg",
+     "VR\\ID-113664145.jpg",
+     "VR\\ID-104484157.jpg",
+     "VR\\ID-1122016176.jpg",
+     "VR\\ID-1109852329.jpg",
+     "VR\\ID-11631464.jpg",
+     "VR\\ID-1111913630.jpg",
+     "VR\\ID-15961162.jpg",
+     "VR\\ID-1686279.jpg"
+    ],
+    "new_top10": [
+     "VR\\ID-15441040.jpg",
+     "VR\\ID-113664145.jpg",
+     "VR\\ID-15227660.jpg",
+     "VR\\ID-1111913630.jpg",
+     "VR\\ID-104484157.jpg",
+     "VR\\ID-1108674396.jpg",
+     "VR\\ID-1122016176.jpg",
+     "VR\\ID-11631464.jpg",
+     "VR\\ID-969962080.jpg",
+     "VR\\ID-1123689372.png"
+    ]
+   },
+   {
+    "id": "q05",
+    "text": "北欧吊灯",
+    "overlap": 0.6,
+    "old_top10": [
+     "VR\\ID-15588806.jpg",
+     "CR\\ID-633419997.jpg",
+     "VR\\ID-723604.jpeg",
+     "VR\\ID-14198898.jpg",
+     "VR\\ID-716501.jpeg",
+     "VR\\ID-15107839.jpg",
+     "VR\\ID-115822915.jpg",
+     "CR\\ID-460666717032537.jpg",
+     "VR\\ID-15823221.jpg",
+     "CR\\ID-656904942.png"
+    ],
+    "new_top10": [
+     "CR\\ID-633419997.jpg",
+     "VR\\ID-15588806.jpg",
+     "VR\\ID-723604.jpeg",
+     "VR\\ID-115822915.jpg",
+     "VR\\ID-1112089406.jpg",
+     "VR\\ID-716501.jpeg",
+     "VR\\ID-15107839.jpg",
+     "CR\\ID-16047383.jpg",
+     "VR\\ID-15960769.jpg",
+     "CR\\ID-15062231.jpg"
+    ]
+   },
+   {
+    "id": "q06",
+    "text": "中古风木质吸顶灯",
+    "overlap": 1.0,
+    "old_top10": [
+     "VR\\ID-14321540.jpg",
+     "VR\\ID-12252097.jpeg",
+     "VR\\ID-15190145.jpg",
+     "VR\\ID-1171578359.jpg",
+     "VR\\ID-1136112303.jpeg",
+     "VR\\ID-16599183.jpg",
+     "VR\\ID-14291212.jpg",
+     "其他\\ID-14306419.jpg",
+     "VR\\ID-1077725.jpeg",
+     "VR\\ID-517782932.jpg"
+    ],
+    "new_top10": [
+     "VR\\ID-14321540.jpg",
+     "VR\\ID-12252097.jpeg",
+     "VR\\ID-15190145.jpg",
+     "VR\\ID-1171578359.jpg",
+     "VR\\ID-1136112303.jpeg",
+     "VR\\ID-16599183.jpg",
+     "VR\\ID-14291212.jpg",
+     "其他\\ID-14306419.jpg",
+     "VR\\ID-517782932.jpg",
+     "VR\\ID-1077725.jpeg"
+    ]
+   },
+   {
+    "id": "q07",
+    "text": "玻璃球多头吊灯",
+    "overlap": 0.8,
+    "old_top10": [
+     "CR\\ID-15690457.png",
+     "VR\\ID-104617637.jpg",
+     "VR\\ID-16109557.jpg",
+     "VR\\ID-853074.jpeg",
+     "CR+VR\\ID-715702.jpeg",
+     "CR\\ID-633419997.jpg",
+     "VR\\ID-355747.jpg",
+     "VR\\ID-1143635565.jpg",
+     "CR\\ID-718658924.jpg",
+     "VR\\ID-104424061.jpg"
+    ],
+    "new_top10": [
+     "CR\\ID-15690457.png",
+     "VR\\ID-104617637.jpg",
+     "VR\\ID-853074.jpeg",
+     "CR+VR\\ID-715702.jpeg",
+     "CR\\ID-718658924.jpg",
+     "CR\\ID-633419997.jpg",
+     "VR\\ID-1080405.jpeg",
+     "VR\\ID-355747.jpg",
+     "VR\\ID-104424061.jpg",
+     "CR\\ID-675198087.png"
+    ]
+   },
+   {
+    "id": "q08",
+    "text": "现代落地灯",
+    "overlap": 0.9,
+    "old_top10": [
+     "其他\\ID-15224609.jpg",
+     "VR\\ID-15329484.jpg",
+     "VR\\ID-343911.jpg",
+     "CR\\ID-15587404.jpg",
+     "CR\\ID-107111342.jpg",
+     "VR\\ID-1176296688.png",
+     "VR\\ID-328963.jpg",
+     "VR\\ID-826257716272702.jpg",
+     "VR\\ID-1141715.jpeg",
+     "VR\\ID-458042.jpg"
+    ],
+    "new_top10": [
+     "其他\\ID-15224609.jpg",
+     "VR\\ID-15329484.jpg",
+     "VR\\ID-343911.jpg",
+     "CR\\ID-15587404.jpg",
+     "CR\\ID-107111342.jpg",
+     "VR\\ID-1176296688.png",
+     "VR\\ID-328963.jpg",
+     "VR\\ID-826257716272702.jpg",
+     "VR\\ID-1156806602.jpg",
+     "VR\\ID-1141715.jpeg"
+    ]
+   },
+   {
+    "id": "q09",
+    "text": "简约吸顶灯",
+    "overlap": 1.0,
+    "old_top10": [
+     "其他\\ID-14306419.jpg",
+     "VR\\ID-1172436336.jpg",
+     "VR\\ID-15688507.jpg",
+     "VR\\ID-15709829.jpg",
+     "VR\\ID-15744656.jpg",
+     "VR\\ID-15113173.jpg",
+     "VR\\ID-1167839403.jpg",
+     "VR\\ID-1548871.jpeg",
+     "VR\\ID-15468687.jpg",
+     "VR\\ID-266848713908217.jpg"
+    ],
+    "new_top10": [
+     "其他\\ID-14306419.jpg",
+     "VR\\ID-15688507.jpg",
+     "VR\\ID-1172436336.jpg",
+     "VR\\ID-1167839403.jpg",
+     "VR\\ID-1548871.jpeg",
+     "VR\\ID-15113173.jpg",
+     "VR\\ID-15709829.jpg",
+     "VR\\ID-15744656.jpg",
+     "VR\\ID-15468687.jpg",
+     "VR\\ID-266848713908217.jpg"
+    ]
+   },
+   {
+    "id": "q10",
+    "text": "中古风壁灯",
+    "overlap": 1.0,
+    "old_top10": [
+     "CR\\ID-15126595.jpg",
+     "VR\\ID-1146724068.jpg",
+     "VR\\ID-114514719.jpg",
+     "VR\\ID-1160756545.jpg",
+     "VR\\ID-1147793411.jpg",
+     "VR\\ID-2477412.png",
+     "VR\\ID-16604486.jpg",
+     "CR\\ID-15577018.jpg",
+     "VR\\ID-1179937.jpeg",
+     "CR\\ID-15998721.jpg"
+    ],
+    "new_top10": [
+     "VR\\ID-1146724068.jpg",
+     "CR\\ID-15126595.jpg",
+     "VR\\ID-114514719.jpg",
+     "VR\\ID-1160756545.jpg",
+     "VR\\ID-16604486.jpg",
+     "VR\\ID-2477412.png",
+     "VR\\ID-1147793411.jpg",
+     "CR\\ID-15577018.jpg",
+     "VR\\ID-1179937.jpeg",
+     "CR\\ID-15998721.jpg"
+    ]
+   },
+   {
+    "id": "q11",
+    "text": "花卉图案装饰画",
+    "overlap": 1.0,
+    "old_top10": [
+     "VR\\ID-11693685.jpg",
+     "VR\\ID-114052520.jpg",
+     "VR\\ID-15129188.jpg",
+     "VR\\ID-14264733.jpg",
+     "VR\\ID-15090378.jpg",
+     "CR\\ID-998406897.jpg",
+     "VR\\ID-11968538.jpeg",
+     "VR\\ID-12268385.jpg",
+     "CR\\ID-14371703.jpg",
+     "VR\\ID-11949191.jpg"
+    ],
+    "new_top10": [
+     "VR\\ID-11693685.jpg",
+     "VR\\ID-114052520.jpg",
+     "VR\\ID-15129188.jpg",
+     "VR\\ID-14264733.jpg",
+     "VR\\ID-15090378.jpg",
+     "CR\\ID-998406897.jpg",
+     "VR\\ID-11968538.jpeg",
+     "CR\\ID-14371703.jpg",
+     "VR\\ID-12268385.jpg",
+     "VR\\ID-11949191.jpg"
+    ]
+   },
+   {
+    "id": "q12",
+    "text": "抽象几何挂画",
+    "overlap": 1.0,
+    "old_top10": [
+     "VR\\ID-15868612.jpg",
+     "VR\\ID-101013415.jpg",
+     "VR\\ID-16597495.jpg",
+     "VR\\ID-877832.jpeg",
+     "VR\\ID-11796288.png",
+     "VR\\ID-1173815.jpeg",
+     "VR\\ID-15550791.jpg",
+     "VR\\ID-15195369.jpg",
+     "VR\\ID-525306.jpg",
+     "CR\\ID-1175994298.jpg"
+    ],
+    "new_top10": [
+     "VR\\ID-15868612.jpg",
+     "VR\\ID-16597495.jpg",
+     "VR\\ID-101013415.jpg",
+     "VR\\ID-877832.jpeg",
+     "VR\\ID-1173815.jpeg",
+     "VR\\ID-11796288.png",
+     "VR\\ID-15195369.jpg",
+     "VR\\ID-15550791.jpg",
+     "CR\\ID-1175994298.jpg",
+     "VR\\ID-525306.jpg"
+    ]
+   },
+   {
+    "id": "q13",
+    "text": "陶瓷花瓶摆件",
+    "overlap": 1.0,
+    "old_top10": [
+     "VR\\ID-1671150.jpeg",
+     "CR+VR\\ID-750546.jpeg",
+     "CR\\ID-1177915984.jpg",
+     "VR\\ID-218059.jpg",
+     "VR\\ID-14225607.jpg",
+     "CR\\ID-15324720.jpg",
+     "CR\\ID-1179882164.jpg",
+     "VR\\ID-1104357881.jpg",
+     "VR\\ID-1148481973.jpeg",
+     "VR\\ID-11852229.jpeg"
+    ],
+    "new_top10": [
+     "VR\\ID-1671150.jpeg",
+     "CR+VR\\ID-750546.jpeg",
+     "VR\\ID-218059.jpg",
+     "CR\\ID-15324720.jpg",
+     "VR\\ID-1148481973.jpeg",
+     "VR\\ID-14225607.jpg",
+     "CR\\ID-1179882164.jpg",
+     "CR\\ID-1177915984.jpg",
+     "VR\\ID-11852229.jpeg",
+     "VR\\ID-1104357881.jpg"
+    ]
+   },
+   {
+    "id": "q14",
+    "text": "金属质感摆件",
+    "overlap": 0.9,
+    "old_top10": [
+     "VR\\ID-965559.jpeg",
+     "VR\\ID-15140560.jpg",
+     "VR\\ID-875572.jpg",
+     "VR\\ID-1121513.jpeg",
+     "VR\\ID-1056274.jpeg",
+     "VR\\ID-1238597.jpeg",
+     "VR\\ID-16143287.jpg",
+     "VR\\ID-890316.jpeg",
+     "VR\\ID-1173815.jpeg",
+     "VR\\ID-15216899.jpeg"
+    ],
+    "new_top10": [
+     "VR\\ID-965559.jpeg",
+     "VR\\ID-15140560.jpg",
+     "VR\\ID-1056274.jpeg",
+     "VR\\ID-875572.jpg",
+     "VR\\ID-1121513.jpeg",
+     "VR\\ID-1238597.jpeg",
+     "VR\\ID-890316.jpeg",
+     "VR\\ID-15216899.jpeg",
+     "VR\\ID-1135743880.jpg",
+     "VR\\ID-1173815.jpeg"
+    ]
+   },
+   {
+    "id": "q15",
+    "text": "原木色北欧风格",
+    "overlap": 0.8,
+    "old_top10": [
+     "VR\\ID-12156366.jpg",
+     "CR\\ID-1171303659.jpg",
+     "VR\\ID-12225897.jpg",
+     "VR\\ID-112741589.jpg",
+     "CR\\ID-15161632.jpeg",
+     "VR\\ID-12268848.png",
+     "CR\\ID-15300041.jpg",
+     "VR\\ID-865278.jpeg",
+     "VR\\ID-1117217668.jpg",
+     "VR\\ID-102717184.jpg"
+    ],
+    "new_top10": [
+     "VR\\ID-12156366.jpg",
+     "CR\\ID-1171303659.jpg",
+     "VR\\ID-12268848.png",
+     "VR\\ID-112741589.jpg",
+     "VR\\ID-12225897.jpg",
+     "CR\\ID-15300041.jpg",
+     "CR\\ID-15161632.jpeg",
+     "CR\\ID-15122314.jpg",
+     "VR\\ID-11808875.png",
+     "VR\\ID-865278.jpeg"
+    ]
+   },
+   {
+    "id": "q16",
+    "text": "黄铜金属质感",
+    "overlap": 0.9,
+    "old_top10": [
+     "VR\\ID-15586753.jpg",
+     "VR\\ID-16143287.jpg",
+     "VR\\ID-15867348.jpg",
+     "其他\\ID-4281013.png",
+     "CR\\ID-15756769.jpg",
+     "VR\\ID-1162977791.jpg",
+     "VR\\ID-843532.jpg",
+     "VR\\ID-15663849.jpg",
+     "VR\\ID-15996021.jpg",
+     "CR\\ID-852299.jpeg"
+    ],
+    "new_top10": [
+     "VR\\ID-15586753.jpg",
+     "VR\\ID-16143287.jpg",
+     "VR\\ID-15867348.jpg",
+     "其他\\ID-4281013.png",
+     "CR\\ID-15756769.jpg",
+     "VR\\ID-1162977791.jpg",
+     "VR\\ID-843532.jpg",
+     "VR\\ID-15663849.jpg",
+     "VR\\ID-15996021.jpg",
+     "CR+VR\\ID-1102241285.jpg"
+    ]
+   },
+   {
+    "id": "q17",
+    "text": "大理石纹理",
+    "overlap": 1.0,
+    "old_top10": [
+     "CR\\ID-1199600385.jpg",
+     "CR\\ID-15240404.jpg",
+     "VR\\ID-593043.jpeg",
+     "VR\\ID-16143287.jpg",
+     "其他\\ID-1068266.jpeg",
+     "CR\\ID-16096521.jpg",
+     "VR\\ID-1186183889.jpg",
+     "VR\\ID-15663849.jpg",
+     "VR\\ID-1148481973.jpeg",
+     "VR\\ID-15057320.jpg"
+    ],
+    "new_top10": [
+     "CR\\ID-1199600385.jpg",
+     "CR\\ID-15240404.jpg",
+     "VR\\ID-593043.jpeg",
+     "CR\\ID-16096521.jpg",
+     "VR\\ID-16143287.jpg",
+     "其他\\ID-1068266.jpeg",
+     "VR\\ID-15057320.jpg",
+     "VR\\ID-1148481973.jpeg",
+     "VR\\ID-15663849.jpg",
+     "VR\\ID-1186183889.jpg"
+    ]
+   },
+   {
+    "id": "q18",
+    "text": "中古风藤编单椅",
+    "overlap": 1.0,
+    "old_top10": [
+     "CR\\ID-1140537730.jpg",
+     "VR\\ID-1114783287.jpeg",
+     "CR\\ID-1115078555.png",
+     "VR\\ID-14253747.jpeg",
+     "CR\\ID-692638.jpeg",
+     "VR\\ID-517782932.jpg",
+     "VR\\ID-15073816.jpg",
+     "VR\\ID-927229.jpeg",
+     "VR\\ID-110253540.png",
+     "VR\\ID-389628045.jpg"
+    ],
+    "new_top10": [
+     "CR\\ID-1140537730.jpg",
+     "VR\\ID-1114783287.jpeg",
+     "CR\\ID-1115078555.png",
+     "VR\\ID-14253747.jpeg",
+     "CR\\ID-692638.jpeg",
+     "VR\\ID-15073816.jpg",
+     "VR\\ID-517782932.jpg",
+     "VR\\ID-389628045.jpg",
+     "VR\\ID-927229.jpeg",
+     "VR\\ID-110253540.png"
+    ]
+   },
+   {
+    "id": "q19",
+    "text": "复古黄铜壁灯",
+    "overlap": 0.9,
+    "old_top10": [
+     "VR\\ID-114514719.jpg",
+     "CR\\ID-15577018.jpg",
+     "CR\\ID-236357938.jpg",
+     "CR\\ID-15126595.jpg",
+     "VR\\ID-2477412.png",
+     "VR\\ID-1147793411.jpg",
+     "VR\\ID-16137320.jpg",
+     "CR\\ID-108092242.jpg",
+     "VR\\ID-1160756545.jpg",
+     "CR\\ID-743341926.jpg"
+    ],
+    "new_top10": [
+     "VR\\ID-114514719.jpg",
+     "CR\\ID-15577018.jpg",
+     "CR\\ID-236357938.jpg",
+     "CR\\ID-15126595.jpg",
+     "VR\\ID-2477412.png",
+     "VR\\ID-1147793411.jpg",
+     "VR\\ID-1160756545.jpg",
+     "CR\\ID-108092242.jpg",
+     "CR\\ID-695169936.jpg",
+     "VR\\ID-16137320.jpg"
+    ]
+   },
+   {
+    "id": "q20",
+    "text": "侘寂风陶罐",
+    "overlap": 1.0,
+    "old_top10": [
+     "VR\\ID-1113579374.jpg",
+     "VR\\ID-1148481973.jpeg",
+     "VR\\ID-14225607.jpg",
+     "VR\\ID-1181925057.jpg",
+     "CR+VR\\ID-750546.jpeg",
+     "VR\\ID-331944.jpg",
+     "CR\\ID-1177915984.jpg",
+     "CR\\ID-14332857.jpeg",
+     "VR\\ID-155635361.jpg",
+     "VR\\ID-109204323.jpg"
+    ],
+    "new_top10": [
+     "VR\\ID-1113579374.jpg",
+     "VR\\ID-1148481973.jpeg",
+     "VR\\ID-1181925057.jpg",
+     "CR+VR\\ID-750546.jpeg",
+     "VR\\ID-14225607.jpg",
+     "VR\\ID-331944.jpg",
+     "CR\\ID-14332857.jpeg",
+     "VR\\ID-155635361.jpg",
+     "CR\\ID-1177915984.jpg",
+     "VR\\ID-109204323.jpg"
+    ]
+   }
+  ]
+ },
+ "text_tower_agreement": {
+  "min_cos": 0.9999998807907104,
+  "median_cos": 1.0
+ },
+ "refs": {
+  "self": [
+   {
+    "id": "r-self-VR_ID-030518714422364.jpg",
+    "kind": "self",
+    "path": "ID-030518714422364.jpg",
+    "expect": "VR\\ID-030518714422364.jpg",
+    "accept": [
+     "VR\\ID-030518714422364.jpg"
+    ],
+    "old_top3": [
+     "VR\\ID-030518714422364.jpg",
+     "VR\\ID-333236905.jpg",
+     "CR\\ID-15545412.jpg"
+    ],
+    "new_top3": [
+     "VR\\ID-030518714422364.jpg",
+     "CR\\ID-15545412.jpg",
+     "VR\\ID-1164025362.jpg"
+    ],
+    "rank": 1,
+    "cos": 1.0,
+    "top1_cos": 1.0,
+    "encoder_index_same_source_cos": 1.0,
+    "ok": true
+   },
+   {
+    "id": "r-self-VR_ID-1411886.jpg",
+    "kind": "self",
+    "path": "ID-1411886.jpg",
+    "expect": "VR\\ID-1411886.jpg",
+    "accept": [
+     "VR\\ID-1411886.jpg",
+     "VR\\ID-13047663.jpeg"
+    ],
+    "old_top3": [
+     "VR\\ID-13047663.jpeg",
+     "VR\\ID-1411886.jpg",
+     "VR\\ID-2423858.jpg"
+    ],
+    "new_top3": [
+     "VR\\ID-1411886.jpg",
+     "VR\\ID-13047663.jpeg",
+     "VR\\ID-2423858.jpg"
+    ],
+    "rank": 1,
+    "cos": 1.0,
+    "top1_cos": 1.0,
+    "encoder_index_same_source_cos": 1.0,
+    "ok": true
+   },
+   {
+    "id": "r-self-VR_ID-GCI551847718142882.jpg",
+    "kind": "self",
+    "path": "ID-GCI551847718142882.jpg",
+    "expect": "VR\\ID-GCI551847718142882.jpg",
+    "accept": [
+     "VR\\ID-GCI551847718142882.jpg"
+    ],
+    "old_top3": [
+     "VR\\ID-GCI551847718142882.jpg",
+     "VR\\ID-884709.jpeg",
+     "VR\\ID-247577121.jpg"
+    ],
+    "new_top3": [
+     "VR\\ID-GCI551847718142882.jpg",
+     "VR\\ID-884709.jpeg",
+     "VR\\ID-247577121.jpg"
+    ],
+    "rank": 1,
+    "cos": 1.0,
+    "top1_cos": 1.0,
+    "encoder_index_same_source_cos": 0.99999988,
+    "ok": true
+   },
+   {
+    "id": "r-self-CR_ID-032109719124396.png",
+    "kind": "self",
+    "path": "ID-032109719124396.png",
+    "expect": "CR\\ID-032109719124396.png",
+    "accept": [
+     "CR\\ID-032109719124396.png"
+    ],
+    "old_top3": [
+     "CR\\ID-032109719124396.png",
+     "VR\\ID-1127591470.jpg",
+     "VR\\ID-15674674.jpg"
+    ],
+    "new_top3": [
+     "CR\\ID-032109719124396.png",
+     "VR\\ID-1127591470.jpg",
+     "VR\\ID-15674674.jpg"
+    ],
+    "rank": 1,
+    "cos": 1.0,
+    "top1_cos": 1.0,
+    "encoder_index_same_source_cos": 1.00000024,
+    "ok": true
+   },
+   {
+    "id": "r-self-CR+VR_ID-10083808.jpg",
+    "kind": "self",
+    "path": "ID-10083808.jpg",
+    "expect": "CR+VR\\ID-10083808.jpg",
+    "accept": [
+     "CR+VR\\ID-10083808.jpg"
+    ],
+    "old_top3": [
+     "CR+VR\\ID-10083808.jpg",
+     "VR\\ID-670523.jpeg",
+     "VR\\ID-1088845.jpeg"
+    ],
+    "new_top3": [
+     "CR+VR\\ID-10083808.jpg",
+     "VR\\ID-670523.jpeg",
+     "VR\\ID-1088845.jpeg"
+    ],
+    "rank": 1,
+    "cos": 1.0,
+    "top1_cos": 1.0,
+    "encoder_index_same_source_cos": 1.0,
+    "ok": true
+   }
+  ],
+  "hard": [
+   {
+    "id": "r-hard-dup1",
+    "kind": "hard",
+    "path": "ID-689938.jpeg",
+    "expect": "VR\\ID-461212.jpeg",
+    "accept": [
+     "VR\\ID-461212.jpeg",
+     "CR\\ID-689938.jpeg"
+    ],
+    "old_top3": [
+     "CR\\ID-689938.jpeg",
+     "VR\\ID-461212.jpeg",
+     "VR\\ID-1195220.jpeg"
+    ],
+    "new_top3": [
+     "CR\\ID-689938.jpeg",
+     "VR\\ID-461212.jpeg",
+     "VR\\ID-1195220.jpeg"
+    ],
+    "rank": 1,
+    "ok": true
+   },
+   {
+    "id": "r-hard-dup2",
+    "kind": "hard",
+    "path": "ID-125229472.jpg",
+    "expect": "其他\\125229472.jpg",
+    "accept": [
+     "其他\\125229472.jpg",
+     "VR\\ID-125229472.jpg"
+    ],
+    "old_top3": [
+     "VR\\ID-125229472.jpg",
+     "其他\\125229472.jpg",
+     "CR\\ID-14343133.jpg"
+    ],
+    "new_top3": [
+     "VR\\ID-125229472.jpg",
+     "其他\\125229472.jpg",
+     "CR\\ID-14343133.jpg"
+    ],
+    "rank": 1,
+    "ok": true
+   }
+  ],
+  "user": [
+   {
+    "id": "r-user-339007616_参考图",
+    "kind": "user",
+    "path": "339007616_参考图.jpg",
+    "expect": null,
+    "accept": [],
+    "old_top3": [
+     "VR\\ID-195535704.jpg",
+     "VR\\ID-198885392.jpg",
+     "VR\\ID-297951228.jpg"
+    ],
+    "new_top3": [
+     "VR\\ID-195535704.jpg",
+     "VR\\ID-198885392.jpg",
+     "VR\\ID-101013415.jpg"
+    ],
+    "ok": null,
+    "note": "用户参考图不在库内 —— 按规格不参与自动判定，仅供人工目视"
+   },
+   {
+    "id": "r-user-595812826_参考图",
+    "kind": "user",
+    "path": "595812826_参考图.jpg",
+    "expect": null,
+    "accept": [],
+    "old_top3": [
+     "VR\\ID-713717.jpeg",
+     "VR\\ID-16010618.png",
+     "CR+VR\\ID-715702.jpeg"
+    ],
+    "new_top3": [
+     "VR\\ID-713717.jpeg",
+     "VR\\ID-16010618.png",
+     "CR+VR\\ID-715702.jpeg"
+    ],
+    "ok": null,
+    "note": "用户参考图不在库内 —— 按规格不参与自动判定，仅供人工目视"
+   },
+   {
+    "id": "r-user-CR12_中古风吸顶灯_参考图",
+    "kind": "user",
+    "path": "CR12_中古风吸顶灯_参考图.jpg",
+    "expect": null,
+    "accept": [],
+    "old_top3": [
+     "VR\\ID-15752092.jpg",
+     "VR\\ID-1171578359.jpg",
+     "VR\\ID-116347859.jpg"
+    ],
+    "new_top3": [
+     "VR\\ID-15752092.jpg",
+     "VR\\ID-1171578359.jpg",
+     "VR\\ID-116347859.jpg"
+    ],
+    "ok": null,
+    "note": "用户参考图不在库内 —— 按规格不参与自动判定，仅供人工目视"
+   }
+  ]
+ },
+ "problems": []
+}

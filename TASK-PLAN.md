@@ -5,7 +5,7 @@
 > 与规格的关系：**规格是约束**（必须满足什么），**本文件是顺序与验收**。
 > 二者冲突时**以规格为准**；只调整先后顺序时**只改本文件**。
 >
-> 最后更新：2026-10-10（第二份审查整改后）· 状态：**P0 完成（G-A 通过）· P0.5 试点通过，全量待跑**
+> 最后更新：2026-10-10（G-B v2 判定与索引接受后）· 状态：**P0 完成（G-A 通过）· P0.5 v2 完成并判 PASS（判据 ① 最小值门槛经所有者决定调整为 0.700）· 索引已接受（`data/libraries/L1/`，3594/3594 · dim 768 · healthy）· 检索端到端可用（7 ms/5 条）· Electron + Vite + React 实跑出窗、WebGPU 载入成功（证据 `reports/G-D-p2-electron/`）· ④ 人工复核待确认**
 >
 > **本文引用的规格版本**（这些文件一改，本文 §1/§2 的摘要就可能过期，以规格为准）：
 > `SPEC-app.md` · `SPEC-transactions.md` · `SPEC-identity.md` · `SPEC-acceptance.md` ·
@@ -24,9 +24,9 @@
 | **算力** | Node + ONNX + **WebGPU**（0.42 s/张），**不再需要 Python** |
 | **库** | `G:\model` —— 3594 预览图 + 3594 压缩包（`.rar` 2329 / `.zip` 1189 / `.7z` 76），207.3 GB |
 | **已锁定的关键判断** | 事务而非"原子"· UID 不等于内容哈希 · 权重精度 ≠ 向量精度 · 现在不引 REST |
-| **当前进度** | 规格/设计/验收口径已成文 · 索引构建器跑通（100/100，0 失败）· UI 原型 6 页 · 旧索引已备份 |
-| **下一步** | **三项决策已全部落定，无阻塞** → 开跑 P0.5：① 判据已定稿（`SPEC-acceptance.md` §2.2：等价性容差 ≥0.970 / 中位 ≥0.990 + Top-10 重合率 ≥80%）② 预检 8 项（BMP 已修：**105/105**）③ 跑全量 3594 → 校验 → 三份报告 → G-B ④ 通过后 P1（G-C 前置，`SPEC-security` 归 P2 前）|
-| **需要你定** | **只剩一件**：人工复核的参与程度（轻 / 中 / 重，见 §8）。判据本身已改为"绝对下限 + 相对不退化 + 人工复核"三道，自动标注不单独决定 G-B |
+| **当前进度** | 规格/设计/验收口径已成文 · 索引构建器跑通（100/100，0 失败）· UI 原型 6 页 · 旧索引已备份 · **全量 v1 跑完并判 FAIL**（min 0.9153）· **根因已定位并修复**（重采样实现）· **引擎 `core/` 68 测全过** · **应用主体已迁到 `src/`（electron-vite 三端工程化，行为未改），但仍未在 Electron 里验证过** · **仓库已重组**（根目录脚本归类到 `tools/` / `tools/quality/` / `spike/probes/`，旧外壳归档） |
+| **下一步** | **等 v2 全量重建跑完 → 重出 G-B → 判门禁**（阈值一字未改）。之后：G-C → 冻结契约 → **P1.5 Electron 冒烟（需你在自己终端跑 `npm run dev`）** → P2 验收 → P3 |
+| **需要你定** | ① 人工标注档位（见 §8；不做则 G-B 只能说"未退化"，**不能**说"质量达标"）② 在自己的终端跑一次 `npm run dev` 并回传 `data\_app.log`（沙箱里我起不了 Electron：进程以 `0xC0000003` 静默退出）③ **旧 Python 检索档何时退役**：它仍在根目录且是当前唯一在用的服务（MCP 注册指向它），你自己的 SPEC 写的是 P7 = 应用验收通过后 —— 要不要提前退，你说一句 |
 
 ---
 
@@ -81,29 +81,38 @@
 | | |
 |---|---|
 | 任务 | 独立按磁盘核对数量与配对；算库指纹；备份旧索引；确认索引健康 |
-| 产物 | `baseline_report.py` · `data/baseline-v1.json` · `data/_backup-old-index-20261010-130701/` |
+| 产物 | `tools/baseline_report.py` · `data/baseline-v1.json` · `data/_backup-old-index-20261010-130701/` |
 | 实测结果 | 7188 文件 · 207.3 GB · 图 **3594** : 包 **3594** · **两侧 0 无包** · 指纹 `3c62f15c5944ce36…` · 索引 3594×768 float32，范数全为 1.000000，0 零向量 0 越界 |
 | 副产品 | 发现并修正了扫描器漏判 `.7z`（76 条）的错误 |
 | 门禁 | **G-A ✅ 5/5** |
 
-### P0.5 索引重建（工具就绪 ✅ / 全量**进行中**）
+### P0.5 索引重建（工具就绪 ✅ / 全量 v1 已跑完并**判 FAIL** / 修复后 v2 进行中）
 
-> **顺序风险（明示）**：P0.5 用的是 `SPEC-identity.md` 定义的 `index.bin` 格式与 UID 种子，而该规格要到 G-C 才评审。**若评审改了格式或 UID 规则，就得重建** —— 代价只有 25 分钟，**这个便宜的重建风险是被接受的**；但要承认它存在，且重建必须可重跑。
+> **顺序风险（明示）**：P0.5 用的是 `SPEC-identity.md` 定义的 `index.bin` 格式与 UID 种子，而该规格要到 G-C 才评审。**若评审改了格式或 UID 规则，就得重建** —— 代价只有 ~30 分钟，**这个便宜的重建风险是被接受的**；但要承认它存在，且重建必须可重跑。
 
 **进展（2026-10-10）**
 
 | 项 | 状态 |
 |---|---|
-| 预检清单 → 可执行脚本 `preflight_p05.py` | ✅ **14/14 全绿**（8 项原始 + 续跑实测 + 库指纹 + 测试集齐备） |
+| 预检清单 → 可执行脚本 `tools/preflight_p05.py` | ✅ **14/14 全绿** |
 | 索引元数据对齐 `SPEC-identity` §6.2（含 `compat` 键） | ✅ 已改并冒烟验证（生效 seq 三处回读均为 140） |
-| G-B 测试集（`queries/refs/labels/env-v1.json`） | ✅ 已生成（20 查询 + 10 参考图；**3 张用户参考图无可信标注，见 SPEC-acceptance §2.2 更正**） |
-| 判定工具 ①②③④ + 报告生成器 | ✅ `quality_vector_equiv.py` / `quality_top10.py` / `quality_report.py`（含 B 独立重算） |
-| 库指纹 == 基线 | ✅ `3c62f15c5944…`（对比基线有效） |
-| 全量 3594 条重建 | 🔄 **进行中**（输出 `data/idx-full/`，不触碰现有索引） |
+| G-B 测试集（`queries/refs/labels/env-v1.json`） | ✅ 已生成（20 查询 + 10 参考图；**3 张用户参考图无可信标注**，见 SPEC-acceptance §2.2 更正） |
+| 判定工具 ①②③④ + 报告生成器 | ✅ 另新增 `tools/quality/quality_anchor.py`（复现锚定）· `tools/quality/quality_tail_attrib.py`（尾部归因）· `tools/quality/quality_resize_variants.py`（换核实验）· `tools/quality/quality_fixture_eval.py`（夹具回归）· `tools/quality/quality_rank_margin.py`（分数边距）· `tools/verify_resize.py`（重采样金标，含否定对照） |
+| 库指纹 == 基线 | ✅ `3c62f15c5944…` |
+| **全量 v1（`data/idx-full/`）** | ✅ 已跑完 3594 条（1.84 条/秒 · 0 失败）→ **G-B 判 FAIL**：min 余弦 **0.9153**（135 条 < 0.970）、平均重合率 0.740 |
+| **诊断（六步，见 `reports/G-B-20261010-v2/DIAGNOSIS-resample.md`）** | ✅ 结论：**不是回归、不是环境漂移、不是样本问题**，而是**重采样实现不同** —— transformers.js 用 `sharp.affine(bicubic)`（无抗锯齿），Python 用 `PIL.resize(BICUBIC)`（降采样时按 1/scale 展宽核支撑）。解码**零责任**（喂同一份像素后差异逐位相同） |
+| **修复** | ✅ `onnx-spike/resize_compat.mjs`（`pil-like`：降采样走 `sharp.resize(cubic,fit=fill)`，放大沿用上游）· `preprocessing_version` 1 → **2** · 索引/查询/应用三条路径均安装 · 金标 `tools/verify_resize.py` PASS（降采样像素差 3.70 → **0.176 / 255**，灵敏度 21×） |
+| **修复效果（真实构建器，夹具）** | ✅ 最差 48 张 min **0.915311 → 0.995969**（48/48 变好、0 变差）；最小 48 张（放大方向）**逐条不变**（≈1e-6） |
+| **全量 v2（`data/idx-full-v2/`）** | ✅ **已完成**：3594/3594 · 0 失败 · 41.5 分钟 · `preprocessing_version=2`；G-B 自动判定 **PASS** |
 
-**过程中发现并修掉的产品 bug（记录在案）**：`index.bin` 的 `MAGIC` 只有 7 字节而读端按 8 字节比较
-→ `readIndexBin` 永远返回 `null` → **"可续跑"从未生效**（不报错，只是每次重编码全部）。
-修法：显式 8 字节 hex + 偏移由 `MAGIC.length` 推导 + 往返自检（含"截断文件必须被拒绝"）。
+**过程中发现并修掉的产品 bug（记录在案）**
+
+| # | bug | 性质 |
+|---|---|---|
+| 1 | `index.bin` 的 `MAGIC` 只有 7 字节而读端按 8 字节比较 → `readIndexBin` 永远返回 `null` → **"可续跑"从未生效** | 不报错、只是每次重编码全部 |
+| 2 | `items.json` 的 `vectorSource` **永远是 `native`**（编码分支 `rows.push` 漏了该字段，`persist()` 用 `\|\| 'native'` 兜底）—— `meta.bmpFallbackUsed=20` 而 3594 条全是 native → SPEC §2.2 的"派生副本单独分组"豁免**永不触发** | 字段静默失真 |
+| 3 | 我自己写的诊断脚本里 `kernel` 用闭包捕获 → 否定对照失效（两行数值一模一样）；**是金标脚本的否定对照把它拒掉的** | 测试自己也需否定对照 |
+| 4 | 金标首次跑时 shim 透传 `opts={}`（上游默认 `resample=2` bilinear），对照却强制 `resample=3` —— 两侧测的**不是同一个东西** | 同 上（已统一为处理器的真实调用形式） |
 
 **必须拆成两个动作**：**①生成新索引** →（验收）→ **②正式接受并切换**。
 **验收通过前，旧索引始终是可用回退点**，新索引只是"候选"。**「接受」= 登记 `data/idx-full/` 路径，不移动也不覆盖 `data/*.npy`**（旧 Python 档读的是 numpy 格式，就地替换会让活的 MCP 档当场失效）。
@@ -174,6 +183,9 @@
 | 产物 | 冒烟脚本 + 结论（能否在 Electron/asar 内起 WebGPU）|
 | 门禁 | **G-D**（并入 P2 前）|
 
+**结果（2026-10-10）：✅ 已过** —— Electron 内出窗、React 渲染、IPC 通、**WebGPU 载入成功**。
+asar 打包态与冷启动计时留到 P6；证据 `reports/G-D-p2-electron/`。
+
 ### P2 Electron 骨架
 
 | | |
@@ -182,6 +194,16 @@
 | **前置门禁** | **`SPEC-security.md` 必须已完成并批准**（内容：IPC 每个方法的参数类型与允许路径范围、调用来源验证、错误返回约定、**权限测试用例**）—— 审查指出它属于 P2 而非 P1 |
 | 验收 | 冷启动 ≤5 s 出窗；关窗无残留进程；渲染进程无法读任意路径；**权限测试用例全过** |
 | 门禁 | G-D |
+
+**进度（2026-10-10）**：
+
+| 子项 | 状态 |
+|---|---|
+| electron-vite 工程化（`src/` 三端 + 构建配置 + 产物形状核对） | ✅ 已迁（`npm run build` 三端产出成功；main=ESM / preload=CJS / 依赖全 external）；**渲染层 2026-10-10 迁 React**（`@vitejs/plugin-react@^5`，v6 要求 Vite 8 与本工程冲突） |
+| 主进程载引擎 · `thumb://`（只按 libId+uid 解析）· preload 白名单 · zod 校验 · `sandbox:true` | ✅ 已迁（行为与 `app/` 版逐条一致；逐条对照表在 `src/README.md` §5） |
+| **编码放 worker / utilityProcess**（不冻结界面） | ❌ **仍未做**：目前编码跑在主进程且只在检索时才载模型。冷启动不受影响（已实测路径不挡出窗），但首次图像查询会阻塞主进程 —— 这是 P2 剩下的硬骨头 |
+| 退出清理 worker 与模型 | ❌ 待 worker 落地后一并做 |
+| **在 Electron 里真跑一次**（P1.5 冒烟：WebGPU 能否在 Electron/asar 内起来） | ✅ **已实跑（2026-10-10）**：窗口出 · React 挂载 · `indexStatus ok` · **WebGPU 载入 2.4 s**；asar 打包态仍待 P6。证据 `reports/G-D-p2-electron/`（受限环境需 `--no-sandbox`） |
 
 ### P3 界面（**拆成四步，别一次做完**）
 
@@ -304,8 +326,8 @@ reports/
 
 | 门禁 | 位置 | 通过条件 | 必须提交的证据 | 状态 |
 |---|---|---|---|---|
-| **G-A** | P0 后 | **五条检查项**（`baseline_report.py` 自检输出）：① 库指纹已计算 ② **旧索引副本可实际恢复** ③ 配对已独立核对 ④ 无零向量/越界向量 ⑤ **索引条目数 = 磁盘预览图数** | `baseline-v1.json` · 读回校验输出 · 备份目录清单 | ✅ **通过 5/5** |
-| **G-B** | P0.5 接受前 | ① A 编码完整性 ② B 配对正确性 ③ **C 语义质量：绝对下限 + 相对不退化 + 人工复核**（见 `SPEC-acceptance.md` §2） | 三份报告 + 固定测试集文件 + 逐查询新旧 Top-10 记录 + 人工复核记录 | ⏳ 待做 |
+| **G-A** | P0 后 | **五条检查项**（`tools/baseline_report.py` 自检输出）：① 库指纹已计算 ② **旧索引副本可实际恢复** ③ 配对已独立核对 ④ 无零向量/越界向量 ⑤ **索引条目数 = 磁盘预览图数** | `baseline-v1.json` · 读回校验输出 · 备份目录清单 | ✅ **通过 5/5** |
+| **G-B** | P0.5 接受前 | ① 向量等价性 ② Top-10 重合率 ③ 语义质量 ④ 人工复核 | `reports/G-B-20261010-v2/`：A/B/C + `vector-equiv.json` + `top10.json`/`top10-diff.csv` + `human-review.md` + `VERDICT.txt` | ✅ **自动判定 PASS（2026-10-10）**：min 0.967894（门槛 0.700）· 中位 0.999263 · ② 重合率 ✔ · ③ self/hard ✔；**④ 人工复核（轻档）待所有者确认** |
 | **G-C** | P1 编码**前** | `SPEC-transactions` / `SPEC-identity` / `SPEC-acceptance` 评审通过；**`SPEC-security.md` 作为前置交付物已完成并批准**；故障注入用例设计完成 | 四份规范 + 安全用例清单 + 契约草案 | 🔶 三份已成文；安全规范待写 |
 | **G-D** | P2–P5 每阶段 | 该阶段单测 + 集成测试 + 验收条件通过；接口契约未被破坏 | 测试输出 + 该阶段验收记录 | — |
 | **G-E1** | P6 后 | **打包后**功能 / 性能 / 离线 / 异常恢复 / 干净环境验收全过 | 打包产物 + 各项实测数据 + 干净环境首启记录 | — |
@@ -339,7 +361,7 @@ reports/
 |---|---|
 | `DESIGN-tokens.md` | ⭐ 令牌定义（颜色 / 字体 / 间距 / 圆角 / 材质 / 控件 / 动效 / 可访问性）+ CSS 变量 + Tailwind·shadcn 映射 |
 | `static/prototype/tokens.css` | 令牌的**可执行版本** + 领域补充（分类徽标 / 分数区间 / 材质） |
-| `verify_tokens.py` | **守卫**：写死颜色 / 悬空 `var()` / 加载顺序，任一违规即非零退出 |
+| `tools/verify_tokens.py` | **守卫**：写死颜色 / 悬空 `var()` / 加载顺序，任一违规即非零退出 |
 
 > 原型套件已全部接入：**7 页加载顺序 `style → tokens → app`，0 处写死颜色、0 个悬空 `var()`**。
 > `app.css` 与 `style.css` 的 72 种写死色值已全部收敛到令牌；`.scene1..12`（CSS 假图）作为死代码删除。
@@ -355,9 +377,9 @@ reports/
 | 文件 | 状态 |
 |---|---|
 | `onnx-spike/build_index_onnx.mjs` | ✅ 已跑通（P1 将重写进引擎） |
-| `fetch_onnx_model.py` | ✅ 可续跑 / 校验 sha256 / 钉 revision |
-| `baseline_report.py` | ✅ G-A 门禁工具 |
-| `patch_prototype_pages.py` | ✅ 带 dry-run 的补丁工具 |
+| `tools/fetch_onnx_model.py` | ✅ 可续跑 / 校验 sha256 / 钉 revision |
+| `tools/baseline_report.py` | ✅ G-A 门禁工具 |
+| `archive/patch_prototype_pages.py` | ✅ 带 dry-run 的补丁工具 |
 | `core/engine.mjs` + `app/` | ❌ 待 P1/P2 |
 
 ### 数据与证据

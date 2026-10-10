@@ -17,10 +17,17 @@
 | | 状态 | 说明 |
 |---|---|---|
 | **A. 现在的检索档（Python + MCP）** | ✅ **在跑** | 本 README 的 §1–§9 讲的就是它。DSH 里的 `mcp__gemma-search__*` 工具、CLI、HTTP 网页都属这一档 |
-| **B. 独立桌面应用（Node + ONNX）** | 📐 **已定稿，未开工** | 取代 A：Electron 应用，不再依赖 DSH。规格见下方文档索引 |
+| **B. 独立桌面应用（Electron + Vite + React）** | ✅ **已在 Electron 内实跑出窗（React 渲染 + WebGPU 载入；证据 `reports/G-D-p2-electron/`）** | 取代 A：Electron 应用，不再依赖 DSH。引擎 `core/`（68 测全过）与 electron-vite 三端主体（`src/main` · `src/preload` · `src/renderer`）已就位；渲染层 2026-10-10 由手写 DOM 迁到 **React**，并在本机 Electron 内实跑（受限沙箱需 `--no-sandbox`）。规格见下方文档索引 |
 
 > **A 会在新应用验收通过后才退役**（计划里的 P7）。
 > 现在就删会留下"两边都不能用"的空窗，所以 MCP 注册与 `server.py` 都还在。
+>
+> **✅ 当前 G-B 状态（2026-10-10）**：
+> v1 判 FAIL（min 0.9153）→ 根因是**重采样实现** → 修复后 v2 全量重建完成（3594/3594 · 0 失败）。
+> v2 **自动判定 PASS**：min **0.967894** · 中位 **0.999263** · ② 平均重合率 ✔ · ③ self 5/5 与 hard 2/2 全中。
+> 判据 ① 的最小值门槛经项目所有者决定 **0.970 → 0.700**（写进 `SPEC-acceptance.md` §2.2 并注明代价）。
+> **索引已接受**：`data/libraries/L1/`（3594/3594 · dim 768 · healthy），检索端到端可用；
+> 证据链 `reports/G-B-20261010-v2/`（含 `TAIL-400x300.md` 尾部观察）；**④ 人工复核（轻档）待确认**。
 
 ### 新机器上手（克隆后 3 步）
 
@@ -57,8 +64,32 @@ node node_modules/electron/install.js
 #    换 npmmirror 镜像后正常（electron.exe 246 MB）。这一点对"在别的机器上构建"同样适用。
 ```
 
+**跑应用（2026-10-10 起：electron-vite 工程化）**：
+
+```powershell
+npm run dev      # dev server + HMR（改渲染进程代码即时生效）
+npm run build    # 产出 out/main · out/preload · out/renderer
+npm start        # = electron-vite preview：跑刚 build 出来的产物（接近打包态）
+
+# 受限环境（Chromium 的进程沙箱起不来 → Electron 秒退、日志一行都不生成）：
+npm run dev:restricted      # = dev --noSandbox --entry out/main/index.js
+npm run start:restricted    # 同上，但跑构建产物（file://）
+```
+
+> 上面那两个 `:restricted` 只是把 electron-vite **自带的**开关显式写出来；
+> 正常情况下**不需要**用它们 —— `scripts/electron-vite.mjs` 启动前会探测一次
+> （`electron --version` 失败、加 `--no-sandbox` 正常 = 本机沙箱不可用），探测到就
+> **只为这一次启动**附加那两个开关，并把判断依据打印出来。普通机器上不会出现这一行。
+
+> `dev`/`start` 走的是 `scripts/electron-vite.mjs`：它会先摘掉 `ELECTRON_RUN_AS_NODE`。
+> 这个变量会让 Electron 以**纯 Node** 运行（报错极具误导性，见下），而 dev 态**不能**
+> 靠主进程自愈 —— dev server 在父进程手里，重生实例会丢掉它。
+
+> **日志**：主进程与渲染进程的诊断都写到 `data\_app.log`（Windows 上 Electron 是 GUI 子系统
+> 程序，stdout 不连终端，`console.log` 一条都看不到）。首次运行请把这个文件回传。
+
 > 注意两者用途不同：**Python 档是当前唯一在用的检索服务**（MCP/CLI/HTTP），
-> **Node 档是新应用**（引擎 `core/` + Electron 外壳 `app/`）。旧档到 P7 才退役。
+> **Node 档是新应用**（引擎 `core/` + Electron/React 主体 `src/`）。旧档到 P7 才退役。
 
 **可配置项一览**（`config.json` 键 ↔ 环境变量；**环境变量优先**）：
 
@@ -77,11 +108,56 @@ node node_modules/electron/install.js
 ### 克隆后要跑的守卫（全部只读）
 
 ```powershell
-& .\.venv\Scripts\python.exe check_staged.py         # 提交前：暂存区规模与违规
-& .\.venv\Scripts\python.exe scan_repo_pollution.py  # 机密 / 本机耦合 / 大文件
-& .\.venv\Scripts\python.exe verify_docs.py          # 文档完整性（死引用 / 索引覆盖）
-& .\.venv\Scripts\python.exe verify_tokens.py        # 设计令牌纪律（写死颜色 / 悬空 var()）
+& .\.venv\Scripts\python.exe tools\verify_syntax.py       # 全仓语法体检（.py 编译 + node --check）—— 3 秒，改完脚本就跑
+& .\.venv\Scripts\python.exe tools\check_staged.py         # 提交前：暂存区规模与违规
+& .\.venv\Scripts\python.exe tools\scan_repo_pollution.py  # 机密 / 本机耦合 / 大文件
+& .\.venv\Scripts\python.exe tools\verify_docs.py          # 文档完整性（死引用 / 索引覆盖）
+& .\.venv\Scripts\python.exe tools\verify_tokens.py        # 设计令牌纪律（写死颜色 / 悬空 var()）
+& .\.venv\Scripts\python.exe tools\verify_resize.py        # 重采样兼容层 vs PIL（**含否定对照**，改了编码器必跑）
 ```
+
+应用侧（需要 Node；**不需要 Electron**）：
+
+```powershell
+npm run build                            # 三端构建
+node tools\verify_app_build.mjs          # 产物形状（ESM/CJS/external/相对路径/原生模块未内联）
+node tools\verify_renderer_dom.mjs       # React 渲染层在 jsdom 里真跑（启动/搜索/交互/事件）
+node tools\verify_encoder_path.mjs --model <ONNX 模型目录>   # 编码路径一致性（会跑真实推理）
+```
+
+> 若“Electron 起不来”需要定性：`tools\probe_electron_start\`（最小 Electron 探针 + 判读表）。
+
+> 为什么要有 `verify_syntax.py`：2026-10-10 扫出 **3 个门禁/质量脚本在提交里就是语法错误**
+> （某次编辑吞掉一行，注释把 `, ext))` 吃了进去）。它们不属于任何自动测试，
+> 只有"真要跑那一项"时才炸 —— 而那正是最需要它的时候。
+
+应用侧（Node/Electron，**不需要 Electron** 就能跑的那部分）：
+
+```powershell
+npm test                     # 引擎单测（node:test，不经传输层）
+npm run build                # electron-vite 三端构建
+node tools/verify_app_build.mjs     # 构建产物形状（ESM / CJS / external / 相对路径 / 原生模块未内联）
+node tools/verify_renderer_dom.mjs  # React 渲染层在 jsdom 里真跑（启动 / 搜索 / 交互 / 事件，不需 Electron）
+node tools/smoke_app.mjs             # 应用冒烟：真启动构建产物并给判定（受限环境加 --no-sandbox）
+```
+
+#### 应用实跑结论（2026-10-10 · 证据 `reports/G-D-p2-electron/`）
+
+```powershell
+npm run build     # 三端：main / preload / renderer（React）
+npm run dev       # 你自己的终端：dev server + Electron 窗口 + HMR
+npm start         # 跑构建产物（file://），最接近打包态
+```
+
+- **已实跑**：Electron 出窗（标题「gemma-search · 素材库语义检索」）· React 渲染层挂载 ·
+  `invoke indexStatus` 打通 · 编码器**在 Electron 内以 WebGPU 载入（2.4 s）**
+  —— 这一条同时是 P1.5 的核心问题（WebGPU 能否在 Electron 里起来）的答案。
+- **受限沙箱内**必须加 `--no-sandbox`（Chromium 的进程沙箱起不来 → `0x80000003` 秒退）；
+  **普通终端不需要**，也不要把它固化进产品。
+- **`web/` 已删除**（2026-10-10）：它是浏览器预览的过渡产物，与根工程构成两套依赖、
+  两份令牌的相互污染。React 界面直接住在 `src/renderer`，令牌仍是唯一来源
+  `static/prototype/tokens.css`（不复制第二份）。
+- 界面能开、IPC 通，但**检索还出不了结果**：引擎报 `INDEX_MISSING`（索引尚未登记，属 P0.5-c）。
 
 ### 文档索引
 
@@ -99,7 +175,6 @@ node node_modules/electron/install.js
 | **`SPEC-security.md`** | **P2 前置门禁**：威胁模型与**明确不防**的边界 · IPC 单通道白名单 + zod · `thumb://` 加固 · 来源验证 · 渲染进程姿态与 CSP · 4 条渲染层不变量 · **16 条权限测试用例** |
 | **`CONTRACT-engine-v1.md`** | **引擎接口契约**（待 P1 验收时冻结）：19 错误码 + 用户文案 · 10 个方法 · 长任务进度/取消/续跑 · `RECOVERY_NEEDED` 恢复 · 多库结构不兼容原因 · 5 条安全不变量 · P3 用 fixtures |
 | **`DESIGN-tokens.md`** | ⭐ **视觉唯一来源**：Apple 风格设计令牌（颜色 / 字体 / 间距 / 圆角 / 材质 / 控件 / 动效 / 可访问性 + CSS 变量 + Tailwind·shadcn 映射）。可执行版本 = `static/prototype/tokens.css` |
-| `SPEC-security.md` | ⏳ **待写**（P1 编码前）：IPC 参数白名单、`thumb://` 加固、调用来源校验 |
 | `UI-REVIEW-and-migration.md` | UI 评审与迁移：逐页评审、领域差异、技术选型增补、四个关键流程、迁移路线 |
 | `DEBT-CLEANUP.md` | **债务账本**：清了什么、还欠什么 |
 | `reference/MODEL_CARD.md` | 官方模型卡（前缀 / seq / float16 限制的依据） |
@@ -125,7 +200,7 @@ node node_modules/electron/install.js
 | `static/plan-overview.html` | 计划总览页（9 章，可打印） |
 | `static/prototype/index.html` | **UI 原型套件入口**（6 页，离线可开；**已接入设计令牌**） |
 | `static/prototype/tokens.css` | **设计令牌的可执行版本**（`DESIGN-tokens.md` §10 + 领域补充） |
-| `verify_tokens.py` | **令牌纪律守卫**：写死颜色 / 悬空 `var()` / 加载顺序；改样式后必跑 |
+| `tools/verify_tokens.py` | **令牌纪律守卫**：写死颜色 / 悬空 `var()` / 加载顺序；改样式后必跑 |
 
 ---
 
@@ -267,7 +342,7 @@ uv pip install --python D:\USERS\Desktop\Agent\.venv\Scripts\python.exe `
 & ..\.venv\Scripts\python.exe verify_app.py              # HTTP 界面 11 项
 & ..\.venv\Scripts\python.exe spike\probes\probe_gpu.py               # GPU 与 CUDA 轮子可用性
 & ..\.venv\Scripts\python.exe spike\probes\probe_gpu_speed.py --cross # 同进程 CPU vs GPU 向量一致性
-& ..\.venv\Scripts\python.exe baseline_report.py                      # 基线复核（G-A 门禁：指纹 + 备份旧索引）
+& ..\.venv\Scripts\python.exe tools/baseline_report.py                      # 基线复核（G-A 门禁：指纹 + 备份旧索引）
 ```
 
 `verify_mcp.py` 覆盖：**stdout 纯 JSON-RPC**（stdio MCP 最易翻车处）、
@@ -275,47 +350,68 @@ MCP 协议结果与进程内直调逐字段一致、MCP↔CLI 一致、确定性
 
 ## 7. 文件一览
 
+> **2026-10-10 重排**：根目录脚本按角色归类（`tools/` 门禁与校验 · `tools/quality/` 质量判定 ·
+> `spike/probes/` 一次性探针 · `archive/` 被取代的东西）。移动时逐文件改写了
+> "本文件所在目录 = 项目根" 的假设 → 改成**向上找 `core/engine.mjs`**，所以再搬一次也不会错。
+> 旧 Python 检索档**仍在根目录而且仍可运行** —— 它是当前唯一在用的检索服务，
+> 按 P7 计划在应用验收通过后退役（见 §0）。
+
 ```
 gemma-search\
-├── 【现有检索档 · Python + MCP】───────────────────────
-├── gemma_lib.py          配置 / 素材扫描 / 编码器（设备与精度选择）/ 索引读写
-├── store.py              向量存储层（VectorStore 接口 + NumpyStore + Zvec 预留）
-├── search.py             检索内核（MCP/CLI/HTTP 共用）
-├── tools.py              5 个能力的唯一实现 + 错误信封（不依赖 MCP SDK）
-├── mcp_server.py         MCP stdio 服务（薄包装 + 自检）        ← P7 退役
-├── cli.py                命令行（技能回退档 + 建索引入口 + 打印 MCP 配置）
-├── server.py             HTTP 界面（先绑定端口，再后台预热）    ← P7 退役
-├── static\index.html     前端（单文件、零外部依赖、不引 CDN）   ← P7 退役
-├── build_index.py        索引构建（可续跑 / --prune / --device / --seq）
-├── verify_app.py         HTTP 界面验收（11 项）
-├── verify_mcp.py         协议级与一致性验收（17 项）            ← P7 退役
-├── download_model.py     下载模型到工作区缓存
-├── start_server.cmd      双击启动网页界面（**纯 ASCII**）
-├── TASK-PLAN.md          ⭐ **最终任务计划书**（唯一行动依据）
-├── SPEC-*.md             规格（约束来源，见上方索引）
-├── reference\MODEL_CARD.md    官方模型卡（实现依据）
-├── archive\              两份被取代的旧计划（见其 README）
+├── 【当前形态 · 独立桌面应用（electron-vite）】─────────────
+├── src\                       应用主体（正文见 src\README.md）
+│   ├── main\                  主进程：index.mjs（IPC/thumb://窗口）· encoder.mjs（编码器端口）· log.mjs
+│   ├── preload\index.js       白名单 preload（**产物必须是 CJS**，sandbox 要求）
+│   ├── renderer\              index.html + src/main.js（迁移期普通 JS；P3a 换 React + Tailwind）
+│   └── shared\ipc.mjs         IPC 契约唯一来源（zod 白名单）
+├── core\                      引擎：传输无关、零依赖（68 测）
+├── electron.vite.config.mjs   三端构建配置（dependencies 全部 external，理由写在文件里）
+├── tsconfig.json / .node / .web  编辑器用；**暂不作门禁**（checkJs 关，见 package.json 注释）
+├── electron-builder.yml       打包配置（P6 才用；图标仍是脚手架默认图标）
+├── build\ resources\          打包资源（图标 / entitlements）
+├── scripts\electron-vite.mjs  dev/start 前摘掉 ELECTRON_RUN_AS_NODE
+├── out\                       构建产物（不入库，`npm run build` 生成）
 │
-├── 【独立桌面应用 · 计划中 / Node + ONNX】──────────────
-├── SPEC-app.md  DESIGN-app-details.md               规格与详细设计
-├── SPEC-transactions.md  SPEC-identity.md           事务 / 身份与指纹
-├── SPEC-acceptance.md                               验收与测量口径
-├── UI-REVIEW-and-migration.md                       UI 评审与迁移
-├── DEBT-CLEANUP.md                                  债务账本
-
-├── baseline_report.py    基线复核 + 备份旧索引（G-A 门禁工具）
-├── patch_prototype_pages.py  原型页补丁（带 dry-run，逐处核对命中数）
-├── fetch_onnx_model.py   下载 ONNX 模型（可续跑 / 校验 sha256 / 钉 revision）
-├── static\plan-overview.html     计划总览页
-├── static\prototype\             **UI 原型套件**（6 页 + style.css/app.css/app.js）
-├── static\_archive\              被取代的两份单文件原型（归档不删）
-├── onnx-spike\           ONNX 侧脚本 + node_modules
-│   ├── build_index_onnx.mjs     ← **未来资产**：索引器原型（已跑通 100 张）
-│   └── spike_onnx.mjs / spike_device.mjs
-├── spike\                后端路线决策的证据（勿删，见其 README.md）
-│   ├── ref*.json / onnx*.json    torch 与 ONNX 的向量对照
-│   └── probes\                   7 个一次性探针（含 GPU/CUDA 不可用依据）
-└── data\                 索引产物 + 旧索引备份 + 基线报告
+├── 【门禁与校验 · 只读，可直接跑】───────────────────────
+├── tools\verify_syntax.py     全仓语法体检（.py 编译 + node --check）★ 新增
+├── tools\verify_docs.py       文档完整性（死引用 / 索引覆盖 / 计划书要求）
+├── tools\verify_tokens.py     设计令牌纪律（写死颜色 / 悬空 var()）
+├── tools\verify_resize.py     重采样兼容层 vs PIL（跨语言金标，含**否定对照**）
+├── tools\verify_app_build.mjs 应用构建产物的**形状**（ESM/CJS/external/相对路径，不需要 Electron）
+├── tools\verify_encoder_path.mjs  产品编码路径一致性（不需要 Electron）
+├── tools\check_staged.py      提交前：暂存区规模与违规
+├── tools\scan_repo_pollution.py  机密 / 本机耦合 / 大文件
+├── tools\preflight_p05.py     P0.5 立项前把关（12 项可执行检查）
+├── tools\baseline_report.py   G-A 基线复核 + 备份旧索引
+├── tools\fetch_onnx_model.py  取 ONNX 模型（可续跑 / 校验 sha256 / 钉 revision）
+├── tools\index_bin.py         index.bin 读写（被质量工具 import）
+├── tools\quality\             质量判定（G-B 三道判据 + 诊断）
+│      quality_vector_equiv · quality_top10 · quality_report · quality_anchor ·
+│      quality_rank_margin · quality_tail_attrib · quality_fixture_eval ·
+│      quality_resize_variants · make_quality_set · sniff_extensions
+│
+├── 【证据 / 原型 / 产物】─────────────────────────────
+├── spike\                     后端路线决策的证据（勿删，见其 README.md）
+│   ├── probes\                一次性探针（GPU-CUDA 不可用 · BMP 布局 · 像素对照 · 预处理差异）
+│   └── ref*.json / onnx*.json    torch 与 ONNX 的向量对照
+├── onnx-spike\                ONNX 侧构建器与 spike 脚本（**索引构建的唯一可用路径**）
+├── static\prototype\          UI 原型套件（6 页 + 共享 style/app.css/app.js）—— P3a 的界面依据
+├── static\plan-overview.html   计划总览页
+├── static\_archive\           被取代的两份单文件原型（归档不删）
+├── reports\                   门禁证据（G-A / G-B 报告与对照表）
+├── data\                      索引产物 + 本机诊断中间物（多数不入库）
+│
+├── 【旧档 · P7 退役 —— 仍在根目录且可正常运行】────────────
+├── gemma_lib.py store.py search.py tools.py cli.py        检索档本体（MCP/CLI/HTTP 共用）
+├── mcp_server.py server.py static\index.html              MCP 与 HTTP 两个入口
+├── build_index.py verify_app.py verify_mcp.py             torch 档的构建与验收
+├── register_mcp.py download_model.py start_server.cmd     DSH 注册 / 模型下载 / 双击启动
+│
+└── 【文档】──────────────────────────────────────────
+    README.md（本文）· TASK-PLAN.md ⭐ 唯一行动依据 · SPEC-app / -transactions /
+    -identity / -security / -acceptance · DESIGN-app-details / -tokens ·
+    UI-REVIEW-and-migration · CONTRACT-engine-v1 · PRE-KICKOFF-CHECK ·
+    DEBT-CLEANUP（债务账本）· reference\MODEL_CARD.md · archive\（旧计划 + 旧应用外壳）
 ```
 
 ## 8. 与原始方案的偏差（均已实测更正）

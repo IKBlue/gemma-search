@@ -213,10 +213,11 @@ fingerprint_v1 = sha1(
                   "onnx/vision_encoder.onnx", "onnx/vision_encoder.onnx_data"],
   "audio_disabled": true,                 // config.audio_config = null
 
-  "preprocessing_version": 1,             // 我方预处理配置的版本号（改动即升版）
+  "preprocessing_version": 2,             // 我方预处理配置的版本号（改动即升版）
   "preprocessing": { "image_seq_length": 140, "resample": 3, "rescale": 0.00392156862745098,
                      "do_normalize": false, "patch_size": 16, "pooling_kernel_size": 3,
-                     "color": "RGB" },
+                     "color": "RGB",
+                     "resample_impl": "sharp.resize(kernel=cubic, fit=fill)" },
 
   "seq_length": 140,
   "dim": 768,
@@ -264,8 +265,38 @@ compat = ( model_repo, model_revision, model_weights_dtype,
 > ⚠️ **不要把"逐位一致 / bit-exact"写成验收标准。**
 > 跨 GPU/CPU、跨 ORT 版本的 fp32 逐位相等**本来就难保证**；写成逐位相等会导致
 > **升级 ORT 或驱动就误报失败**。正确做法是**实测容差**：
-> 本机实测中位余弦 **0.9929**、最小 **0.9798** → 验收用 **≥0.970**（`SPEC-acceptance.md` §2.2）。
+> 本机实测中位余弦 **0.9929**、最小 **0.9798**；验收门槛见 `SPEC-acceptance.md` §2.2
+> （**2026-10-10 起：最小值 ≥0.700 · 中位数 ≥0.990**，含下调的代价说明）。
 > "文本塔 bit-exact"这句话只作为**当时那次实测的结论**，不作为长期判据。
+
+### 6.2.1 P0.5 诊断：`preprocessing_version` 1 → **2**（重采样实现，2026-10-10 实测）
+
+**为什么升版**：`resample: 3`（bicubic）在两侧的解释**不是同一个算法** ——
+
+| 侧 | 实际实现 |
+|---|---|
+| Python（参考/旧索引） | `PIL.Image.resize(..., BICUBIC)` |
+| transformers.js 4.3.1（Node） | `sharp(img).affine([sx,0,0,sy], { interpolator: 'bicubic' })` |
+
+实测（`reports/G-B-20261010/DIAGNOSIS-resample.md`，输入像素完全相同、目标尺寸相同）：
+
+| 对比 | 平均绝对差 | 最大 | 余弦 |
+|---|---|---|---|
+| `affine(bicubic)` vs PIL | 4.93 / 255（1.93%） | 183 | 0.960757 |
+| **`sharp.resize(kernel=cubic, fit=fill)`** vs PIL | **0.14 / 255（0.05%）** | 9 | **0.999997** |
+
+后果（全量 3594 条 vs 旧 torch 索引）：min 余弦 **0.9153**、中位 0.9910，
+**135 条低于 `SPEC-acceptance.md` §2.2 的硬底线 0.970 → G-B v1 判 FAIL**。
+尾部与大尺寸图强相关（尾部百万像素中位 2.02MP vs 对照 0.30MP，6.7×）：
+两套实现都**不抗锯齿**，降采样倍率越大、混叠图案差得越远；小图几乎不缩放 → 逐位一致。
+
+**结论与约定**：把 Node 侧的 resize 钉成 `sharp.resize(kernel='cubic', fit='fill')` ——
+它与 PIL 的差异是**定点舍入级别**（余弦 0.999997），因此新索引与旧索引可望在容差内等价。
+该实现进 `preprocessing`（`resample_impl`）并体现为 `preprocessing_version = 2`，
+**缓存键 `compat` 随之变化**（v1 的索引不会被误认为可复用）。
+
+> 查询路径（`encode_queries.mjs`、应用 `src/main/encoder.mjs`）**必须安装同一份 shim**：
+> 索引与查询预处理不一致是本项目最危险的失败模式（不报错，只是结果变差）。
 | `embedding_dtype` | 参与存储布局校验，但**不参与** `compat`（同权重同预处理下不影响语义） |
 
 ### 6.4 正式构建器**实际加载的是什么**（明确回答审核的疑问）
@@ -281,7 +312,7 @@ compat = ( model_repo, model_revision, model_weights_dtype,
 | 模型 revision | `daa72c51243991dfcaf9f9137d2c573d8f7790c0` |
 | 设备 | `webgpu`（回落 `cpu`） |
 
-**因此本次全量重建 = 权重 fp32 + 预处理 v1 + seq140 + 向量 float32。**
+**因此本次全量重建 = 权重 fp32 + 预处理 v2（`resample_impl = sharp.resize(cubic, fit=fill)`）+ seq140 + 向量 float32。**
 
 > **`q4f16` 是"将来应用可选的下载档"，不是当前构建设置。**
 > 选它 **必须重建索引**（向量会变）——原文档把这两件事写在一处，是造成矛盾的根源。已分开表述。

@@ -125,10 +125,10 @@ node onnx-spike/build_index_onnx.mjs --model <ONNX 模型目录> --lib "G:\model
      --out data/idx-full --seq 140 --device webgpu --lib-id L1
 
 # 门禁：预检 + 三道质量判据 + 证据报告
-& ..\.venv\Scripts\python.exe preflight_p05.py --with-resume-test
-& ..\.venv\Scripts\python.exe quality_vector_equiv.py --new-index data/idx-full
-& ..\.venv\Scripts\python.exe quality_top10.py --model <ONNX 模型目录> --new-index data/idx-full
-& ..\.venv\Scripts\python.exe quality_report.py --new-index data/idx-full
+& ..\.venv\Scripts\python.exe tools/preflight_p05.py --with-resume-test
+& ..\.venv\Scripts\python.exe tools/quality/quality_vector_equiv.py --new-index data/idx-full
+& ..\.venv\Scripts\python.exe tools/quality/quality_top10.py --model <ONNX 模型目录> --new-index data/idx-full
+& ..\.venv\Scripts\python.exe tools/quality/quality_report.py --new-index data/idx-full
 
 # 应用（Node/Electron）依赖与开发态（P2 起）
 npm install
@@ -138,8 +138,12 @@ npm install
 #    node node_modules/electron/install.js
 #    实测：GitHub releases 页面 HEAD 返回 200，但**资产下载**失败；npmmirror 镜像正常。
 #    刻意不写进仓库的 .npmrc —— 那是本机网络环境的权宜，钉死会连累网络正常的机器。
-npm run dev                      # electron-vite（P2 落地后才有此脚本）
-npm run build                    # 产物直喂 electron-builder
+npm run dev                      # electron-vite dev server + HMR（经 scripts/electron-vite.mjs）
+npm run build                    # 三端产出 → out/main · out/preload · out/renderer
+npm start                        # = electron-vite preview：跑 build 出来的产物
+# 上面 dev/start 经 scripts/electron-vite.mjs 转发：它会先摘掉 ELECTRON_RUN_AS_NODE
+# （该变量会让 Electron 以纯 Node 运行，dev 态无法靠主进程自愈）。
+# 日志：主进程 + 渲染进程诊断都写 data\_app.log（GUI 子系统没有 stdout）。
 ```
 
 ## 5. Project Structure
@@ -152,11 +156,16 @@ gemma-search\
 │   ├── uid.mjs               uid = sha1(lib_id|rel_dir|stem)[:12]（**冻结**）
 │   ├── compat.mjs            兼容性判定键（SPEC-identity §6.3）
 │   └── transactions\         状态机 + 事务日志 + 启动恢复 + 撤销
-├── app\                      **Electron 外壳**（P2）
-│   ├── main\                 主进程：载引擎、worker 跑编码、thumb:// 协议、IPC
-│   ├── preload\              contextBridge 白名单（zod 校验）
-│   └── renderer\             React + Tailwind + shadcn/ui（界面见 UI-REVIEW-and-migration.md）
-├── src\shared\              跨端共享类型与 zod schema（IPC 契约的唯一来源）
+├── src\                      **应用主体（electron-vite）**（P2，2026-10-10 迁移）
+│   ├── main\                 主进程：载引擎、编码器端口、thumb:// 协议、IPC、日志（见 src/README.md）
+│   ├── preload\              contextBridge 白名单（**产物必须 CJS**，sandbox 要求）
+│   ├── renderer\             index.html + src/main.js（迁移期普通 JS；P3a 换 React + Tailwind + shadcn/ui）
+│   └── shared\               跨端共享的 IPC 契约与 zod schema（唯一来源）
+├── electron.vite.config.mjs  三端构建配置（dependencies 全部 external）
+├── tsconfig.{json,node,web}.json  编辑器用；**暂不作 typecheck 门禁**（checkJs 关，P3a 转 TS 时接上）
+├── electron-builder.yml      打包配置（P6 才用）
+├── build\ resources\         打包资源（图标 / entitlements）
+├── app\                      ⚠️ **已被 src\ 取代**，留作可回退档（`npm run start:legacy`），验证通过后归档
 ├── tests\                   引擎与事务的无头单测（vitest）
 ├── onnx-spike\              索引构建器与 spike（**当前唯一可用的构建路径**）
 ├── static\prototype\        UI 原型（评审用，已接入设计令牌）

@@ -39,9 +39,9 @@
 |---|---|
 | `config.example.json` 里的 `G:\model` | 是**模板占位**，不是耦合 |
 | `build_index.py` / `cli.py` / `build_index_onnx.mjs` 里的路径 | 是**用法示例**（docstring 与注释），不影响行为 |
-| `patch_prototype_pages.py` 里的路径 | 是**写进原型演示文案**的内容（"定位到 G:\model\..."） |
+| `archive/patch_prototype_pages.py` 里的路径 | 是**写进原型演示文案**的内容（"定位到 G:\model\..."） |
 | `data/baseline-v1.json` 的 `library_root` | 证据要记录"测的是哪个库"；`G:\model` 在 README 里本就公开 |
-| `scan_repo_pollution.py` 自身 | 它就是检测这些模式的工具 |
+| `tools/scan_repo_pollution.py` 自身 | 它就是检测这些模式的工具 |
 | `data/items.json` / `_backup-*` / `spike/*.json` | 前两者**已被忽略**（派生数据）；`spike/*.json` 是**后端选型的证据**，入库 |
 
 ---
@@ -55,10 +55,10 @@
 | `LICENSE` | MIT（**待你确认**，见 §六）+ 第三方组件与模型的授权说明 |
 | `config.json` | **本机配置，已被忽略**（`G:\model` 等） |
 | `config.example.json` | 入库的模板 |
-| `check_staged.py` | **提交前守卫**：读暂存区报告规模 + 违规（node_modules / `.npy` / `config.json` / `>512 KB`） |
-| `scan_repo_pollution.py` | 机密 + 本机耦合 + 大文件扫描（区分代码与文档） |
-| `verify_docs.py` | 文档完整性（死引用 / 索引覆盖 / 审查要求落点） |
-| `verify_tokens.py` | 设计令牌纪律（写死颜色 / 悬空 `var()` / 加载顺序） |
+| `tools/check_staged.py` | **提交前守卫**：读暂存区报告规模 + 违规（node_modules / `.npy` / `config.json` / `>512 KB`） |
+| `tools/scan_repo_pollution.py` | 机密 + 本机耦合 + 大文件扫描（区分代码与文档） |
+| `tools/verify_docs.py` | 文档完整性（死引用 / 索引覆盖 / 审查要求落点） |
+| `tools/verify_tokens.py` | 设计令牌纪律（写死颜色 / 悬空 `var()` / 加载顺序） |
 
 ### 仓库本机一次性设置（**不随仓库分发**）
 

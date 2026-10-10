@@ -268,7 +268,7 @@
 | **危险色** | `#cf222e` | **`color.status.critical` `#ff3b30`**（深色 `#ff453a`） | 统一到令牌 |
 | **动效** | 悬停有位移/阴影 | **不做进入动画与悬停位移**，尊重 `prefers-reduced-motion` | `tokens.css` 兜底 |
 | **焦点环** | 各处不一 | **`2px solid color-accent`，偏移 3px** | `tokens.css` 统一 |
-| **写死颜色** | 72 种 / 112 处 | **0 处**（全部收敛到令牌） | `verify_tokens.py` 守卫，改样式后必跑 |
+| **写死颜色** | 72 种 / 112 处 | **0 处**（全部收敛到令牌） | `tools/verify_tokens.py` 守卫，改样式后必跑 |
 
 ### 8.2 一处需要你定的冲突：侧栏深浅
 

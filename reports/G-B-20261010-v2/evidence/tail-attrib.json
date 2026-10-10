@@ -1,0 +1,430 @@
+{
+ "cos_csv": "data\\diag\\cos-all.csv",
+ "library": "G:\\model",
+ "groups": {
+  "T_tail_cos_lt_0.97": {
+   "n": 135,
+   "megapixels": {
+    "median": 2.018,
+    "p90": 2.625,
+    "max": 14.44
+   },
+   "share_gt_1mp": 0.896,
+   "share_gt_3mp": 0.059,
+   "bytes_median": 421001,
+   "format": {
+    "JPEG": 128,
+    "PNG": 7
+   },
+   "mode": {
+    "RGB": 129,
+    "RGBA": 6
+   },
+   "needs_rotate": {
+    "False": 135
+   },
+   "orientation": {
+    "1": 135
+   },
+   "aspect_median": 1.25,
+   "aspect_max": 2.752,
+   "jpeg_sampling": {
+    "2": 84,
+    "0": 44,
+    "None": 7
+   },
+   "progressive_share": 0.215,
+   "hf": {
+    "median": 5.832,
+    "p90": 9.674,
+    "max": 12.582
+   }
+  },
+  "M_mid_0.97_0.99": {
+   "n": 1480,
+   "megapixels": {
+    "median": 1.742,
+    "p90": 2.56,
+    "max": 24.472
+   },
+   "share_gt_1mp": 0.67,
+   "share_gt_3mp": 0.048,
+   "bytes_median": 286006,
+   "format": {
+    "JPEG": 1407,
+    "PNG": 72,
+    "BMP": 1
+   },
+   "mode": {
+    "RGB": 1432,
+    "RGBA": 45,
+    "P": 3
+   },
+   "needs_rotate": {
+    "False": 1480
+   },
+   "orientation": {
+    "1": 1479,
+    "0": 1
+   },
+   "aspect_median": 1.3,
+   "aspect_max": 2.363,
+   "jpeg_sampling": {
+    "2": 1050,
+    "0": 344,
+    "None": 73,
+    "1": 13
+   },
+   "progressive_share": 0.227
+  },
+  "C_control_cos_ge_0.999": {
+   "n": 121,
+   "megapixels": {
+    "median": 0.3,
+    "p90": 0.36,
+    "max": 0.45
+   },
+   "share_gt_1mp": 0.0,
+   "share_gt_3mp": 0.0,
+   "bytes_median": 42917,
+   "format": {
+    "JPEG": 115,
+    "PNG": 6
+   },
+   "mode": {
+    "RGB": 115,
+    "RGBA": 6
+   },
+   "needs_rotate": {
+    "False": 121
+   },
+   "orientation": {
+    "1": 121
+   },
+   "aspect_median": 1.095,
+   "aspect_max": 2.036,
+   "jpeg_sampling": {
+    "2": 94,
+    "0": 21,
+    "None": 6
+   },
+   "progressive_share": 0.041,
+   "hf": {
+    "median": 4.655,
+    "p90": 8.747,
+    "max": 17.398
+   }
+  },
+  "B_bmp_fallback": {
+   "n": 0
+  }
+ },
+ "verdicts": [
+  "尾部集中在**更大的图**上（6.73×）→ 差异与重采样比例相关",
+  "尾部**细节密度更高**（1.25×）→ 与重采样滤波器的差异一致",
+  "尾部**没有**需要 EXIF 转正的条目 → 排除\"未转正\"这一假设",
+  "尾部 JPEG 采样以 2 为主"
+ ],
+ "tail_items": [
+  {
+   "rel_path": "VR\\ID-1109393506.jpeg",
+   "cos": 0.915311,
+   "megapixels": 1.95,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 4.645,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-382207066.jpg",
+   "cos": 0.917282,
+   "megapixels": 1.364,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 4.946,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-636085193.jpg",
+   "cos": 0.91749,
+   "megapixels": 1.92,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 3.218,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-374924.jpg",
+   "cos": 0.918559,
+   "megapixels": 1.92,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 11.312,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-1112210156.jpeg",
+   "cos": 0.92276,
+   "megapixels": 2.24,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 3.523,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "其他\\ID-1122560737.jpg",
+   "cos": 0.926827,
+   "megapixels": 2.304,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 4.908,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-111107498.jpg",
+   "cos": 0.929272,
+   "megapixels": 2.13,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 4.605,
+   "jpeg_sampling": 0
+  },
+  {
+   "rel_path": "VR\\ID-672206.jpeg",
+   "cos": 0.933587,
+   "megapixels": 0.866,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 4.603,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-108810734.jpg",
+   "cos": 0.941614,
+   "megapixels": 2.28,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 7.08,
+   "jpeg_sampling": 0
+  },
+  {
+   "rel_path": "VR\\ID-102259096.jpg",
+   "cos": 0.941997,
+   "megapixels": 2.157,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 3.7,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-1148502754.jpeg",
+   "cos": 0.942097,
+   "megapixels": 2.035,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 4.951,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-1157455548.jpg",
+   "cos": 0.942417,
+   "megapixels": 1.92,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 4.9,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-1105799247.jpg",
+   "cos": 0.943897,
+   "megapixels": 1.92,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 6.826,
+   "jpeg_sampling": 0
+  },
+  {
+   "rel_path": "CR\\ID-15240404.jpg",
+   "cos": 0.945152,
+   "megapixels": 2.16,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 8.78,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-674712444.jpg",
+   "cos": 0.94517,
+   "megapixels": 1.44,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 2.141,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "CR\\ID-314033995.jpg",
+   "cos": 0.947421,
+   "megapixels": 1.44,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 4.079,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-1164450885.jpg",
+   "cos": 0.947553,
+   "megapixels": 2.56,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 3.537,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-499612.jpg",
+   "cos": 0.947633,
+   "megapixels": 1.734,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 11.177,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-1154321288.jpg",
+   "cos": 0.947653,
+   "megapixels": 2.133,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 5.975,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-115168165.jpg",
+   "cos": 0.948585,
+   "megapixels": 1.92,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 6.123,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-1141669053.jpg",
+   "cos": 0.94875,
+   "megapixels": 1.509,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 5.218,
+   "jpeg_sampling": 0
+  },
+  {
+   "rel_path": "VR\\ID-104617493.jpg",
+   "cos": 0.949625,
+   "megapixels": 2.301,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 7.535,
+   "jpeg_sampling": 0
+  },
+  {
+   "rel_path": "VR\\ID-1145125284.jpg",
+   "cos": 0.950121,
+   "megapixels": 1.71,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 5.867,
+   "jpeg_sampling": 0
+  },
+  {
+   "rel_path": "VR\\ID-114248272.jpg",
+   "cos": 0.950138,
+   "megapixels": 1.6,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 4.693,
+   "jpeg_sampling": 0
+  },
+  {
+   "rel_path": "VR\\ID-15129188.jpg",
+   "cos": 0.950507,
+   "megapixels": 3.24,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 6.865,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-111367588.jpg",
+   "cos": 0.950738,
+   "megapixels": 2.528,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 7.354,
+   "jpeg_sampling": 0
+  },
+  {
+   "rel_path": "CR\\ID-1121340705.jpg",
+   "cos": 0.951481,
+   "megapixels": 2.25,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 8.719,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-13055024.jpg",
+   "cos": 0.952155,
+   "megapixels": 2.916,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 8.093,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-654749265.jpeg",
+   "cos": 0.952526,
+   "megapixels": 1.968,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 6.525,
+   "jpeg_sampling": 2
+  },
+  {
+   "rel_path": "VR\\ID-15283627.jpg",
+   "cos": 0.953048,
+   "megapixels": 2.426,
+   "format": "JPEG",
+   "mode": "RGB",
+   "needs_rotate": false,
+   "hf": 5.713,
+   "jpeg_sampling": 2
+  }
+ ]
+}

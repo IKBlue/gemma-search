@@ -1,0 +1,218 @@
+{
+ "select": "smallest",
+ "n": 48,
+ "min": 0.9744783639907837,
+ "median": 0.9937238395214081,
+ "mean": 0.9921495467424393,
+ "below_0.97": 0,
+ "below_0.99": 16,
+ "pass": true,
+ "compat": "onnx-community/embeddinggemma-2-ONNX|daa72c51243991dfcaf9f9137d2c573d8f7790c0|fp32|2|140|768|l2|mean_soft_tokens",
+ "preprocessing": {
+  "image_seq_length": 140,
+  "max_soft_tokens": 140,
+  "config_image_seq_length": 140,
+  "patch_size": 16,
+  "pooling_kernel_size": 3,
+  "resample": 3,
+  "rescale": 0.00392156862745098,
+  "do_normalize": false,
+  "do_convert_rgb": true,
+  "color": "RGB",
+  "resample_impl": "resize_compat(pil-like)"
+ },
+ "items": [
+  {
+   "rel_path": "CR+VR\\ID-177878376.jpg",
+   "cos": 0.9903774857521057
+  },
+  {
+   "rel_path": "CR\\ID-1087868.jpg",
+   "cos": 0.9948219060897827
+  },
+  {
+   "rel_path": "CR\\ID-1140702.jpg",
+   "cos": 0.9979755878448486
+  },
+  {
+   "rel_path": "CR\\ID-1297333.jpg",
+   "cos": 0.9963321685791016
+  },
+  {
+   "rel_path": "CR\\ID-804729976.jpg",
+   "cos": 0.9975061416625977
+  },
+  {
+   "rel_path": "VR\\ID-1005885.jpg",
+   "cos": 0.9965606927871704
+  },
+  {
+   "rel_path": "VR\\ID-1040533.jpg",
+   "cos": 0.9916179180145264
+  },
+  {
+   "rel_path": "VR\\ID-1068110.jpg",
+   "cos": 0.9876613020896912
+  },
+  {
+   "rel_path": "VR\\ID-1173881.jpg",
+   "cos": 0.9954543113708496
+  },
+  {
+   "rel_path": "VR\\ID-1272707.jpg",
+   "cos": 0.988598108291626
+  },
+  {
+   "rel_path": "VR\\ID-1292137.jpg",
+   "cos": 0.9828890562057495
+  },
+  {
+   "rel_path": "VR\\ID-1292807.jpg",
+   "cos": 0.996202826499939
+  },
+  {
+   "rel_path": "VR\\ID-1335201.jpg",
+   "cos": 0.9950339794158936
+  },
+  {
+   "rel_path": "VR\\ID-1355566.jpg",
+   "cos": 0.9945553541183472
+  },
+  {
+   "rel_path": "VR\\ID-1379961.jpg",
+   "cos": 0.9895060062408447
+  },
+  {
+   "rel_path": "VR\\ID-1404219.jpg",
+   "cos": 0.9874507188796997
+  },
+  {
+   "rel_path": "VR\\ID-1479591.jpg",
+   "cos": 0.9906870126724243
+  },
+  {
+   "rel_path": "VR\\ID-1499683.jpg",
+   "cos": 0.989963948726654
+  },
+  {
+   "rel_path": "VR\\ID-1551617.jpg",
+   "cos": 0.9944509863853455
+  },
+  {
+   "rel_path": "VR\\ID-166879932.jpg",
+   "cos": 0.9940198659896851
+  },
+  {
+   "rel_path": "VR\\ID-185538978.jpg",
+   "cos": 0.9903760552406311
+  },
+  {
+   "rel_path": "VR\\ID-189035963.jpg",
+   "cos": 0.9898029565811157
+  },
+  {
+   "rel_path": "VR\\ID-189992284.jpg",
+   "cos": 0.9895551204681396
+  },
+  {
+   "rel_path": "VR\\ID-263752.jpg",
+   "cos": 0.9916887283325195
+  },
+  {
+   "rel_path": "VR\\ID-373376.jpg",
+   "cos": 0.9992595911026001
+  },
+  {
+   "rel_path": "VR\\ID-446413.jpg",
+   "cos": 0.9904594421386719
+  },
+  {
+   "rel_path": "VR\\ID-451021.jpg",
+   "cos": 0.9934278130531311
+  },
+  {
+   "rel_path": "VR\\ID-464068.jpg",
+   "cos": 0.9850382208824158
+  },
+  {
+   "rel_path": "VR\\ID-497608.jpg",
+   "cos": 0.992814302444458
+  },
+  {
+   "rel_path": "VR\\ID-534612.jpg",
+   "cos": 0.997058093547821
+  },
+  {
+   "rel_path": "VR\\ID-54028582.jpg",
+   "cos": 0.9981495141983032
+  },
+  {
+   "rel_path": "VR\\ID-559372.jpg",
+   "cos": 0.9882627725601196
+  },
+  {
+   "rel_path": "VR\\ID-561366.jpg",
+   "cos": 0.9958718419075012
+  },
+  {
+   "rel_path": "VR\\ID-56749195.jpg",
+   "cos": 0.9949005842208862
+  },
+  {
+   "rel_path": "VR\\ID-597905459.jpg",
+   "cos": 0.9881983995437622
+  },
+  {
+   "rel_path": "VR\\ID-599694819.jpg",
+   "cos": 0.9947222471237183
+  },
+  {
+   "rel_path": "VR\\ID-611871.jpg",
+   "cos": 0.9876818060874939
+  },
+  {
+   "rel_path": "VR\\ID-632785.jpg",
+   "cos": 0.996795117855072
+  },
+  {
+   "rel_path": "VR\\ID-638480.jpg",
+   "cos": 0.9887388348579407
+  },
+  {
+   "rel_path": "VR\\ID-641687176.jpg",
+   "cos": 0.9744783639907837
+  },
+  {
+   "rel_path": "VR\\ID-658680.jpg",
+   "cos": 0.9943089485168457
+  },
+  {
+   "rel_path": "VR\\ID-665707656.jpg",
+   "cos": 0.9954622983932495
+  },
+  {
+   "rel_path": "VR\\ID-713745.jpg",
+   "cos": 0.9970372915267944
+  },
+  {
+   "rel_path": "VR\\ID-720055.jpg",
+   "cos": 0.9831590056419373
+  },
+  {
+   "rel_path": "VR\\ID-739346.jpg",
+   "cos": 0.9943867921829224
+  },
+  {
+   "rel_path": "VR\\ID-849265.jpg",
+   "cos": 0.9976473450660706
+  },
+  {
+   "rel_path": "VR\\ID-853153.jpg",
+   "cos": 0.996577262878418
+  },
+  {
+   "rel_path": "其他\\ID-1190472.jpg",
+   "cos": 0.9856541156768799
+  }
+ ]
+}
