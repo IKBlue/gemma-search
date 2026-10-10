@@ -69,6 +69,12 @@ def main() -> int:
 
     equiv_p = os.path.join(qdir, "vector-equiv.json")
     top10_p = os.path.join(qdir, "top10.json")
+    # 两个 JSON 既可能在 data/quality/（脚本默认输出），也可能已经放进报告目录
+    # （真实跑法：--out reports/G-B-<日期>/... 让证据自包含）
+    if not os.path.exists(equiv_p):
+        equiv_p = os.path.join(outdir, "vector-equiv.json")
+    if not os.path.exists(top10_p):
+        top10_p = os.path.join(outdir, "top10.json")
     equiv = json.load(open(equiv_p, encoding="utf-8")) if os.path.exists(equiv_p) else None
     top10 = json.load(open(top10_p, encoding="utf-8")) if os.path.exists(top10_p) else None
 

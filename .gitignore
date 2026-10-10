@@ -35,9 +35,16 @@ data/*.log
 data/gpu_speed.json
 data/speed_probe.json
 
-# 门禁证据：体积可能很大，只保留说明文件
-reports/*
-!reports/README.md
+# 门禁证据：**要入库** —— 项目规则是「无归档证据 = 门禁未通过」，
+# 所以 reports/G-x-<日期>/ 下的 md/json/csv 都要提交。
+# 只忽略体积大且非必需的重媒体（截图、渲染图）。
+reports/**/*.png
+reports/**/*.jpg
+reports/**/*.mp4
+# 派生：质量判定工具的中间产物（原始证据在 reports/ 内）
+data/quality/vector-equiv.json
+data/quality/top10.json
+data/quality/top10-diff.csv
 
 # ---------- 模型与缓存（很大且可重新下载）----------
 # ONNX fp32 档约 1.63 GB；HF torch 缓存约 1.42 GB
