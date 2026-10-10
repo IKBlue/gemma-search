@@ -130,9 +130,16 @@ node onnx-spike/build_index_onnx.mjs --model <ONNX 模型目录> --lib "G:\model
 & ..\.venv\Scripts\python.exe quality_top10.py --model <ONNX 模型目录> --new-index data/idx-full
 & ..\.venv\Scripts\python.exe quality_report.py --new-index data/idx-full
 
-# 开发态应用（P2 起）
-pnpm dev                         # electron-vite
-pnpm build                       # 产物直喂 electron-builder
+# 应用（Node/Electron）依赖与开发态（P2 起）
+npm install
+# ⚠️ electron 的平台二进制**不随 npm 包一起来**：
+#    若 %LOCALAPPDATA%\electron\Cache 为空且报 `fetch failed`，用镜像显式取一次：
+#    $env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
+#    node node_modules/electron/install.js
+#    实测：GitHub releases 页面 HEAD 返回 200，但**资产下载**失败；npmmirror 镜像正常。
+#    刻意不写进仓库的 .npmrc —— 那是本机网络环境的权宜，钉死会连累网络正常的机器。
+npm run dev                      # electron-vite（P2 落地后才有此脚本）
+npm run build                    # 产物直喂 electron-builder
 ```
 
 ## 5. Project Structure
