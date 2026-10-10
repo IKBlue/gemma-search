@@ -90,6 +90,11 @@ def main() -> int:
             problems.append(("本机配置不该入库", f))
         if "/_backup-" in low or low.startswith("data/_backup"):
             problems.append(("索引备份不该入库", f))
+        # data/ 下划线开头的脚手架文件（提交信息草稿、一次性输入输出）
+        # 真发生过：.gitignore 原写 data/_*/ （带斜杠只匹配目录），
+        # 于是 data/_msg.txt 被 git add -A 悄悄收进了仓库。
+        if low.startswith("data/_") and f.rsplit("/", 1)[-1].startswith("_"):
+            problems.append(("data/ 下的临时脚手架文件不该入库", f))
         if s > 512 * 1024:
             problems.append(("单文件 >512 KB（确认是否有意）", "%s (%.0f KB)" % (f, s / 1024)))
     if problems:
