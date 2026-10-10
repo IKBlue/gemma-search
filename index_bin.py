@@ -14,9 +14,12 @@ index_bin.py —— index.bin 的**读取与校验**（Python 侧）
 """
 from __future__ import annotations
 
+import sys
+
 
 # 中文 Windows 的控制台默认是 GBK，直接打印 ✓/✗/⚠ 会抛 UnicodeEncodeError。
-# 这里强制 UTF-8 输出（失败不致命：某些环境不支持 reconfigure）。
+# 这里强制 UTF-8 输出。**必须先 import sys** —— 否则 except 会把 NameError
+# 一起吞掉，看起来改了、实际没生效（这个坑真的踩过）。
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
