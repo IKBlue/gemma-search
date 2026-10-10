@@ -1,0 +1,38 @@
+{
+ "_note": "两侧（旧 torch 档 / 新 ONNX 档）的运行环境与库指纹。G-B 报告必须与本文件一起归档。",
+ "generated_at": "2026-10-10 14:11:03",
+ "library": {
+  "root": "G:\\model",
+  "fingerprint_v1": "3c62f15c5944ce363f82d83a454de94f4c34f15d",
+  "files_total": 7188,
+  "by_folder": {
+   "CR": 630,
+   "CR+VR": 78,
+   "VR": 2809,
+   "其他": 77
+  }
+ },
+ "old_index": {
+  "runtime": "torch (sentence-transformers, Python)",
+  "data_dir": "D:\\USERS\\Desktop\\Agent\\gemma-search\\data",
+  "embeddings": "data\\embeddings.npy",
+  "seq_length": 140,
+  "dim": 768,
+  "embedding_dtype": "float32"
+ },
+ "new_index": {
+  "runtime": "ONNX Runtime (transformers.js, Node)",
+  "model_dir": "D:\\USERS\\Desktop\\Agent\\model-cache\\onnx\\embeddinggemma-2\\daa72c51243991dfcaf9f9137d2c573d8f7790c0\\fp32",
+  "model_revision": "daa72c51243991dfcaf9f9137d2c573d8f7790c0",
+  "weights_dtype": "fp32",
+  "seq_length": 140,
+  "dim": 768,
+  "preprocessing_version": 1,
+  "device": "webgpu"
+ },
+ "runtime_versions": {
+  "transformers.js": "4.3.1",
+  "onnxruntime-node": "1.30.0",
+  "bmp-js": "0.1.0"
+ }
+}

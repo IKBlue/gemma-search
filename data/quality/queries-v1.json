@@ -1,0 +1,156 @@
+{
+ "_note": "20 条中文查询，六类分布。**候选规模，不是已验证的充分统计样本**（见 SPEC-acceptance §2.1）。带 reused_from_spike 的 5 条与 spike/spike_torch.py 一致。",
+ "generated_at": "2026-10-10 14:11:03",
+ "library_root": "G:\\model",
+ "count": 20,
+ "queries": [
+  {
+   "id": "q01",
+   "text": "现代简约布艺沙发",
+   "category": "furniture",
+   "reused_from_spike": true,
+   "confusable_with": []
+  },
+  {
+   "id": "q02",
+   "text": "北欧实木餐椅",
+   "category": "furniture",
+   "reused_from_spike": false,
+   "confusable_with": []
+  },
+  {
+   "id": "q03",
+   "text": "意式极简茶几",
+   "category": "furniture",
+   "reused_from_spike": false,
+   "confusable_with": []
+  },
+  {
+   "id": "q04",
+   "text": "现代双人床",
+   "category": "furniture",
+   "reused_from_spike": false,
+   "confusable_with": []
+  },
+  {
+   "id": "q05",
+   "text": "北欧吊灯",
+   "category": "lamp",
+   "reused_from_spike": true,
+   "confusable_with": [
+    "q06"
+   ]
+  },
+  {
+   "id": "q06",
+   "text": "中古风木质吸顶灯",
+   "category": "lamp",
+   "reused_from_spike": true,
+   "confusable_with": [
+    "q05"
+   ]
+  },
+  {
+   "id": "q07",
+   "text": "玻璃球多头吊灯",
+   "category": "lamp",
+   "reused_from_spike": true,
+   "confusable_with": [
+    "q09"
+   ]
+  },
+  {
+   "id": "q08",
+   "text": "现代落地灯",
+   "category": "lamp",
+   "reused_from_spike": false,
+   "confusable_with": []
+  },
+  {
+   "id": "q09",
+   "text": "简约吸顶灯",
+   "category": "lamp",
+   "reused_from_spike": false,
+   "confusable_with": [
+    "q07"
+   ]
+  },
+  {
+   "id": "q10",
+   "text": "中古风壁灯",
+   "category": "lamp",
+   "reused_from_spike": false,
+   "confusable_with": []
+  },
+  {
+   "id": "q11",
+   "text": "花卉图案装饰画",
+   "category": "decor",
+   "reused_from_spike": true,
+   "confusable_with": []
+  },
+  {
+   "id": "q12",
+   "text": "抽象几何挂画",
+   "category": "decor",
+   "reused_from_spike": false,
+   "confusable_with": []
+  },
+  {
+   "id": "q13",
+   "text": "陶瓷花瓶摆件",
+   "category": "decor",
+   "reused_from_spike": false,
+   "confusable_with": []
+  },
+  {
+   "id": "q14",
+   "text": "金属质感摆件",
+   "category": "decor",
+   "reused_from_spike": false,
+   "confusable_with": []
+  },
+  {
+   "id": "q15",
+   "text": "原木色北欧风格",
+   "category": "material",
+   "reused_from_spike": false,
+   "confusable_with": []
+  },
+  {
+   "id": "q16",
+   "text": "黄铜金属质感",
+   "category": "material",
+   "reused_from_spike": false,
+   "confusable_with": []
+  },
+  {
+   "id": "q17",
+   "text": "大理石纹理",
+   "category": "material",
+   "reused_from_spike": false,
+   "confusable_with": []
+  },
+  {
+   "id": "q18",
+   "text": "中古风藤编单椅",
+   "category": "rare",
+   "reused_from_spike": false,
+   "confusable_with": []
+  },
+  {
+   "id": "q19",
+   "text": "复古黄铜壁灯",
+   "category": "rare",
+   "reused_from_spike": false,
+   "confusable_with": []
+  },
+  {
+   "id": "q20",
+   "text": "侘寂风陶罐",
+   "category": "rare",
+   "reused_from_spike": false,
+   "confusable_with": []
+  }
+ ]
+}

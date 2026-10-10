@@ -1,0 +1,88 @@
+{
+ "_note": "标注**独立于两个索引**（不从旧索引 Top-N 反推，避免循环论证）。文本查询无标注 —— 它们只参与 ②Top-10 重合率 与 ④人工复核。user 参考图无标注（目标不可知）。",
+ "generated_at": "2026-10-10 14:11:03",
+ "coverage": {
+  "text_queries_total": 20,
+  "text_queries_labeled": 0,
+  "refs_total": 10,
+  "refs_labeled": 7
+ },
+ "labels": [
+  {
+   "id": "r-user-339007616_参考图",
+   "kind": "user",
+   "expect_target": null,
+   "also_acceptable": [],
+   "criterion": "human-review-only"
+  },
+  {
+   "id": "r-user-595812826_参考图",
+   "kind": "user",
+   "expect_target": null,
+   "also_acceptable": [],
+   "criterion": "human-review-only"
+  },
+  {
+   "id": "r-user-CR12_中古风吸顶灯_参考图",
+   "kind": "user",
+   "expect_target": null,
+   "also_acceptable": [],
+   "criterion": "human-review-only"
+  },
+  {
+   "id": "r-self-VR_ID-030518714422364.jpg",
+   "kind": "self",
+   "expect_target": "VR\\ID-030518714422364.jpg",
+   "also_acceptable": [],
+   "criterion": "Top-1 自检索，且余弦 ≥ 0.999"
+  },
+  {
+   "id": "r-self-VR_ID-1411886.jpg",
+   "kind": "self",
+   "expect_target": "VR\\ID-1411886.jpg",
+   "also_acceptable": [
+    "VR\\ID-13047663.jpeg"
+   ],
+   "criterion": "Top-1 自检索，且余弦 ≥ 0.999"
+  },
+  {
+   "id": "r-self-VR_ID-GCI551847718142882.jpg",
+   "kind": "self",
+   "expect_target": "VR\\ID-GCI551847718142882.jpg",
+   "also_acceptable": [],
+   "criterion": "Top-1 自检索，且余弦 ≥ 0.999"
+  },
+  {
+   "id": "r-self-CR_ID-032109719124396.png",
+   "kind": "self",
+   "expect_target": "CR\\ID-032109719124396.png",
+   "also_acceptable": [],
+   "criterion": "Top-1 自检索，且余弦 ≥ 0.999"
+  },
+  {
+   "id": "r-self-CR+VR_ID-10083808.jpg",
+   "kind": "self",
+   "expect_target": "CR+VR\\ID-10083808.jpg",
+   "also_acceptable": [],
+   "criterion": "Top-1 自检索，且余弦 ≥ 0.999"
+  },
+  {
+   "id": "r-hard-dup1",
+   "kind": "hard",
+   "expect_target": "VR\\ID-461212.jpeg",
+   "also_acceptable": [
+    "CR\\ID-689938.jpeg"
+   ],
+   "criterion": "目标（同内容另一份）在 Top-3"
+  },
+  {
+   "id": "r-hard-dup2",
+   "kind": "hard",
+   "expect_target": "其他\\125229472.jpg",
+   "also_acceptable": [
+    "VR\\ID-125229472.jpg"
+   ],
+   "criterion": "目标（同内容另一份）在 Top-3"
+  }
+ ]
+}
