@@ -51,7 +51,7 @@
 | 推理 | **`@huggingface/transformers` 4.3.1 + `onnxruntime-node` 1.30.0** | 文本塔与 torch **bit-exact（余弦 1.000000）** |
 | 设备 | **`device: 'webgpu'`**（失败则回落 `cpu`） | 图像 **0.42 s/张 @seq140**（CPU 是 1.39 s）；向量与 CPU **小数点后 6 位一致** |
 | 模型 | `onnx-community/embeddinggemma-2-ONNX`，**只下文本塔+视觉塔**（跳过音频塔） | 音频塔占仓库 40% 体积，检索用不到 |
-| 精度档 | 默认 **q4f16（243 MB）**；fp16（837 MB）；fp32（1.63 GB，与 spike 对照同精度） | 逐文件量过体积 |
+| 精度档 | **默认 `fp32`（1.63 GB）** —— 与已验证配置一致。`fp16`（837 MB）/ `q4f16`（243 MB）体积更小但**检索质量从未测量**，要用必须先补质量验证并登记新的 `compat` | 体积逐文件量过；见 §10 Q8 |
 | 设备精度 | **float32**（`dtype: 'fp32'`） | 本机 bf16 实测慢 11× 且 L2 归一化失效；float16 模型卡禁用 |
 | 取像预算 | **`image_seq_length = 140`** | 现有索引即 140，且已证明够用；280 会慢一倍 |
 | 外壳 | **Electron** | Node 生态齐备，无需新增工具链 |
@@ -106,136 +106,131 @@
 - 按 seq140 计 **约 25 分钟**（WebGPU），完成前不可检索——由「增量」视图显示进度
 - 现有索引 `data/embeddings.npy`（140 精度）**保留作对照**，不直接复用（跨 seq 差异最差 0.76，绝不可混）
 
+
 ## 4. Commands
 
+> **本节 2026-10-10 重写**：旧内容（`$py server.py --port 8760`）属**已作废的 Python 子进程形态**。
+> 标「P2 起」的命令在 Electron 骨架落地前不存在。
+
 ```powershell
-$py  = "D:\USERS\Desktop\Agent\.venv\Scripts\python.exe"
-$env:HF_HOME = "D:\USERS\Desktop\Agent\model-cache\hf"
-$env:HF_HUB_OFFLINE = "1"
+cd D:\USERS\Desktop\Agent\gemma-search
 
-# 建/续建索引（可中断续跑；GPU 实测 0.3 秒/张）
-& $py cli.py build --seq 140
+# 引擎无头单测（不经传输层）—— P1 的主要验收手段
+pnpm test                        # vitest，只跑 core/ 与 transactions/
 
-# 索引状态
-& $py cli.py stats
+# 建/续建索引（WebGPU 实测约 2.1–2.4 条/秒 → 3594 条约 25 分钟；可中断续跑）
+$env:GEMMA_GPU_MODEL  = (nvidia-smi --query-gpu=name --format=csv,noheader | Select-Object -First 1).Trim()
+$env:GEMMA_GPU_DRIVER = (nvidia-smi --query-gpu=driver_version --format=csv,noheader | Select-Object -First 1).Trim()
+node onnx-spike/build_index_onnx.mjs --model <ONNX 模型目录> --lib "G:\model" `
+     --out data/idx-full --seq 140 --device webgpu --lib-id L1
 
-# 后端（开发态）
-& $py server.py --port 8760
+# 门禁：预检 + 三道质量判据 + 证据报告
+& ..\.venv\Scripts\python.exe preflight_p05.py --with-resume-test
+& ..\.venv\Scripts\python.exe quality_vector_equiv.py --new-index data/idx-full
+& ..\.venv\Scripts\python.exe quality_top10.py --model <ONNX 模型目录> --new-index data/idx-full
+& ..\.venv\Scripts\python.exe quality_report.py --new-index data/idx-full
 
-# 无头查询（脚本化）
-& $py cli.py --json search-text "现代简约布艺沙发" --top-k 5
-& $py cli.py --json search-image "G:\model\VR\ID-xxx.jpg" --top-k 5
-
-# 应用（新增）
-cd app; npm run dev      # 开发态：Electron + 热重载
-cd app; npm run build    # 产出可运行目录
-cd app; npm start        # 运行已构建版本
-
-# 自检
-& $py verify_app.py      # 后端接口 11 项（将扩充）
+# 开发态应用（P2 起）
+pnpm dev                         # electron-vite
+pnpm build                       # 产物直喂 electron-builder
 ```
 
 ## 5. Project Structure
 
 ```
-D:\USERS\Desktop\Agent\gemma-search\      ← 项目根（沿用）
-├── gemma_lib.py  store.py  search.py  tools.py  build_index.py   ← 稳定核心，不改
-├── server.py           后端 HTTP API + 静态界面（已成为应用后端）
-├── cli.py              命令行（保留：无头查询与索引维护）
-├── static/index.html   单文件界面（应用窗口加载它）
-├── app\                **新增**：Electron 外壳
-│   ├── main.js         主进程：起后端子进程、开窗、IPC（定位/复制/索引）
-│   ├── preload.js      安全的 IPC 桥
-│   ├── renderer\       界面（加载 static/index.html 或自带页面）
-│   └── package.json    electron / electron-builder 依赖
-├── data\               索引、查询图、预览副本
-├── tests\              **新增**：应用层无头自检
-└── SPEC-app.md         本文档
-
-# 本期将移除（应用取代 MCP 档后）
-mcp_server.py  register_mcp.py  verify_mcp.py
-+ DSH profile 的 cordis.patch.yml 里那条 mcp-gemma-search 注册
+gemma-search\
+├── core\                     **引擎：传输无关**（无 Electron / 无 HTTP / 无全局状态）
+│   ├── engine.mjs            方法入口（见 CONTRACT-engine-v1.md）
+│   ├── index.mjs             index.bin 读写与强校验（MAGIC / footer / 向量块 sha1）
+│   ├── uid.mjs               uid = sha1(lib_id|rel_dir|stem)[:12]（**冻结**）
+│   ├── compat.mjs            兼容性判定键（SPEC-identity §6.3）
+│   └── transactions\         状态机 + 事务日志 + 启动恢复 + 撤销
+├── app\                      **Electron 外壳**（P2）
+│   ├── main\                 主进程：载引擎、worker 跑编码、thumb:// 协议、IPC
+│   ├── preload\              contextBridge 白名单（zod 校验）
+│   └── renderer\             React + Tailwind + shadcn/ui（界面见 UI-REVIEW-and-migration.md）
+├── src\shared\              跨端共享类型与 zod schema（IPC 契约的唯一来源）
+├── tests\                   引擎与事务的无头单测（vitest）
+├── onnx-spike\              索引构建器与 spike（**当前唯一可用的构建路径**）
+├── static\prototype\        UI 原型（评审用，已接入设计令牌）
+├── data\                    索引与派生物（多数不入库，见 .gitignore）
+└── <旧 Python 档>            gemma_lib.py / store.py / search.py / server.py / cli.py …
+                              **保留至 P7**：它仍是当前唯一在用的检索档
 ```
 
-**关键约束**：`gemma_lib.py` / `store.py` / `search.py` / `tools.py` 是已验证的稳定核心，应用层**只调用不改行为**。
+**关于旧 Python 档**：§3 定的是「新应用不再需要 Python」，**不等于现在就删**。
+P7 之前它们保持原样（只调用、不改行为），并继续服务 DSH 里的 MCP 工具。
 
 ## 6. Code Style
 
-Python：关键处标注类型；**日志一律走 stderr**（`_log`），绝不 `print` 到 stdout（stdout 属协议通道，曾因此踩坑）。
-
-```python
-def _log(*a, **kw):
-    """所有诊断输出走 stderr：stdout 属于协议通道。"""
-    kw.setdefault("file", sys.stderr)
-    kw.setdefault("flush", True)
-    print(*a, **kw)
-
-def reveal_in_explorer(path: str) -> None:
-    """在资源管理器里定位文件（不复制、不移动素材库内容）。"""
-    _log("[app] 定位:", path)
-    subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
-```
-
-JS：主进程用 CommonJS，渲染进程通过 `preload.js` 暴露的白名单 API 访问能力，**不开 `nodeIntegration`**。
-前端沿用 `static/index.html` 的单文件风格、**无 CDN**（必须离线）。
+- **引擎（`core/`）**：纯 ESM `.mjs`，无框架依赖。**不 import `electron`、不 import `http`**
+  —— 这是「传输无关」的**可执行判据**：`core/` 里出现这两者即违规，单测会拦住
+- **主进程 / 渲染进程**：TypeScript。渲染进程 `nodeIntegration:false`、`contextIsolation:true`，
+  只能经 preload 暴露的白名单 API 访问能力
+- **IPC 契约**：zod schema 定义一次，同时导出 TS 类型（放 `src/shared/`）
+- **日志**：引擎与主进程的诊断输出走 **stderr**，stdout 属协议通道（旧档曾因此踩坑）
+- **离线**：不得引用任何 CDN；字体用系统栈或自托管
 
 ## 7. Testing Strategy
 
-- **无头自检脚本**（沿用现有模式，不引入 pytest）：
-  - `verify_app.py` 扩为后端 + 应用层检查
-  - 新增 `tests\verify_shell.mjs`：主进程 IPC 处理器（定位/复制/索引进度）的纯函数单测
-- **确定性优先**：文件相关断言用"路径存在 / 字节数 / 哈希"，不靠肉眼
-- **人工验收**（无法自动化，单列）：缩略图是否显示、定位是否弹出资源管理器、索引进度是否推进
-- **不引入**：pytest / CI / 前端测试框架
+- **引擎无头单测（vitest）**：直接打 `core/`，不经传输层 —— P1 验收的主要手段
+- **故障注入 10 项**（`SPEC-transactions.md` §8）：**真杀进程**，验启动恢复
+- **确定性优先**：文件断言用「路径存在 / 字节数 / 哈希」，不靠肉眼
+- **人工验收（无法自动化，单列）**：缩略图是否显示、定位是否弹出资源管理器、进度是否推进
+- **不引入 CI**。Python 侧沿用既有 `verify_*.py` 自检脚本 —— 那是**旧档**的守卫
 
 ## 8. Boundaries
 
 **Always**
-- 跑自检通过后再宣布功能完成
-- `G:\model` **只读**：不写、不移、不改名
-- 日志走 stderr
-- 编码只用 CUDA + float32
+- 跑自检通过后再宣布功能完成；关键结论要附可复现命令
+- 写素材库**必须**走四步纪律（见 `SPEC-transactions.md`）
+- 路径**只能**由 `lib_id + uid` 解析；**不接受客户端给的绝对路径**
+- **库根包含校验**：解析后的真实路径必须仍在库根内（符号链接 / 联接点越界即拒绝）
+- 只读操作绝不写库
 
 **Ask first**
 - 新增第三方依赖（尤其前端框架、打包器）
-- 改索引格式或向量维度（`embeddings.npy` / `items.json`）
-- 写工作区以外的任何文件（含 DSH 配置——**已因此出过两次事故**）
+- 改 `index.bin` 格式、UID 规则或向量维度
+- 写工作区以外的任何文件（含 DSH 配置 —— **已因此出过两次事故**）
 - 删除素材库或索引里的任何东西
 
 **Never**
-- 声称嵌入模型"看得出图里是什么"（它是嵌入模型，只产出向量）
+- 声称嵌入模型「看得出图里是什么」（它只产出向量）
 - 用 `Set-Content -Encoding UTF8` 写配置（PS 5.1 会加 BOM，曾导致 DSH 起不来）
 - 在没备份的情况下重写 JSON/YAML 配置
-- 把 `G:\model` 的文件复制进库外目录当"备份"
+- 把 `G:\model` 的文件复制进库外目录当「备份」
+- 在 `core/` 里 import `electron` 或 `http`
 
 ## 9. Success Criteria
 
 1. **窗口可达**：双击启动，≤5 秒出可用窗口（不含首次模型加载）
-2. **检索够快**：模型已加载后，文本查询 ≤200 ms 出结果（现状 MCP 档实测 39 ms）
-3. **图能看见**：结果以缩略图网格呈现，**应用内直接可见**
-4. **能定位**：任一条结果可一键在资源管理器选中其同名 `.rar`/`.zip`
-5. **能取包**：可把选中的包**复制**到指定目录（目标目录可配置，默认桌面 `待用素材\`）
-6. **能维护索引**：应用内有扫描更新入口，**显示进度、可取消**，且更新期间检索不静默抢 GPU
+2. **检索够快**：模型已加载后，文本查询 ≤200 ms 出结果（旧档实测 39 ms 作参照）
+3. **图能看见**：结果以缩略图网格呈现，应用内直接可见
+4. **能定位**：任一条结果可一键在资源管理器选中其同名包
+5. **能取件**：可把选中的包复制到指定目录（默认 `E:\素材待用\`，可配置）
+6. **能维护索引**：应用内有扫描/增量入口，显示进度、可取消，且更新期间检索不静默抢 GPU
 7. **离线可用**：断网全部功能正常
-8. **不碰素材库**：全程对 `G:\model` 零写入（用文件数与 mtime 核对）
-9. **索引自洽**：`stats` 显示 `encoded == indexed`，无待编码项
+8. **写库有纪律**：任何写入可撤销、可审计；**移出库**走 `E:\移出素材\`，不提供真删除
+9. **索引自洽**：`indexStatus` 显示 `encoded == indexed` 无待编码项；`failed[]` 为空或逐条归因
+10. **多库**：可注册多个库；跨库检索**只合并 `compat` 相等的库**，其余置灰并给出**结构化原因**
 
 ## 10. 已定决策与遗留问题
 
-**已定（本轮）**
+**已定（全部锁定，逐条可追溯）**
 
-| # | 决策 | 结果 |
+| # | 事项 | 结论 |
 |---|---|---|
-| Q1 | 外壳 | **Electron**（实测无 Rust 工具链；Node 齐备） |
-| Q2 | 取件语义 | **A + B**：资源管理器定位 **和** 复制包到指定目录 |
-| Q3 | 索引维护 | **B**：应用内图形界面，带进度与取消 |
-| Q6 | 与 DSH 关系 | **B**：应用取代 MCP 档；`mcp_server.py` 等与其 DSH 注册**一并移除** |
+| Q1 | 外壳 | **Electron**（实测无 Rust 工具链） |
+| Q2 | 取件语义 | **定位 + 复制**两者都有 |
+| Q3 | 索引维护 | 应用内图形界面，带进度与取消 |
+| Q4 | 库路径 | **多库**（本节旧文「固定 `G:\model`，不做多库」**已作废**） |
+| Q5 | 常驻 | 不做开机自启 / 托盘 |
+| Q6 | 与 DSH 关系 | 应用取代 MCP 档；**退役放最后（P7）**，避免「两边都不能用」的窗口期 |
+| Q7 | 运行时 | **纯 Node**（无 Python 子进程、无 HTTP 端口） |
+| Q8 | 精度档 | **默认 fp32 + 预处理 v1 + seq140** —— q4f16 / fp16 的检索质量**从未测量**，统一 fp32 以免 `compat` 分歧 |
+| Q9 | 写库 | **允许**，但必须走四步纪律；删除只提供「移出库」 |
+| Q10 | 传输层 | **IPC**（不引入 REST；触发条件见 `DESIGN-app-details.md` §8.4） |
+| Q11 | 打包 | 安装器**只装应用**；模型首次获取、索引随库生成（P6 目标含其他机器） |
+| Q12 | 侧栏深浅 | 见 `TASK-PLAN.md` §8 决策 4 |
 
-**按默认处理（你要改就说）**
-- Q4 库路径：**固定 `G:\model`**，不做多库（本期）
-- Q5 常驻：**不做开机自启/托盘**，用时双击
-
-**遗留问题（需你确认，否则我按推荐执行）**
-1. **Electron 还是坚持 Tauri？**（见 §3；选 Tauri 需先装 Rust 工具链）
-2. **MCP 档的移除时机**：推荐**等应用验证通过后**再移除，避免出现"两边都不能用"的窗口期。你也可要求现在就移除。
-3. **复制包的目标目录**默认用桌面 `待用素材\` 是否可以？还是你指定别的路径？
+**遗留问题**：无阻塞项。

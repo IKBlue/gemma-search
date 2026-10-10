@@ -95,6 +95,8 @@ python -m venv .venv
 - **事务 / 撤销 / 并发** → `SPEC-transactions.md` 为准
 - **验收阈值 / 性能口径 / 门禁** → `SPEC-acceptance.md` 为准
 - **顺序与进度** → `TASK-PLAN.md` 为准
+- **应用技术栈与目录结构**（`core/` `app/` `src/shared/`）→ `SPEC-app.md` §3–§5 为准
+  （2026-10-10 已按锁定决策重写 §4–§10；此前它残留着「Python 子进程 + CUDA + 单库 + 库只读」的旧形态）
 
 ### 页面
 
