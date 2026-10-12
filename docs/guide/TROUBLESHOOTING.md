@@ -38,10 +38,10 @@
 
 | 症状 | 原因（都是已记录在案的缺口，不是你没装好） | 动作 |
 |---|---|---|
-| 应用起来了，但**检索永远没有结果**，界面提示 `LIB_NOT_FOUND` | **D2**：仓库里没有 `config.json`，主进程却从它读库根 → 空库启动 | 这是未修缺口。**不要**去发明第二套配置来源或写一份 config 教学；先登记/处置 D2。见 [`AGENTS.md`](AGENTS.md) §7 |
+| 应用起来了，但**检索永远没有结果**，界面提示 `LIB_NOT_FOUND` | **D2**（✅ **已修 2026-10-12**）：库按四路解析 —— `GEMMA_LIB_ROOT` > `userData/library-registry.json` > `config.json` > **已有索引自举**；一个都没有时界面显示**首启向导** | 若仍报此错，按序查：① `data/libraries/<id>/meta.json` 是否存在且含 `lib_root` ② 那个 `lib_root` 在本机是否真的存在（**盘符变了**最常见 —— 索引里存的是绝对路径）③ 若设过 `GEMMA_LIB_ROOT`，确认没指错。见 [`AGENTS.md`](AGENTS.md) §7 |
 | 点「定位」提示成功，但资源管理器**什么都没发生** | **F-01**：主进程从未注入 `shell` 端口，引擎在无 `shell` 时仍返回 `ok({revealed:true})` —— **静默假成功**（单测绿是因为测试自己注入了那个端口） | 要求见 `docs/spec/CONTRACT-engine-v1.md` §2.4；修的是接线，不是文档 |
 | 「＋ 添加图库」「↻ 更新索引」点了只弹一个提示 | **P4/P5 未做**：主进程对 `ingest`/`mutate`/`indexStart`/`indexCancel` **显式拒绝** | 这是**有意的诚实降级**（不假装能干），不是崩溃。见 `docs/spec/CONTRACT-engine-v1.md` §2.5–§2.10 |
-| 结果卡上的档位（"相似/较弱"）看着不对劲 | **D11**：界面自己算阈值（`0.97/0.93`），**没用引擎给的 `band`**，且阈值与引擎不同源；而契约明文要求「界面不自己算阈值」 | 代码侧缺陷（不是文档问题）。契约依据见 `docs/spec/CONTRACT-engine-v1.md` §2.1 |
+| 结果卡上的档位（"相似/较弱"）看着不对劲 | **D11/F-02**（✅ **已修 2026-10-12**）：界面原先自算阈值 `0.97/0.93`，与引擎按模态分的 `band` 不同源 ⇒ 文本结果全被标成「较弱」。现在**档位只来自引擎的 `item.band`**，缺失时只显示分数 | 若仍看着不对，查引擎 `BANDS`（`packages/engine/src/engine.mjs`）与 `docs/spec/CONTRACT-engine-v1.md` §2.1；**不要**在界面上再写一套阈值 |
 | 20 个文件叫 `.jpg`、实际是 BMP，担心是坏文件 | 已知事实 | **不是坏文件**：解码路径会自动回退 |
 | 换过素材库位置后全部条目报"素材文件找不到" | 索引里存的是**绝对路径**，库移动即失效 | 重建索引 |
 | 索引报 `INDEX_CORRUPT` | MAGIC / footer / 向量块 sha1 校验失败 | 重建索引（见 [`GETTING-STARTED.md`](docs/guide/GETTING-STARTED.md) §4） |

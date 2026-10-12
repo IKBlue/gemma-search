@@ -26,12 +26,12 @@
 │ invoke / onEvent / platform ——「不暴露 ipcRenderer 本体」          │
 ├ 契约 ────────────────────────────────────────────────────────────┤
 │ apps/desktop/src/shared/ipc.mjs    唯一来源：方法白名单 + zod       │
-│ 2 个通道 · 11 个方法 · 1 MiB 载荷上限                              │
+│ 2 个通道 · 13 个方法 · 1 MiB 载荷上限                              │
 ├ 主进程 ──────────────────────────────────────────────────────────┤
 │ apps/desktop/src/main/index.mjs    窗口 / IPC 分发 / thumb://      │
 │ 来源校验 → zod 白名单 → 引擎                                       │
 ├ 引擎 ────────────────────────────────────────────────────────────┤
-│ packages/engine/src/               零依赖 · 传输无关 · 68 测        │
+│ packages/engine/src/               零依赖 · 传输无关 · 68 测（+ 桌面 12 测）        │
 │ engine / index / library / fingerprint / compat / errors          │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -43,7 +43,7 @@
 
 | 理由 | 说明 |
 |---|---|
-| 可测 | 68 个单测直接跑 `packages/engine/src/`，**不需要模型、不需要 GPU、不需要 Electron** |
+| 可测 | 68 个引擎单测直接跑 `packages/engine/src/`，**不需要模型、不需要 GPU、不需要 Electron** |
 | 可换外壳 | 将来换掉 Electron 不必重写检索逻辑 |
 | 结构性杜绝 | 零依赖 ⇒ **不可能** import electron（这一条比"约定不要 import"强） |
 | 环境约束 | 受限沙箱下 `npm install` 会因 npm 用管道捕获子进程输出而 EPERM —— 这是本项目**开发环境**的约束，不是产品要求 |

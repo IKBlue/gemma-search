@@ -63,7 +63,7 @@
 |---|---|---|
 | 界面页面 / 组件 | `apps/desktop/src/renderer/src/`（页面进 `pages/`，通用组件进 `ui/`，布局进 `layout/`，hooks 进 `hooks/`） | 样式写**手写 CSS**（`renderer.css`），不引入 Tailwind 类名 |
 | 引擎能力 | `packages/engine/src/` + 对应测试放 `packages/engine/tests/` | **必须保持零第三方依赖**，且不得 import `electron` / `http` |
-| 契约 / 新 IPC 方法 | `apps/desktop/src/shared/ipc.mjs` | ⚠️ **唯一来源**。改完必须同步 `apps/desktop/src/preload/index.js`（那里是**手抄的字面量**，不是 import）与 `docs/spec/CONTRACT-engine-v1.md` |
+| 契约 / 新 IPC 方法 | `apps/desktop/src/shared/ipc.mjs` | ⚠️ **唯一来源**。preload **不需要改**（它是通用转发 `invoke`，校验全在 zod 白名单）；要同步的是 `docs/spec/CONTRACT-engine-v1.md`。⚠️ 若新方法**不经引擎**（由主进程直接处理，如库配置三个方法），还要在 `main/index.mjs` 的 `registerIpc` 里**显式分派**，否则会被当成"引擎无此方法"拒绝 |
 | 索引构建 / 重采样 / 解码 | `packages/indexer/src/` | 改了编码路径必须重建索引并给证据 |
 | 新的守卫 / 校验脚本 | `tools/verify_*.mjs` | 只读、退出码 0/1、写完自己跑一遍 |
 | 一次性调查 / 探针 | `tools/probe_electron_start/` 或 `docs/archive/spike/` | **别放仓库根** |
@@ -118,18 +118,21 @@
 
 | 门禁 | 期望 |
 |---|---|
-| `npm test` | `tests 68 · pass 65 · fail 0 · skipped 3` |
+| `npm test` | `tests 90 · pass 89 · fail 0 · skipped 1`（引擎 68 + F-01 新增 5 + R-3 新增 1 = 74；桌面配置 12 + 端口 4 = 16） |
 | `npm run build` | 成功，且 `out/main` · `out/preload` · `out/renderer` 三端齐备（**已实测通过**；受限沙箱内需提权，见下） |
 | 守卫 | 下表 EXIT=0（`verify-doc-refs.mjs` 的**两类已知误报**除外 —— 外部 URL 末段 5 条 + 散文里裸写的文档名 1 条，见 §6；根目录越界必须为 0） |
 | 证据 | 每条被声称通过的 G-* 门禁，在 `reports/` 里都有归档证据 |
 
-**3 个跳过的原因（如实记录，不要当成通过）**：
+**那个跳过（如实记录，不要当成通过）**：
 
-1. 本环境无法创建文件符号链接（`EPERM`）→ 符号链接拒绝用例跳过。
-2. 与 3. 两项依赖 `config.json` / `data/baseline-v1.json` 作为数据源。**`baseline-v1.json` 在库里**（`git ls-files data/baseline-v1.json` 有值，实测），**真正缺的只有 `config.json`**（不存在、也未被 git 跟踪）。
-   ⚠️ 所以这两项**不是永久性死引用** —— 缺的是**一个可提供的文件**，D2（见 §7）被处置后即可复活。
-   复活还需**索引记录的库根在本机存在**，否则会以另一条原因继续跳过：`packages/engine/tests/security.test.mjs:193`「无记录值或库不存在」、`packages/engine/tests/uid.test.mjs:73`「素材库不存在」。
-   在 D2 解决前它们会一直跳过：**不要当成通过**，也**不要**误记成「测试坏了」。
+1. 本环境无法创建**文件**符号链接（`EPERM`）→ 该条跳过。**这是环境限制**：目录联接（junction）能建，文件符号链接不能。这条断言的是「库内指向库外的符号链接必须被拒」，在能建链接的机器上会真跑（`packages/engine/tests/security.test.mjs` ④）。
+
+> ✅ **D2 修复的连带效果（2026-10-12）**：原先还有**两条永久跳过**，因为它们在测试里**自己直读 `config.json`** 拿库根，而那个文件早已删除。
+> 它们现在改为用**与生产同序**的解析（`packages/engine/tests/lib-root.mjs`：环境变量 → `config.json` → **索引自举**），于是**都真的跑起来了**：
+> - `指纹 v1：与 baseline-v1.json 记录的值一致` —— JS 与 Python 的指纹**逐字节一致**（真实跑，2.9 s）
+> - `uid: 整库唯一性` —— 扫过真实库全部图片，**0 处 UID 碰撞**
+>
+> ⇒ 跳过数 **3 → 1**，通过数 **65 → 79**。**这不是"把测试改绿"**：库根来自索引元数据（生产实际来源），断言的内容一个字没放松。
 
 **另一条环境限制（2026-10-12 已实测解除，但边界本身仍存在 —— 保留记录）**
 
@@ -168,9 +171,9 @@ error during build: Error: spawn EPERM
 
 | 守卫 | 断言什么 | 前置条件 |
 |---|---|---|
-| `node tools/verify_app_build.mjs` | 产物形状：ESM/CJS、依赖 external、相对路径、原生模块未内联 | 先 `npm run build` |
-| `node tools/verify_renderer_dom.mjs` | React 渲染层在 jsdom 里**真跑**：启动 / 文字检索 / 以图搜图 / 结果卡 / 事件 | 先 `npm run build` |
-| `node tools/verify_renderer_styles.mjs` | 渲染层样式与令牌一致性。**注意它的方向性**：只校验「用到的令牌都已定义」，**不查「定义了但没人用」** | 无 |
+| `node tools/verify_app_build.mjs` | 产物形状：ESM/CJS、依赖 external、相对路径、原生模块未内联、**且能力端口真的接上了**（§1b：在 main bundle 里**剥掉注释**、取 **`createEngine` 调用点的实参区间**、断言里面有 `shell: createRevealPort(...)`） | 先 `npm run build` |
+| `node tools/verify_renderer_dom.mjs` | React 渲染层在 jsdom 里**真跑**：启动 / 文字检索 / 以图搜图 / 结果卡 / 事件 / **首启向导 / 定位失败必须显示失败 + 成功文案不得越界 / 档位来自引擎** | 先 `npm run build` |
+| `node tools/verify_renderer_styles.mjs` | 渲染层样式与令牌一致性 + **渲染层不得自算分数阈值**（§5，F-02；扫 `.jsx`/`.js`/`.css`，认 `0.97` 与 `.97` 两种写法）。**注意它的方向性**：只校验「用到的令牌都已定义」，**不查「定义了但没人用」** | 无 |
 | `node tools/verify_encoder_path.mjs --model <ONNX 模型目录>` | 编码路径一致性（跑真实推理） | 本机有 ONNX 模型目录 |
 | `node tools/smoke_app.mjs` | 应用冒烟：真启动构建产物并给判定（退出码 0/1/2/3/4 分档） | 先 `npm run build`；受限环境加 `--no-sandbox` |
 | `node tools/check_search.mjs` | 检索端到端自查（向量模式，走引擎真实检索路径） | 已有查询向量与已注册索引 |
@@ -244,9 +247,11 @@ node -e "const s=require('fs').readFileSync('docs/design/DESIGN-tokens.md','utf8
 | 受限沙箱 | Chromium 进程沙箱起不来时 Electron 会**秒退且一行日志都不生成**；此时用 `npm run dev:restricted` / `npm run start:restricted`（= 附加 `--no-sandbox`）。**普通终端不需要**。 |
 | 生产态 DevTools | 生产态保留 `devTools: true` 是**已决策项**（`docs/spec/SPEC-security.md` §9 决定 3），不是疏漏。 |
 | 日志 | 主进程与渲染进程的诊断都写 `data\_app.log`。Windows 上 Electron 是 GUI 子系统程序，**stdout 不连终端**，`console.log` 一条都看不到。 |
-| **D2 · 库根配置缺口** | 主进程仍从 `config.json`（或 `GEMMA_CONFIG`）读库根，而**该文件已不在仓库里，也没有模板**；找不到时静默用空库 → 开箱即跑不出检索结果（界面只会得到 `LIB_NOT_FOUND`）。**未修**，处置属代码线，不要用「再写一份 config 教学」搪塞。 |
+| **D2 · 库根配置缺口** | ✅ **已修（2026-10-12）**：库不再只从 `config.json` 读。主进程按**四条优先级**解析（`apps/desktop/src/main/library-config.mjs`）：① `GEMMA_LIB_ROOT` 环境变量 ② `userData/library-registry.json`（决策 9 的正规存储）③ `config.json`（兼容回退，**不要求用户去配**）④ **从已有索引 `data/libraries/*/meta.json` 自举**（`meta` 里本就存着 `lib_id` + `lib_root`）⇒ **有索引的机器零配置即用**。无库时界面显示**首启向导**（`pages/LibraryGate.jsx` → `FirstRunWizard.jsx`）而不是裸 `LIB_NOT_FOUND`。测试 `apps/desktop/tests/library-config.test.mjs`（12 条）+ `verify_renderer_dom.mjs` §8（7 条） |
+| **F-04 · 取件白名单为空** | ✅ **随 D2 一并解决**：`collect.dirs` 原先恒为 `{}` ⇒ 任何 `collect` 都返回 `COLLECT_DIR_NOT_ALLOWED`。现按规格给默认值（`E:\素材待用` / `E:\移出素材`，出处 `docs/spec/SPEC-app.md` §9 与 `docs/spec/SPEC-transactions.md` §7），并可由注册表覆盖 |
 | **D8 · 多库注册表未持久化** | 现在只有「从配置派生单库」（`packages/engine/src/library.mjs`）；**真正的多库注册表是 P5，未实现**，没有任何持久化。 |
-| **F-01 · `reveal` 未接线** | 主进程**从未注入 `shell` 端口**，引擎在无 `shell` 时仍返回 `ok({revealed:true})`（**静默假成功**；单测是绿的，因为测试自己注入了那个端口）。要求见 `docs/spec/CONTRACT-engine-v1.md` §2.4。 |
+| **F-01 · `reveal` 未接线** | ✅ **已修（2026-10-12）**：原先主进程**从未注入 `shell` 端口**，而引擎在无 `shell` 时仍返回 `ok({revealed:true})` ⇒ **静默假成功**。现在：① 引擎在端口缺失/形状不对时返回**新错误码 `PORT_MISSING`**（绝不 `ok`），且顺序是**先确认文件在盘上再调端口**；② `apps/desktop/src/main/index.mjs` 注入 `shell: createRevealPort(shell)`（`apps/desktop/src/main/ports.mjs`）。**回归锁定分三层**：引擎 +5 条单测 · 端口本体 +4 条（`apps/desktop/tests/ports.test.mjs`）· **`verify_app_build.mjs` §1b** 在构建产物的 main bundle 上断言端口真的被注入 + 渲染层守卫 §9（失败必须显示失败、成功文案不越界）。⚠️ **能力边界**：`shell.showItemInFolder` **返回 void、不报告失败** ⇒ 成功文案写「已请求在资源管理器中定位（系统未回报结果）」，**不写**「已定位」。<br>⚠️ **§1b 写对不容易，两个反复被证伪的坑（都在注释里写明）**：① **必须先剥注释** —— 实测 bundle **保留源码行注释**，直接匹配会命中 `// shell: createRevealPort(...)`；而"注释掉一行"正是禁用接线的常见手法。剥注释器还必须**认识正则字面量**（含引号的正则 `/["']/g` 会让朴素实现误入字符串模式 ⇒ 被注释的接线重新可匹配；差分实测证实）。**不能用 `esbuild.transform`** —— 它在受限沙箱 `spawn EPERM`，会让守卫整体失效。② **必须取"调用点的实参"** —— 引擎函数签名里就写着形参 `shell = null`，若按"第一个 `createEngine(`"取，会取到**函数声明**，"接线有没有接上"就永远为真 |
+| **F-02 · 界面自算分数阈值** | ✅ **已修（2026-10-12）**：原先 `ui/Score.jsx` 硬编码 `0.97/0.93` ⇒ **每次文本检索的全部结果都被标成「较弱」**（文本真实 top-1 在 0.74–0.80）。现在档位**只来自引擎的 `item.band`**，`band` 缺失时**只显示分数、不猜档位**。**回归锁定两层**：`verify_renderer_styles.mjs` §5 **实际执行**「渲染层不得出现 0.7x/0.8x/0.9x 比值常量」+ 正例锚（确认 Score.jsx 仍以 `band` 为来源，不是把功能删了来通过）· 渲染层守卫 §10 端到端断言 |
 | 未实现的契约方法 | `ingest` / `mutate` / `indexStart` / `indexCancel` 由主进程**显式拒绝**（P4/P5 欠账），契约先冻结了形状。见 `docs/spec/CONTRACT-engine-v1.md` §2.5–§2.10。 |
 | 素材库只读 | 检索**不移动、不复制、不重命名、不删除**任何素材；结果是路径。 |
 | 20 个假 `.jpg` | 预览图里有 20 个文件名是 `.jpg`、实际内容是 BMP（集中在 `VR`）。解码路径会自动回退，**它们不是坏文件**。 |
@@ -268,12 +273,12 @@ node -e "const s=require('fs').readFileSync('docs/design/DESIGN-tokens.md','utf8
 | **守卫 (guard)** | `tools/` 下 7 个只读校验脚本，跑完给 EXIT 码 |
 | **主进程 / 渲染进程** | 主进程管窗口与磁盘；渲染进程就是那个网页界面。两者严格隔离 |
 | **preload / 安全桥** | 界面唯一能用的通道（只暴露 `invoke` / `onEvent` / `platform`），别的够不着 |
-| **IPC** | 主进程与渲染进程之间的受控通信（本项目 2 个通道、11 个方法白名单） |
+| **IPC** | 主进程与渲染进程之间的受控通信（本项目 2 个通道、**13 个方法**白名单：原 11 个引擎方法 + 库配置的 `libraryConfig`/`libraryPickDir`/`libraryAdd`） |
 | **`thumb://`** | 缩略图自定义协议，形状**只允许** `thumb://<libId>/<uid>@<size>`——路径不由 URL 提供 |
 | **配对 (pairing)** | 靠文件名主干相同，把 `ID-123.jpg` 与 `ID-123.rar` 认成一套素材；索引里**显式存了两个绝对路径** |
 | **uid** | `sha1(lib_id\|rel_dir\|stem)[:12]`，12 位 hex，**已冻结** |
 | **`compat`** | 兼容性判定键（8 项，不含 device/GPU）。只有 `compat` 相等的库才能合并检索 |
-| **`band`** | 引擎按**同一模态内**区间给出的分数档（`high`/`mid`/`low`）。**界面不得自己算阈值，也不得跨模态比分数** |
+| **`band`** | 引擎按**同一模态内**区间给出的分数档（`high`/`mid`/`low`）。**界面不得自己算阈值，也不得跨模态比分数**。⚠️ 还可能是 `unknown`：模态不在引擎的 `BANDS` 里时引擎**拒绝定档**（2026-10-12 修 R-3），此时界面**只显示分数、不显示档位文案** |
 | **`seq`** | 图像 soft token 预算（70/140/280）。是唯一的提速杠杆，**换档必须全量重建索引** |
 | **设计令牌 (token)** | 颜色/字体/间距等视觉常量，唯一来源 `packages/design-tokens/tokens.css` |
 | **ONNX / WebGPU** | 模型的通用交换格式 / 让浏览器直接用显卡算的技术；WebGPU 不可用时回落 CPU |

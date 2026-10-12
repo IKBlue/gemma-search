@@ -266,9 +266,10 @@ body {
 .tag.CR { background: var(--cat-cr-bg); color: var(--cat-cr-fg); }
 .tag.CRVR { background: var(--cat-crvr-bg); color: var(--cat-crvr-fg); }
 .score { font-weight: 600; font-variant-numeric: tabular-nums; }
-.score.same { color: var(--score-same); }
-.score.like { color: var(--score-like); }
-.score.weak { color: var(--score-weak); }
+/* 类名 = 引擎给的 band（high/mid/low），不是界面自己算的档位（F-02） */
+.score.high { color: var(--score-same); }
+.score.mid { color: var(--score-like); }
+.score.low { color: var(--score-weak); }
 
 /* ============ 5) 状态与反馈 ============ */
 .hint { padding: var(--space-5) var(--space-1); line-height: 1.6; color: var(--color-text-secondary); }
@@ -309,3 +310,91 @@ body {
   .content { padding: var(--space-4); }
   .page-head { flex-direction: column; }
 }
+
+/* ============================================================
+   首启向导（D2 修复的界面侧）
+
+   为什么是遮挡式：一个库都没有时，界面上别的功能都不能用（检索必然 LIB_NOT_FOUND）。
+   所以它不是"提示"，而是必经步骤。但它**不是死路** —— 应用随时能关，
+   向导自己不写任何东西，只有点「添加这个库」才会写注册表。
+   颜色一律取令牌，组件里不写死十六进制（tools/verify_renderer_styles.mjs 会查）。
+   ============================================================ */
+.wizard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;                      /* 盖住整窗；比 toast 高，避免被浮层压住 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--color-bg-secondary);
+}
+.wizard {
+  width: 100%;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-separator-subtle);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-float);
+}
+.wizard-title { font-size: var(--type-title2); line-height: var(--type-title2-lh); font-weight: 700; }
+.wizard-lede { color: var(--color-text-secondary); font-size: var(--type-callout); line-height: 1.6; }
+.wizard-lede strong { color: var(--color-text-primary); }
+
+.wizard-step {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-3);
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-sm);
+}
+.wizard-step-no {
+  flex: none;
+  width: 22px; height: 22px;
+  display: grid; place-items: center;
+  border-radius: var(--radius-circle);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: var(--type-micro);
+  font-weight: 700;
+}
+.wizard-step-title { font-size: var(--type-caption); font-weight: 600; }
+.wizard-step-hint { margin-top: var(--space-1); color: var(--color-text-secondary); font-size: var(--type-micro); }
+
+.wizard-pick { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+.wizard-path {
+  display: block;
+  max-width: 100%;
+  padding: var(--space-2);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-separator-subtle);
+  border-radius: var(--radius-sm);
+  font-size: var(--type-micro);
+  overflow-wrap: anywhere;           /* 长路径要能折行，不能撑破卡片 */
+}
+
+.wizard-error {
+  padding: var(--space-3);
+  border-left: 3px solid var(--color-critical);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: var(--type-caption);
+  border-radius: var(--radius-sm);
+}
+.wizard-warn {
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-5);
+  border-left: 3px solid var(--color-warning);
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--type-micro);
+  list-style: disc;
+}
+.wizard-acts { display: flex; gap: var(--space-2); }
+.wizard-foot { overflow-wrap: anywhere; }
+

@@ -1,7 +1,7 @@
-// apps/desktop/src/main/index.mjs —— Electron 主进程（P2）
+﻿// apps/desktop/src/main/index.mjs —— Electron 主进程（P2）
 //
 // 职责（SPEC-security §2–§5）：
-//   · 按 config.json 组装引擎（注入 ONNX 编码器端口）
+//   · 组装引擎（注入 ONNX 编码器端口）—— 库来源见 library-config.mjs（D2 修复）
 //   · 只开两个 IPC 通道：engine:invoke / engine:event
 //   · 每个调用先做**来源校验**，再过**zod 白名单**，最后才打引擎
 //   · 窗口姿态：nodeIntegration:false / contextIsolation:true / sandbox:true
@@ -24,10 +24,11 @@ import { fileURLToPath } from 'node:url';
 import { ROOT, log } from './log.mjs';   // ← 必须最先导入：导入即初始化日志
 import { createEngine } from '../../../../packages/engine/src/engine.mjs';
 import { CH_INVOKE, CH_EVENT, validateCall, METHOD_NAMES } from '../shared/ipc.mjs';
+import { resolveLibraries, loadRegistry, saveRegistry, normalizeLibraries, registryPath } from './library-config.mjs';
+import { createRevealPort } from './ports.mjs';
 
 import electron from 'electron';
-const { app, BrowserWindow, ipcMain, protocol, nativeImage } = electron;
-
+const { app, BrowserWindow, ipcMain, protocol, nativeImage, dialog, shell } = electron;
 /** 本文件所在目录：dev/预览态是 `<根>/out/main`，打包态在 asar 内 */
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -64,31 +65,54 @@ if (process.env.ELECTRON_RUN_AS_NODE || !app || typeof app.whenReady !== 'functi
   }
 }
 
-// ---------------------------------------------------------------- 配置
+// ---------------------------------------------------------------- 配置（D2 修复：见 library-config.mjs 文件头）
+//
+// 库从哪来 = 四条路按优先级：GEMMA_LIB_ROOT > userData 注册表 > config.json > 已有索引自举。
+// 其中「索引自举」让**已有索引的机器零配置可用**（索引的 meta.json 本就存着 lib_id + lib_root）。
+//
+// ⚠️ `config.json` **不是要求用户去配的东西** —— 它只是最下面那条兼容回退。
+//    它已随 Python 档退役被删除，仓库里也没有模板，所以正常情况下这一层就是空的。
 function loadConfig() {
-  const candidates = [
-    process.env.GEMMA_CONFIG,
-    path.join(ROOT, 'config.json'),
-  ].filter(Boolean);
+  const candidates = [process.env.GEMMA_CONFIG, path.join(ROOT, 'config.json')].filter(Boolean);
   for (const p of candidates) {
     if (fs.existsSync(p)) {
       try {
-        const c = JSON.parse(fs.readFileSync(p, 'utf8'));
+        const c = JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, ''));
         log('配置来源', p);
-        return c;
+        return { data: c, path: p };
       } catch (e) {
         log('配置读取失败', p, e.message);
       }
     }
   }
-  log('未找到 config.json，用默认（库根为空 → indexStatus 会报 LIB_NOT_FOUND）');
-  return {};
+  return { data: {}, path: null };
 }
 
-const config = loadConfig();
+const _cfg = loadConfig();
+const config = _cfg.data;
+const CONFIG_PATH = _cfg.path;
 const DATA_DIR = config.data_dir || path.join(ROOT, 'data');
-const LIB_ROOT = config.library_root || '';
-const LIB_ID = config.lib_id || 'L1';
+
+// userData：`app.getPath` 在 app ready 之前不可靠，所以延到 whenReady 里再解析。
+// 但 `buildEngine()` 需要库列表，故用**惰性** getter —— 模块加载期零副作用，
+// 也不会"只是启动了一下"就往用户目录写东西（写注册表只发生在 libraryAdd 被调用时）。
+let USER_DATA_DIR = null;
+let RESOLVED = null;
+function librariesResolved() {
+  if (!RESOLVED) {
+    RESOLVED = resolveLibraries({
+      dataDir: DATA_DIR,
+      userDataDir: USER_DATA_DIR,
+      config,
+      configPath: CONFIG_PATH,
+      envLibRoot: process.env.GEMMA_LIB_ROOT || '',
+    });
+  }
+  return RESOLVED;
+}
+
+/** 注册表变了（libraryAdd）后让解析结果与引擎一起失效重建 */
+function invalidateLibraries() { RESOLVED = null; engine = null; }
 
 /** 模型目录：config 指定，或从 model_cache 下按 revision 找 fp32。 */
 function resolveModelDir() {
@@ -114,17 +138,26 @@ function emit(evt) {
 }
 
 function buildEngine() {
-  const libraries = LIB_ROOT ? [{ libId: LIB_ID, root: LIB_ROOT, label: '主库' }] : [];
+  const r = librariesResolved();
   engine = createEngine({
-    config: { libraries, data_dir: DATA_DIR, collect: config.collect || { dirs: {} } },
+    config: { libraries: r.libraries, data_dir: DATA_DIR, collect: r.collect },
     encoder: {
       // 延迟到真正检索时才载模型：冷启动要 ≤5s，不能把 2.6s 的模型载入挡在出窗之前
       async encodeText(t) { const e = await ensureEncoder(); return e.encodeText(t); },
       async encodeImage(p) { const e = await ensureEncoder(); return e.encodeImage(p); },
     },
     onEvent: emit,
+    // ⚠️ **必须注入**（F-01）：不注入的话引擎会返回 PORT_MISSING 而不是静默假成功。
+    // 引擎不 import electron，所以"在资源管理器里定位"这个能力只能由外壳这样交进去。
+    // 端口本身只负责调用；成功/失败的判定在引擎里（见 ports.mjs 的注释）。
+    shell: createRevealPort(shell),
   });
-  log('引擎就绪 · 库', libraries.map((l) => `${l.libId}=${l.root}`).join(', ') || '(无)');
+  log('引擎就绪 · 库', r.libraries.map((l) => `${l.libId}=${l.root}[${l.source}]`).join(', ') || '(无)');
+  // 诊断与警告写进日志：出问题时第一手材料就是 data/_app.log
+  for (const d of r.diagnostics) log('[cfg]', d);
+  for (const w of r.warnings) log('[cfg][warn]', w);
+  log('[cfg] 取件白名单', JSON.stringify(r.collect.dirs), '默认', r.collect.default);
+  return r;
 }
 
 async function ensureEncoder() {
@@ -187,6 +220,13 @@ function registerIpc() {
     }
     if (!engine) buildEngine();
 
+    // 库配置是由主进程处理的方法（不是引擎方法）——首启向导用
+    if (v.method === 'libraryConfig' || v.method === 'libraryAdd' || v.method === 'libraryPickDir') {
+      const res = await handleLibraryMethod(v.method, v.params);
+      log(`invoke ${v.method} ${(Date.now() - started)}ms → ${res && res.ok ? 'ok' : (res && res.error && res.error.code)}`);
+      return res;
+    }
+
     // 引擎里还没实现的方法在这里显式拒绝，避免"静默什么都不做"
     const missing = ['ingest', 'mutate', 'indexStart', 'indexCancel'];
     if (missing.includes(v.method)) {
@@ -203,6 +243,85 @@ function registerIpc() {
     return res;
   });
   log('IPC 已注册 · 允许的方法：', METHOD_NAMES.join(', '));
+}
+
+// ---------------------------------------------------------------- 库配置 IPC（D2 修复）
+//
+// 为什么要单独一组方法：用户要能**在应用内**把库加进来（决策 9：注册表存应用数据目录）。
+// 这三个方法**不经引擎** —— 引擎是传输无关的，它只接受"给我一组库"，
+// 而"库从哪来 + 存哪儿"是外壳的事（`packages/engine/src/library.mjs:137` 自己写着
+// 「P1 从 config 派生单库；P5 扩为真正的多库注册表」，持久化不在引擎职责内）。
+//
+// 安全：仍然走同一条 `isTrustedSender` + zod 白名单；`libraryPickDir` 是唯一一个
+// 让用户**主动**选目录的入口，且它只把结果交给主进程自己处理，**不把路径能力授予渲染层**
+// —— 渲染层本来就拿不到 `dialog`，这个方法是它唯一的、需用户亲自点击的间接通道。
+async function handleLibraryMethod(method, params) {
+  if (method === 'libraryConfig') {
+    const r = librariesResolved();
+    return { ok: true, data: {
+      libraries: r.libraries.map(({ libId, root, label, source }) => ({ libId, root, label, source })),
+      collect: r.collect,
+      chosen: r.chosen,
+      diagnostics: r.diagnostics,
+      warnings: r.warnings,
+      registryPath: r.registryPath,
+    } };
+  }
+
+  if (method === 'libraryPickDir') {
+    const w = winRef.win;
+    const picked = await dialog.showOpenDialog(w && !w.isDestroyed() ? w : undefined, {
+      title: '选择素材库根目录',
+      properties: ['openDirectory'],
+    });
+    if (picked.canceled || !picked.filePaths || !picked.filePaths[0]) {
+      return { ok: true, data: { canceled: true, path: null } };
+    }
+    return { ok: true, data: { canceled: false, path: picked.filePaths[0] } };
+  }
+
+  // libraryAdd
+  const root = path.resolve(String(params.root));
+  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+    return { ok: false, error: { code: 'LIB_NOT_FOUND', message: `目录不存在：${root}`,
+      userMessage: '这个目录不存在，或不是文件夹。请重新选择。', details: { root } } };
+  }
+  if (!USER_DATA_DIR) {
+    return { ok: false, error: { code: 'INTERNAL', message: 'userData 未初始化',
+      userMessage: '应用还没准备好，请稍后重试。', details: {} } };
+  }
+
+  const reg = loadRegistry(USER_DATA_DIR);
+  const existing = normalizeLibraries(reg && reg.data ? reg.data.libraries : []).kept;
+  const { kept: incoming } = normalizeLibraries([{ libId: params.libId || '', root, label: params.label }]);
+  if (!incoming.length) {
+    return { ok: false, error: { code: 'BAD_REQUEST', message: '库条目不合法',
+      userMessage: '请求参数不合法。', details: { root } } };
+  }
+  let entry = incoming[0];
+
+  // 省略 libId 时自动分配：L1、L2…（跳过已占用的）
+  if (!params.libId) {
+    const used = new Set(existing.map((l) => l.libId));
+    let n = 1; while (used.has(`L${n}`)) n++;
+    entry = { ...entry, libId: `L${n}` };
+  }
+
+  const next = existing.filter((l) => l.libId !== entry.libId).concat([entry]);
+  const saved = saveRegistry(USER_DATA_DIR, {
+    libraries: next,
+    collect: (reg && reg.data && reg.data.collect) || undefined,
+  });
+  if (!saved.ok) {
+    return { ok: false, error: { code: 'INTERNAL', message: `注册表写入失败：${saved.error}`,
+      userMessage: '保存失败，库没有加上。请检查磁盘权限或空间。', details: { path: saved.path } } };
+  }
+
+  invalidateLibraries();          // 解析结果与引擎都作废，下次调用会用新列表重建
+  log('已注册库', entry.libId, '→', entry.root, '（注册表', saved.path, '）');
+  const r = librariesResolved();
+  return { ok: true, data: { added: entry, registryPath: saved.path,
+    libraries: r.libraries, warnings: r.warnings, diagnostics: r.diagnostics } };
 }
 
 // ---------------------------------------------------------------- thumb:// 协议（SPEC-security §3）
@@ -381,6 +500,14 @@ app.setAppUserModelId('com.gemmasearch.app');
 
 app.whenReady().then(async () => {
   log('app ready');
+  // userData 只能在这之后取；库解析（含注册表）也就从这里才真正开始
+  try {
+    USER_DATA_DIR = app.getPath('userData');
+    log('userData', USER_DATA_DIR);
+    log('注册表路径', registryPath(USER_DATA_DIR));
+  } catch (e) {
+    log('!! userData 解析失败（会退到索引自举）:', e.message);
+  }
   try {
     protocol.handle('thumb', handleThumb);        // 必须在窗口加载渲染页之前
     log('thumb:// 已注册');

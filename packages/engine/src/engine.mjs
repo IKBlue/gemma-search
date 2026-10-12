@@ -27,8 +27,26 @@ export const BANDS = Object.freeze({
   image: { high: 0.90, mid: 0.80 },
 });
 
+/**
+ * 按模态取档位。
+ *
+ * ⚠️ **未知模态不再静默回退到 text 阈值**（2026-10-12 独立复核实测的 R-3）。
+ * 原来的写法是 `BANDS[mode] || BANDS.text` —— 于是 `bandOf(0.85, 'vector')` 会返回 `'high'`，
+ * 而 `vector` 根本不该用文本阈值（图像查询的分数区间完全不同）。
+ * 这与 F-02 是**同一根因**：一个不懂模态的东西擅自替分数下结论。
+ *
+ * 现在的行为：不认识的模态 ⇒ 返回 `'unknown'`，**不下档位判断**。
+ * 调用的界面（`ui/Score.jsx`）对未知档位**只显示分数、不显示档位文案** —— 诚实降级。
+ * `'unknown'` 是**新增**的返回值，契约 §1.3 的"新增=兼容"同样适用于此。
+ */
 export function bandOf(score, mode) {
-  const b = BANDS[mode] || BANDS.text;
+  // ⚠️ 必须用 `Object.hasOwn`，**不能**写 `const b = BANDS[mode]; if (!b)`。
+  // 后者会让**原型键**蒙混过关：`BANDS['toString']` 取到的是 `Object.prototype.toString`（真值！），
+  // 于是 `bandOf(0.85,'toString')` ⇒ `b.high` 为 undefined ⇒ 返回 `'low'` ——
+  // **又替一个不认识的模态编了档位**，与 R-3 同根因。测试用例集若只列 'vector'/'hybrid'
+  // 这类普通字符串，会恰好绕开全部原型键（独立复核实测 I-5）。
+  if (!Object.hasOwn(BANDS, mode)) return 'unknown';
+  const b = BANDS[mode];
   if (score >= b.high) return 'high';
   if (score >= b.mid) return 'mid';
   return 'low';
@@ -431,7 +449,24 @@ export function createEngine({
       const rel = target === 'archive' ? (it.archiveRelPath || relOf(it)) : relOf(it);
       const abs = resolveInLibrary(registry.get(libId).root, rel);
       if (!fs.existsSync(abs)) throw fail(ERR.ITEM_MISSING_ON_DISK, `文件不存在：${rel}`, { rel });
-      if (shell && typeof shell.reveal === 'function') shell.reveal(abs);
+
+      // ⚠️ **未注入端口必须显式失败，不许返回 ok**（F-01，契约 §2.4 第 2 条）。
+      //
+      // 原来的写法是 `if (shell && …) shell.reveal(abs); return ok({revealed:true})` ——
+      // 端口缺失时**照样**报成功。那不是"降级"，是**谎报**：界面会显示「已在资源管理器中定位」，
+      // 而资源管理器毫无动静，用户与排障者都会往错的方向找。
+      //
+      // 而且这条**没有第二道防线**：`ok({revealed:true})` 的语义就是"已经定位了"，
+      // 调用方无法区分"真定位了"和"什么都没做"。
+      if (!shell || typeof shell.reveal !== 'function') {
+        throw fail(ERR.PORT_MISSING,
+          `未注入 shell 端口（reveal 需要外壳提供 { reveal(absPath) }；当前 ${shell ? '形状不对' : '未提供'}）`,
+          { port: 'shell', got: shell === null || shell === undefined ? 'none' : typeof shell });
+      }
+      // Electron 的 `shell.showItemInFolder` **返回 void、不报告失败**，所以这里**不能**
+      // 断言"资源管理器一定弹出来了"。我们只保证：端口被调用了，且目标文件确实在盘上
+      // （上面那条 existsSync 已证）。这个边界必须如实写在契约里，不得声称更强的保证。
+      shell.reveal(abs);
       return ok({ revealed: true, path: abs });
     }),
     /** 长任务的通用取消入口（P1 只登记；实际编码在 indexStart 实现） */

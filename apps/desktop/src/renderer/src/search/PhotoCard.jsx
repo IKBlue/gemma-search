@@ -35,7 +35,8 @@ export default function PhotoCard({ item, onLocate, onCollect }) {
         <div className="card-title" title={item.relPath || ''}>{title}</div>
         <div className="card-meta">
           <span><Tag folder={item.folder} /></span>
-          <Score score={item.score} size={item.archive ? item.archive.size : item.imageSize} />
+          {/* band 由**引擎**给（按模态分的档位）。界面不自己算阈值 —— 见 Score.jsx 顶部注释 */}
+          <Score score={item.score} band={item.band} size={item.archive ? item.archive.size : item.imageSize} />
         </div>
       </div>
     </article>

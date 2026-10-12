@@ -68,6 +68,22 @@ export const Methods = {
   }).strict(),
 
   indexCancel: z.object({ jobId: z.string().max(64) }).strict(),
+
+  // ---- 库配置（D2 修复：首启向导需要读/写"库从哪来"）----
+  // 只读：返回解析结果 + 诊断 + 警告（库来自环境变量/注册表/config/索引自举 四条路哪一条）
+  libraryConfig: z.object({}).strict(),
+
+  // 首启向导：让用户**亲自**选一个目录（主进程弹系统对话框）。
+  // 渲染层本就拿不到 `dialog`；这是它唯一的间接通道，且必须由用户点击触发。
+  libraryPickDir: z.object({}).strict(),
+
+  // 注册（或更新）一个库：写 userData 注册表并重建引擎。
+  // **不接受任意路径之外的形状**：root 是用户选/拷进来的目录，存在性由主进程校验。
+  libraryAdd: z.object({
+    libId: LibId.optional(),          // 省略则主进程自动分配（L1、L2…）
+    root: z.string().min(1).max(4096),
+    label: z.string().max(64).optional(),
+  }).strict(),
 };
 
 export const METHOD_NAMES = Object.freeze(Object.keys(Methods));

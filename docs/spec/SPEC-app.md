@@ -111,7 +111,7 @@
 cd <仓库根>
 
 # 引擎无头单测（node:test，不经传输层）
-npm test                                  # 期望：tests 68 · pass 65 · fail 0 · skipped 3
+npm test                                  # 期望：tests 90 · pass 89 · fail 0 · skipped 1
 
 # 应用（Electron）开发与构建
 npm install

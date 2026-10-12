@@ -59,7 +59,7 @@
 | 5 | 可把包**复制**到指定目录（默认 `E:\素材待用\`） | 人工确认 | ⚠️ 引擎已实现且有空间预检；`collect.dirs` 白名单未配置 → 默认必失败 |
 | 6 | 能**入库**新素材并索引；能管**增量** | 入库后立即可检索 | ❌ `ingest` 被主进程显式拒绝 |
 | 7 | 增删查改齐备；「删」只提供**移出库**（可还原） | 从 `E:\移出素材\` 原样还原 | ❌ `mutate` 被主进程显式拒绝 |
-| 8 | 支持**多库**；跨库检索只合并 `compat` 一致的库 | 故意注册 seq 不一致的库 | ⚠️ 引擎已实现 `pickCompatible`；界面无入口，且配置来源已断（见 §6 缺陷 R2） |
+| 8 | 支持**多库**；跨库检索只合并 `compat` 一致的库 | 故意注册 seq 不一致的库 | ⚠️ 引擎已实现 `pickCompatible`；**界面仍无入口**（库配置目前只能加库，没有"注册第二个库并在界面上切/看理由"的流程 —— 那是 P5）。配置来源本身已修（R2 ✅） |
 | 9 | **断网可用**；对素材库的写入只经入库/事务流程 | 断网全功能；扫描前后库指纹一致 | ⚠️ 索引/检索路径无网络调用；**未做断网实测** |
 
 **一句话**：9 条里 **0 条已完整验收**，其中 **4 条代码层面就不可用**（1b / 4 / 6 / 7）。
@@ -73,7 +73,7 @@
 | **离线** | 不联网、不上传、不调云服务 | `README.md`（离线声明） | ✅ CSP 无远程源；索引/检索只用本机 |
 | **只读素材库** | 检索不写库；写入只经入库/事务 | 决策 5 | ✅ 检索路径只读 |
 | **安全** | IPC 方法白名单 + zod；窗口三隔离；`thumb://` 形状受限 | `docs/spec/SPEC-security.md` | ✅ 详见「实现说明」§安全 |
-| **可测** | 引擎必须能脱离 Electron 被单测 | `AGENTS.md` §2（目录职责） | ✅ 68 测，注入假编码器 |
+| **可测** | 引擎必须能脱离 Electron 被单测 | `AGENTS.md` §2（目录职责） | ✅ 68 引擎测（+ 12 桌面配置测），注入假编码器 |
 | **可换外壳** | `packages/engine/src/` 零依赖、传输无关 | 同上 | ✅ 且有守卫 |
 | **可移植** | 代码里不写死本机路径 | `AGENTS.md` §7（已知边界） | ⚠️ 索引 `items.json` 仍存 `absPath`/`archiveAbsPath`（派生数据，但会失效） |
 | **分发** | 安装器不含模型与索引 | 决策 2 | ❌ P6 未做 |
@@ -102,8 +102,8 @@
 | ID | 缺陷 | 证据 | 用户可见后果 |
 |---|---|---|---|
 | **R1** | **「定位」按钮是死的**：`packages/engine/src/engine.mjs:434` 只在 `shell` 存在时调 `shell.reveal()`，但 `apps/desktop/src/main/index.mjs:118-126` **从未把 `shell` 传给 `createEngine`**；不满足条件也 `return ok({ revealed:true })` | `packages/engine/src/engine.mjs:427-436` vs `apps/desktop/src/main/index.mjs:118`；`grep -n shell src/main/index.mjs` **0 命中** | 界面弹「已在资源管理器中定位」，**资源管理器什么都不发生** |
-| **R2** | **配置来源已断**：`loadConfig()` 读 `config.json`，而该文件随 Python 档退役被删 | `Test-Path config.json` → `False`；`apps/desktop/src/main/index.mjs:84` 找不到时静默返回 `{}` → `LIB_ROOT=''` → 库列表为空 | 界面永远显示「未配置素材库」，检索报 `LIB_NOT_FOUND` |
-| **R3** | **取件默认必失败**：`collect` 要求 `targetDirName` 在 `config.collect.dirs` 白名单里，而配置为空 → `COLLECT_DIR_NOT_ALLOWED` | `packages/engine/src/engine.mjs:60-70`；`apps/desktop/src/main/index.mjs:119` `collect: config.collect \|\| { dirs: {} }` | 点「取件」得到「取件目标不在允许列表」 |
+| ~~**R2**~~ | ~~**配置来源已断**：`loadConfig()` 读 `config.json`~~ | ✅ **已修（D2，2026-10-12）**：四路解析（`GEMMA_LIB_ROOT` > `userData/library-registry.json` > `config.json` > **索引自举**）+ 无库时首启向导；实现 `apps/desktop/src/main/library-config.mjs`，测试 `apps/desktop/tests/library-config.test.mjs`（12 条） | ✅ **已修** |
+| ~~**R3**~~ | ~~**取件默认必失败**：`collect.dirs` 白名单为空~~ | ✅ **已修（F-04）**：默认 `{素材待用:'E:\素材待用', 移出素材:'E:\移出素材'}`，可由注册表覆盖 | ✅ **已修** |
 | **R4** | **4 个功能未实现**：`ingest` / `mutate` / `indexStart` / `indexCancel` 被主进程显式拒绝 | `apps/desktop/src/main/index.mjs:191-195` | 满足成功标准 6（入库）与 7（CRUD）的功能点不存在；界面按钮点了只弹 toast |
 
 > R1 的性质最严重：**它不是「没实现」，而是「实现了但静默谎报成功」**。

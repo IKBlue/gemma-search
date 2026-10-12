@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createEngine, bandOf, BANDS, indexPathFor } from '../src/engine.mjs';
-import { ERR } from '../src/errors.mjs';
+import { ERR, USER_MESSAGE } from '../src/errors.mjs';
 
 const MAGIC = Buffer.from('4753494458000001', 'hex');
 
@@ -330,6 +330,67 @@ test('reveal：文件不在磁盘上 → ITEM_MISSING_ON_DISK', async () => {
   assert.equal(r.error.code, ERR.ITEM_MISSING_ON_DISK);
 });
 
+// ---------------- F-01：未注入 shell 端口必须显式失败，不许静默假成功 ----------------
+//
+// 这几条是 F-01 的**回归锁定**。原先的实现在端口缺失时照样 `return ok({revealed:true})`，
+// 而上面那条"文件不在磁盘上"的用例**覆盖不到它**（它在更早的 existsSync 就抛了），
+// 所以"端口缺失"这条路径在修好之前**一条测试都没有** —— 这正是它能长期存活的原因。
+
+test('reveal：未注入 shell 端口 → PORT_MISSING，且 ok 不为 true（不许假成功）', async () => {
+  const s = setup();
+  const e = createEngine({ config: s.config, encoder: fakeEncoder() });   // 刻意不传 shell
+  const r = await e.reveal({ libId: 'L1', uid: uidOf('L1', 'VR', 'ID-1'), target: 'archive' });
+  // 最关键的一条：**绝不能**是 ok
+  assert.notEqual(r.ok, true, '未注入端口时返回了成功 —— 这就是 F-01 的静默假成功');
+  assert.equal(r.error.code, ERR.PORT_MISSING);
+  assert.equal(r.error.details.port, 'shell');
+  assert.equal(r.error.details.got, 'none');
+});
+
+test('reveal：shell 形状不对（缺 reveal / reveal 不是函数）→ 同样 PORT_MISSING', async () => {
+  const s = setup();
+  const uid = uidOf('L1', 'VR', 'ID-1');
+  for (const bad of [{}, { reveal: 'not-a-function' }, { reveal: null }]) {
+    const e = createEngine({ config: s.config, encoder: fakeEncoder(), shell: bad });
+    const r = await e.reveal({ libId: 'L1', uid, target: 'archive' });
+    assert.notEqual(r.ok, true, `shell=${JSON.stringify(bad)} 竟然成功了`);
+    assert.equal(r.error.code, ERR.PORT_MISSING, `shell=${JSON.stringify(bad)} 的错误码不对`);
+  }
+});
+
+test('reveal：端口存在但目标文件不存在 → ITEM_MISSING_ON_DISK，且端口**一次都没被调用**', async () => {
+  const s = setup();
+  fs.rmSync(path.join(s.libRoot, 'VR', 'a.rar'));
+  const seen = [];
+  const e = createEngine({ config: s.config, encoder: fakeEncoder(), shell: { reveal: (p) => seen.push(p) } });
+  const r = await e.reveal({ libId: 'L1', uid: uidOf('L1', 'VR', 'ID-1') });
+  assert.equal(r.error.code, ERR.ITEM_MISSING_ON_DISK);
+  // 顺序很重要：先确认文件在盘上，**再**去调资源管理器。
+  // 否则会在"文件早就没了"的情况下给用户弹一个空目录 —— 那也是谎报。
+  assert.equal(seen.length, 0, '文件不存在时不该调用 shell.reveal');
+});
+
+test('reveal：端口抛错 → 归为 INTERNAL 信封，不把异常漏给调用方', async () => {
+  const s = setup();
+  const e = createEngine({
+    config: s.config, encoder: fakeEncoder(),
+    shell: { reveal: () => { throw new Error('explorer 炸了'); } },
+  });
+  const r = await e.reveal({ libId: 'L1', uid: uidOf('L1', 'VR', 'ID-1'), target: 'archive' });
+  // envelope() 的契约：引擎内部异常一律转成信封，**绝不抛给调用方**
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, ERR.INTERNAL);
+});
+
+test('PORT_MISSING 的用户文案存在，且不含任何绝对路径', () => {
+  const msg = USER_MESSAGE[ERR.PORT_MISSING];
+  assert.equal(typeof msg, 'string');
+  assert.ok(msg.length > 0, '有用户文案');
+  // 文案会被界面显示、可能被截图外发 ⇒ 不得含本机路径（AGENTS.md §7）
+  assert.ok(!/[A-Za-z]:[\\/]/.test(msg), `文案里不该有盘符路径：${msg}`);
+  assert.ok(!msg.includes('\\\\'), `文案里不该有 UNC 路径：${msg}`);
+});
+
 test('search：编码器忘了归一化时，引擎自行归一 → 排序与 band 仍正确', async () => {
   const s = setup();
   // normalize:false 的假编码器返回未归一化向量，模长 != 1
@@ -350,6 +411,24 @@ test('band：阈值随模态不同（分数不可跨模态比较）', () => {
   assert.equal(bandOf(0.70, 'image'), 'low');   // 图像模态里 0.70 是低
   assert.equal(bandOf(0.70, 'text'), 'mid');    // 文本模态里 0.70 是中
   assert.notDeepEqual(BANDS.text, BANDS.image);
+});
+
+test('band：不认识的模态 → unknown，**不拿文本阈值猜**（R-3）', () => {
+  // 原先 `BANDS[mode] || BANDS.text` 会让 `bandOf(0.85,'vector')` 返回 'high' ——
+  // 而 'vector' 根本不在 BANDS 里，拿文本阈值给它定档就是"不懂模态却替分数下结论"，
+  // 与 F-02（界面自算阈值）是同一根因。
+  //
+  // ⚠️ **用例必须带原型键**（独立复核 I-5 的教训）：只列 'vector'/'hybrid' 这类普通字符串，
+  // 会恰好绕开 `Object.prototype` 上的键 —— 而旧写法 `if (!b)` 对 `BANDS['toString']`
+  // 取到真值函数、进而返回 'low'，等于**又编了一个档位**。
+  const modes = ['vector', 'hybrid', '', null, undefined, 'toString', 'constructor', 'valueOf', '__proto__', 'hasOwnProperty'];
+  for (const mode of modes) {
+    assert.equal(bandOf(0.85, mode), 'unknown', `mode=${JSON.stringify(mode)} 不该给出档位`);
+    assert.equal(bandOf(0.99, mode), 'unknown', `mode=${JSON.stringify(mode)} 满分也不该定档`);
+  }
+  // 反例锚：认识的模态必须照常
+  assert.equal(bandOf(0.85, 'text'), 'high');
+  assert.equal(bandOf(0.85, 'image'), 'mid');
 });
 
 // ---------------- collect（取件） ----------------

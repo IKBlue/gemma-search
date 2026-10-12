@@ -26,10 +26,10 @@
 
 ---
 
-## 2. L1 引擎单测：68 项逐项清点
+## 2. 测试逐项清点（引擎 68 条 + 桌面配置 12 条 = 80 条）
 
 **命令**：`npm test`（脚本 glob = `node --test --test-isolation=none "packages/engine/tests/*.test.mjs"`）
-**实测结果**：`tests 68 · pass 65 · fail 0 · skipped 3`（`duration_ms` 随机器浮动，单次实测 508–530 ms 量级；**唯一稳定的判据是 68/65/0/3**）
+**实测结果**：`tests 90 · pass 89 · fail 0 · skipped 1`（`duration_ms` 随机器浮动，单次实测 508–530 ms 量级；**唯一稳定的判据是 68/65/0/3**）
 
 ### 2.1 四个测试文件与分布
 
@@ -57,31 +57,33 @@
 | 取件语义 | 已配置目录 / auto 取包 / 已存在跳过 / 空间预检 / 部分成功三分 | ✅ 覆盖充分 |
 | 错误信封 | 每个错误码都有用户文案**且不含绝对路径** | ✅ 这条很关键 |
 
-### 2.3 三个跳过项（**全部核实过原因**）
+### 2.3 唯一的跳过项（**已核实原因**）
 
 | 跳过的测试 | 原始原因 | 性质 |
 |---|---|---|
-| `④ 指向库外的文件符号链接 → SYMLINK_REJECTED` | `本环境无法创建文件符号链接：EPERM: operation not permitted` | **环境限制**（Windows 需要特权/开发者模式），合理 |
-| `指纹 v1：与 baseline-v1.json 记录的值一致（跨语言一致性）` | `缺 config.json 或 baseline-v1.json` | ⚠️ **数据源被删**（`config.json` 已退役） |
-| `uid: 整库唯一性（用真实素材库）` | `无 config.json` | ⚠️ **同上** |
+| `④ 指向库外的文件符号链接 → SYMLINK_REJECTED` | `本环境无法创建文件符号链接：EPERM: operation not permitted` | **环境限制**（Windows 需要特权/开发者模式），合理。目录联接（junction）能建，所以 ③ 那条会真跑 |
 
-> **2/3 的跳过是「测试自身的死引用」，不是环境限制。**
-> `config.json` 随 Python 档退役被删除（`README.md`），但这两个测试仍以它为数据源。
-> 后果：**跨语言指纹一致性**从「被验证」退化为「永远不验证」——
-> 而指纹正是「扫描前后库指纹一致」这条成功标准（标准 9）的判据。
-> 处置建议见 [`../audit/AUDIT-FINAL.md`](../audit/AUDIT-FINAL.md)。
+> ✅ **原先有 3 项跳过，D2 修复后只剩 1 项（2026-10-12）**。
+> 另两项（`指纹 v1` 与 `uid: 整库唯一性`）当时跳过是因为**它们在测试里自己直读 `config.json`** 拿库根，
+> 而那个文件早已随 Python 档退役删除 —— 也就是**测试在检一个生产已不再使用的主机制**。
+> 现在它们改用**与生产同序**的解析（`packages/engine/tests/lib-root.mjs`：`GEMMA_LIB_ROOT` → `config.json` → **索引自举**），
+> 于是**都真的跑起来了**：
+> - `指纹 v1：与 baseline-v1.json 记录的值一致` —— JS 与 Python 的指纹**逐字节一致**（真实跑）
+> - `uid: 整库唯一性` —— 扫过真实库全部图片，**0 处 UID 碰撞**
+>
+> ⚠️ **这不是"把测试改绿"**：库根来自索引元数据（生产的实际来源），**断言内容一个字没放松**。
 
-### 2.4 L1 **未覆盖**的区域（缺口）
+### 2.4 覆盖面（缺口）
 
 | 未覆盖 | 风险 |
 |---|---|
-| **IPC 分发层**（`apps/desktop/src/main/index.mjs` 的 `ipcMain.handle`） | 来源校验 / 载荷上限 / zod→引擎的接线顺序无测试 |
-| **preload 暴露面** | 「只暴露 3 个成员、不暴露 `ipcRenderer`」无自动化断言（靠人看 20 行） |
+| **IPC 分发层**（`apps/desktop/src/main/index.mjs` 的 `ipcMain.handle`） | 来源校验 / 载荷上限 / zod→引擎的接线顺序无测试。**新增的 3 个库配置方法也只有契约层校验测试**（`library-config.test.mjs` 测的是解析逻辑本身，不走 IPC） |
+| **preload 暴露面** | 「只暴露 3 个成员、不暴露 `ipcRenderer`」无自动化断言（靠人看 28 行） |
 | **`thumb://` 协议处理器** | 形状校验 / 库 id 大小写还原 / 尺寸白名单 / 缓存 —— **全部无测试** |
 | **`encoder.mjs`** | 需要真模型；`tools/verify_encoder_path.mjs` 是替代，但要手动给模型目录 |
-| **渲染层 hooks** | `useSearch` 的筛选/排序/错误分支、`useIndexStatus` —— 由 L3 部分覆盖 |
-| **`resolveQueryImage` 的 `.bmp`** | 库内 20 个「文件名 `.jpg` 实际是 BMP」走的是解码回退，与路径校验无关，但**回退路径本身未被单测** |
-| **`config.json` 缺失路径** | 这是 I2/R2 缺陷能长期存活的直接原因：**没有一条测试覆盖「配置缺失时的应用行为」** |
+| **渲染层 hooks** | `useSearch` 的筛选/排序/错误分支由 L3 部分覆盖；`useLibraryConfig`（D2 新增）未单测 |
+| **`resolveQueryImage` 的 `.bmp`** | 库内 20 个「文件名 `.jpg` 实际是 BMP」走解码回退，回退路径本身未单测（`verify_encoder_path.mjs` 的 2b 段覆盖了它，但那是守卫不是单测） |
+| ~~`config.json` 缺失路径~~ | ✅ **已覆盖**：`apps/desktop/tests/library-config.test.mjs` 12 条专测「库从哪来」的四种来源、损坏注册表降级、无库时的行为 |
 
 ---
 

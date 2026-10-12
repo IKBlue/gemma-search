@@ -18,12 +18,12 @@
 
 | 区域 | 文件数 | 行数 | 说明 |
 |---|---|---|---|
-| `packages/engine/src/` 引擎 | 6 | **868** | 零依赖，被 68 个单测直接跑 |
+| `packages/engine/src/` 引擎 | 6 | **868** | 零依赖，被 68 个引擎单测直接跑 |
 | `apps/desktop/src/main/` 主进程 | 3 | 473 | 窗口 / IPC / `thumb://` / 日志 / 编码器 |
 | `apps/desktop/src/renderer/src/` 界面 | 24 | ~800 | 22 个 `.jsx` + 3 hook + 1 CSS |
 | `apps/desktop/src/preload/` | 1 | 20 | 安全桥（产出 20 行，但它是安全边界） |
 | `apps/desktop/src/shared/` 契约 | 1 | 75 | 方法白名单 + zod |
-| `packages/engine/tests/` | 4 | 777 | `node:test`，68 项 |
+| `packages/engine/tests/` | 5 | 777 | `node:test`，68 项（+ `lib-root.mjs` 夹具） |
 | `tools/` 守卫 | 7 | 875 | 只读校验 |
 | `packages/indexer/src/` 索引构建 | 12 | 1521 | 离线实验室（**唯一**能建索引的地方） |
 | `scripts/` | 1 | 114 | 启动辅助 |
@@ -157,12 +157,15 @@
 1. **运行时参数校验**（`.strict()` ⇒ 多余字段直接拒绝）
 2. **允许的方法名白名单**（`METHOD_NAMES` 由 `Object.keys(Methods)` 派生）
 
-11 个方法：`search` · `item` · `indexStatus` · `scan` · `reveal` · `collect` ·
+13 个方法。**引擎方法 10 个**：`search` · `item` · `indexStatus` · `scan` · `reveal` · `collect` ·
 `ingest` · `mutate` · `indexStart` · `indexCancel`（后 4 个仅登记形状，主进程显式拒绝）。
+**库配置 3 个（D2 新增，不经引擎、由主进程直接处理）**：`libraryConfig` · `libraryPickDir` · `libraryAdd`。
 
 `validateCall()` 的顺序：方法名白名单 → 载荷 ≤ 1 MiB → zod `safeParse`。
 
 > ⚠️ **已知不一致**：`apps/desktop/src/preload/index.js` 里的两个通道名是**手抄的字面量**，不是 import。
+> 但**方法名不在 preload 里**（它通用转发 `invoke`），所以新增方法**不需要改 preload** —— 校验全在 zod 白名单。
+> 真正的坑是另一个：库配置这 3 个方法由主进程 `registerIpc` **显式分派**，不在引擎上；忘了分派会被当成"引擎无此方法"拒绝。
 > 这是刻意的（sandbox preload 的产物约束），但代价是**改通道名时必须同步这两处**（契约 + preload），
 > 否则 IPC 会静默断开。`AGENTS.md` §3 已把它列为「改动时必须同步」的点。
 
@@ -230,9 +233,9 @@ renderer/
 
 | # | 缺口 | 证据 | 性质 |
 |---|---|---|---|
-| I1 | **`reveal` 静默假成功** —— `shell` 从未注入，`reveal` 仍返回 `ok({revealed:true})` | `packages/engine/src/engine.mjs:434` vs `apps/desktop/src/main/index.mjs:118`；单测自己注入了 shell | **真实缺陷（静默谎报）** |
-| I2 | **配置来源已断** —— 读已删除的 `config.json` | `Test-Path config.json` → `False` | **真实缺陷（功能不可用）** |
-| I3 | **取件默认必失败** —— `collect.dirs` 为空 | `apps/desktop/src/main/index.mjs:119` | **真实缺陷（功能不可用）** |
+| I1 | ~~**`reveal` 静默假成功**~~ | ✅ **已修（F-01，2026-10-12）**：引擎返回 `PORT_MISSING`；主进程注入 `shell: createRevealPort(shell)`（`apps/desktop/src/main/ports.mjs`）；回归锁定见引擎 +5 条 / `apps/desktop/tests/ports.test.mjs` +4 条 / 守卫 §9 | ✅ **已修** |
+| I2 | ~~**配置来源已断** —— 读已删除的 `config.json`~~ | ✅ **已修（D2，2026-10-12）**：库改为四路解析（`GEMMA_LIB_ROOT` > `userData/library-registry.json` > `config.json` > **索引自举**），实现 `apps/desktop/src/main/library-config.mjs` | ✅ **已修** |
+| I3 | ~~**取件默认必失败** —— `collect.dirs` 为空~~ | ✅ **已修（F-04）**：默认 `{素材待用, 移出素材}`，可由注册表覆盖 | ✅ **已修** |
 | I4 | **入库 / CRUD / 索引任务 全未实现**（4 个方法显式拒绝） | `apps/desktop/src/main/index.mjs:191-195` | 按计划未做（P4/P5） |
 | I5 | **界面只有 1 页**（原型 6 页） | `apps/desktop/src/renderer/src/App.jsx` | 按计划未做（P3 的 3/4） |
 | I6 | 成功标准 1b（模型载入中排队）未实现 | `apps/desktop/src/renderer/src/hooks/useSearch.js` | 按计划未做（P3b） |

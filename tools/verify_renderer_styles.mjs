@@ -57,6 +57,9 @@ const stripComments = (s) => s
   .replace(/(^|[^:])\/\/.*$/gm, '$1');
 const cssFiles = walk(SRC, ['.css']);
 const jsxFiles = walk(SRC, ['.jsx']);
+// ⚠️ 渲染层不只有 .jsx：`hooks/*.js`（useSearch / useEngine / useLibraryConfig）同样是渲染层。
+// 原先只扫 .jsx/.css ⇒ 把阈值写进 .js 就能绕过 §5（独立复核 I-4 实测）。
+const jsFiles = walk(SRC, ['.js']);
 
 console.log('='.repeat(96));
 console.log('渲染层令牌纪律（docs/design/DESIGN-tokens.md §12）');
@@ -99,6 +102,50 @@ for (const f of cssFiles) {
 const dangling = [...used.keys()].filter((v) => !defined.has(v));
 ok(dangling.length === 0, `${used.size} 个令牌引用全部有定义`,
   dangling.length ? `悬空：${dangling.join(', ')}` : '');
+
+// ---------------------------------------------------------------- ③b 分数阈值不得落在渲染层（F-02）
+//
+// 为什么这条属于"令牌纪律"而不是别处：`band` 与颜色令牌是同一类东西 ——
+// **一个由引擎统一决定的视觉语义**。界面自己再算一套阈值，就等于又定义了一份"什么是高相关"，
+// 与 `docs/spec/CONTRACT-engine-v1.md` §2.1「界面只能用引擎给的 band」直接冲突。
+//
+// 这条以前只写在 Score.jsx 的注释里、靠人手 grep。注释不是守卫 —— 2026-10-12 的独立复核
+// 就是这么指出的（B-2）。现在它真的会被执行。
+//
+// 判定范围：渲染层里出现 `0.7x / 0.8x / 0.9x` 这种**比值常量**。
+// 为什么不用更窄的模式：阈值可以写成任何名字（`HIGH`、`SCORE_MIN`…），
+// 而渲染层**本来就不需要**任何 0.7–0.99 的比值来做别的（尺寸用整数、透明度用 0–1 但通常写 0.5/0.8…）。
+// ⚠️ 已知代价：0.8 之类的**透明度**会被误报。若将来真的需要，请把该值提成设计令牌
+// （`packages/design-tokens/tokens.css`），而不是在这里开白名单 —— 令牌才有唯一出处。
+console.log('\n--- 5) 渲染层不得自算分数阈值（F-02）---');
+// ⚠️ 模式要**同时**认带前导零与不带的写法（独立复核 I-6）：
+//   0.97 / 0.93（历史写法）· **.97 / .93**（省前导零，很常见，旧模式 `\b0\.` 会放行）
+// 同时也认 `97/100` 这种比值写法。故意**不**追求完备（那要真做数据流分析）——
+// 这里的目标是"让又有人开始自算阈值这件事在守卫里一眼可见"，不是形式化证明。
+const SCORE_THRESHOLD_PATTERNS = [
+  /(?<![\w.])(?:0)?\.[789]\d*(?![\w])/,   // .97 / 0.97 / 0.975
+  /\b(?:9[0-9]|8[5-9])\s*\/\s*100\b/,      // 97/100、88/100
+];
+const thresholdHits = [];
+for (const f of [...jsxFiles, ...jsFiles, ...cssFiles]) {   // ⚠️ 含 .js（I-4：hooks/useSearch.js 也是渲染层）
+  stripComments(fs.readFileSync(f, 'utf8')).split(/\r?\n/).forEach((line, i) => {
+    for (const re of SCORE_THRESHOLD_PATTERNS) {
+      const m = line.match(re);
+      if (m) { thresholdHits.push(`${rel(f)}:${i + 1}  ${m[0]}  ← ${line.trim().slice(0, 60)}`); break; }
+    }
+  });
+}
+ok(thresholdHits.length === 0,
+  '渲染层没有 0.7x/0.8x/0.9x 比值常量（含 `.97` 省前导零写法；档位只能来自引擎的 band）',
+  thresholdHits.length ? `发现 ${thresholdHits.length} 处（若确为透明度，请改用设计令牌）：\n      ${thresholdHits.join('\n      ')}` : '');
+// 正例锚：确认 Score.jsx 确实在**用** band，否则"没有阈值"可能只是因为整个功能被删了
+const scoreFile = path.join(SRC, 'ui', 'Score.jsx');
+const scoreSrc = fs.existsSync(scoreFile) ? stripComments(fs.readFileSync(scoreFile, 'utf8')) : '';
+ok(/band/.test(scoreSrc) && /BAND_TEXT/.test(scoreSrc),
+  'Score.jsx 仍以 band 为档位来源（不是把功能删了来通过上一条）');
+// 覆盖范围自证：确认 .js 真的进了扫描集（否则"扩到 .js"只是句空话）
+ok(jsFiles.length > 0, `扫描集含 ${jsFiles.length} 个 .js 文件（hooks/*.js 也是渲染层）`,
+  `jsx=${jsxFiles.length} js=${jsFiles.length} css=${cssFiles.length}`);
 
 // ---------------------------------------------------------------- ④ 裸 px 报告（不判失败）
 console.log('\n--- 4) 裸 px 报告（对照 §4.1 的 4pt 阶梯；仅提示）---');

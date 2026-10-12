@@ -85,9 +85,30 @@ const MOCK_RESULTS = [
 ];
 
 let eventCb = null;
+
+// `libraryConfig` 是 D2 修复引入的**启动首个调用**：它决定显示首启向导还是检索页。
+// 默认给"已有库"，这样下面所有检索相关断言走的都是**有库时的真实路径**。
+// 要测"无库 → 向导"这条分支，在 `__mockEmptyLibrary` 置真即可（见 §9）。
+let mockEmptyLibrary = false;
+// F-01：`reveal` 的成败要能被切换 —— 否则"界面把失败当成功"这条回归**测不出来**。
+// 默认成功（正常路径），置真则返回引擎在端口未注入时给的 `PORT_MISSING`。
+let mockRevealError = null;
+const MOCK_LIBRARIES = [{ libId: 'L1', root: 'G:\\model', label: '主库', source: 'index-meta' }];
+
 window.api = {
   async invoke(method, params) {
     calls.push({ method, params });
+    if (method === 'libraryConfig') {
+      return { ok: true, data: {
+        libraries: mockEmptyLibrary ? [] : MOCK_LIBRARIES,
+        collect: { dirs: { 素材待用: 'E:\\素材待用' }, default: '素材待用' },
+        chosen: mockEmptyLibrary ? null : 'index-meta',
+        diagnostics: [], warnings: [],
+        registryPath: 'C:\\Users\\x\\AppData\\Roaming\\gemma-search\\library-registry.json',
+      } };
+    }
+    if (method === 'libraryPickDir') return { ok: true, data: { canceled: false, path: 'G:\\model' } };
+    if (method === 'libraryAdd') return { ok: true, data: { added: { libId: 'L1', root: 'G:\\model' }, libraries: MOCK_LIBRARIES } };
     if (method === 'indexStatus') {
       return { ok: true, data: { libs: [{ libId: 'L1', label: '主库', root: 'G:\\model', rootExists: true,
         indexed: 3594, encoded: 3594, dim: 768, failed: 0, healthy: true, problems: [],
@@ -95,10 +116,16 @@ window.api = {
     }
     if (method === 'search') return { ok: true, data: { results: MOCK_RESULTS, tookMs: 42, libsSkipped: [] } };
     if (method === 'collect') return { ok: true, data: { succeeded: ['a'], skipped: [], failed: [], targetDir: 'G:\\取件\\2026' } };
-    if (method === 'reveal') return { ok: true, data: {} };
+    if (method === 'reveal') {
+      if (mockRevealError) return { ok: false, error: mockRevealError };
+      return { ok: true, data: { revealed: true, path: 'G:\\model\\VR\\ID-032109719124396.rar' } };
+    }
     return { ok: false, error: { code: 'INTERNAL', userMessage: 'mock 未实现：' + method } };
   },
   onEvent(cb) { eventCb = cb; return () => {}; },
+  /** 仅供本守卫内部切换 mock 行为（渲染层不会调用它） */
+  __setEmptyLibrary(v) { mockEmptyLibrary = v; },
+  __setRevealError(e) { mockRevealError = e; },
 };
 
 // ---------------------------------------------------------------- 3) 跑构建产物
@@ -138,13 +165,17 @@ ok(/3,594/.test(metricsText()), '指标卡显示真实条数 3,594', metricsText
 ok(/fp32/.test(metricsText()) && /seq140/.test(metricsText()), '指标卡显示精度与 seq', metricsText().replace(/\s+/g, ' ').slice(0, 80));
 
 console.log('\n--- 2) 文字检索 ---');
-const input = document.querySelector('#query');
+// 用 getter 而不是一次性快照：§8 之后应用会被卸载再装回来，
+// 快照会指向已脱离文档的旧节点（那时 dispatchEvent 不冒泡到 React 的根，点了等于没点）。
+const q = () => document.querySelector('#query');
+const sBtn = () => byText('button', '搜索图片 →');
+const input = q();
 ok(!!input, '找到检索输入框 #query');
-const searchBtn = byText('button', '搜索图片 →');
+const searchBtn = sBtn();
 ok(!!searchBtn, '找到「搜索图片 →」按钮');
 
-typeInto(input, '北欧吊灯');
-click(searchBtn);
+typeInto(q(), '北欧吊灯');
+click(sBtn());
 await tick(140);
 
 const searchCall = calls.find((c) => c.method === 'search');
@@ -172,7 +203,7 @@ const vrChip = byText('button', 'VR');
 calls.length = 0;
 click(vrChip);
 await tick(40);            // 等 React 提交分类状态
-click(searchBtn);
+click(sBtn());
 await tick(140);
 const filtered = calls.find((c) => c.method === 'search');
 ok(filtered && JSON.stringify(filtered.params.filters.folders) === JSON.stringify(['VR']),
@@ -181,8 +212,8 @@ click(byText('button', '全部'));
 
 console.log('\n--- 4) 拦截与提示 ---');
 calls.length = 0;
-typeInto(input, '   ');
-click(searchBtn);
+typeInto(q(), '   ');
+click(sBtn());
 await tick(60);
 ok(!calls.some((c) => c.method === 'search'), '空查询不去打主进程');
 ok(/请输入要查找的内容/.test(document.querySelector('.toast')?.textContent || ''),
@@ -196,7 +227,7 @@ ok(!!fileInput, '页面上有文件选择器');
 calls.length = 0;
 if (pickBtn) click(pickBtn);
 await tick(40);            // 等 React 提交查询方式
-click(searchBtn);
+click(sBtn());
 await tick(60);
 ok(!calls.some((c) => c.method === 'search'), '未选参考图时不发 IPC');
 ok(/请先选择一张参考图/.test(document.querySelector('.toast')?.textContent || ''),
@@ -207,15 +238,15 @@ Object.defineProperty(fileInput, 'files', { value: [{ name: 'ref.jpg', path: 'C:
 fileInput.dispatchEvent(new window.Event('change', { bubbles: true }));
 await tick(60);
 calls.length = 0;
-click(searchBtn);
+click(sBtn());
 await tick(140);
 const imgCall = calls.find((c) => c.method === 'search');
 ok(imgCall && imgCall.params.mode === 'image' && imgCall.params.queryImagePath === 'C:\\tmp\\ref.jpg',
   '选图后 search 带上 queryImagePath', imgCall ? JSON.stringify({ mode: imgCall.params.mode, p: imgCall.params.queryImagePath }) : '');
 
 console.log('\n--- 6) 卡片动作 ---');
-typeInto(input, '北欧吊灯');
-click(searchBtn);
+typeInto(q(), '北欧吊灯');
+click(sBtn());
 await tick(140);
 const acts = (i) => [...cards()[i].querySelectorAll('.card-acts button')];
 ok(acts(0)[0].disabled === false, '有包的卡片「定位」可用');
@@ -232,6 +263,154 @@ console.log('\n--- 7) 主进程事件 ---');
 if (eventCb) eventCb({ type: 'encoder.ready', device: 'webgpu', loadMs: 2400 });
 await tick(80);
 ok(/webgpu/.test(metricsText()), 'encoder.ready → 指标卡显示设备（webgpu）', metricsText().replace(/\s+/g, ' ').slice(0, 90));
+
+console.log('\n--- 8) 首启向导（D2 修复：一个库都没有时必须先向导，不能直接进检索页）---');// 怎么测这条分支：`main.jsx` 在 bundle 上挂了 `__DSH_RENDER` 钩子，可**按源码相对路径**
+// 重新挂载任意渲染层组件（用 Vite 的 import.meta.glob 在构建期收集，无需在守卫里写 import 路径，
+// 也不会把任何调试入口带进产物之外的开放面）。这样就不必真的去写用户注册表。
+{
+  window.api.__setEmptyLibrary(true);
+
+  const gateSrc = 'pages/LibraryGate.jsx';
+  if (typeof window.__DSH_RENDER !== 'function' || !window.__DSH_ROOT) {
+    ok(false, 'main.jsx 提供了 __DSH_RENDER / __DSH_ROOT（否则向导分支无法被验证）');
+  } else {
+    // **从零复现首启**：先卸掉应用本体，再用同一个 #root 挂 LibraryGate。
+    // 不这么做就是在"装饰"一个已经渲染好的检索页，测不出"无库时不该进检索页"。
+    window.__DSH_ROOT.unmount();
+    calls.length = 0;
+
+    const mounted = await window.__DSH_RENDER(gateSrc, window.__DSH_ROOT.element);
+    if (!mounted || !mounted.ok) {
+      ok(false, `能挂载 ${gateSrc}`, JSON.stringify(mounted));
+    } else {
+      await tick(160);
+      ok(document.querySelector('.wizard-overlay') !== null, '空库时渲染出向导遮挡层');
+      ok(document.querySelector('.sidebar') === null,
+        '空库时**不**渲染检索界面 —— 整个文档里没有侧栏（不是只看某个容器）');
+      const btns = [...document.querySelectorAll('.wizard button')];
+      const labels = btns.map((b) => b.textContent.trim());
+      ok(labels.some((t) => t.includes('选择文件夹')), '向导有「选择文件夹…」按钮', labels.join(' | '));
+      const addBtn = btns.find((b) => b.textContent.includes('添加这个库'));
+      ok(!!addBtn, '向导有「添加这个库」按钮', labels.join(' | '));
+      ok(addBtn && addBtn.disabled === true, '未选目录时「添加这个库」被禁用（不能提交空路径）');
+
+      // 点「选择文件夹…」→ 必须真的去调主进程（mock 会回一个路径）
+      calls.length = 0;
+      const pickBtn = btns.find((b) => b.textContent.includes('选择文件夹'));
+      if (pickBtn) { pickBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); await tick(140); }
+      ok(calls.some((c) => c.method === 'libraryPickDir'), '点「选择文件夹…」→ 调了 libraryPickDir',
+        calls.map((c) => c.method).join(','));
+      // 选到路径后「添加这个库」必须变为可用
+      const addBtn2 = [...document.querySelectorAll('.wizard button')].find((b) => b.textContent.includes('添加这个库'));
+      ok(addBtn2 && addBtn2.disabled === false, '选到目录后「添加这个库」变为可用');
+
+      mounted.unmount();
+    }
+  }
+  window.api.__setEmptyLibrary(false);
+}
+
+console.log('\n--- 9) 定位的失败路径（F-01：失败必须显示失败，不许静默假成功）---');
+{
+  // §8 把应用卸掉换成了向导。后面两段要接着用检索界面，所以先把应用**装回来**
+  // （mock 的空库开关已复位 ⇒ LibraryGate 会渲染 SearchPage）。
+  const remount = await window.__DSH_RENDER('pages/LibraryGate.jsx', window.__DSH_ROOT.element);
+  await tick(160);
+  ok(!!remount && remount.ok, '把应用装回来（§8 卸载后的恢复）', remount ? `ok=${remount.ok}` : 'undefined');
+
+  // F-01 的原始症状：引擎在端口缺失时**照样**返回 ok({revealed:true})，
+  // 于是界面显示「已在资源管理器中定位」而资源管理器毫无动静。
+  // 这条断言就是那个症状的**回归锁定**：mock 给出 PORT_MISSING 时，界面绝不能显示成功。
+  window.api.__setRevealError({
+    code: 'PORT_MISSING',
+    message: '未注入 shell 端口',
+    userMessage: '这个功能在当前环境里不可用（缺少所需的系统接口）。',
+    details: { port: 'shell' },
+  });
+  typeInto(q(), '北欧吊灯');
+  click(sBtn());
+  await tick(160);
+
+  calls.length = 0;
+  const card0 = cards()[0];
+  const locateBtn = card0 && [...card0.querySelectorAll('.card-acts button')][0];
+  ok(!!locateBtn, '检索后有卡片可取「定位」按钮');
+  if (locateBtn) { click(locateBtn); await tick(140); }
+  const revealCall = calls.find((c) => c.method === 'reveal');
+  ok(!!revealCall, '点「定位」→ 调了 reveal', calls.map((c) => c.method).join(','));
+  ok(revealCall && revealCall.params && revealCall.params.libId === 'L1'
+     && typeof revealCall.params.uid === 'string'
+     && (revealCall.params.target === 'archive' || revealCall.params.target === 'image'),
+    'reveal 请求形状符合契约 §2.4（libId / uid / target）',
+    revealCall ? JSON.stringify(revealCall.params) : '');
+  const toastText = () => (document.querySelector('.toast')?.textContent || '');
+  ok(!/已在资源管理器中定位/.test(toastText()),
+    '⭐ 失败时**不得**显示「已在资源管理器中定位」（F-01 的静默假成功回归）', toastText());
+  ok(/不可用|系统接口/.test(toastText()),
+    '失败时显示主进程给的 userMessage（不是自编文案）', toastText());
+  window.api.__setRevealError(null);
+
+  // ⭐ 成功路径也要断言（F-01 复核 R-1）：成功文案**不得声称已定位** ——
+  // 引擎只保证「文件在盘上 + 端口被调用过」，`shell.showItemInFolder` 不报告结果。
+  // 原先这条路径**全仓无断言**，所以"成功提示过度声称"一直没人发现。
+  // 注意：toast 没有"清空"接口且消息会保留，所以这里靠**文案内容不同**来区分 ——
+  // 上一轮是失败文案，若成功文案没被写出来，断言会看到旧失败文案而失败。这比"非空"强。
+  typeInto(q(), '北欧吊灯');
+  click(sBtn());
+  await tick(160);
+  const okBtn = cards()[0] && [...cards()[0].querySelectorAll('.card-acts button')][0];
+  if (okBtn) { click(okBtn); await tick(140); }
+  const okToast = toastText();
+  ok(!/不可用|系统接口/.test(okToast), '成功时不再显示上一轮的失败文案（说明成功路径真的写了反馈）', okToast);
+  ok(!/已在资源管理器中定位/.test(okToast),
+    '⭐ 成功文案**不得**写成「已在资源管理器中定位」（我们并不知道资源管理器做了什么）', okToast);
+  ok(/已请求|定位/.test(okToast), '成功文案说清楚"已请求"而不是断言结果', okToast);
+}
+
+console.log('\n--- 10) 档位来自引擎（F-02：界面不得自算阈值）---');
+{
+  // mock 里第一条是 score=0.9312 / band='high'，第二条是 0.81 / band='mid'。
+  // 用**引擎的真实阈值**看：0.81 在文本模态下是 mid（≥0.65），压根不是「较弱」。
+  // 界面原先自写 0.97/0.93 ⇒ 两条都会被标成「较弱」——这正是 F-02 的原始症状。
+  const badges = () => [...document.querySelectorAll('.score')];
+  const textOf = (el) => (el?.textContent || '');
+  await tick(40);
+  typeInto(q(), '北欧吊灯');
+  click(sBtn());
+  await tick(140);
+  const bs = badges();
+  ok(bs.length >= 2, `渲染出 ${bs.length} 个分数徽标`, `实际 ${bs.length}`);
+  if (bs.length < 2) {
+    // 拿不到两条就明确判失败并跳过下面几条 —— 不要让 `bs[1].dataset` 崩栈，
+    // 那样后面的断言全被跳过，看起来像"守卫没跑完"而不是"这里有问题"。
+    ok(false, '至少需要 2 条结果才能验证档位映射');
+  } else {
+  const b0 = bs[0], b1 = bs[1];
+  ok(/同款区间/.test(textOf(b0)), "band='high' → 文案「同款区间」", textOf(b0));
+  ok(/很接近/.test(textOf(b1)), "band='mid' → 文案「很接近」", textOf(b1));
+  ok(!/较弱/.test(textOf(b1)), '⭐ band=mid 的那条**不得**出现「较弱」（F-02 原始症状）', textOf(b1));
+  ok(b0.dataset.band === 'high' && b1.dataset.band === 'mid',
+    'data-band 原样反映引擎给的档位（不是界面换算出来的）',
+    `${b0.dataset.band} / ${b1.dataset.band}`);
+  }
+
+  // 诚实降级：引擎不给 band ⇒ 只显示分数，不猜档位。
+  // 用注入式渲染单独挂一个「无 band」的徽标，而不是指望 mock 数据里恰好有一条。
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const one = await window.__DSH_RENDER('ui/Score.jsx', host, { score: 0.81 });
+  if (!one || !one.ok) {
+    ok(false, '能单独挂载 Score.jsx 以验证缺 band 的降级', one ? `ok=${one.ok} err=${one.error || ''}` : 'undefined');
+  } else {
+    await tick(60);
+    const t = host.textContent || '';
+    ok(!/同款区间|很接近|较弱/.test(t),
+      '⭐ 缺 band 时只显示分数，**不猜档位**（诚实降级）', t);
+    ok(/0\.8100/.test(t), '缺 band 时分数本身仍显示', t);
+    one.unmount();
+  }
+  host.remove();
+}
 
 console.log('\n' + '='.repeat(96));
 if (problems.length) {

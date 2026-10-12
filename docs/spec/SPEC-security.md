@@ -252,16 +252,17 @@ new BrowserWindow({
 
 ### 7.5 测试运行器的现状（如实记录一处规格偏离）
 
-`docs/spec/SPEC-app.md` §7 曾写 vitest。**当前引擎的 68 条测试跑在 `node:test` 上**
+`docs/spec/SPEC-app.md` §7 曾写 vitest。**当前测试共 90 条（引擎 74 + 桌面 16）跑在 `node:test` 上**
 （`packages/engine/tests/*.test.mjs`）—— 起因是当时受限沙箱下 `npm install` 会 EPERM，
 于是引擎刻意做成**零依赖**（这也让"引擎传输无关"变成最强的形式：它连测试框架都拉不进来）。
 
 现状与处置：
 
 - **引擎继续用 `node:test`** —— 零依赖是引擎的一项特性，不是权宜
-- **应用侧（`apps/desktop/`）目前没有任何自动化测试** —— `vitest` 装了但**一行用例都没有**（0 使用）。
-  要么接线，要么删除；**在没有用例之前，不得声称应用侧有测试**。
-- 跳过的 3 条里，有 2 条的根因是 `config.json` 已被删除（死引用，见 §7.6）
+- **应用侧的自动化测试仍很薄**：`vitest` 装了但**一行用例都没有**（0 使用）——要么接线，要么删除；
+  **在没有用例之前，不得声称应用侧有测试**。D2 之后新增了 `apps/desktop/tests/library-config.test.mjs`（12 条），
+  但它**跑在 `node:test` 上、只测库配置解析**（纯逻辑，不经 IPC），不等于应用侧有测试覆盖。
+- ✅ **跳过数 3 → 1**（2026-10-12）：另两条当时跳过是因为测试自己读已删除的 `config.json`，现改用与生产同序的库根解析后真跑（见 §7.6 末）
 
 ### 7.6 流水线与约束
 
@@ -269,9 +270,13 @@ new BrowserWindow({
 - 新增依赖要过 `docs/spec/SPEC-app.md` §8 的 "Ask first"
 - 安全升级单独提交并跑全测试；**不启用** `npm audit fix --force` 这类自动大版本变更
 - Electron/Chromium 安全更新列入 P6 发布检查：**升级 Electron 必须重跑 §8 的权限测试用例**
-- **未修的上游缺口（如实登记）**：主进程仍从 `config.json`（或 `GEMMA_CONFIG`）读库根，
-  而该文件已不在仓库里 → 找不到时静默用空库；这使 §8 里两条依赖 `config.json` 的用例**永久跳过**。
-  处置属代码线（见 `AGENTS.md` §7「D2」）。
+- ✅ **原先登记的「未修上游缺口」已修（D2，2026-10-12）**：库不再只从 `config.json` 读，而是四路解析
+  （`GEMMA_LIB_ROOT` > `userData/library-registry.json` > `config.json` > **索引自举**）；
+  取件白名单 `collect.dirs` 也不再为空（F-04 同时解决）。实现 `apps/desktop/src/main/library-config.mjs`。
+  ⚠️ **但 §8 的 16 条权限用例仍然没有任何自动化实现** —— 那一条欠账没变，且现在多了一个新面：
+  新增的 `libraryPickDir` 会**弹出系统目录选择框**，它是渲染层唯一能让用户"主动指一个路径"的入口，
+  **必须有人复核它的滥用面**（当前设计：它只把结果交回主进程，不把路径能力授予渲染层）。
+- **仍未修**：`P5` 的真·多库注册表 CRUD（`LibraryRegistry` 仍是纯内存派生，无持久化）
 
 ---
 

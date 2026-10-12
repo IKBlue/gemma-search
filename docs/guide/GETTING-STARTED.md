@@ -13,11 +13,12 @@
 |---|---|
 | 跑引擎单测、构建三端、跑守卫 | ✅ 能 |
 | 打开应用窗口、看到界面骨架 | ✅ 能（有实跑证据 `reports/G-D-p2-electron/`） |
-| **用中文检索出结果** | ❌ **不能开箱即用**：仓库里没有 `config.json`，而主进程仍从它读库根 → 空库启动（缺口 D2，见 [`AGENTS.md`](AGENTS.md) §7） |
+| **用中文检索出结果** | ✅ **本机可以**：库按四路解析，其中**已有索引自举**（`data/libraries/*/meta.json` 的 `lib_root`）让本机**零配置即用**（D2 已修 2026-10-12）。干净机器上则显示**首启向导**让你选库文件夹 |
+| 首次建索引（干净机器） | ⚠️ 目前要手工跑 `packages/indexer/src/build_index_onnx.mjs` —— 界面里的「建索引」是 P3d，尚未做（`indexStart` 被显式拒绝） |
 | 入库 / 增量 / 多库管理 | ❌ 未实现（P4/P5） |
 | 打包分发给别的机器 | ❌ 未做（P6） |
 
-**所以第一次跑的目标是**：单测绿、构建过、窗口出得来、守卫通过。**不要**把"检索没结果"当成装错了。
+**所以第一次跑的目标是**：单测绿、构建过、窗口出得来、守卫通过；**本机还能直接检索**（库从索引自举）。
 
 ---
 
@@ -80,7 +81,7 @@ Windows 上 Electron 是 GUI 子系统程序，**stdout 不连终端**，`consol
 ## 3. 验收：确认你的环境是对的
 
 ```powershell
-npm test                                  # 期望：tests 68 · pass 65 · fail 0 · skipped 3
+npm test                                  # 期望：tests 90 · pass 89 · fail 0 · skipped 1
 npm run build                             # 期望：out/{main,preload,renderer} 三端齐备
 
 node tools\verify_app_build.mjs           # 产物形状
@@ -89,10 +90,12 @@ node tools\verify_renderer_styles.mjs     # 样式与令牌一致性
 node tools\verify-doc-refs.mjs            # 文档引用解算 + 根目录越界
 ```
 
-**3 项跳过是正常的**，但要知道为什么（详见 [`AGENTS.md`](AGENTS.md) §5.1）：
+**只有 1 项跳过**，原因是环境限制（详见 [`AGENTS.md`](AGENTS.md) §5.1）：
 
-1. 本环境无法创建文件符号链接（`EPERM`）→ 符号链接拒绝用例跳过；
-2. 另两项以 `config.json` / `baseline-v1.json` 为数据源，而 `config.json` 已不在仓库里 → **死引用，会永久跳过**。
+1. 本环境无法创建**文件**符号链接（`EPERM`）→ 那条「库内指向库外的符号链接必须被拒」跳过（目录联接能建，文件符号链接不能）。在能建链接的机器上会真跑。
+
+> ✅ 原先还有**两条永久跳过**（它们在测试里自己直读已删除的 `config.json`）。D2 修复后它们改用**与生产同序**的库根解析（`packages/engine/tests/lib-root.mjs`），于是**都真跑起来了**：
+> 指纹与 Python 侧**逐字节一致**、整库 **0 处 UID 碰撞**。跳过 3 → 1。
 
 需要模型的守卫（`verify_encoder_path.mjs`）与需要查询向量的自查（`check_search.mjs`）不是第一天的必跑项。
 

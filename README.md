@@ -17,8 +17,8 @@
 
 | | 状态 |
 |---|---|
-| **引擎** `packages/engine/` | ✅ 单测期望 `68 项 · 65 过 · 0 失败 · 3 跳过`（其中 2 项因依赖已删除的 `config.json` 而永久跳过，见 §4） |
-| **桌面外壳** `apps/desktop/` | ✅ 已在 Electron 内实跑出窗（React 渲染 + WebGPU 编码器载入，证据 `reports/G-D-p2-electron/`；**引用既有证据，本轮未复跑**） |
+| **引擎** `packages/engine/` | ✅ 测试期望 `90 项 · 89 过 · 0 失败 · 1 跳过`（引擎 74 + 桌面 16）。**那 1 项跳过是环境限制**（无法建文件符号链接）；原先另有 2 项"永久跳过"，D2 修复后已复活，见 §4 |
+| **桌面外壳** `apps/desktop/` | ✅ 已在 Electron 内实跑出窗（React 渲染 + WebGPU 编码器载入，证据 `reports/G-D-p2-electron/`；**引用既有证据，本轮未复跑**）。✅ 库从四路解析（含索引自举），无库时给**首启向导** |
 | **索引** | ✅ 已接受：`data/libraries/L1/`（3594 条 · dim 768 · float32）。**该索引在本机的存在性与可读性未在本轮核实** |
 | **G-B 索引质量判定** | ✅ v2 判 **PASS**（min 0.967894 · 中位 0.999263；证据 `reports/G-B-20261010-v2/`）。判据脚本已随旧档退役，**不可复跑** |
 | **P3 界面** | ⚠️ **只完成 4 步中的第 1 步**：`App.jsx` 只挂了 `<SearchPage />`。其余页面未做 |
@@ -27,7 +27,11 @@
 | **P6 打包与离线分发** | ❌ 未做：无安装器产物；`build/` 里只有图标与签名配置 |
 | **④ 人工复核** | ⏳ 未执行（非门槛，所有者决定） |
 
-> **开箱即用的边界（重要）**：仓库里**没有配置文件**，而主进程仍从 `config.json`（或 `GEMMA_CONFIG`）读库根。找不到时它静默用空库 → `npm run dev` 出来的应用**检索不出结果**（只会得到 `LIB_NOT_FOUND`）。这是记录在案的缺口（D2），**未修**，详见 [`AGENTS.md`](AGENTS.md) §7。
+> **开箱可用（D2 已修，2026-10-12）**：主进程不再只认 `config.json`。库按**四条优先级**解析
+> （`GEMMA_LIB_ROOT` 环境变量 → `userData/library-registry.json` → `config.json` → **已有索引自举**），
+> 最后一条让**本机零配置可用** —— 索引的 `meta.json` 里本就存着 `lib_id` 与 `lib_root`。
+> 一个库都没有时（干净机器），界面显示**首启向导**让你选文件夹，而不是静默空库 + `LIB_NOT_FOUND`。
+> 实现见 `apps/desktop/src/main/library-config.mjs`，测试 `apps/desktop/tests/library-config.test.mjs`（12 条）。
 
 > **本项目没有 Python**：早期存在一套 Python 检索档，已于 2026-10-10 整体退役 —— 仓库自身 **0 个 `.py` 文件**（`node_modules/` 里第三方自带的除外）。退役的代价与欠账记在 [`docs/DEBT-CLEANUP.md`](docs/DEBT-CLEANUP.md)。
 
@@ -136,9 +140,12 @@ node packages/indexer/src/build_index_onnx.mjs --model <ONNX 模型目录> --lib
 - **未验证的能力**：**冷启动耗时 · 打包后行为 · 真实 `thumb://` 取图** 均**尚未验证**，不要据此声称可用。
 - **它是嵌入模型，不产出文字描述。** 只能回答「哪张图与你的查询最接近」，不能告诉你「图里是什么」。
 - 检索**不写素材库、不移动、不复制文件**：结果是路径。
-- **库根配置缺口（D2，未修）**：仓库里没有 `config.json`，主进程却读它 → 空库启动、检索恒 `LIB_NOT_FOUND`。
+- **库从哪来（D2，✅ 已修 2026-10-12）**：主进程按四条优先级解析，① `GEMMA_LIB_ROOT` 环境变量
+  ② `userData/library-registry.json` ③ `config.json`（兼容回退，**不要求你去配**）
+  ④ **已有索引自举**（`data/libraries/*/meta.json` 里存着 `lib_id` + `lib_root`）。
+  ⇒ **有索引的机器零配置即用**；一个库都没有时，界面显示**首启向导**让你选文件夹，而不是让你对着 `LIB_NOT_FOUND` 发愣。
 - **多库不是真的（D8）**：当前只有「从配置派生单库」，**没有持久化的库注册表**（P5 未做）。
-- **`reveal` 是静默假成功（F-01，未修）**：主进程从未注入 `shell` 端口，引擎却仍返回 `ok({revealed:true})`。
+- **`reveal` 已修（F-01，2026-10-12）**：引擎在端口缺失时返回 `PORT_MISSING`（不再静默假成功），主进程已注入 `shell` 端口。⚠️ 边界：`shell.showItemInFolder` 返回 void、不报失败，只保证「文件在盘上 + 端口被调用过」。旧描述：rue})`。
 - **契约方法与实现不同步**：`ingest` / `mutate` / `indexStart` / `indexCancel` 已在契约里冻结形状，但主进程**显式拒绝**（P4/P5 欠账）。见 [`docs/spec/CONTRACT-engine-v1.md`](docs/spec/CONTRACT-engine-v1.md)。
 - 预览图里有 **20 个文件名叫 `.jpg`、实际内容是 BMP**（集中在 `VR`）。解码路径会自动回退，**它们不是坏文件**。
 - 素材库**再次移动**会让索引里的绝对路径失效，需要重建。

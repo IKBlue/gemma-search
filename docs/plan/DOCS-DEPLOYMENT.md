@@ -67,15 +67,18 @@ npm run start:restricted    # 跑构建产物（file://）
 
 ---
 
-## 2. ⚠️ 配置：**当前状态是断的**（必须先修才能部署）
+## 2. ✅ 配置：**已修**（D2 · 2026-10-12）
 
-| 文档说 | 代码做 | 实际 |
+> **以下是修复前的原文与实际状态**，保留作记录 —— 它说明这个部署阻塞项**当时是什么样、为什么必须修**。
+> 修复内容见本节末尾。
+
+| 文档说（当时） | 代码做（当时） | 实际（当时） |
 |---|---|---|
 | `README.md`：「**没有配置文件了**。旧的 `config.json` / 环境变量体系随 Python 层一起删除。素材库位置由应用内的**库注册表**管理」 | `apps/desktop/src/main/index.mjs` 的 `loadConfig()` 读 **`config.json`**；`GEMMA_CONFIG` 环境变量优先 | `Test-Path config.json` → **False** ⇒ 配置读不到 |
-| `README.md`：库注册表在 `packages/engine/src/library.mjs` | `LibraryRegistry` 是**纯内存派生**，`packages/engine/src/library.mjs` 的注释自己写「P1 从 `config.json` 派生单库；**P5 扩为真正的多库注册表**」 | **无持久化** |
-| ~~`docs/plan/PRE-KICKOFF-CHECK.md` 教用户「克隆后必须知道去哪配 `library_root`」~~ | 同左 | **该文件已删除**（本轮重构 P3 并入 `AGENTS.md`）；这条当年的"文档三方互斥"随之消失，但**代码侧读 `config.json` 的行为没变** |
+| `README.md`：库注册表在 `packages/engine/src/library.mjs` | `LibraryRegistry` 是**纯内存派生**，注释自己写「P1 从 `config.json` 派生单库；**P5 扩为真正的多库注册表**」 | **无持久化**（P5 才做） |
+| ~~`docs/plan/PRE-KICKOFF-CHECK.md` 教用户「克隆后必须知道去哪配 `library_root`」~~ | 同左 | **该文件已删除**（本轮重构并入 `AGENTS.md`） |
 
-**后果链**：
+**当时的后果链**：
 
 ```
 config.json 不存在
@@ -87,9 +90,22 @@ config.json 不存在
   → collect 也必失败（collect.dirs = {}）
 ```
 
-⇒ **本仓库当前状态「克隆下来按 README 跑」是跑不出结果的。** 这是一个**部署阻塞项**，
-处置属代码线（要的是"配置来源"的一次设计决策，不是再写一份 `config.json` 教学段），
-定性见 [`../audit/AUDIT-FINAL.md`](../audit/AUDIT-FINAL.md) 与 `AGENTS.md` §7「D2」。
+### ✅ 已修：库的四条来源 + 首启向导（2026-10-12）
+
+**代码行为已变**，本次部署不再有这一阻塞项：
+
+| 现在 | 说明 |
+|---|---|
+| **① `GEMMA_LIB_ROOT` 环境变量** | 显式覆盖，`tools/` 里的守卫一直用这个惯例 |
+| **② `userData/library-registry.json`** | 决策 9 的正规存储；由首启向导写入 |
+| **③ `config.json`** | **只是兼容回退**，不再要求用户去配它 |
+| **④ 已有索引自举** | 读 `data/libraries/*/meta.json` 的 `lib_id` + `lib_root` ⇒ **本机零配置可用** |
+| **取件白名单** | 不再为空：默认 `E:\素材待用` / `E:\移出素材`（F-04 同时解决） |
+| **无库时** | 界面显示**首启向导**（选文件夹 → 写注册表），不是裸 `LIB_NOT_FOUND` |
+
+实现 `apps/desktop/src/main/library-config.mjs`；测试 `apps/desktop/tests/library-config.test.mjs`（12 条）
++ `tools/verify_renderer_dom.mjs` §8（7 条）。定性见 [`../audit/AUDIT-FINAL.md`](../audit/AUDIT-FINAL.md) 与 `AGENTS.md` §7。
+**仍然断的**：`loadConfig()` 本身没删（它是第③层），只是不再是主来源；`P5` 的真·多库注册表 CRUD 仍欠。
 
 ---
 
@@ -171,7 +187,7 @@ node -v                                  # 期望 ≥ v20
 npm install                              # 卡住见 §1.2 镜像方案
 
 # 2) 引擎自证（不需要模型/GPU）
-npm test                                 # 期望 tests 68 / pass 65 / fail 0 / skipped 3
+npm test                                 # 期望 tests 90 / pass 89 / fail 0 / skipped 1
 
 # 3) 构建三端
 npm run build

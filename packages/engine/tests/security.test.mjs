@@ -13,6 +13,7 @@ import { isSafeRelPath, resolveInLibrary, resolveQueryImage, assertCollectDirAll
          LibraryRegistry } from '../src/library.mjs';
 import { ERR, EngineError } from '../src/errors.mjs';
 import { fingerprintV1, fingerprintLines } from '../src/fingerprint.mjs';
+import { resolveTestLibraryRoot } from './lib-root.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // 仓库根：测试跟着引擎包走（`packages/engine/tests/`），但 `config.json` / `data/` 仍在
@@ -184,17 +185,20 @@ test('注册表：索引里的 relPath 若被投毒（..\\..）→ 仍被拦住'
 // ---------------- 指纹：与 Python 侧记录值交叉验证 ----------------
 
 test('指纹 v1：与 baseline-v1.json 记录的值一致（跨语言一致性）', (t) => {
-  const cfgPath = path.join(ROOT, 'config.json');
   const basePath = path.join(ROOT, 'data', 'baseline-v1.json');
-  if (!fs.existsSync(cfgPath) || !fs.existsSync(basePath)) return t.skip('缺 config.json 或 baseline-v1.json');
-  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  if (!fs.existsSync(basePath)) return t.skip('缺 baseline-v1.json');
+  // 库根用与生产同序的解析（环境变量 → config.json → 索引自举），
+  // 不再只认已删除的 config.json —— 否则这条会**永久跳过**（见 lib-root.mjs 文件头）
+  const found = resolveTestLibraryRoot(ROOT);
+  if (!found) return t.skip('本机没有可用的素材库根（GEMMA_LIB_ROOT / config.json / 索引 meta 都没有）');
   const base = JSON.parse(fs.readFileSync(basePath, 'utf8'));
   const recorded = base.disk && base.disk.fingerprint_v1;
-  if (!recorded || !fs.existsSync(cfg.library_root)) return t.skip('无记录值或库不存在');
+  if (!recorded) return t.skip('baseline-v1.json 里没有记录 fingerprint_v1');
 
-  const got = fingerprintV1(cfg.library_root);
+  const got = fingerprintV1(found.root);
   assert.equal(got.fingerprint, recorded,
     'JS 与 Python 算出的指纹必须逐字节一致，否则等于没有指纹');
   assert.equal(got.counts.files, base.disk.files_total);
-  t.diagnostic(`库 ${got.counts.images} 图 + ${got.counts.archives} 包 · 指纹 ${got.fingerprint.slice(0, 12)}`);
+  t.diagnostic(`库 ${got.counts.images} 图 + ${got.counts.archives} 包 · 指纹 ${got.fingerprint.slice(0, 12)}` +
+               ` · 库根来自 ${found.source}`);
 });

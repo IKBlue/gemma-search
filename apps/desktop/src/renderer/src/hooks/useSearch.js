@@ -1,4 +1,4 @@
-// useSearch —— 检索状态机（参数拼装 / IPC / 排序 / 错误与提示 / console 证据）
+﻿// useSearch —— 检索状态机（参数拼装 / IPC / 排序 / 错误与提示 / console 证据）
 //
 // 与界面解耦：界面只调 run()/reveal()/collect() 并读状态。
 // 分类筛选按**原型的交互**做成单选（'全部' = 不筛），排序在本地对结果做（原型：相关度优先 / 文件名）。
@@ -77,7 +77,13 @@ export default function useSearch({ invoke, onToast }) {
 
   const reveal = useCallback(async (item) => {
     const r = await invoke('reveal', { libId: item.libId, uid: item.uid, target: item.archive ? 'archive' : 'image' })
-    onToast(r.ok ? '已在资源管理器中定位' : (r.error && r.error.userMessage) || '定位失败', r.ok ? 'info' : 'err')
+    // ⚠️ 成功文案**不能写成「已在资源管理器中定位」**（F-01 独立复核的 R-1）。
+    // `r.ok` 只等价于「文件在盘上 + shell 端口被调用过」—— Electron 的
+    // `shell.showItemInFolder` **返回 void、不报告失败**，所以我们**不知道**资源管理器有没有真的弹出来。
+    // 写「已定位」就是又一次过度声称：用户没看到窗口时会以为是应用的 bug。
+    // 见 `packages/engine/src/engine.mjs` reveal 处的注释与 `docs/spec/CONTRACT-engine-v1.md` §2.4。
+    onToast(r.ok ? '已请求在资源管理器中定位（系统未回报结果）' : (r.error && r.error.userMessage) || '定位失败',
+            r.ok ? 'info' : 'err')
   }, [invoke, onToast])
 
   const collect = useCallback(async (item) => {

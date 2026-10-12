@@ -41,7 +41,9 @@ export function useIndexStatus() {
         setState({
           loading: false,
           lib,
-          error: lib ? null : { userMessage: '未配置素材库（config.json 的 library_root）' },
+          // 库有无的**权威判定**在 LibraryGate（它调 `libraryConfig`）。
+          // 这里只是兜底文案：走到这一步而 lib 为空，说明库配置与索引状态不一致。
+          error: lib ? null : { userMessage: '这个库还没有索引（或索引与库配置不一致）' },
         })
         if (lib) {
           console.log(`[ui] indexStatus → ${lib.libId} ${lib.encoded}/${lib.indexed} dim=${lib.dim} healthy=${lib.healthy}`)

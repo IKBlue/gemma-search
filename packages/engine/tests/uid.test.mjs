@@ -12,6 +12,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { resolveTestLibraryRoot } from './lib-root.mjs';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // 仓库根：测试跟着引擎包走（`packages/engine/tests/`），但 `config.json` 在**仓库根** ——
 // 向上找标记文件，不假设固定层级（搬目录也不会失效）。
@@ -66,11 +68,11 @@ test('uid: 黄金向量（锁住当前行为，改动即报警）', () => {
 });
 
 test('uid: 整库唯一性（用真实素材库；库不存在则跳过）', (t) => {
-  const cfgPath = path.join(ROOT, 'config.json');
-  if (!fs.existsSync(cfgPath)) return t.skip('无 config.json');
-  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-  const libRoot = cfg.library_root;
-  if (!libRoot || !fs.existsSync(libRoot)) return t.skip('素材库不存在：' + libRoot);
+  // 库根用与生产同序的解析（环境变量 → config.json → 索引自举）。
+  // 原先只读已删除的 config.json ⇒ 这条**永久跳过**，而它守的是"索引主键不碰撞"这个静默错误。
+  const found = resolveTestLibraryRoot(ROOT);
+  if (!found) return t.skip('本机没有可用的素材库根（GEMMA_LIB_ROOT / config.json / 索引 meta 都没有）');
+  const libRoot = found.root;
 
   const IMG = new Set(['.jpg', '.jpeg', '.png', '.webp', '.bmp']);
   const seen = new Map();
@@ -85,13 +87,14 @@ test('uid: 整库唯一性（用真实素材库；库不存在则跳过）', (t)
       const rel = path.relative(libRoot, full);
       const relDir = path.dirname(rel);
       const stem = path.basename(e.name, ext);
-      const u = uidOf(cfg.lib_id || 'L1', relDir, stem);
+      const u = uidOf(found.libId || 'L1', relDir, stem);
       n++;
       if (seen.has(u)) dup.push([u, seen.get(u), rel]); else seen.set(u, rel);
     }
   };
   walk(libRoot);
 
+  t.diagnostic(`扫描 ${n} 张图 · 库根来自 ${found.source}（${libRoot}）`);
   assert.equal(dup.length, 0, `发现 ${dup.length} 处 UID 碰撞：${JSON.stringify(dup.slice(0, 3))}`);
   assert.equal(seen.size, n, 'uid 数量应等于图片数');
   assert.ok(n > 3000, `图片数异常偏少：${n}`);

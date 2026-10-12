@@ -24,6 +24,9 @@ export const ERR = Object.freeze({
   UNDO_EXPIRED: 'UNDO_EXPIRED',
   MODEL_MISSING: 'MODEL_MISSING',
   INTERNAL: 'INTERNAL',
+  // 2026-10-12 新增（F-01）：引擎依赖一个**由外壳注入的能力端口**，而该端口没接上。
+  // 契约 §1.3 明写「新增=兼容，改名=破坏性」，所以新增是安全的。
+  PORT_MISSING: 'PORT_MISSING',
 });
 
 /**
@@ -50,6 +53,10 @@ export const USER_MESSAGE = Object.freeze({
   UNDO_EXPIRED: '这次操作已超过可撤销期限。',
   MODEL_MISSING: '还没有准备好模型文件，先下载一次。',
   INTERNAL: '出了点问题，详情见日志。',
+  // ⚠️ 文案**不含绝对路径**（界面可能显示、可能被截图外发），也不假装是"文件问题" ——
+  // 这是**能力没接上**，与用户的操作无关。故意说得保守：我们只知道端口没被注入，
+  // 不知道资源管理器那边会怎样。
+  PORT_MISSING: '这个功能在当前环境里不可用（缺少所需的系统接口）。',
 });
 
 /** 引擎内部的类型化错误。**不直接抛给调用方** —— 由 envelope() 转成 §1.1 的信封。 */

@@ -80,6 +80,7 @@
 | `RECOVERY_NEEDED` | 上次事务未收尾 | 上次操作未完成，需要先恢复（见 §5）。 |
 | `UNDO_EXPIRED` | 撤销窗口已过 | 这次操作已超过可撤销期限。 |
 | `MODEL_MISSING` | 模型未就绪 | 还没有准备好模型文件，先下载一次。 |
+| `PORT_MISSING` | **外壳没注入引擎所需的能力端口**（当前仅 `reveal` 的 `shell`） | 这个功能在当前环境里不可用（缺少所需的系统接口）。 |
 | `INTERNAL` | 兜底 | 出了点问题，详情见日志。 |
 
 ---
@@ -96,7 +97,7 @@
 | 方法 | 契约 | 实现 |
 |---|---|---|
 | `search` · `item` · `thumbPath` · `scan` · `indexStatus` | 已冻结 | ✅ 已实现 |
-| `reveal` | 已冻结（§2.4 含 `shell` 注入的现行要求） | ⚠️ **未接线**（F-01，见 §2.4） |
+| `reveal` | 已冻结（§2.4 含 `shell` 注入的现行要求） | ✅ **已接线**（F-01 已修，2026-10-12，见 §2.4） |
 | `collect` | 已冻结 | ⚠️ 库根配置缺口下默认必失败（见 §2.5） |
 | `ingest` · `mutate` · `indexStart` · `indexCancel` | **冻结形状**（先定形状，界面可并行开发） | ❌ 主进程**显式拒绝**：返回 `{ code: "INTERNAL", userMessage: "这个功能还没做好。", details: { method } }`，不是静默无反应 |
 
@@ -121,7 +122,8 @@
   "tookMs": 39,
   "results": [
     { "libId": "L1", "uid": "ab12cd34ef56", "score": 0.7821,
-      "band": "high" | "mid" | "low",       // 分数区间由共享常量定义，界面不自己算阈值
+      "band": "high" | "mid" | "low" | "unknown",  // 分数区间由引擎常量定义，界面不自己算阈值
+                                                // "unknown" = 模态不在 BANDS 里 ⇒ 引擎**拒绝**定档（见下）
       "relPath": "VR\\ID-x.jpg", "folder": "VR", "stem": "ID-x",
       "imageExt": ".jpg", "imageSize": 41233,
       "archive": { "relPath": "VR\\ID-x.rar", "ext": ".rar", "size": 8911028 } | null,
@@ -129,6 +131,10 @@
 ```
 
 - **分数不可跨模态比大小**（SPEC-acceptance §2.2）：界面**不得**把"文本查询的 0.78"与"图像查询的 0.90"排序比较。`band` 由引擎按**同一模态内**的区间给出。
+- ✅ **`band` 可能是 `"unknown"`（2026-10-12 修 R-3）**：引擎只认 `BANDS` 里定义的模态（当前 `text` / `image`）。**不认识的模态不再静默套用文本阈值**，而是返回 `"unknown"`。
+  历史写法是 `BANDS[mode] || BANDS.text`，于是 `bandOf(0.85, 'vector')` 会给出 `'high'` —— 而 `vector` 根本不该用文本区间。
+  这与 F-02（界面自算阈值）是**同一根因**：不懂模态的东西替分数下结论。
+  **界面义务**：收到 `"unknown"` 时**只显示分数、不显示档位文案**（`ui/Score.jsx` 已如此：`BAND_TEXT` 里没有这个键 ⇒ 自然降级）。
 - `libIds` 里 `compat` 不相等的库**不报错**，而是进 `libsSkipped` 并附原因（§6）—— 界面置灰并显示原因。
 
 ### 2.2 `item`
@@ -169,11 +175,24 @@
 
 1. **主进程必须在 `createEngine()` 时注入 `shell` 端口**（形状 `{ reveal(absPath) }`；Electron 侧即 `shell.showItemInFolder`）。`reveal` 是**唯一**依赖该端口的方法。
 2. **未注入时不得返回成功。** `ok({ revealed: true })` 的语义是「已在资源管理器中定位」；在 `shell` 不存在时返回它，等于**静默假成功** —— 用户会看到成功提示而资源管理器毫无动静。
-3. **当前实现不符合第 1、2 条（F-01，未修）**：
-   - `apps/desktop/src/main/index.mjs` 的 `buildEngine()` **从未注入 `shell`**；
-   - `packages/engine/src/engine.mjs` 的 `reveal` 只在 `shell && typeof shell.reveal === 'function'` 时才调用它，否则**照样** `return ok({ revealed: true, path: abs })`。
-4. **单测为什么是绿的**：`packages/engine/tests/engine.test.mjs` 自己注入了 `shell`（`shell: { reveal: (p) => seen.push(p) }`）并断言被调用。
-   也就是说：**单测测的是引擎能力，不是应用的接线** —— 这正是「测试通过掩盖接线缺失」的典型形态。
+
+### ✅ 已修（F-01，2026-10-12）
+
+| 项 | 结果 |
+|---|---|
+| 引擎判定 | `packages/engine/src/engine.mjs` 的 `reveal`：端口缺失或形状不对 ⇒ **`PORT_MISSING` 失败信封**，绝不 `ok`。顺序为 **先 `existsSync` 再调端口**，所以"文件早就没了"不会弹出空目录 |
+| 端口注入 | `apps/desktop/src/main/index.mjs` 的 `buildEngine()` 注入 **`shell: createRevealPort(shell)`**（实现在 `apps/desktop/src/main/ports.mjs`；形状仍是 `{ reveal(absPath) }`，实现体调用 `shell.showItemInFolder`） |
+| 回归锁定 | 引擎 +5 条（未注入 / 三种坏形状 / 文件缺失时**端口零调用** / 端口抛错归 `INTERNAL` / 文案不含绝对路径）· 端口本体 +4 条（`apps/desktop/tests/ports.test.mjs`）· **接线层**：`tools/verify_app_build.mjs` §1b 在**构建产物的 main bundle** 上断言 `shell: createRevealPort(...)` 存在（⚠️ **先剥注释再匹配** —— 实测 bundle 会保留源码行注释，直接 grep 会命中被注释掉的那行）· 渲染层 §9 断言失败必须显示失败、成功文案不得越界 |
+| 为什么单测曾经是绿的 | 原用例（`engine.test.mjs:314`）**自己注入了 `shell`**，测的是"引擎能力"，**不是应用的接线** —— 这是「测试通过掩盖接线缺失」的典型形态，本身没错，但必须再有应用侧的断言 |
+
+> ⚠️ **能力边界（必须如实写，不得声称更强的保证）**
+> Electron 官方 `shell.showItemInFolder(fullPath)` **返回 void，不报告失败**
+> （对比：`shell.openPath(path)` 才 `Returns Promise<string>`，失败时给错误串）。
+> 所以本方法成功时我们**只保证两件事**：① 目标文件确实在盘上（`existsSync` 已证）；② 端口**被调用过**。
+> 我们**保证不了**「资源管理器真的弹出来了」、**也保证不了**「它被置到了前台」
+> （Electron 上游 `electron/electron#4349` 就是"窗口不置前"）。
+> 若将来需要可判定的成功，唯一的路是改用 `shell.openPath` 并检查它返回的错误串 —— 但那会**打开文件**而不是**定位文件**，是不同的语义。
+> 来源：<https://www.electronjs.org/docs/latest/api/shell>
 
 ### 2.5 `collect`（取件 = 复制到白名单目录）
 
@@ -190,9 +209,11 @@
 - `targetDirName` 必须在**白名单**内（默认 `E:\素材待用\`，可在设置里增删）
 - **不写库**：取件是"库 → 库外"，库侧零写入
 
-> ⚠️ **当前状态（2026-10-12）**：白名单来自主进程读取的配置（`config.collect.dirs`）。
-> 而**仓库里没有配置文件**（缺口 D2，见 `docs/audit/00-current-state.md` §5）⇒ 白名单实际为空
-> ⇒ **任何 `collect` 都会返回 `COLLECT_DIR_NOT_ALLOWED`**。这是配置缺口的下游，不是取件逻辑本身的问题。
+> ✅ **当前状态（2026-10-12，F-04 已修）**：白名单来自 `collect.dirs`，现在**不再是空对象**。
+> 主进程按 `registry.collect` > `config.collect` > **默认值** 解析，默认
+> `{素材待用:'E:\素材待用', 移出素材:'E:\移出素材'}`（出处 `docs/spec/SPEC-app.md` §9 与 `docs/spec/SPEC-transactions.md` §7）。
+> ⇒ 取件在**库与库根都解析出来**之后即可成功，不再必然 `COLLECT_DIR_NOT_ALLOWED`。
+> 实现见 `apps/desktop/src/main/library-config.mjs`；回归断言见 `apps/desktop/tests/library-config.test.mjs` ⑦⑧。
 
 ### 2.6 `ingest`（入库：把库外素材放进库）
 
@@ -290,7 +311,7 @@
 |---|---|---|---|
 | `search` `item` `scan` `indexStatus` | ❌ | ❌ | — |
 | `thumbPath` | ❌ | ✅ 缩略图缓存 | — |
-| `reveal` | ❌ | ❌ | — |
+| `reveal` | ❌ | ❌ | —（**F-01 已修 2026-10-12**：需外壳注入 `shell` 端口，未注入返回 `PORT_MISSING`） |
 | `collect` | ❌ | ❌ | — |
 | `ingest` `mutate` | ✅ **四步纪律** | ✅ 事务日志 | ✅ |
 | `indexStart` | ❌（索引在应用数据目录） | ✅ 索引文件 | ❌（重建即可） |
