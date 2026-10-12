@@ -90,13 +90,19 @@ node tools\verify-doc-refs.mjs            # 文档引用解算 + 根目录越界
 - 若「Electron 起不来」需要定性：`tools\probe_electron_start\`（最小 Electron 探针 + 判读表）。
 - **无归档证据 = 门禁未通过**：结论要落到 `reports/G-<字母>-<日期>/`，协议见 [`reports/README.md`](reports/README.md)。
 
-> ⚠️ **`npm run build` 在受限沙箱（例如某些 CI / 容器）内会失败**：`failed to load config from electron.vite.config.mjs` → `error during build: Error: spawn EPERM`
+> ✅ **`npm run build` 已实测通过**（2026-10-12）：三端产物齐备（`out/main` 49.49 kB · `out/preload/index.cjs` 0.82 kB · `out/renderer` html/css/js），
+> 随后 **`verify_app_build.mjs` EXIT=0**（产物形状：ESM/CJS、依赖 external、相对路径、CSP 在、`thumb://` 还在）
+> 与 **`verify_renderer_dom.mjs` EXIT=0**（启动 / 文字检索 / 分类 / 以图搜图 / 卡片动作 / 事件全过）。
+>
+> ⚠️ **但顺序不能反**：在**无提权的受限沙箱**（例如某些 CI / 容器）里 `npm run build` 仍会失败 ——
+> `failed to load config from electron.vite.config.mjs` → `error during build: Error: spawn EPERM`
 > （来自 esbuild 的**常驻服务进程**，piped stdio spawn 被沙箱禁止），**失败发生在加载配置之前**。
-> 这是**环境限制，不是配置或代码问题**。因此 `verify_app_build.mjs` / `verify_renderer_dom.mjs` / `smoke_app.mjs`
-> 这三条**依赖 `out/` 的检查，必须在普通终端跑过一次 `npm run build` 之后**才有意义。
-> 截至本次重构，**这三条在受限环境内未获判定** —— 如实记为"未验证"，**不要当作通过**。
+> 这是**环境限制，不是配置或代码问题**，也不是「重构把构建改坏了」。
+> 又因为 `out/` **不进 git**（新克隆里不存在），所以 `verify_app_build.mjs` / `verify_renderer_dom.mjs` / `smoke_app.mjs`
+> 这三条**依赖 `out/` 的检查，必须先成功跑过一次 `npm run build`**，否则会报「找不到 `out/main/index.js`」。
 >
 > 口径：这与 [`AGENTS.md`](AGENTS.md) §5.1 记的「本环境无法创建文件符号链接（`EPERM`）→ 符号链接用例跳过」**并列**，都属**环境限制**，不是产品缺陷。
+> 仍然**未验证**：`smoke_app.mjs`（真启动 Electron 出窗）· 打包态 · 冷启动计时 · 真实 `thumb://` 取图。
 
 ---
 

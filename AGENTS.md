@@ -119,7 +119,7 @@
 | 门禁 | 期望 |
 |---|---|
 | `npm test` | `tests 68 · pass 65 · fail 0 · skipped 3` |
-| `npm run build` | 成功，且 `out/main` · `out/preload` · `out/renderer` 三端齐备（**受限沙箱内不可能成功**，见下） |
+| `npm run build` | 成功，且 `out/main` · `out/preload` · `out/renderer` 三端齐备（**已实测通过**；受限沙箱内需提权，见下） |
 | 守卫 | 下表 EXIT=0（`verify-doc-refs.mjs` 的**两类已知误报**除外 —— 外部 URL 末段 5 条 + 散文里裸写的文档名 1 条，见 §6；根目录越界必须为 0） |
 | 证据 | 每条被声称通过的 G-* 门禁，在 `reports/` 里都有归档证据 |
 
@@ -131,9 +131,9 @@
    复活还需**索引记录的库根在本机存在**，否则会以另一条原因继续跳过：`packages/engine/tests/security.test.mjs:193`「无记录值或库不存在」、`packages/engine/tests/uid.test.mjs:73`「素材库不存在」。
    在 D2 解决前它们会一直跳过：**不要当成通过**，也**不要**误记成「测试坏了」。
 
-**另一条环境限制（与上面第 1 条并列，不是产品缺陷）**
+**另一条环境限制（2026-10-12 已实测解除，但边界本身仍存在 —— 保留记录）**
 
-`npm run build` 在受限沙箱（例如某些 CI / 容器）内**会失败**，且**失败点在加载配置之前**：
+`npm run build` 在**受限沙箱**（例如某些 CI / 容器，含本项目的 agent 执行沙箱）内**会失败**，且**失败点在加载配置之前**：
 
 ```text
 failed to load config from electron.vite.config.mjs
@@ -142,12 +142,27 @@ error during build: Error: spawn EPERM
     at bundleConfigFile (node_modules/electron-vite/dist/chunks/lib.js:1710:26)
 ```
 
-根因：esbuild 用 **piped stdio spawn 一个常驻服务进程**，该沙箱不允许 —— **这是环境限制，不是配置或代码问题**（连配置文件都还没加载到）。
+根因：esbuild 用 **piped stdio spawn 一个常驻服务进程**，受限沙箱不允许 —— **这是环境限制，不是配置或代码问题**（连配置文件都还没加载到）。
 
-- 因此 `verify_app_build.mjs` / `verify_renderer_dom.mjs` / `smoke_app.mjs` 这三条**依赖 `out/`** 的检查，
-  **必须在普通终端跑过一次 `npm run build` 之后**才有意义。
-- 截至本次重构 `out/` **不存在**（P1 之前的过期产物已删除，免得守卫校验旧产物得出误导结论）
-  ⇒ **这三条在受限环境内未获判定**：如实记为**未验证**，**不要当作通过**，也不要记成「重构把构建改坏了」。
+> ✅ **2026-10-12 已在提权下实际跑通**（`spawn EPERM` 消失，EXIT=0）：
+> ```
+> out/main/index.js                       49.49 kB
+> out/main/chunks/{bmp_decode,encoder}-*.js
+> out/preload/index.cjs                    0.82 kB
+> out/renderer/index.html                  1.15 kB   ← 注意构建日志里是
+> out/renderer/assets/index-*.css         25.50 kB     `../../../../out/renderer/…`，
+> out/renderer/assets/index-*.js         673.37 kB     正是 outDir 显式配置生效的实证
+> ```
+> 随后 **`verify_app_build.mjs` EXIT=0**（含 preload 是 CJS、依赖 external、路径相对、CSP 在、`thumb://` 还在）
+> 与 **`verify_renderer_dom.mjs` EXIT=0**（启动 / 文字检索 / 分类 / 以图搜图 / 卡片动作 / 事件全过），
+> 两条**首次获得判定**。
+
+- **但这条边界仍然成立**：在无提权的受限环境里 `npm run build` 仍会以 `spawn EPERM` 失败。
+  因此 `verify_app_build` / `verify_renderer_dom` / `smoke_app` 这三条**依赖 `out/`** 的检查，
+  **必须在一次成功的 `npm run build` 之后**才有意义（顺序不能反）。
+- `out/` **不进 git**（`.gitignore` 已覆盖），所以**新克隆的仓库里它不存在** ——
+  直接跑那三条守卫会报「找不到 `out/main/index.js`」，**那是缺前置条件，不是重构坏了**。
+- 仍然**未验证**的是 `smoke_app.mjs`（真启动 Electron 出窗）与打包态 —— 见 §7。
 
 ### 5.2 七个守卫（全部只读）
 

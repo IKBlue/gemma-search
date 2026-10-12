@@ -68,9 +68,13 @@ node tools/verify_app_build.mjs      # 产物存在与形状（ESM/CJS/external/
 node tools/verify_renderer_dom.mjs   # 渲染进程逻辑（jsdom，不需 Electron）
 ```
 
-> ⚠️ **`npm run build` 在受限沙箱内会失败**（esbuild `spawn EPERM`，失败点在**加载配置之前**）
-> —— 环境限制，不是配置问题。上面两条依赖 `out/` 的检查必须在普通终端 build 之后才有意义。
-> 详见 `AGENTS.md` §5.1。
+> ✅ **2026-10-12 重构后已实测通过**：`npm run build` EXIT=0，三端齐备；`verify_app_build.mjs` 与
+> `verify_renderer_dom.mjs` 均 **EXIT=0**。
+>
+> ⚠️ **顺序不能反**：在**无提权的受限沙箱**（例如某些 CI / 容器）里 `npm run build` 仍会失败
+> （esbuild 常驻服务 `spawn EPERM`，**失败点在加载配置之前**）—— 环境限制，不是配置问题。
+> 又因 `out/` **不进 git**（新克隆里不存在），上面两条守卫**必须先成功 build 一次**才有意义，
+> 否则会报「找不到 `out/main/index.js`」。详见 `AGENTS.md` §5.1。
 
 ## 4. 日志在 `data/_app.log`
 

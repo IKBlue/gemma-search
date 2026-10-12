@@ -149,7 +149,7 @@ const ALLOWED_ROOT = new Set(['AGENTS.md', 'README.md']);
 | 2 | `log.mjs` 的 ROOT「改成 4 级」 | **两态深度不同**（源码 4 / 构建 2）⇒ 改用**标记式探测 + 首跑自检** | code-paths |
 | 3 | 6 个守卫的根探测 | 还有**第 7 个** `check_search.mjs` 既无根探测、又硬编码 `G:\model` | code-paths |
 | 4 | 「本环境不重跑 `npm install`」 | **必须跑一次**：`--package-lock-only` 只补锁文件条目、**不建符号链接** ⇒ `npm ls`/`npm ci` 仍失败 | build-config |
-| 5 | （未预见）`npm run build` 可得 | **本沙箱内不可能**（esbuild `spawn EPERM`） | build-config |
+| 5 | （未预见）`npm run build` 可得 | **无提权的沙箱内不可能**（esbuild 常驻服务 `spawn EPERM`，失败点在加载配置之前）；**2026-10-12 提权后跑通 EXIT=0** | build-config |
 | 6 | （未预见）`verify_encoder_path` 可得判定 | 该守卫**在 Windows 上从未跑成过**（动态 `import(绝对路径)` → `ERR_UNSUPPORTED_ESM_URL_SCHEME`）；修好后**当场抓到应用侧 BMP 回退的真实 bug** | code-paths |
 
 **回退点**：`git` HEAD = `4555c1b` 是唯一回退点。每个 Phase 完成后 Lead 记录一次 `git status` 快照。
@@ -228,16 +228,21 @@ const ALLOWED_ROOT = new Set(['AGENTS.md', 'README.md']);
 
 1. **`npm test`** → `tests 68 · pass 65 · fail 0 · skipped 3`（与重构前逐项一致）— ✅ **已达成**
 2. **四个守卫 EXIT=0**：`verify_app_build` · `verify_renderer_styles` · `verify_renderer_dom` · （`verify-doc-refs` 的**两类已知误报**除外，且根目录越界必须为 0）
-   — ⚠️ **部分达成**：`verify_renderer_styles` **EXIT=0**；`verify-doc-refs` **根目录越界 0**、死引用 6（**两类误报**：外部 URL 末段 5 条 + 中文散文里裸写的文档名 1 条，均见 `AGENTS.md` §6）。
-   **`verify_app_build` / `verify_renderer_dom` 未获判定** —— 它们依赖 `out/`，而本沙箱**跑不了 `npm run build`**（见第 3 条）
-3. **`npm run build`** 成功，且 `out/{main,preload,renderer}` 三端产物齐备
-   — ❌ **本沙箱内不可能执行**：esbuild 用 piped stdio spawn 常驻服务 → `spawn EPERM`，失败点在 **`loadConfigFromFile`（配置尚未被求值）** ⇒ 不能归因于配置内容。
-   **必须在非受限终端跑一次**。`out/` 当前不存在（P1 前的过期产物已删，避免守卫校验旧产物得出误导结论）
+   — ✅ **已达成**：`verify_app_build` **EXIT=0** · `verify_renderer_dom` **EXIT=0** · `verify_renderer_styles` **EXIT=0**；
+   `verify-doc-refs` **根目录越界 0**、死引用 6（**两类误报**：外部 URL 末段 5 条 + 中文散文里裸写的文档名 1 条，均见 `AGENTS.md` §6）
+3. **`npm run build`** 成功，且 `out/{main,preload,renderer}` 三端产物齐备 — ✅ **已达成**
+   （2026-10-12 提权实测 EXIT=0：`out/main/index.js` 49.49 kB · `out/main/chunks/{bmp_decode,encoder}-*.js` ·
+   `out/preload/index.cjs` 0.82 kB · `out/renderer/index.html` 1.15 kB + assets 25.50 kB css / 673.37 kB js。
+   构建日志里 renderer 那一行是 `../../../../out/renderer/…` —— **正是 outDir 显式配置生效的实证**）
 4. **`git diff -M`（内容层）只包含预期改动**，无意外文件 — ✅ **已达成**（独立验证者逐项归类 44 项：路径修正 18 / 配置迁移 10 / 文档重写 15 / 已声明例外 1；**`unexpected_changes = []`**）
 5. **全仓 grep 不再命中**：`config.json` 教学 · `\.py\b` 命令 · `shadcn` 无标注承诺 · `PROJECT-GUIDE` — ✅ **已达成**（残留仅出现在「已标注作废」的说明块、`docs/archive/`、以及 `docs/MIGRATION-PLAN.md` 自身的删除清单/偏差记录里）
 6. **根目录只剩** `AGENTS.md` + `README.md` 两份 `.md` — ✅ **已达成**（`verify-doc-refs` 第 2 项：✓ 只有入口与行动依据）
-7. **独立复核 verdict = pass**，blockers 清零 — ⚠️ **第一轮 `pass-with-issues`（blockers 2 + 反驳 5）**，全部经 Lead 复核确认并处置；详见 §3.2
-8. 未 `git commit`、未 push、未改 `data/` 索引 — ✅ **已达成**
+7. **独立复核 verdict = pass**，blockers 清零 — ✅ **已达成**：第一轮 `pass-with-issues`（blockers 2 + 反驳 5）全部经 Lead 复核确认并处置（§3.2）；该 2 条 blocker 就是 DoD 第 2/3 项缺口的两份现行文档（`reports/README.md`、`apps/desktop/src/README.md`），已重写
+8. 未 `git commit`、未 push、未改 `data/` 索引 — ✅ **已达成**（本文件为重构当时的记录；其后所有者授权提交并推送，见交付说明）
+9. **（补充）`npm ci --dry-run`** → **EXIT=0**（锁文件与 manifests 一致；此前的 `package-lock.json` 是单包形态，会让 `npm ci` 失败）
+
+> **DoD 现已全绿**（`verify-doc-refs` 的 6 条死引用是**两类已记录误报**，见 `AGENTS.md` §6）。
+> 仍**未验证**的是 `smoke_app.mjs`（真启动 Electron 出窗）与打包态 —— 属「未做的门禁」，不属本轮 DoD。
 
 > **DoD 未全绿的项只有一类：`npm run build` 及其两条下游检查。** 这是**环境限制**，不是重构结果。
 > 它必须在普通终端验一次 —— **在那之前，不得声称"构建在 monorepo 下成立"**。
@@ -253,6 +258,6 @@ const ALLOWED_ROOT = new Set(['AGENTS.md', 'README.md']);
 | electron-vite 默认把产物写到工程根的 `out/`，现在工程根变成 `apps/desktop/` | `electron.vite.config.mjs` **显式设 `build.outDir`** 指向 `<仓库根>/out`，保持守卫与 `electron-builder.yml` 的假设不变 | ✅ 三段 outDir 实测为绝对路径 `<根>/out/*`；另**必须**显式给 renderer 的 `rollupOptions.input`（否则默认探测落空 → 构建失败） |
 | npm workspaces 引入后 `npm install` 行为变化 | ~~本环境不重跑 install~~ → 实测**必须跑一次**：`--package-lock-only` 只为锁文件补上 4 个 workspace 条目，但**不建符号链接** ⇒ `npm ls`/`npm ci` 仍失败 | ✅ 已跑 `npm install --ignore-scripts --cache .npm-cache`（沙箱禁写全局 npm cache）→ 4 个 Junction 建好 |
 | 搬 `tests/` 到 `packages/engine/tests/` 会让 `npm test` 的 glob 失配 | `package.json` 脚本同步改 `packages/engine/tests/*.test.mjs`，并在 P2 立刻跑 | ✅ `tests 68 · pass 65 · fail 0 · skipped 3` |
-| **（新发现）`npm run build` 在本沙箱内无法执行** | — | ⚠️ **未解决**：esbuild 用 piped stdio spawn 常驻服务 → `spawn EPERM`，失败在**加载配置**之前。需在**非受限终端**跑一次作为终验 |
+| **（新发现）`npm run build` 在本沙箱内无法执行** | 提权后可执行 | ✅ **已解决**：2026-10-12 提权跑通，EXIT=0，三端齐备；两条依赖 `out/` 的守卫首次获得判定。**但边界仍成立** —— 无提权的受限环境仍会 `spawn EPERM`（见 `AGENTS.md` §5.1） |
 | **（新发现）`npm ci` 曾经必然失败** | 根锁文件是单包形态（无 workspace 条目） | ✅ 已用 `npm install --package-lock-only` 重新生成（649 → 663 条，含 4 个 `@gemma-search/*`） |
 | 文档重构面大（13 份 + 新增），容易再生矛盾 | P3/P4 完成后由**独立验证者**用「全仓 grep + 逐条 D1-D14 复查」验收 |
