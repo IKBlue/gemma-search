@@ -1,0 +1,19 @@
+{
+  "name": "@gemma-search/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Electron 桌面应用（原 src/）：主进程 · preload 安全桥 · React 渲染层 · IPC 契约",
+  "//": [
+    "构建入口**不在这里**：electron-vite 的配置与产物都在仓库根（`electron.vite.config.mjs`",
+    "  → `<仓库根>/out/{main,preload,renderer}`），所以本包**刻意不写 `main`** ——",
+    "  入口的唯一出处是仓库根 package.json 的 `main`（scripts/electron-vite.mjs 也读它）。",
+    "运行期依赖统一声明在仓库根 package.json：本轮重构**不动任何依赖**，",
+    "  故未下放到本包，避免同一份依赖出现两个版本来源。",
+    "包之间**用相对路径 import**，不用包名解析、也不用 workspace:* 协议 ——",
+    "  零构建步骤是有意的（见 AGENTS.md §2 与 docs/MIGRATION-PLAN.md §1）。",
+    "  ⚠️ 相对深度别照抄：本清单文件距仓库根是 **2 级**，但从**源码**引用是另一回事 ——",
+    "  例如 apps/desktop/src/main/index.mjs 引引擎要 **4 级**（`../../../../packages/engine/src/engine.mjs`）。",
+    "  凡按层级数 `..` 都容易错（本项目已踩过两次：见 docs/MIGRATION-PLAN.md §3.1）；改完请用 `node --check` + 真跑一次确认。"
+  ]
+}

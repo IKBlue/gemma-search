@@ -3,13 +3,18 @@
 #
 # 原则：**源码与文档入库；派生物、本机配置、大文件不入库。**
 # 每条都注明"为什么"，避免以后有人误删规则把 24 MB 索引提交上去。
+#
+# 2026-10-12（monorepo 化）：删掉已死的 Python 时代规则（仓库里 0 个 .py 文件，实测），
+# 其余规则保持；布局变化见 docs/MIGRATION-PLAN.md §1。
 # ============================================================
 
 # ---------- 本机配置（绝对路径在这里，不在代码里）----------
+# **保留**：即使现在仓库里没有 config.json 模板（D2 未修），它也不该被提交 ——
+# 它装的是本机素材库绝对路径，一旦入库就是"把某个人的硬盘结构写进历史"。
 config.json
 
 # ---------- 派生数据：索引与备份 ----------
-# 索引可由 build_index.py 重建（约 25 分钟 / 3594 条），不该进 git：
+# 索引可由 packages/indexer 的构建器重建（约 25 分钟 / 3594 条），不该进 git：
 #   embeddings.npy 10.5 MB · items.json 1.6 MB（且含本机绝对路径）
 data/*.npy
 data/items.json
@@ -46,7 +51,8 @@ data/speed_probe.json
 reports/**/*.png
 reports/**/*.jpg
 reports/**/*.mp4
-# 派生：质量判定工具的中间产物（原始证据在 reports/ 内）
+# 派生：质量判定工具的中间产物（该判定工具已随 Python 档退役，规则**刻意保留**：
+# 将来若重建同类工具，产物照样不该入库；原始证据仍在 reports/ 内）。
 data/quality/vector-equiv.json
 data/quality/top10.json
 data/quality/top10-diff.csv
@@ -62,24 +68,11 @@ model-cache/
 *.pt
 *.pth
 
-# ---------- Python（**已退役 · 2026-10-10**）----------
-# 本项目曾有一套 Python 检索档，已于 2026-10-10 整体删除（见 DEBT-CLEANUP.md §十二），
-# 现在仓库里没有任何 .py。下面几条**刻意保留**：万一将来再引入 Python 工具，
-# 这些派生目录照样不该入库；删掉只会让未来的自己再踩一次坑。
-# 注意：Git 忽略规则**区分大小写**，所以 `*.py[cod]` 不会碰到 .js/.jsx/.mjs。
-__pycache__/
-*.py[cod]
-*$py.class
-.venv/
-venv/
-ENV/
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.ipynb_checkpoints/
-
 # ---------- Node / Electron ----------
+# ⚠ 下面这条**不带前导斜杠**，git 会在**任意层级**匹配同名目录 ——
+#   所以 `packages/*/node_modules/` 与 `apps/*/node_modules/` 已被它覆盖，
+#   不需要（也不该）再为每个包各写一条工作区规则（实测：git check-ignore -v
+#   packages/engine/node_modules/x → 命中本行）。
 node_modules/
 npm-debug.log*
 pnpm-debug.log*
@@ -89,6 +82,9 @@ yarn-error.log*
 .pnpm-store/
 
 # ---------- 构建与打包产物 ----------
+# ⚠ 同理：`out/` 不带前导斜杠 ⇒ 也覆盖 `apps/desktop/out/`。
+#   产物**应该**落在仓库根 out/（见 electron.vite.config.mjs 的显式 outDir）；
+#   万一有人把 outDir 配错，那条规则能保证误落的产物不会被提交。
 dist/
 out/
 release/
@@ -140,7 +136,7 @@ secrets.json
 reports/**/_run.*
 
 # 已接受的索引（P0.5-c 的落点 data/libraries/<libId>/）：派生数据、**含本机绝对路径**，
-# 随时可由构建器重建 —— 与 data/idx-*/ 同一条理由（见上面第 24 行）。
+# 随时可由构建器重建 —— 与 data/idx-*/ 同一条理由（见上面 data/idx-*/ 那段）。
 data/libraries/
 reports/**/_*.out
 reports/**/_*.err

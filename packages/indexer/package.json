@@ -1,0 +1,22 @@
+{
+  "name": "@gemma-search/indexer",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "索引构建（ONNX + WebGPU）与重采样兼容层 / BMP 解码（原 onnx-spike/）",
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.1",
+    "bmp-js": "^0.1.0"
+  },
+  "//": [
+    "原名 `onnx-spike`（spike = 试作），现为正式包：源码在 src/*.mjs。",
+    "**没有单一入口**：所以不写 `main` —— 主进程按需相对导入本包的 resize_compat / bmp_decode。",
+    "  ⚠️ **相对深度按调用方文件算，别照抄**：apps/desktop/src/main/encoder.mjs 引本包要 **4 级**",
+    "  （`../../../../packages/indexer/src/resize_compat.mjs`）；本清单文件自身距仓库根是 **2 级**。",
+    "  凡按层级数 `..` 都容易错 —— 见 docs/MIGRATION-PLAN.md §3.1。",
+    "  其余 .mjs 是探针/一次性验证脚本（probe_* / verify_bmp2 / test_mismatch 等）。",
+    "依赖与其他包一样**靠相对路径 import**，不用包名解析、也不用 workspace:* 协议（零构建步骤）。",
+    "⚠️ 这两个依赖目前**同时**出现在仓库根 package.json 与这里：本轮重构不动依赖，",
+    "  所以照原样保留；下次 `npm install` 前应先决定「依赖归属哪一层」，避免两处版本各自漂移。"
+  ]
+}

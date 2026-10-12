@@ -5,6 +5,10 @@
   "type": "module",
   "description": "本地素材库语义检索（EmbeddingGemma 2）· 引擎与桌面应用",
   "main": "./out/main/index.js",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -15,12 +19,34 @@
     "build:unpack": "npm run build && electron-builder --dir",
     "smoke": "node tools/smoke_app.mjs",
     "build:win": "npm run build && electron-builder --win",
-    "start:legacy": "electron archive/app-shell-20261010/main/bootstrap.cjs",
-    "test": "node --test --test-isolation=none \"tests/*.test.mjs\"",
-    "test:watch": "node --test --watch --test-isolation=none \"tests/*.test.mjs\"",
+    "test": "node --test --test-isolation=none \"packages/engine/tests/*.test.mjs\"",
+    "test:watch": "node --test --watch --test-isolation=none \"packages/engine/tests/*.test.mjs\"",
     "dev:restricted": "node scripts/electron-vite.mjs dev --noSandbox --entry out/main/index.js",
     "start:restricted": "node scripts/electron-vite.mjs preview --noSandbox --entry out/main/index.js"
   },
+  "//": [
+    "布局（docs/MIGRATION-PLAN.md §1，已冻结）：npm workspaces 根 = apps/* + packages/*。",
+    "  apps/desktop = Electron 应用（原 src/）· packages/engine（原 core/，零依赖）·",
+    "  packages/indexer（原 onnx-spike/）· packages/design-tokens/tokens.css（视觉令牌唯一来源）。",
+    "  **包之间用相对路径 import，不用包名解析，也没有 workspace:* 依赖** —— 零构建步骤是有意的：",
+    "  守卫直接读源码，产物只由 electron-vite 一处生成。",
+    "  `main` 与两条 `*:restricted` 的 --entry 都指 **out/main/index.js**；产物落在**仓库根** out/，",
+    "  由 electron.vite.config.mjs 三段显式 build.outDir 保证（electron-vite 的 outDir 默认值跟着配置文件所在目录走，",
+    "  配置一旦被挪进 apps/desktop/ 就会跟着挪，7 个守卫与 electron-builder.yml 会全部失配）。",
+    "  `start:legacy`（旧外壳 archive/app-shell-20261010/main/bootstrap.cjs）**已删除**：那套外壳已归入",
+    "  docs/archive/legacy/、不再是依据，留一条能跑起来的 npm 脚本只会让人误以为它是受支持的入口。",
+    "  要用请直接跑：electron docs/archive/legacy/app-shell-20261010/main/bootstrap.cjs",
+    "引擎刻意**零依赖**（P1 决策，现在写在 packages/engine/package.json）：只用 Node 内置能力（node:test / node:crypto / node:fs）。",
+    "理由一：引擎必须传输无关，零依赖是这一点的最强形式（也不可能 import electron）。",
+    "理由二：受限沙箱下 `npm install` 会因 npm 用管道捕获子进程输出而 EPERM。",
+    "运行时依赖**统一声明在本文件**（本轮重构不动任何依赖，故未下放到各包）——含 sharp：它本是",
+    "@huggingface/transformers 的可选传递依赖，而主进程的编码路径直接 import 它，靠传递依赖迟早会断。",
+    "externals：electron.vite.config.mjs 把 dependencies 全部列为 external（原生模块不能进 bundle）。",
+    "**刻意没有 typecheck 脚本**：迁移期的 main/preload/renderer 还是普通 JS，打开 checkJs 会产生 356 条类型错误",
+    "（其中 noImplicitAny 家族 197 条；第①条审查实测，证据 docs/audit/stack-evidence.md），",
+    "而在 JS 里撒 `any` 只是把红灯涂绿。",
+    "tsconfig.*.json 已按新的两段布局写好（include/paths 指 apps/desktop 与 packages/engine），P3a 转 TS 时直接接上并恢复 typecheck 门禁。"
+  ],
   "dependencies": {
     "@huggingface/transformers": "^4.3.1",
     "@radix-ui/react-alert-dialog": "^1.1.24",
@@ -47,18 +73,6 @@
     "zod": "^4.6.5",
     "zustand": "^5.0.15"
   },
-  "//": [
-    "P1 引擎刻意**零依赖**：只用 Node 内置能力（node:test / node:crypto / node:fs）。",
-    "理由一：core/ 必须传输无关，零依赖是这一点的最强形式（也不可能 import electron）。",
-    "理由二：受限沙箱下 `npm install` 会因 npm 用管道捕获子进程输出而 EPERM。",
-    "P2（2026-10-10）已装 zod（IPC 参数校验）与 electron（外壳）；两者都只被 main/preload 用到。",
-    "sharp 必须**显式声明**：它本是 @huggingface/transformers 的可选传递依赖，",
-    "而 src/main 的编码路径（重采样兼容层）直接 import 它 —— 靠传递依赖迟早会断。",
-    "externals：electron.vite.config.mjs 把 dependencies 全部列为 external（原生模块不能进 bundle）。",
-    "**刻意没有 typecheck 脚本**：迁移期的 main/preload/renderer 还是普通 JS，",
-    "打开 checkJs 会报 222 条 noImplicitAny（实测），而把 `any` 撒进去只是把红灯涂绿。",
-    "tsconfig.*.json 已按 electron-vite 两段布局写好，P3a 转 TS 时直接接上并恢复 typecheck 门禁。"
-  ],
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.6.5",

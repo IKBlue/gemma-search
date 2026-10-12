@@ -17,13 +17,13 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
-// 项目根：向上找到含 core/engine.mjs 的那一级（搬目录也不会失效）
+// 项目根：向上找到含 packages/engine/src/engine.mjs 的那一级（搬目录也不会失效）
 const ROOT = (() => {
   let p = HERE;
   for (;;) {
-    if (fs.existsSync(path.join(p, 'core', 'engine.mjs'))) return p;
+    if (fs.existsSync(path.join(p, 'packages', 'engine', 'src', 'engine.mjs'))) return p;
     const up = path.dirname(p);
-    if (up === p) throw new Error('找不到项目根（向上找不到 core/engine.mjs）');
+    if (up === p) throw new Error('找不到项目根（向上找不到 packages/engine/src/engine.mjs）');
     p = up;
   }
 })();

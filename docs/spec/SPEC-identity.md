@@ -1,6 +1,10 @@
 # SPEC: 身份、配对、指纹与索引元数据
 
-> 回应审核 P0-2 与 P0-3。**其中 P0-3 是我文档里的真矛盾，本规范予以消除。**
+> **状态**：现行（规格；实现已在 `packages/engine/src/` 与 `packages/indexer/src/` 落地）· **最后核对**：2026-10-12
+> **权威范围**：`uid` 语义与种子 · 文件身份 · 配对规则 · 库指纹 · 索引元数据（权重精度 ≠ 向量精度）·
+> `compat` 判定键 · `index.bin` 格式与损坏恢复 · 跨库迁移前置条件。
+>
+> 本规范消除了原文档中「`precision` 一词混指两件事」的真矛盾（§6）。
 
 ---
 
@@ -110,7 +114,7 @@ uid = sha1( lib_id + "|" + rel_dir + "|" + stem ).slice(0, 12)
 **为什么需要这个字段**（实测发现，见 `data/quality/mismatch-test-result.json`）：
 
 本库有 **20 张扩展名 `.jpg` 实际是 24 位 BI_RGB BMP** 的预览图。
-**旧 Python 管线（PIL）能解码，新 Node 管线不能**：
+**已退役的 Python 参考管线（PIL）能解码，Node 管线原生解码不能**：
 transformers.js 的 `RawImage` **不支持 BMP**，且本机 `sharp`/libvips **没有 BMP 加载器**
 （`Input file contains unsupported image format`）。其余 85 张不符文件（`png→jpeg` 68、`jpg→png` 17）**原生解码全部通过**。
 
@@ -261,6 +265,7 @@ compat = ( model_repo, model_revision, model_weights_dtype,
 | 加载索引 | `compat` 与本机当前配置不符 → **拒绝检索**并提示重建（**不降级、不猜测**） |
 | `device`（webgpu/cpu） | **必须不参与** `compat`。两条理由：① 实测两者向量小数第 6 位相同，可互换；② **若把执行后端写进 `compat`，CPU 回退的那一刻就会被自己拒绝检索** —— 这是审查指出的矛盾点，务必不要写进去 |
 | `ort_provider` / `gpu_model` / `gpu_driver` | **不参与** `compat`，**只记录**。用途：将来向量出现差异时能回答"是不是换了 ORT 版本/驱动" |
+| `embedding_dtype` | 参与**存储布局**校验，但**不参与** `compat`（同权重同预处理下不影响语义） |
 
 > ⚠️ **不要把"逐位一致 / bit-exact"写成验收标准。**
 > 跨 GPU/CPU、跨 ORT 版本的 fp32 逐位相等**本来就难保证**；写成逐位相等会导致
@@ -275,10 +280,10 @@ compat = ( model_repo, model_revision, model_weights_dtype,
 
 | 侧 | 实际实现 |
 |---|---|
-| Python（参考/旧索引） | `PIL.Image.resize(..., BICUBIC)` |
+| Python（**已退役的参考实现**；旧索引由它产出） | `PIL.Image.resize(..., BICUBIC)` |
 | transformers.js 4.3.1（Node） | `sharp(img).affine([sx,0,0,sy], { interpolator: 'bicubic' })` |
 
-实测（`reports/G-B-20261010/DIAGNOSIS-resample.md`，输入像素完全相同、目标尺寸相同）：
+实测（`reports/G-B-20261010-v2/DIAGNOSIS-resample.md`，输入像素完全相同、目标尺寸相同）：
 
 | 对比 | 平均绝对差 | 最大 | 余弦 |
 |---|---|---|---|
@@ -295,13 +300,12 @@ compat = ( model_repo, model_revision, model_weights_dtype,
 该实现进 `preprocessing`（`resample_impl`）并体现为 `preprocessing_version = 2`，
 **缓存键 `compat` 随之变化**（v1 的索引不会被误认为可复用）。
 
-> 查询路径（`encode_queries.mjs`、应用 `src/main/encoder.mjs`）**必须安装同一份 shim**：
+> 查询路径（`packages/indexer/src/encode_queries.mjs`、应用 `apps/desktop/src/main/encoder.mjs`）**必须安装同一份 shim**：
 > 索引与查询预处理不一致是本项目最危险的失败模式（不报错，只是结果变差）。
-| `embedding_dtype` | 参与存储布局校验，但**不参与** `compat`（同权重同预处理下不影响语义） |
 
 ### 6.4 正式构建器**实际加载的是什么**（明确回答审核的疑问）
 
-当前 `build_index_onnx.mjs` 实际加载：
+当前 `packages/indexer/src/build_index_onnx.mjs` 实际加载：
 
 | 项 | 值 |
 |---|---|

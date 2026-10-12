@@ -1,7 +1,8 @@
 // tools/verify_renderer_styles.mjs —— 设计令牌纪律（渲染层）
 //
 // 为什么需要：docs/design/DESIGN-tokens.md §12 说「改令牌只改本文件和变量表，**不要在组件里写死十六进制**」，
-// 但原先的 tools/verify_tokens.py 只查原型套件（static/prototype），渲染层迁移到 React 后
+// 但原先的 tools/verify_tokens.py 只查原型套件（现归档在 docs/archive/prototype/），
+// 渲染层迁移到 React 后
 // 没有任何守卫看着它 —— 于是很容易在 JSX/CSS 里冒出孤立色值和内联视觉值。
 //
 // 本守卫查四件事（前三条是硬失败，第四条只报告）：
@@ -19,15 +20,15 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = (() => {
   let p = HERE;
   for (;;) {
-    if (fs.existsSync(path.join(p, 'core', 'engine.mjs'))) return p;
+    if (fs.existsSync(path.join(p, 'packages', 'engine', 'src', 'engine.mjs'))) return p;
     const up = path.dirname(p);
-    if (up === p) throw new Error('找不到项目根（向上找不到 core/engine.mjs）');
+    if (up === p) throw new Error('找不到项目根（向上找不到 packages/engine/src/engine.mjs）');
     p = up;
   }
 })();
 
-const SRC = path.join(ROOT, 'src', 'renderer', 'src');
-const TOKENS = path.join(ROOT, 'static', 'prototype', 'tokens.css');
+const SRC = path.join(ROOT, 'apps', 'desktop', 'src', 'renderer', 'src');
+const TOKENS = path.join(ROOT, 'packages', 'design-tokens', 'tokens.css');
 
 const problems = [];
 const notes = [];

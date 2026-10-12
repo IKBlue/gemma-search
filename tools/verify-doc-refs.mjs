@@ -28,9 +28,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = (() => {
   let p = HERE;
   for (;;) {
-    if (fs.existsSync(path.join(p, 'core', 'engine.mjs'))) return p;
+    if (fs.existsSync(path.join(p, 'packages', 'engine', 'src', 'engine.mjs'))) return p;
     const up = path.dirname(p);
-    if (up === p) throw new Error('找不到项目根（向上找不到 core/engine.mjs）');
+    if (up === p) throw new Error('找不到项目根（向上找不到 packages/engine/src/engine.mjs）');
     p = up;
   }
 })();
@@ -127,7 +127,7 @@ function main() {
 
   console.log('\n=== 2) 根目录是否只剩"入口 + 治理" ===');
   const rootDocs = fs.readdirSync(ROOT).filter((n) => n.endsWith('.md')).sort();
-  const ALLOWED_ROOT = new Set(['README.md', 'PROJECT-GUIDE.md', 'TASK-PLAN.md']);
+  const ALLOWED_ROOT = new Set(['AGENTS.md', 'README.md']);
   console.log(`  根目录 .md：${rootDocs.join(' · ')}`);
   const strays = rootDocs.filter((n) => !ALLOWED_ROOT.has(n));
   if (strays.length) {

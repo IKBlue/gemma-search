@@ -15,7 +15,7 @@
     "esModuleInterop": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "paths": { "@renderer/*": ["./src/renderer/src/*"] }
+    "paths": { "@renderer/*": ["./apps/desktop/src/renderer/src/*"] }
   },
-  "include": ["src/renderer/src/**/*", "src/renderer/src/**/*.tsx", "src/preload/*.d.ts"]
+  "include": ["apps/desktop/src/renderer/src/**/*", "apps/desktop/src/preload/*.d.ts"]
 }

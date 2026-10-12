@@ -1,13 +1,14 @@
-# docs/spec/SPEC-security.md —— 应用层安全规格（**P2 前置门禁**）
+# docs/spec/SPEC-security.md —— 应用层安全规格
 
-> **状态**：待批准。`TASK-PLAN.md` §P2 把本文件列为**前置门禁**：
-> 「安全设计不允许留到编码过程中临时决定」。
-> **权威**：引擎层的 5 条安全不变量在 `docs/spec/CONTRACT-engine-v1.md` §7（已实现并测过）；
-> 本文件管**传输与外壳**层（IPC、自定义协议、渲染进程姿态、来源验证）。
+> **状态**：现行（§9 决定 1「暂批」）· **最后核对**：2026-10-12
+> **权威范围**：传输与外壳层安全 —— IPC 白名单与参数校验、`thumb://` 协议加固、渲染进程姿态、
+> 调用来源验证、依赖与供应链、权限测试用例。
+> 引擎层的 5 条安全不变量以 `docs/spec/CONTRACT-engine-v1.md` §7 为准（已实现并有单测）；
+> 本文件只管**传输与外壳**层。
 >
-> **为什么现在才写**：P0/P1 阶段引擎不接触网络也不接触外来源，安全面很小。
-> P2 引入 Electron 后，攻击面从"本机 API"变成"渲染进程 ↔ 主进程 ↔ 文件系统"，
-> 必须先把边界写清楚。
+> 本文件是 **P2 的前置门禁**：安全设计不允许留到编码过程中临时决定。
+> P0/P1 阶段引擎不接触网络也不接触外来源，安全面很小；P2 引入 Electron 后，
+> 攻击面从"本机 API"变成"渲染进程 ↔ 主进程 ↔ 文件系统"，所以边界必须先写清楚。
 
 ---
 
@@ -43,10 +44,11 @@
 | `engine:invoke` | 渲染 → 主（`invoke`/`handle`） | `{ method: string, params: object }` |
 | `engine:event` | 主 → 渲染（`webContents.send`） | 契约 §3 的事件对象 |
 
-### 2.1 白名单与参数校验（**唯一来源：`src/shared/ipc.mjs`**）
+### 2.1 白名单与参数校验（**唯一来源：`apps/desktop/src/shared/ipc.mjs`**）
 
 ```js
-// src/shared/ipc.mjs —— zod schema 定义一次，同时导出 TS 类型与运行时校验
+// apps/desktop/src/shared/ipc.mjs —— zod schema 定义一次，同时给出方法白名单与运行时校验
+// （注意：本文件是 .mjs，**不导出 TS 类型**；"一份定义两处受益"目前只体现在运行时侧）
 export const METHODS = {
   search:        z.object({ mode: z.enum(['text','image','vector']), text: z.string().max(200).optional(),
                             imageRef: z.object({ libId: LibId, uid: Uid }).optional(),
@@ -130,7 +132,9 @@ new BrowserWindow({
 });
 ```
 
-- **preload 只暴露**：`invoke(method, params)`、`onEvent(cb)`、`offEvent(cb)`。**不暴露** `ipcRenderer` 本体、不暴露 `require`、不暴露任何 `fs`/`path`。
+- **preload 只暴露三个成员**：`invoke(method, params)`、`onEvent(cb)`（**返回退订闭包**，没有独立的 `offEvent`）、`platform`。
+  **不暴露** `ipcRenderer` 本体、不暴露 `require`、不暴露任何 `fs`/`path`。
+  （实现：`apps/desktop/src/preload/index.js`；源码是 ESM，但构建产物必须是 **CJS**，因为 `sandbox: true` 不加载 ESM preload。）
 - **CSP**（通过响应头或 `meta`，两者都设）：
   ```
   default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
@@ -138,7 +142,7 @@ new BrowserWindow({
   object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
   ```
   - 生产态**不得**出现 `'unsafe-eval'`；开发态若 HMR 需要，必须是**仅开发**且以构建常量区分
-  - **离线要求**：`connect-src 'self'` 即隐含"不得连任何远程源"（与 `SPEC-app` §6「禁止 CDN」一致）
+  - **离线要求**：`connect-src 'self'` 即隐含"不得连任何远程源"（与 `docs/spec/SPEC-app.md` §6「禁止 CDN」一致）
 - **`webPreferences.devTools`**：**生产态也保留**（2026-10-10 决定，见 §9 决定 3）。
   理由：这是**本机自用工具**，此处主要威胁（物理接触、管理员权限）本就在 §1「明确不防」里；
   排障收益更大。代价是"任何能操作这台机器的人都能打开 DevTools" —— 已知并接受。
@@ -150,7 +154,7 @@ new BrowserWindow({
 | # | 不变量 | 判据 |
 |---|---|---|
 | 1 | 引擎返回的**任何字符串**都按纯文本渲染 | 代码里 `dangerouslySetInnerHTML` **零使用**（grep 检查）；文件名含 `<img onerror=…>` 时只显示文字 |
-| 2 | 渲染进程拿不到任意路径读取能力 | preload 暴露面只有三个函数；`window.require`/`window.process` 为 `undefined` |
+| 2 | 渲染进程拿不到任意路径读取能力 | preload 暴露面只有三个成员（`invoke` / `onEvent` / `platform`）；`window.require`/`window.process` 为 `undefined` |
 | 3 | 路径只出现在 `details` 里，不出现在 `userMessage` | 引擎已保证（P1 测试断言 userMessage 无绝对路径）；界面默认不展示 `details` |
 | 4 | 只读操作不写库 | 跑完浏览/搜索/预览后，库指纹不变（P1 已测：`fingerprintV1` 前后一致） |
 
@@ -164,32 +168,71 @@ new BrowserWindow({
 ### 7.1 为什么要逐个交代
 
 安全规格里写"依赖最少"是空话 —— 必须说清**每个依赖换来什么、不装它要付什么代价**，
-否则"最少"无人可审。实测体量：`node_modules` **596 MB / 16,894 文件 / 288 个顶层包**，
-但**生产依赖只有 21 个**（其余是构建工具，不进安装包）。
+否则"最少"无人可审。
 
-### 7.2 运行时依赖（21 个，会进安装包）
+**实测体量**（2026-10-12）：
 
-| 依赖 | 换来什么 | 不装它要付什么 |
+| 项 | 实测值 | 可复现命令 |
 |---|---|---|
-| `react` + `react-dom` 19.3 | 结果网格 / 筛选面板 / 任务状态这类复杂交互的组件模型；也是 shadcn 生态的前提 | 手写 DOM 同步；虚拟列表与弹窗焦点管理都要自己来 |
-| `zustand` 5.0 | 小状态仓库；**IPC 事件流直接灌进 store**（索引进度是推送，不是轮询） | 自建发布订阅；或引入 TanStack Query —— 但本项目**没有 HTTP 层**，那是错配 |
-| `@tanstack/react-virtual` | **仅**用于浏览整库 3594 条时的窗口化 | 3594 个 DOM 节点；搜索 Top-K ≤100 不需要它 |
-| `lucide-react` 1.55 | 图标（**本地包，满足离线要求**，替掉原型里的 Unicode 字符） | 自绘 SVG 或字体图标；CDN 图标违反离线约束 |
-| `zod` 4.6 | **IPC 契约的唯一来源**：一份 schema 同时导出运行时校验与 TS 类型 | 手写校验散落各处 —— 而"IPC 参数白名单"正是要靠它才不是空话 |
-| `clsx` + `tailwind-merge` + `class-variance-authority` | shadcn 三件套：条件类名 / 冲突合并 / 变体定义 | 手写类名拼接，冲突类（`p-2 p-4`）会随机生效 |
-| 12 × `@radix-ui/*` | **无障碍原语**：Dialog / AlertDialog（**文件操作确认弹窗**）/ Popover / Select / Tooltip / Switch / Checkbox / DropdownMenu / Toast / Slot / Tabs / Label | 手写焦点陷阱与 `aria-*` —— a11y bug 的集中地，且确认弹窗是**不可逆操作**的最后一道确认 |
+| **依赖树规模（唯一权威口径）** | **662 条** | `node -e "console.log(Object.keys(require('./package-lock.json').packages).length - 1)"` |
+| `node_modules` 体积 | **1089.9 MB** | `[math]::Round((Get-ChildItem node_modules -Recurse -File \| Measure-Object Length -Sum).Sum/1MB,1)` |
+| `package.json` `dependencies`（会进安装包） | **24 个** | `node -e "console.log(Object.keys(require('./package.json').dependencies).length)"` |
 
-### 7.3 刻意**不引入**的（同样是设计决定）
+> **依赖规模为什么以锁文件为准**：`package-lock.json` 由 npm **确定性生成**，条目数精确可复现
+> （实测连测三次均为 **662**；其中 4 条是本仓库 workspace 自链接 `@gemma-search/*`）。
+> `node_modules` 目录结构则是**安装的派生结果**，会随安装漂移 —— 见下方警告。
+
+> ⚠️ **不要**用 `node_modules` 目录计数作为依赖规模指标。2026-10-12 三次独立复算分别得到
+> **449 / 453 / 445**（口径不同、且随安装漂移：`-Force` 计数会把非包的 `.bin`/`.vite` 算进去，
+> 整个 `@scope/` 又只算 1 个，而 workspace 自链接还会随时增减）。**早期文档里的 288 / 334 即因此出错** ——
+> 换成任何"更准的目录数"都会重演同一个错误。要可复现的数字，请用上表的**锁文件条目数**命令。
+
+> ⚠️ **必须区分"声明了"与"用到了"。** 24 个 `dependencies` 会被 `electron-builder` **全部收进安装包**
+> （`electron.vite.config.mjs` 的 `externalizeDepsPlugin()` 把它们全列为 external，打包时按 `dependencies` 收），
+> 但其中 **18 个在 `apps/` 与 `packages/` 里零 import**（逐个 grep 实测）。
+> 也就是说：**"依赖最少"目前并不成立**，这是待处置项，见 §7.3。
+
+### 7.2 运行时依赖：实际被用到的（6 项 —— 24 减去 §7.3 的 18）
+
+| 依赖 | 谁 import（`文件:行号`） | 换来什么 | 不装它要付什么 |
+|---|---|---|---|
+| `react` + `react-dom` | `apps/desktop/src/renderer/src/main.jsx`（`react`、`react-dom/client`）与各 `.jsx` | 结果网格 / 筛选面板 / 任务状态的组件模型 | 手写 DOM 同步；弹窗焦点管理都要自己来 |
+| `zod` | `apps/desktop/src/shared/ipc.mjs:5` | **IPC 契约的唯一来源**：一份 schema 同时给出方法名白名单与运行时参数校验 | 手写校验散落各处 —— 而"IPC 参数白名单"正是要靠它才不是空话 |
+| `@huggingface/transformers` | `apps/desktop/src/main/encoder.mjs:11` · `packages/indexer/src/*.mjs` | ONNX + WebGPU 的文/图编码器；索引与查询两侧共用 | 没有编码路径，索引与检索都不成立 |
+| **`sharp`** | `packages/indexer/src/resize_compat.mjs:35` 的 **`await import('sharp')`**（**动态** import），经 `apps/desktop/src/main/encoder.mjs:12` 进入生产路径；`packages/indexer/src/bmp_decode.mjs:139` 亦用 | 重采样兼容层 `resize_compat(pil-like)` —— 把 Node 侧 resize 钉成与参考实现同源；`preprocessing_version` 2 的一致性依据 | 索引侧与查询侧的重采样不同源 → 检索结果**静默变差**（本项目最危险的失败模式） |
+| `bmp-js` | `packages/indexer/src/bmp_decode.mjs:55`（动态 import） | 纯 JS 的 24 位 `BI_RGB` BMP 解码 + 合成图布局自检；救回 20 张"文件名 `.jpg` 实为 BMP"的预览图 | 可编码条目 3594 → **3574**，那 20 张永远搜不到 |
+| `electron` | `apps/desktop/src/main/index.mjs`（`devDependencies`，但外壳本体） | 主进程 / preload / 渲染进程外壳 | 没有外壳 |
+
+> **`sharp` 曾被本文件错列为"刻意不引入"（已更正，见 `docs/audit/00-current-state.md` §5 D9）。**
+> 它从 v1 起就在 `package.json` 的 `dependencies` 里，且被生产路径使用 —— 只是**动态 import**，
+> 静态 grep 会漏。`package.json` 的注释也写明「本是传递依赖，靠传递依赖迟早会断」，
+> 所以**显式声明是刻意的**。详见 `docs/audit/STACK-AUDIT.md` §6（P9）与 §11 问题表。
+
+### 7.3 声明了但零 import 的（18 个）——**待处置**
+
+在 `apps/` 与 `packages/` 里**逐文件 grep 实测 0 命中**：
+12 × `@radix-ui/react-*` · `zustand` · `@tanstack/react-virtual` · `lucide-react` ·
+`clsx` · `tailwind-merge` · `class-variance-authority`。
+它们仍进安装包（约 **38 MB / ~4,800 文件**，其中 `lucide-react` 一个就 34.1 MB）。
+
+**定性**：这是 **P3a 技术选型承诺与实际实现的偏离**，不是安全漏洞 ——
+`Tailwind` / `shadcn/ui` / `Radix` / `zustand` / `react-virtual` / `Lucide` 在本仓库**均未接入**
+（界面是 **JS/JSX + 手写 CSS + 自研 `ui/`**，视觉值只来自令牌）。
+因此本文件**不再把它们当作"运行时依赖"背书**。删除或接线的处置建议见 `docs/audit/STACK-AUDIT.md` §6；
+**本文件只记录事实，不改 `package.json`。**
+
+### 7.3.1 刻意**不引入**的（同样是设计决定）
 
 | 不引入 | 理由 |
 |---|---|
 | 数据请求库（TanStack Query / SWR） | 没有 HTTP 层。传输是 IPC + 事件流 |
 | 表单库（react-hook-form / formik） | 表单极少（设置页）。zod 已能校验 |
-| 组件库（MUI / AntD / Chakra） | 会与 `docs/design/DESIGN-tokens.md` 的视觉体系打架；shadcn 是**拷进来的代码**，我们拥有它 |
-| CSS-in-JS 运行时（styled-components / emotion） | Tailwind + `tokens.css` 已足够；运行时样式既慢又与 CSP 关系复杂 |
-| 状态机库（xstate） | 事务状态机很小，且必须住在 `core/` 里被无头测试覆盖 —— 引入库反而增加耦合 |
-| 图形库 / 图表库 | 明确不做（`docs/design/UI-REVIEW-and-migration.md` §8） |
-| `sharp` / `jimp`（缩略图） | Electron 自带 `nativeImage`，省掉一个约 30 MB 的原生依赖 |
+| 组件库（MUI / AntD / Chakra） | 会与 `docs/design/DESIGN-tokens.md` 的视觉体系打架；当前界面是**自研 `ui/`**，没有第三方组件层要接管 |
+| CSS-in-JS 运行时（styled-components / emotion） | 手写 CSS + `packages/design-tokens/tokens.css` 已足够；运行时样式既慢又与 CSP 关系复杂 |
+| Tailwind / shadcn/ui | **已试装未接入**（见 §7.3）：`tailwindcss` 与 `@tailwindcss/vite` 在 devDependencies，但构建里没有插件；shadcn/ui 从未落地 —— 本节不再把它当作方案 |
+| 状态机库（xstate） | 事务状态机很小，且必须住在 `packages/engine/src/` 里被无头测试覆盖 —— 引入库反而增加耦合 |
+| 图形库 / 图表库 | 明确不做（`docs/design/UI-REVIEW-and-migration.md` §9） |
+| `jimp`（缩略图） | Electron 自带 `nativeImage`，省掉一个约 30 MB 的原生依赖（**`sharp` 不在此列** —— 它是生产依赖，见 §7.2） |
 | 数据库（better-sqlite3 等） | 索引是单文件、注册表是 JSON。引入 DB 只增加迁移与打包负担 |
 | `electron-updater` | 不做自动更新（未决策）；它会新增一条**联网**通路 |
 | 自动修复类工具（`npm audit fix --force`） | 会静默做大版本变更，破坏"可复现" |
@@ -197,35 +240,52 @@ new BrowserWindow({
 ### 7.4 构建工具链（devDependencies，**不进安装包**）
 
 `electron` 44.7（含 371 MB 平台二进制）· `electron-vite` 5.0（三端构建一体）·
-`vite` 7.3 · `electron-builder` 26.15（NSIS 打包，P6 用）· `typescript` 7.0.2 ·
-`tailwindcss` 4.3 + `@tailwindcss/vite` · `vitest` 5.0.3 · `@types/*`
+`vite` 7.3 · `@vitejs/plugin-react` ^5（v6 要求 Vite 8，与本工程冲突）· `electron-builder` 26.15（NSIS 打包，P6 用）·
+`jsdom` 29.1（渲染层 DOM 守卫用）· `typescript` 7.0.2 · `@types/*`
+
+**已装未用（待处置，见 §7.3）**：`tailwindcss` 4.3 + `@tailwindcss/vite` · `vitest` 5.0.3。
 
 > `electron-winstaller`（30.7 MB）是 electron-builder 的 Squirrel 依赖，我们用 NSIS，
 > 属**开发期冗余**；清不掉（上游依赖），记录在此以免将来被误认为"我们选了 Squirrel"。
+> `typescript` 装了但**没有 typecheck 门禁**（`tsconfig*.json` 的 `checkJs: false`，`npm run` 里没有 `typecheck`）——
+> 这不是"用 TS 写的"，JS 迁移仍在计划中。
 
 ### 7.5 测试运行器的现状（如实记录一处规格偏离）
 
-`SPEC-app` §7 写的是 vitest。**当前 `core/` 的 61 条测试跑在 `node:test` 上** ——
-起因是当时受限沙箱下 `npm install` 会 EPERM，于是 P1 引擎刻意做成**零依赖**
-（这也让"`core/` 传输无关"变成最强的形式：它连测试框架都拉不进来）。
+`docs/spec/SPEC-app.md` §7 曾写 vitest。**当前引擎的 68 条测试跑在 `node:test` 上**
+（`packages/engine/tests/*.test.mjs`）—— 起因是当时受限沙箱下 `npm install` 会 EPERM，
+于是引擎刻意做成**零依赖**（这也让"引擎传输无关"变成最强的形式：它连测试框架都拉不进来）。
 
-现在依赖已可用，处置如下（**推荐**，待你在 §9 确认）：
-- **`core/` 继续用 `node:test`** —— 零依赖是引擎的一项特性，不是权宜
-- **`app/` 与 `src/shared/` 用 vitest** —— 那里是 TS + React，确实需要 jsdom 与 TS 转换
-- 若你要求全仓统一到 vitest，`core/` 的 4 个测试文件可机械迁移（约半小时）
+现状与处置：
+
+- **引擎继续用 `node:test`** —— 零依赖是引擎的一项特性，不是权宜
+- **应用侧（`apps/desktop/`）目前没有任何自动化测试** —— `vitest` 装了但**一行用例都没有**（0 使用）。
+  要么接线，要么删除；**在没有用例之前，不得声称应用侧有测试**。
+- 跳过的 3 条里，有 2 条的根因是 `config.json` 已被删除（死引用，见 §7.6）
 
 ### 7.6 流水线与约束
 
 - **`package-lock.json` 必须入库**（锁定完整依赖树）
-- 新增依赖要过 `SPEC-app` §8 的 "Ask first"
+- 新增依赖要过 `docs/spec/SPEC-app.md` §8 的 "Ask first"
 - 安全升级单独提交并跑全测试；**不启用** `npm audit fix --force` 这类自动大版本变更
 - Electron/Chromium 安全更新列入 P6 发布检查：**升级 Electron 必须重跑 §8 的权限测试用例**
+- **未修的上游缺口（如实登记）**：主进程仍从 `config.json`（或 `GEMMA_CONFIG`）读库根，
+  而该文件已不在仓库里 → 找不到时静默用空库；这使 §8 里两条依赖 `config.json` 的用例**永久跳过**。
+  处置属代码线（见 `AGENTS.md` §7「D2」）。
 
 ---
 
 ## 8. 权限测试用例（**P2 验收必须全过**）
 
-自动化（写进 `tests/`，可在无窗口下尽量覆盖）：
+> ⚠️ **现状：本表 16 条目前没有任何自动化实现，P2 验收未通过。**
+> `packages/engine/tests/security.test.mjs` 测的是 `docs/spec/CONTRACT-engine-v1.md` §7 的
+> **5 条引擎层不变量**（该文件头部自述），**不是**本表 —— 传输层（主进程 IPC 分发、
+> preload 暴露面、`thumb://` 处理器）**零单测**（实测：在 `packages/engine/tests/*.test.mjs` 里
+> grep `ipc|thumb|preload|senderFrame|setWindowOpenHandler|validateCall` **只命中一处注释**）。
+> 引用本条时必须写明"未实现"，不得当成已通过。详见 `docs/audit/STACK-AUDIT.md` §11（P4）与 `docs/DEBT-CLEANUP.md`。
+
+自动化（写进 `packages/engine/tests/`——纯函数部分）或 `apps/desktop/` 的组件/E2E 测试；
+可在无窗口下覆盖的尽量覆盖：
 
 | # | 用例 | 期望 |
 |---|---|---|
@@ -250,14 +310,14 @@ new BrowserWindow({
 
 ---
 
-## 9. 决定记录（2026-10-10）
+## 9. 决定记录
 
-| # | 事项 | 你的决定 | 处置 |
+| # | 事项 | 决定 | 处置 |
 |---|---|---|---|
-| 1 | **本文件是否批准** | **暂批** | 可作为 P2 编码依据；实质性问题出现时再回头修订，不阻塞开工 |
-| 2 | 依赖最小集 | **要求详细交代** | 已按 §7.1–§7.4 逐个说明"换来什么 / 不装要付什么"，含**刻意不引入**清单与实测体量 |
-| 3 | 生产态 DevTools | **不关闭** | 生产态**保留** DevTools（`webPreferences.devTools: true`）。理由成立：这是**本机自用工具**，主要风险是本机物理接触与管理员 —— 已在 §1「明确不防」里列明。排障收益大于此处的边际风险 |
-| 4 | CSP 的 `style-src 'unsafe-inline'` | **要最终推荐** | 见 §10 |
+| 1 | **本文件是否批准** | **暂批**（2026-10-10） | 可作为 P2 编码依据；实质性问题出现时再回头修订，不阻塞开工 |
+| 2 | 依赖最小集 | **要求详细交代**（2026-10-10） | 已按 §7.1–§7.6 逐个说明"换来什么 / 不装要付什么"，含**刻意不引入**清单与实测体量。**2026-10-12 更正**：生产依赖 21→**24**、`node_modules` 596 MB→**1089.9 MB**；**依赖规模改用锁文件条目数（662）作为唯一口径**——早期的 288 / 334 以及中途试过的 450 都是 `node_modules` 目录计数，会随安装漂移（见 §7.1 警告）；并把 `sharp` 移入 §7.2（D9） |
+| 3 | 生产态 DevTools | **不关闭**（2026-10-10） | 生产态**保留** DevTools（`webPreferences.devTools: true`）。理由成立：这是**本机自用工具**，主要风险是本机物理接触与管理员 —— 已在 §1「明确不防」里列明。排障收益大于此处的边际风险 |
+| 4 | CSP 的 `style-src 'unsafe-inline'` | **要最终推荐**（2026-10-10） | 见 §10 |
 
 ---
 
@@ -281,24 +341,34 @@ new BrowserWindow({
 ### 10.2 为什么"更严"在技术上做不到，做了也是安全剧场
 
 `style-src` 的 nonce/hash 只能覆盖 **`<style>` 元素**，**覆盖不了 `style="…"` 属性**。
-而 Radix 的定位组件（Popover / Select / Tooltip / DropdownMenu）在运行时会往
-`style` 属性写 `transform`/`top`/`left` —— 这些值**随交互动态变化，无法预先算 hash**。
+而本仓库**现在就有**动态内联样式属性：
+
+- `apps/desktop/src/renderer/src/ui/Progress.jsx:9` —— `style={{ width: \`${pct}%\` }}`（进度条宽度随进度变化）
+- 将来接入任何弹出层定位组件（Popover / Select / Tooltip / DropdownMenu）还会写 `transform`/`top`/`left`，
+  这些值**随交互动态变化，无法预先算 hash**
+- 生产态样式由 Vite 抽成文件，但 dev 态由 Vite 注入 `<style>`（`apps/desktop/src/renderer/index.html` 的注释自己写明这一点）
 
 因此要真做到 `style-src 'self'`，只有三条路：
-1. 放弃 Radix 的定位组件，自己实现弹出层定位（**重新引入 a11y 与定位 bug**，与 §7.2 选 Radix 的理由直接冲突）
+
+1. 把动态内联样式全改成非内联（例如给进度条预置有限档位的 class）——可行但收益仅"形式更严"，
+   且将来任何定位组件都会把它破掉
 2. 加 `'unsafe-hashes'` 或 `style-src-attr 'unsafe-inline'` —— **等于把限制加回来**
 3. 给动态样式值做 nonce 注入 —— 对属性无效，做不到
 
 即：**严格的版本在本项目里不可达**；强行写上去只会让规格看起来更安全，实际一改就破。
 
+> ⚠️ **一处需要更正的旧论据**：本文件 v1 把这条论证挂在"Radix 的定位组件"上。
+> 实测 **12 个 `@radix-ui/react-*` 全部零 import**（§7.3）—— 该论据当时**不成立于现状**，
+> 现在成立的是上面那条（`Progress.jsx` 的既有内联属性）。结论（保留 `'unsafe-inline'`）不变。
+
 ### 10.3 真正该花力气的地方（已做/将做）
 
 | 控制 | 状态 |
 |---|---|
-| `script-src 'self'`（无内联、无 eval） | 规格要求；生产态明确禁止 `'unsafe-eval'` |
-| 引擎返回字符串**一律纯文本渲染**（不变量 1） | 已写进 §6；P2 用 grep 检查 `dangerouslySetInnerHTML` 零使用 |
-| `object-src 'none'` · `base-uri 'none'` · `form-action 'none'` · `frame-ancestors 'none'` | 规格要求 |
-| `connect-src 'self'`（**无外联即无外泄**） | 规格要求，与"离线可用"一致 |
+| `script-src 'self'`（无内联、无 eval） | 已设（`apps/desktop/src/renderer/index.html`）；生产态明确禁止 `'unsafe-eval'` |
+| 引擎返回字符串**一律纯文本渲染**（不变量 1） | 已写进 §6；**实测 `dangerouslySetInnerHTML` 与 `innerHTML` 在渲染层零使用**（唯一命中是 `main.jsx:8` 的注释） |
+| `object-src 'none'` · `base-uri 'none'` · `form-action 'none'` · `frame-ancestors 'none'` | 已设（`meta` 内；**响应头仍未设**，见 `docs/DEBT-CLEANUP.md`） |
+| `connect-src 'self'`（**无外联即无外泄**） | 已设，与"离线可用"一致 |
 | 不加载远程内容 + 拒绝导航 + 拒绝新窗口 | §4 来源验证 |
 | 只读操作不写库、路径只能由 lib_id+uid 解析 | 引擎层已实现并测试（`docs/spec/CONTRACT-engine-v1.md` §7） |
 
@@ -307,8 +377,8 @@ new BrowserWindow({
 可接受的**增量**（成本低、收益明确）是把 `style-src` 拆细，明示我们只放开了属性那一半：
 
 ```
-style-src-elem 'self' 'unsafe-inline';   /* Tailwind 产出的 <style> */
-style-src-attr 'unsafe-inline';          /* Radix 的运行时定位属性 */
+style-src-elem 'self' 'unsafe-inline';   /* Vite 注入 / 抽出的 <style> */
+style-src-attr 'unsafe-inline';          /* Progress 等组件的运行时内联样式属性 */
 ```
 
 这不提升安全性，但让"我们放开了什么"在 CSP 里一眼可见，便于将来复查。

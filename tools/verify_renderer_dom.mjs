@@ -1,7 +1,7 @@
 // tools/verify_renderer_dom.mjs —— React 渲染层的**真跑**验收（jsdom，不需要 Electron）
 //
-// 2026-10-10 起界面按 `static/prototype/` 的设计重写（类名体系换成了原型的
-// `.sidebar/.main/.topbar/.panel/.metrics/.gallery/.photo-card/.tag/.score`），
+// 2026-10-10 起界面按原型套件的设计重写（原型现已归档到 `docs/archive/prototype/`），
+// 类名体系换成了原型的 `.sidebar/.main/.topbar/.panel/.metrics/.gallery/.photo-card/.tag/.score`，
 // 本守卫同步按新 DOM 断言。它检：
 //   1) 启动：indexStatus 被调用；侧栏读到库根；指标卡显示真实条数与精度/设备
 //   2) 文字检索：参数正确（含分类筛选"全部 = 四个目录"与单选某一类）
@@ -22,15 +22,15 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = (() => {
   let p = HERE;
   for (;;) {
-    if (fs.existsSync(path.join(p, 'core', 'engine.mjs'))) return p;
+    if (fs.existsSync(path.join(p, 'packages', 'engine', 'src', 'engine.mjs'))) return p;
     const up = path.dirname(p);
-    if (up === p) throw new Error('找不到项目根（向上找不到 core/engine.mjs）');
+    if (up === p) throw new Error('找不到项目根（向上找不到 packages/engine/src/engine.mjs）');
     p = up;
   }
 })();
 
 const OUT_R = path.join(ROOT, 'out', 'renderer');
-const SRC_HTML = path.join(ROOT, 'src', 'renderer', 'index.html');
+const SRC_HTML = path.join(ROOT, 'apps', 'desktop', 'src', 'renderer', 'index.html');
 
 const problems = [];
 const ok = (cond, label, detail = '') => {
@@ -41,7 +41,7 @@ const ok = (cond, label, detail = '') => {
 // ---------------------------------------------------------------- 1) jsdom + 真实 HTML
 const html = fs.readFileSync(SRC_HTML, 'utf8');
 if (!/id="root"/.test(html)) {
-  console.error('src/renderer/index.html 缺少挂载点 #root');
+  console.error('apps/desktop/src/renderer/index.html 缺少挂载点 #root');
   process.exit(1);
 }
 const dom = new JSDOM(html, { url: 'http://localhost/', pretendToBeVisual: true });

@@ -1,0 +1,128 @@
+# GETTING-STARTED · 从克隆到跑起来
+
+> 面向**第一次拿到这个仓库**的人。每一步都写清"该看到什么"；看不到就是有问题，去 [`TROUBLESHOOTING.md`](docs/guide/TROUBLESHOOTING.md)。
+> 改动代码/文档前请先读 [`AGENTS.md`](AGENTS.md)（目录职责与纪律）。
+
+最后核对：2026-10-12 · 环境：Windows / PowerShell / Node ≥ 20
+
+---
+
+## 0. 先知道"现在能跑到哪一步"（省得白折腾）
+
+| 你想做的事 | 现在能吗 |
+|---|---|
+| 跑引擎单测、构建三端、跑守卫 | ✅ 能 |
+| 打开应用窗口、看到界面骨架 | ✅ 能（有实跑证据 `reports/G-D-p2-electron/`） |
+| **用中文检索出结果** | ❌ **不能开箱即用**：仓库里没有 `config.json`，而主进程仍从它读库根 → 空库启动（缺口 D2，见 [`AGENTS.md`](AGENTS.md) §7） |
+| 入库 / 增量 / 多库管理 | ❌ 未实现（P4/P5） |
+| 打包分发给别的机器 | ❌ 未做（P6） |
+
+**所以第一次跑的目标是**：单测绿、构建过、窗口出得来、守卫通过。**不要**把"检索没结果"当成装错了。
+
+---
+
+## 1. 依赖
+
+```powershell
+git clone https://github.com/IKBlue/gemma-search.git
+cd gemma-search
+npm install
+```
+
+`npm install` 只装 Node/Electron 依赖。**本仓库没有 Python**，也没有 `requirements*`。
+
+### 习惯性的本机设置（一次性，不随仓库分发）
+
+```powershell
+git config core.quotepath false     # 中文文件名不显示成八进制转义
+git config core.autocrlf false      # 行尾交给 .gitattributes 统一控制，关掉自动转换
+```
+
+### ⚠️ Electron 二进制下载坑（最常见的卡点）
+
+npm 包会装上，但**平台二进制不随包一起来**。症状：报 `fetch failed`，且 `%LOCALAPPDATA%\electron\Cache` 是空的。
+
+```powershell
+$env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
+node node_modules/electron/install.js
+```
+
+实测：直连 GitHub 的 releases **页面** HEAD 返回 200，但**资产下载**会失败；换 npmmirror 镜像后正常（`electron.exe` 246 MB 左右）。
+
+> 刻意**不**把镜像写进仓库的 `.npmrc` —— 那是本机网络环境的权宜，钉死会连累网络正常的机器。
+
+---
+
+## 2. 跑起来
+
+```powershell
+npm run dev      # dev server + HMR（改渲染层即时生效）
+npm run build    # 产出 out/main · out/preload · out/renderer
+npm start        # 跑刚 build 出来的产物（接近打包态）
+```
+
+**受限环境**（Chromium 进程沙箱起不来 → Electron 秒退、日志一行都不生成）：
+
+```powershell
+npm run dev:restricted      # = dev --noSandbox
+npm run start:restricted
+```
+
+这两个脚本经 `scripts/electron-vite.mjs` 转发：它会先摘掉 `ELECTRON_RUN_AS_NODE`（该变量会让 Electron 以**纯 Node** 运行，报错极具误导性），再探测本机沙箱是否可用，**只为这一次启动**附加 `--no-sandbox`，并把判断依据打印出来。**普通终端不需要它，也不要把它固化进产品。**
+
+### 看日志，不要看终端
+
+Windows 上 Electron 是 GUI 子系统程序，**stdout 不连终端**，`console.log` 一条都看不到。
+主进程与渲染进程的诊断都写 **`data\_app.log`** —— 排查任何"窗口没出来"的问题都先看它。
+
+---
+
+## 3. 验收：确认你的环境是对的
+
+```powershell
+npm test                                  # 期望：tests 68 · pass 65 · fail 0 · skipped 3
+npm run build                             # 期望：out/{main,preload,renderer} 三端齐备
+
+node tools\verify_app_build.mjs           # 产物形状
+node tools\verify_renderer_dom.mjs        # 渲染层在 jsdom 里真跑（需先 build）
+node tools\verify_renderer_styles.mjs     # 样式与令牌一致性
+node tools\verify-doc-refs.mjs            # 文档引用解算 + 根目录越界
+```
+
+**3 项跳过是正常的**，但要知道为什么（详见 [`AGENTS.md`](AGENTS.md) §5.1）：
+
+1. 本环境无法创建文件符号链接（`EPERM`）→ 符号链接拒绝用例跳过；
+2. 另两项以 `config.json` / `baseline-v1.json` 为数据源，而 `config.json` 已不在仓库里 → **死引用，会永久跳过**。
+
+需要模型的守卫（`verify_encoder_path.mjs`）与需要查询向量的自查（`check_search.mjs`）不是第一天的必跑项。
+
+---
+
+## 4. 索引：它不在仓库里
+
+索引**不进 git**：它含素材的绝对路径，且可以重建。已接受的索引在 `data/libraries/L1/`（3594 条 · dim 768）。
+
+重建（唯一可用路径）：
+
+```powershell
+node packages/indexer/src/build_index_onnx.mjs --model <ONNX 模型目录> --lib <素材库根> `
+     --out data/idx-full --seq 140 --device webgpu --lib-id L1
+```
+
+- `seq`（70/140/280）是唯一的提速杠杆，**换档必须全量重建**；
+- **不要边建边查**：两者争 GPU，实测速率减半；
+- 素材库换了位置 → 索引里的绝对路径失效 → 必须重建。
+
+---
+
+## 5. 接下来读什么
+
+| 目的 | 文档 |
+|---|---|
+| 目录职责 / 新东西放哪儿 / 门禁 / 写作纪律 | [`AGENTS.md`](AGENTS.md) |
+| 有什么文档、哪件事以谁为准 | [`docs/README.md`](docs/README.md) |
+| 做到哪一步、下一步做什么 | [`docs/plan/ROADMAP.md`](docs/plan/ROADMAP.md) |
+| 应用规格与技术栈 | [`docs/spec/SPEC-app.md`](docs/spec/SPEC-app.md) |
+| 引擎接口契约 | [`docs/spec/CONTRACT-engine-v1.md`](docs/spec/CONTRACT-engine-v1.md) |
+| 验收阈值与门禁口径 | [`docs/spec/SPEC-acceptance.md`](docs/spec/SPEC-acceptance.md) |
+| 出问题了 | [`TROUBLESHOOTING.md`](docs/guide/TROUBLESHOOTING.md) |

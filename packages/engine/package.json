@@ -1,0 +1,24 @@
+{
+  "name": "@gemma-search/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "搜索引擎本体（原 core/）：传输无关、零第三方依赖",
+  "main": "./src/index.mjs",
+  "scripts": {
+    "test": "node --test --test-isolation=none \"tests/*.test.mjs\""
+  },
+  "dependencies": {},
+  "//": [
+    "**零依赖是这一包的核心特性，不是遗漏**（P1 决策）：",
+    "  ① 引擎必须传输无关 —— 零依赖是这一点的最强形式，也让它不可能 import electron / http；",
+    "  ② 受限沙箱下 `npm install` 会因 npm 用管道捕获子进程输出而 EPERM。",
+    "所以 `dependencies` 显式写成空对象：**任何人往这里加依赖都是在改架构决策**，请先改 AGENTS.md。",
+    "包之间**不用包名解析、也不用 workspace:* 协议**：调用方用相对路径直接指到源码。",
+    "  ⚠️ **相对深度按调用方文件算，别照抄**：apps/desktop/src/main/index.mjs 引本包要 **4 级**",
+    "  （`../../../../packages/engine/src/engine.mjs`）；本清单文件自身距仓库根则是 **2 级**。",
+    "  凡按层级数 `..` 都容易错 —— 本项目已踩过两次，见 docs/MIGRATION-PLAN.md §3.1。",
+    "  这是有意的 —— 保持零构建步骤，守卫直接读源码，产物只由 electron-vite 一处生成。",
+    "测试随包走（原仓库根 tests/）：`npm test` 跑的是仓库根脚本，本包的 test 只是局部快捷方式。"
+  ]
+}

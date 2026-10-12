@@ -1,7 +1,24 @@
 # Apple 风格设计令牌 · gemma-search
 
+> **状态**：现行（**视觉令牌唯一来源**）· **最后核对**：2026-10-12
+> **权威范围**：颜色 / 字体 / 间距 / 圆角 / 材质 / 控件尺寸 / 动效 / 可访问性约定，以及它们的 CSS 变量落地。
+> 信息架构（做什么界面、放哪些控件）以 `docs/design/UI-REVIEW-and-migration.md` 为准；二者冲突时
+> **以该文的信息架构为准、以本文件的视觉值为准**（§12）。
+>
 > 本文档把此前两份成品（审查意见页、搜索结果界面）里实际用到的视觉值整理成令牌。
 > 风格参照 Apple 的界面语言，**不是 Apple 官方规范**。标注“建议”的值是为补全体系新增的，页面里没有用到。
+
+## 0. 令牌的可执行版本在哪（**2026-10-12 更新**）
+
+| 项 | 位置 | 说明 |
+|---|---|---|
+| **可执行令牌（唯一来源）** | **`packages/design-tokens/tokens.css`** | **已从原型目录提升为正式生产资产。** 被 `apps/desktop/src/renderer/src/main.jsx` 直接 import（跨 root 引用，刻意不复制第二份） |
+| 本文档（`docs/design/DESIGN-tokens.md`） | 令牌的**定义与理由** | 改令牌时两处都要动：先在本文件登记，再改 `tokens.css` |
+| 原型套件（历史） | **`docs/archive/prototype/prototype/`**（6 页 + `style.css` / `app.css` / `app.js`；入口 `index.html`）· 更早的 mockup 在 `docs/archive/prototype/_archive/` | **已归档，不再是依据。** 归档时 `tokens.css` 被移出该目录，所以那些原型页的 `<link href="tokens.css">` 已失效——**原型只作历史留档，不再保证可渲染** |
+| 守卫 | `node tools/verify_renderer_styles.mjs` | 断言「渲染层用到的令牌都有定义」。**注意它的方向性**：只查 `used → defined`，**不查 `defined → used`**（实测 35 个令牌定义了从未被消费） |
+
+> **视觉令牌仍然是唯一来源，这一条不变。** 变的只是文件位置：它不再住在原型目录里，
+> 因此生产代码不再依赖一个已归档的目录。
 
 ## 1. 设计原则
 
@@ -38,11 +55,12 @@
 | `color.on-accent` | `#ffffff` | 蓝色实心圆（步骤序号）上的文字 |
 | `color.window.close` / `.min` / `.max` | `#ff5f57` / `#febc2e` / `#28c840` | 窗口三色点，仅桌面壳使用 |
 
-### 2.3 缩略图占位色（仅原型）
+### 2.3 缩略图占位色（仅原型，已归档）
 
 `#dfe7ee` · `#ece6dc` · `#e3ebe4` · `#eadfe6` · `#e6e6ea` · `#f0e3d8` · `#dce6ea` · `#e9e9dd`
 
-低饱和平色块，真实缩略图接入后删除。
+低饱和平色块，真实缩略图接入后删除。**原型套件已归档**（`docs/archive/prototype/prototype/`）；
+现在这条只剩一个可执行落点：`tokens.css` 的 `--thumb-fallback`（缩略图未加载时的占位渐变）。
 
 ### 2.4 对比度
 
@@ -160,6 +178,12 @@
 
 ## 10. 可直接使用的 CSS 变量
 
+> **本节只是「核心变量表」（颜色 / 字体族 / 间距 / 圆角 / 阴影）的**成文副本**，可执行版在
+> `packages/design-tokens/tokens.css` §1，两处必须一致。**
+> `tokens.css` 里还有**文档没有成变量的那些值的落地**（§2 领域补充、§2.5 字号/布局/控件、
+> §3 旧变量桥接、§4–§5 深色与固定深色侧栏）—— 以那个文件为准，本节不重复抄。
+> 冲突时以 `tokens.css` 为准（该文件头部已声明）。
+
 ```css
 :root {
   /* color */
@@ -231,11 +255,16 @@
 }
 ```
 
-## 11. 映射到 Tailwind + shadcn/ui
+## 11. 附录：映射到 Tailwind + shadcn/ui —— **已否决，未采纳**
 
-任务计划书选定的技术栈是 Tailwind + shadcn/ui。shadcn/ui 通过一组固定名字的 CSS 变量取色，可以按下表把令牌接进去。颜色格式（hex、HSL 或 oklch）按所用版本的约定填写。
+> ⚠️ **这一章是历史附录，不是方案。** 任务计划书当初选定 Tailwind + shadcn/ui，
+> 但**实际实现从未接入**：`tailwindcss` / `@tailwindcss/vite` 装了却在构建里没有插件，
+> 12 个 `@radix-ui/react-*` **零 import**，界面是 **JS/JSX + 手写 CSS + 自研 `ui/`**。
+> 否决理由（令牌纪律会被打散到 class 串里、现有样式量小且高度定制、收益比不成立）见
+> `docs/audit/STACK-AUDIT.md` §5.2 与 §6（P10）。**下表只作对照留档；不要按它去接 Tailwind。**
+> 现行做法见 §10：令牌就是 CSS 变量，组件只消费 `var(--*)`。
 
-| shadcn/ui 变量 | 令牌 |
+| shadcn/ui 变量 | 对应令牌 |
 |---|---|
 | `--background` | `color.bg.primary` |
 | `--foreground` | `color.text.primary` |
@@ -255,5 +284,8 @@
 ## 12. 使用与维护
 
 - 新增值之前先找最近的现有令牌，找不到再加，并标注来源。
-- 改令牌只改本文件和变量表，不要在组件里写死十六进制。
+- **改令牌只改两处**：本文件（定义与理由）+ `packages/design-tokens/tokens.css`（可执行值）。
+  两者不一致时以 `tokens.css` 为准。**不要在组件里写死十六进制。**
+- 改完跑 `node tools/verify_renderer_styles.mjs`（断言渲染层用到的令牌都有定义）。
+  **它只查一个方向**：查不出"定义了却没人用"的令牌（§0 表已注明）。
 - 本文件与 `docs/design/UI-REVIEW-and-migration.md` 的关系：UI 评审说“做什么界面”，本文件说“长什么样”。二者冲突时以评审文档的信息架构为准、以本文件的视觉值为准。

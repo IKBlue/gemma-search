@@ -1,9 +1,11 @@
 # 引擎接口契约 v1（`docs/spec/CONTRACT-engine-v1.md`）
 
-> **状态**：**待冻结**（P1 验收时冻结）。冻结后任何改动都要升版本并同步 `src/shared/`。
-> **权威**：本文件定义**接口形状**；身份/配对/指纹以 `docs/spec/SPEC-identity.md` 为准，
-> 事务状态机以 `docs/spec/SPEC-transactions.md` 为准，阈值以 `docs/spec/SPEC-acceptance.md` 为准，顺序以 `TASK-PLAN.md` 为准。
-> **目的**：让 P3a–P3d 的界面**不必等真实素材库**也能开发（见 §8 模拟接口）。
+> **状态**：**现行**（接口形状已冻结；任何改动按 §9 规则升版本并同步实现）
+> **最后核对**：2026-10-12
+> **权威范围**：引擎接口形状（方法 / 错误码 / 事件 / 恢复）
+> **权威**：身份/配对/指纹以 `docs/spec/SPEC-identity.md` 为准，
+> 事务状态机以 `docs/spec/SPEC-transactions.md` 为准，阈值以 `docs/spec/SPEC-acceptance.md` 为准，顺序以 `docs/plan/ROADMAP.md` 为准。
+> **目的**：让 P3 的四步界面开发**不必等真实素材库**也能进行（见 §8 模拟接口）。
 
 ---
 
@@ -11,7 +13,7 @@
 
 | # | 约束 | 可执行判据 |
 |---|---|---|
-| 1 | **传输无关** | `core/` 里 import `electron` 或 `http` 即违规（单测会拦） |
+| 1 | **传输无关** | `packages/engine/` 里 import `electron` 或 `http` 即违规（单测会拦） |
 | 2 | **路径只能由 `lib_id + uid` 解析** | 任何接受"绝对路径"入参的方法都违规（§7 不变量 ①） |
 | 3 | **只读操作绝不写库** | `search`/`item`/`thumbPath`/`scan`/`indexStatus` 在文件系统上零写入 |
 
@@ -84,7 +86,22 @@
 
 ## 2. 方法
 
-> 下表 `req` / `data` 都是 JSON 形状。TS 类型与 zod schema 是**同一份定义**导出的两种形态（`src/shared/`）。
+> 下表 `req` / `data` 都是 JSON 形状。**zod schema 是唯一来源**（`apps/desktop/src/shared/ipc.mjs`：方法白名单 + 逐方法 `.strict()` 校验 + 载荷上限）。
+> TS 类型是**计划中**的：当前 `tsconfig*.json` 的 `checkJs: false`，**没有 typecheck 门禁**。
+
+### 2.0 实现状态（2026-10-12 · 与契约的对齐说明）
+
+契约**冻结形状**与实现**尚未接线**可以并存，但必须有一处写明现状 —— 就是本节。
+
+| 方法 | 契约 | 实现 |
+|---|---|---|
+| `search` · `item` · `thumbPath` · `scan` · `indexStatus` | 已冻结 | ✅ 已实现 |
+| `reveal` | 已冻结（§2.4 含 `shell` 注入的现行要求） | ⚠️ **未接线**（F-01，见 §2.4） |
+| `collect` | 已冻结 | ⚠️ 库根配置缺口下默认必失败（见 §2.5） |
+| `ingest` · `mutate` · `indexStart` · `indexCancel` | **冻结形状**（先定形状，界面可并行开发） | ❌ 主进程**显式拒绝**：返回 `{ code: "INTERNAL", userMessage: "这个功能还没做好。", details: { method } }`，不是静默无反应 |
+
+> 这是**有意的诚实降级**：未实现的方法给出明确错误 + 明确文案，用户看得到「这个功能还没做好」。
+> 相关清单在 `apps/desktop/src/main/index.mjs`（`missing` 数组，与 §2.5–§2.10 对应）与 `apps/desktop/src/shared/ipc.mjs`（方法白名单）。
 
 ### 2.1 `search`
 
@@ -148,6 +165,16 @@
 { "revealed": true, "path": "G:\\model\\VR\\ID-x.rar" }   // 只读操作，不移动、不复制
 ```
 
+**现行要求（2026-10-12 补，随 F-01 登记）**
+
+1. **主进程必须在 `createEngine()` 时注入 `shell` 端口**（形状 `{ reveal(absPath) }`；Electron 侧即 `shell.showItemInFolder`）。`reveal` 是**唯一**依赖该端口的方法。
+2. **未注入时不得返回成功。** `ok({ revealed: true })` 的语义是「已在资源管理器中定位」；在 `shell` 不存在时返回它，等于**静默假成功** —— 用户会看到成功提示而资源管理器毫无动静。
+3. **当前实现不符合第 1、2 条（F-01，未修）**：
+   - `apps/desktop/src/main/index.mjs` 的 `buildEngine()` **从未注入 `shell`**；
+   - `packages/engine/src/engine.mjs` 的 `reveal` 只在 `shell && typeof shell.reveal === 'function'` 时才调用它，否则**照样** `return ok({ revealed: true, path: abs })`。
+4. **单测为什么是绿的**：`packages/engine/tests/engine.test.mjs` 自己注入了 `shell`（`shell: { reveal: (p) => seen.push(p) }`）并断言被调用。
+   也就是说：**单测测的是引擎能力，不是应用的接线** —— 这正是「测试通过掩盖接线缺失」的典型形态。
+
 ### 2.5 `collect`（取件 = 复制到白名单目录）
 
 ```jsonc
@@ -162,6 +189,10 @@
 
 - `targetDirName` 必须在**白名单**内（默认 `E:\素材待用\`，可在设置里增删）
 - **不写库**：取件是"库 → 库外"，库侧零写入
+
+> ⚠️ **当前状态（2026-10-12）**：白名单来自主进程读取的配置（`config.collect.dirs`）。
+> 而**仓库里没有配置文件**（缺口 D2，见 `docs/audit/00-current-state.md` §5）⇒ 白名单实际为空
+> ⇒ **任何 `collect` 都会返回 `COLLECT_DIR_NOT_ALLOWED`**。这是配置缺口的下游，不是取件逻辑本身的问题。
 
 ### 2.6 `ingest`（入库：把库外素材放进库）
 
@@ -319,7 +350,7 @@
 
 | # | 不变量 | 可执行判据（单测） |
 |---|---|---|
-| ① | 路径**只能**由 `lib_id + uid` 解析 | 给它一个绝对路径入参 → `BAD_REQUEST`；`core/` 里无 `path.join(root, clientInput)` 形态 |
+| ① | 路径**只能**由 `lib_id + uid` 解析 | 给它一个绝对路径入参 → `BAD_REQUEST`；`packages/engine/` 里无 `path.join(root, clientInput)` 形态 |
 | ② | 取件目标目录**白名单** | `collect` 传白名单外目录 → `COLLECT_DIR_NOT_ALLOWED` |
 | ③ | **库根包含校验** | 索引里塞入 `..\..\evil` 形态的 `relPath` → 解析后越界 → `PATH_ESCAPES_LIB` |
 | ④ | **符号链接 / 联接点** | 库内放一个指向库外的链接 → 拒绝并给 `SYMLINK_REJECTED`（用 `fs.realpath` 后比较前缀） |
@@ -357,5 +388,5 @@
 
 1. 冻结后**新增**字段 = 兼容（旧界面忽略它）
 2. **改名 / 改语义 / 删字段 / 改错误码字符串** = 破坏性 → 必须升 `v2` 并保留 v1 一个周期
-3. 每次改动都要同步：`docs/spec/CONTRACT-engine-v1.md` → `src/shared/`（zod + TS）→ 单测用例
+3. 每次改动都要同步：`docs/spec/CONTRACT-engine-v1.md` → `apps/desktop/src/shared/ipc.mjs`（zod 校验 + 方法白名单）→ `apps/desktop/src/preload/index.js`（**手抄的字面量**，不是 import）→ 单测用例
 4. **每个错误码都要有至少一个用例**（P1 验收会逐个查）

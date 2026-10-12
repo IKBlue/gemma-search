@@ -1,13 +1,17 @@
 # DESIGN: UI / 素材库管理 / 索引 / 模型管理
 
-> 配套：`docs/spec/SPEC-app.md`（规格）、`TASK-PLAN.md`（**最终任务计划书**：顺序与验收）
+> **状态**：现行（设计；**多数条目是"该怎么做"，尚未实现 —— 界面只完成 1/4 页**）· **最后核对**：2026-10-12
+> **权威范围**：UI 的信息架构摘要 · 素材库管理 · 索引怎么建 · 模型下载与管理 · 入库与增量 · CRUD 与多库 · 传输层选型。
+>
+> 配套：`docs/spec/SPEC-app.md`（应用规格）、`docs/plan/ROADMAP.md`（**阶段顺序与验收**）
 >
 > ⚠️ **权威关系**（同一件事只有一处说了算，避免两处说法不一致）：
 > · **UI** → `docs/design/UI-REVIEW-and-migration.md`（本文 §一 只是摘要）
+> · **视觉值** → `docs/design/DESIGN-tokens.md`（可执行版 `packages/design-tokens/tokens.css`）
 > · **索引元数据 / 身份 / 配对 / 指纹** → `docs/spec/SPEC-identity.md`
-> · **事务 / 撤销 / 并发** → `docs/spec/SPEC-transactions.md`
+> · **事务 / 撤销 / 并发** → `docs/spec/SPEC-transactions.md`（**规格已成文，实现未开始**）
 > · **验收阈值 / 性能口径 / 门禁** → `docs/spec/SPEC-acceptance.md`
-> · **顺序与进度** → `TASK-PLAN.md`
+> · **顺序与进度** → `docs/plan/ROADMAP.md`
 > 本文档只回答四个问题，每条都是**可执行的具体决定**，不是原则口号。
 
 ---
@@ -54,7 +58,7 @@
 │  │ VR 2.3M│ │ VR 9.8M│ │CR+VR 13M│ │ VR 11M │ │ VR 2.3M│             │
 │  └────────┘ └────────┘ └────────┘ └────────┘ └────────┘             │
 ├──────────────────────────────────────────────────────────────────────┤
-│  索引 3594/3594 · 模型 q4f16 已加载 · 库 G:\model   [扫描更新] [⚙]   │  ← 状态栏
+│  索引 3594/3594 · 模型 fp32 已加载 · 库 G:\model   [扫描更新] [⚙]   │  ← 状态栏
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -98,10 +102,14 @@
 
 ### 1.6 技术形态（因为现在是单进程）
 
-- 渲染进程 `nodeIntegration: false` / `contextIsolation: true`，能力经 `preload.js` 白名单暴露
-- **不需要 HTTP 服务、不需要端口**：主进程用 `ipcMain.handle` 提供 `search-text` / `search-image` / `reveal` / `collect` / `index-status` 等
-- **图片经自定义协议** `thumb://<itemId>`（`protocol.handle`）由主进程直接从 `G:\` 读并回写 `Cache-Control`；渲染进程**不接触文件系统**
-- 大图与网格用同一协议，只是尺寸参数不同
+- 渲染进程 `nodeIntegration: false` / `contextIsolation: true` / `sandbox: true`，能力经
+  `apps/desktop/src/preload/index.js` 白名单暴露（只 3 个成员：`invoke` / `onEvent` / `platform`）
+- **不需要 HTTP 服务、不需要端口**：主进程用**两个 IPC 通道**提供全部能力 ——
+  `engine:invoke`（渲染→主，方法名在参数里：`search` / `item` / `indexStatus` / `scan` / `reveal` / `collect` …）
+  与 `engine:event`（主→渲染的事件流）。通道与参数形状以 `apps/desktop/src/shared/ipc.mjs` 为唯一来源
+- **图片经自定义协议** `thumb://<libId>/<uid>@<size>`（`protocol.handle`）由主进程从库根读并回写缓存头；
+  渲染进程**不接触文件系统**，也**不能传路径**（路径由注册表 + 索引反查）
+- 大图与网格用同一协议，只是 `size` 参数不同（`128` / `256` / `512`）
 
 ---
 
@@ -166,28 +174,39 @@ G:\model\                     ← 库根（本期固定）
 > **索引元数据的权威定义在 `docs/spec/SPEC-identity.md` §6、§7**（字段清单、`compat` 判定键、`index.bin` 格式）。
 > 本节只讲「怎么建」，不重复字段定义。
 
-### 3.1 存储格式（自定，不再依赖 Python 的 .npy）
+### 3.1 存储格式（自定，不再依赖 NumPy 的 `.npy`）
 
 ```
-data\
+data/libraries/<libId>/
 ├── index.bin       ← 头部 JSON + float32 连续块（N × 768）
-│                     头部: {version, dim, count, model_id, precision,
-│                            prefix_policy, image_seq_length, built_at, library_root}
-└── items.json      ← 每条元数据（含向量行号）
+│                     头部实际字段以 docs/spec/SPEC-identity.md §6.2 为准，例如：
+│                     format_version · compat_key_version · model_weights_dtype ·
+│                     preprocessing_version · seq_length · dim · embedding_dtype ·
+│                     normalization · pooling · query_prefix / document_prefix · built_at
+└── items.json      ← 每条元数据（见 §3.2）
 ```
 
 - 为什么不用 `.npy`：`.npy` 是 NumPy 格式，Node 侧要额外解析器。自定格式让**读写都无依赖**
-- **迁移**：若 ONNX fp32 与 torch fp32 向量等价（见 §4.4 spike），写一次性转换脚本 npy → bin，并**逐条比对 3594 个向量**确认无损
+- **迁移**：若 ONNX fp32 与 torch fp32 向量等价（见 §4.5 spike），写一次性转换脚本 npy → bin，并**逐条比对 3594 个向量**确认无损
 - **体积**：3594 × 768 × 4 B = **11.0 MB**（无需量化）
+
+> ⚠️ **头部的 `precision` 一词已废弃**（它混指两件事）—— 现行字段是
+> `model_weights_dtype`（权重精度）与 `embedding_dtype`（向量存储精度），见 `docs/spec/SPEC-identity.md` §6.1/§6.2。
 
 ### 3.2 每条元数据字段
 
+实际 `items.json` 是**扁平 + camelCase**（实测 `data/libraries/L1/items.json` 首条）：
+
 ```
-id, folder, name, rel_path, abs_path,
-image_ext, image_size, image_mtime,
-archive_name, archive_rel_path, archive_abs_path, archive_ext, archive_size, archive_mtime,
-vector_row
+uid, libId, folder, stem, name, relPath, absPath,
+imageExt, imageSize, imageMtime,
+archiveName, archiveRelPath, archiveAbsPath, archiveExt, archiveSize, archiveMtime,
+vectorRow, vectorSource
 ```
+
+> `docs/spec/SPEC-identity.md` §4 把条目定义成 `images[] / archives[]` **数组**形态（为"一图多包 / 一素材多图"留位），
+> 当前构建器写的是上面的扁平形态。本库实测"同主干多包 0 处、同主干多图 0 处"，所以扁平形态信息无损；
+> **收口方案以 `docs/spec/SPEC-identity.md` §6.2 的债务条为准。**
 
 ### 3.3 创建流程
 
@@ -205,7 +224,7 @@ vector_row
 
 1. **原子落盘**：写 `index.bin.tmp` → `fsync` → `rename`。崩溃也不会留下半截索引
 2. **向量 L2 归一化后再存**：检索即点积，省一次开方；并便于校验（范数应 ≈ 1）
-3. **索引绑定"产生它的模型与预处理"**：`model_id` / `precision` / `prefix_policy` / `image_seq_length` 全部记入头部。**任一不符即拒绝检索并提示重建**——这是防止"跨空间检索"（结果静默变差）的唯一手段
+3. **索引绑定"产生它的模型与预处理"**：`model_repo` / `model_revision` / `model_weights_dtype` / `preprocessing_version` / `seq_length` / `dim` / `normalization` / `pooling` 全部记入头部（这 8 项就是 `compat`，见 `docs/spec/SPEC-identity.md` §6.3）。**任一不符即拒绝检索并提示重建**——这是防止"跨空间检索"（结果静默变差）的唯一手段
 4. **可中断续跑**：每 `N` 条刷新一次落盘；重跑时按 §2.4 复用已完成项
 
 ### 3.4 进度与取消（图形界面）
@@ -230,13 +249,13 @@ vector_row
 
 ### 4.1 下什么（关键：**不下音频塔**）
 
-`onnx-community/embeddinggemma-2-ONNX` 里音频塔占 **40%** 体积，而本应用**不需要音频**（Python 侧早就 `audio_config: None` 关掉了）。
+`onnx-community/embeddinggemma-2-ONNX` 里音频塔占 **40%** 体积，而本应用**不需要音频**（参考实现当年就把 `audio_config` 置空；现行索引元数据里是 `audio_disabled: true`）。
 
 | 档 | 文本塔 + 视觉塔 | 加 tokenizer | 定位 |
 |---|---|---|---|
-| **q4f16** | 242.7 MB | ~274 MB | **默认**（小、快） |
-| fp16 | 837.0 MB | ~868 MB | 质量优先 |
-| fp32 | 1673.8 MB | ~1.70 GB | **spike 对照用**；与现有索引同精度 |
+| **fp32** | 1673.8 MB | ~1.70 GB | **当前采用**：与已验证的索引同精度（决策 4），也是 P6 的分发档 |
+| fp16 | 837.0 MB | ~868 MB | 质量优先的备选；**未验证** |
+| q4f16 | 242.7 MB | ~274 MB | 体积最小，但**检索质量从未测过** —— 要用必须补一次等价于 G-B 的验证（见 P6 定论） |
 
 必下文件（以 fp16 为例）：
 ```
@@ -250,8 +269,8 @@ preprocessor_config.json  processor_config.json
 ### 4.2 放哪里
 
 ```
-D:\USERS\Desktop\Agent\model-cache\        ← 模型资产统一根
-├── hf\            （现有，Python/torch 缓存 1.42 GB，保留不动）
+D:\USERS\Desktop\Agent\model-cache\        ← 模型资产统一根（示例路径）
+├── hf\            （旧 Python/torch 时代的缓存，1.42 GB；已退役、保留不动）
 └── onnx\          （新增）
     └── embeddinggemma-2\<revision>\<precision>\
          ├── model_fp16.onnx(+_data)
@@ -279,7 +298,7 @@ D:\USERS\Desktop\Agent\model-cache\        ← 模型资产统一根
 ```json
 { "repo": "onnx-community/embeddinggemma-2-ONNX",
   "revision": "<commit-sha>",
-  "precision": "fp16",
+  "weights_dtype": "fp16",
   "downloaded_at": "2026-10-10T…",
   "files": [ {"path":"onnx/model_fp16.onnx_data","size":542113792,"sha256":"…"} ] }
 ```
@@ -289,8 +308,8 @@ D:\USERS\Desktop\Agent\model-cache\        ← 模型资产统一根
 量化编码器产出的向量与 fp32 **不在同一空间**。若索引用 fp32 建、查询用 q4f16 编码，分数会**整体偏移**——不报错，只是结果变差，属于最危险的失败模式。
 
 **因此**：
-- `index.bin` 头部记录 `precision`
-- 启动时若「当前精度 ≠ 索引精度」→ **拒绝检索**，提示：重建索引，或切回该精度
+- `index.bin` 头部记录 **`model_weights_dtype`**（不是已废弃的 `precision`）
+- 启动时若「当前权重精度 ≠ 索引记录的权重精度」→ `compat` 不等 → **拒绝检索**，提示：重建索引，或切回该精度
 - 设置页切换精度时，明确告知"需重建索引（约 N 分钟）"
 
 ### 4.5 必须先跑的 spike（决定整条路线）
@@ -303,26 +322,29 @@ D:\USERS\Desktop\Agent\model-cache\        ← 模型资产统一根
 | 2 | 用 `@huggingface/transformers` 编码 **20 张库内图 + 5 句中文** |
 | 3 | 与现有 `embeddings.npy` 中对应向量算余弦 |
 
-| 余弦结果 | 结论 |
-|---|---|
-| **≥ 0.999** | 向量等价 → **直接复用现有索引**，Python 侧完全退役 |
-| 0.95 ~ 0.999 | 需用 ONNX 重编码索引（一次性，CPU 较慢） |
-| **< 0.95** | **放弃 ONNX 路线**，保留 Python 后端 |
+| 余弦结果 | 当时的结论 | 实际结果 |
+|---|---|---|
+| **≥ 0.999** | 向量等价 → 直接复用现有索引 | ✅ **走的就是这条**（文本塔实测 bit-exact） |
+| 0.95 ~ 0.999 | 需用 ONNX 重编码索引（一次性，CPU 较慢） | — |
+| **< 0.95** | 放弃 ONNX 路线，保留 Python 后端 | — |
 
 同时**顺带量三件性能事实**（都会写进方案）：CPU 上单张图编码耗时、单句文本耗时、模型载入耗时。
 
+> **后续实际发生的事**：文本塔等价、图像塔差 0.4% → 决定**用 ONNX 全量重建索引**（G-B v2 PASS），
+> 旧 Python 后端随后**整体退役**（`4555c1b`，仓库从此零 Python 文件）。上表是决策依据，不是待办。
+
 ---
 
-## 五、这四处设计带来的方案变更
+## 五、这些设计落到了什么程度（原「方案变更」）
 
-| 变更 | 说明 |
+| 项 | 现状 |
 |---|---|
-| **新增阶段 P1.5「模型管理」** | 首启向导、下载器（续传/进度/校验/版本钉住）、设置页占用与删除 |
-| **P1 从"补 Python 接口"改为"Node 侧实现同等 API"** | 若 spike 通过，`server.py` 不再演进，改为 Electron 主进程 + worker |
-| **新增"精度绑定索引"校验** | 加载索引与切换精度时强制检查（§4.4） |
-| **新增"库指纹"护栏** | 每次扫描前后比对（§2.2 已修订为"写入有纪律"） |
-| **索引格式自定 `index.bin`** | 去掉对 NumPy 格式的依赖；由 spike 结论决定是否需要迁移脚本 |
-| **新增「入库」与「增量」两个界面** | 见 §六 —— 应用从"只读检索器"变成"能管库的检索器" |
+| **阶段 P1.5「模型管理」** | 设计已定（首启向导、下载器续传/进度/校验/版本钉住、设置页占用与删除）；**实现未开始**（P6） |
+| **引擎改由 Node 实现同等 API** | ✅ **已完成**：`packages/engine/src/`（零依赖、传输无关），旧的 Python 服务已随 `4555c1b` 退役 |
+| **"精度绑定索引"校验** | ✅ 已落地为 `compat` 判定（`packages/engine/src/compat.mjs`）；加载时不等即拒绝检索 |
+| **"库指纹"护栏** | ✅ 已实现（`packages/engine/src/fingerprint.mjs`）；扫描前后比对 |
+| **索引格式自定 `index.bin`** | ✅ 已落地（`format_version: 1`）；不再依赖 NumPy 格式 |
+| **「入库」与「增量」两个界面** | ❌ 未实现（P4/P5）；主进程对 `ingest`/`mutate` 显式拒绝 |
 
 ---
 
@@ -443,7 +465,8 @@ index.bin 每条 = { uid, lib_id, vector_row, ...路径属性(可变)... }
 | 审计与撤销有稳定引用 | 撤销时按 `uid` 找回，不受改名影响 |
 | 多库检索可安全合并 | 按 `lib_id + uid` 消歧 |
 
-`uid` 生成：`sha1(lib_id + 首次入库时的文件名 + 时间戳)` 取前 12 位——**不依赖路径**，且可读、可调试。
+`uid` 生成：`sha1(lib_id + "|" + rel_dir + "|" + stem)[:12]` —— **不依赖绝对路径、确定性、首次登记后冻结**。
+权威定义在 `docs/spec/SPEC-identity.md` §2（**不是**"文件名 + 时间戳"，那个早期写法已废止）。
 
 ### 7.2 增（Create）
 
@@ -510,13 +533,13 @@ index.bin 每条 = { uid, lib_id, vector_row, ...路径属性(可变)... }
 | `name` | 显示名，如「室内素材」「灯具专用」 |
 | `root` | 库根目录，如 `G:\model`、`E:\素材库2` |
 | `folders` | 该库的归档目录集合（默认 `未分类/VR/CR/CR+VR/其他`，可增删） |
-| `index_meta` | 产生该库索引的 `model_id / precision / seq / dtype` |
+| `index_meta` | 产生该库索引的 **`compat` 8 项**（`model_repo` / `model_revision` / `model_weights_dtype` / `preprocessing_version` / `seq_length` / `dim` / `normalization` / `pooling`，见 `docs/spec/SPEC-identity.md` §6.3） |
 | `last_scan` / `fingerprint` | 上次扫描时间与库指纹 |
 | `enabled` | 是否参与检索 |
 
 #### 跨库检索的**铁律**（与"精度绑定索引"同源）
 
-只有 **`model_id + precision + seq + dtype` 完全一致**的库才能一起检索。
+只有 **`compat` 全等**（8 项，见 `docs/spec/SPEC-identity.md` §6.3）的库才能一起检索。
 不一致的库**在界面上明确标灰并说明原因**（"该库索引由 seq280 建立，与当前 140 不一致"），
 **绝不静默混入**——否则结果会静默变差，这是本项目最危险的失败模式。
 
@@ -587,26 +610,26 @@ IPC 已经够用：有类型、无端口、无 CORS、无鉴权、无序列化�
 
 ### 8.3 但必须为"将来可能加"付一次几乎为零的成本
 
-引擎与传输**解耦**：
+引擎与传输**解耦**（**已落地**）：
 
 ```
-core/engine.mjs        ← 纯逻辑：无 Electron 依赖、无 HTTP、无全局状态
-  createEngine({ libraries, modelDir, device }) → {
-    search({ libIds, mode, text|imagePath, topK, folder }),   // 查
-    item({ libId, uid }), thumbPath({ libId, uid }),
-    reveal({ libId, uid }), collect({ libId, uid, targetDir }),
-    ingest({ files, folder }), mutate({ libId, uid, op, args }),  // 增改删
-    scan({ libId }), indexStatus({ libId }), indexStart/Cancel({ libId })
+packages/engine/src/engine.mjs        ← 纯逻辑：无 Electron 依赖、无 HTTP、无全局状态
+  createEngine({ config, encoder, indexDir, onEvent, now, shell }) → {
+    search · item · thumbPath · reveal · collect · scan · indexStatus · indexStart/Cancel,
+    ingest · mutate            // 后 4 个：契约已登记形状，实现未开始（主进程显式拒绝）
   }
 
-transports/
-  ipc.mjs    ← 本期唯一实现（Electron 主进程 ↔ 渲染进程）
+transports/                    ← 概念位置；本期只有 ipc 一条，落在
+  ipc.mjs                        apps/desktop/src/shared/ipc.mjs（契约）+ 主进程分发
   http.mjs   ← 将来可选：本地 REST 适配层（薄薄一层）
   mcp.mjs    ← 将来可选：DSH 的 MCP stdio 适配层
 ```
 
-**测试直接打 `core/engine.mjs`**（不经传输），所以"REST 便于测试"这个理由在这里不成立——
+**测试直接打 `packages/engine/src/engine.mjs`**（不经传输），所以"REST 便于测试"这个理由在这里不成立——
 我们不需要 HTTP 就能测。
+
+> 方法签名以 `docs/spec/CONTRACT-engine-v1.md` 为准（上表只是示意），
+> 但 `createEngine` 的注入点（`config` / `encoder` / `indexDir` / `onEvent` / `now` / `shell`）是实测形状。
 
 ### 8.4 什么时候才值得加（触发条件，任一成立就回头做）
 
@@ -634,5 +657,5 @@ transports/
 
 ### 8.7 与已有工作的关系
 
-之前那套 Python HTTP 接口（`/api/stats` `/api/search` `/api/thumb` `/api/item` `/api/open`）**不是白做的**：
+之前那套 Python HTTP 接口（`/api/stats` `/api/search` `/api/thumb` `/api/item` `/api/open`，**已随 `4555c1b` 整体退役，代码不在仓库里**）**不是白做的**：
 它已经验证过端点划分是否好用。将来写 `transports/http.mjs` 时直接沿用这套划分即可。
