@@ -1,0 +1,219 @@
+{
+  "library": "lib-a",
+  "purpose": "写操作/故障注入的夹具库（合成字节，非真图）",
+  "generatedBy": "data/_gen-lib-a.mjs 的确定性配方",
+  "dirs": {
+    "VR": [
+      "VR/VR-101.jpg",
+      "VR/VR-101.rar",
+      "VR/VR-102.jpg",
+      "VR/VR-103.jpg",
+      "VR/VR-103.rar",
+      "VR/VR-104.png",
+      "VR/VR-104.7z"
+    ],
+    "CR": [
+      "CR/CR-201.jpg",
+      "CR/CR-201.rar",
+      "CR/CR-202.png",
+      "CR/CR-202.rar",
+      "CR/CR-203.rar",
+      "CR/CR-204.jpg",
+      "CR/CR-204.zip"
+    ],
+    "CR+VR": [
+      "CR+VR/CX-301.jpeg",
+      "CR+VR/CX-301.rar",
+      "CR+VR/CX-302.bmp",
+      "CR+VR/CX-302.rar",
+      "CR+VR/CX-303.jpg"
+    ],
+    "其他": [
+      "其他/OT-401.webp",
+      "其他/OT-401.rar",
+      "其他/OT-402.jpg",
+      "其他/OT-402.rar"
+    ],
+    "未分类": [
+      "未分类/UN-501.jpg",
+      "未分类/UN-501.rar",
+      "未分类/UN-502.png"
+    ],
+    "ambiguous": [
+      "ambiguous/AMB-multiPkg.jpg",
+      "ambiguous/AMB-multiPkg.rar",
+      "ambiguous/AMB-multiPkg.zip",
+      "ambiguous/AMB-multiImg.jpg",
+      "ambiguous/AMB-multiImg.png",
+      "ambiguous/AMB-multiImg.rar"
+    ]
+  },
+  "files": [
+    {
+      "relPath": "VR/VR-101.jpg",
+      "size": 237,
+      "sha1": "bbe998cfd8841d6896bf759ea236677fdf82a7ca"
+    },
+    {
+      "relPath": "VR/VR-101.rar",
+      "size": 274,
+      "sha1": "2af06e9ebd243e65c3aaaf47950a94dad8ac7a28"
+    },
+    {
+      "relPath": "VR/VR-102.jpg",
+      "size": 311,
+      "sha1": "595e01132410a0e26aa95673d138cc24a0a0d1c3"
+    },
+    {
+      "relPath": "VR/VR-103.jpg",
+      "size": 348,
+      "sha1": "dc659b59a87111d1cd83015c36dbf79c7edee29b"
+    },
+    {
+      "relPath": "VR/VR-103.rar",
+      "size": 385,
+      "sha1": "82f70b774d9592dc95f9ef9ac7be64148d90d850"
+    },
+    {
+      "relPath": "VR/VR-104.png",
+      "size": 422,
+      "sha1": "c24ea3eec185faf89dd32519deae78a77ddfe7fa"
+    },
+    {
+      "relPath": "VR/VR-104.7z",
+      "size": 459,
+      "sha1": "201156a261bb4c602158a94054befc5ef99744a9"
+    },
+    {
+      "relPath": "CR/CR-201.jpg",
+      "size": 496,
+      "sha1": "c821fe992a80f252650e641c3e7c32e4e0aa7d7e"
+    },
+    {
+      "relPath": "CR/CR-201.rar",
+      "size": 533,
+      "sha1": "5b92872f58801d9bc3706ce21081bf73a1410cb9"
+    },
+    {
+      "relPath": "CR/CR-202.png",
+      "size": 570,
+      "sha1": "e6ce7198f17e899be9b5bd7c4a3d86c608a9314c"
+    },
+    {
+      "relPath": "CR/CR-202.rar",
+      "size": 607,
+      "sha1": "dbed3d70d11dded6fcc58c86decaeef720cbedd2"
+    },
+    {
+      "relPath": "CR/CR-203.rar",
+      "size": 644,
+      "sha1": "0925fb8c1f83ac1406f5035f8442f446ec199936"
+    },
+    {
+      "relPath": "CR/CR-204.jpg",
+      "size": 681,
+      "sha1": "f91c33418394242c670659b29dc51ab0441b60f3"
+    },
+    {
+      "relPath": "CR/CR-204.zip",
+      "size": 718,
+      "sha1": "b142d5a9253a09030a83f626b86be9c53ea4cfa1"
+    },
+    {
+      "relPath": "CR+VR/CX-301.jpeg",
+      "size": 755,
+      "sha1": "0500bcd32ee57d8c8945105b1b61bac90b799b47"
+    },
+    {
+      "relPath": "CR+VR/CX-301.rar",
+      "size": 792,
+      "sha1": "981786aff63aefe46c9745705c0bb9e24f947f40"
+    },
+    {
+      "relPath": "CR+VR/CX-302.bmp",
+      "size": 829,
+      "sha1": "5d64f8689ff32269ccf5b9074c1d3b81c54b38bb"
+    },
+    {
+      "relPath": "CR+VR/CX-302.rar",
+      "size": 866,
+      "sha1": "daf53cedc03d20fae4da826b6abf516e3c10a40c"
+    },
+    {
+      "relPath": "CR+VR/CX-303.jpg",
+      "size": 903,
+      "sha1": "64e1bb0caf70442c63815307983cf9d2fba392ba"
+    },
+    {
+      "relPath": "其他/OT-401.webp",
+      "size": 944,
+      "sha1": "3f59e07fdd89fa1b89fff528058bbe2b82d06713"
+    },
+    {
+      "relPath": "其他/OT-401.rar",
+      "size": 981,
+      "sha1": "9d3a486b18d82f34373466c10979ce45a7858bdc"
+    },
+    {
+      "relPath": "其他/OT-402.jpg",
+      "size": 1018,
+      "sha1": "d9d61b147e385429e93e323368313cf28e5ab477"
+    },
+    {
+      "relPath": "其他/OT-402.rar",
+      "size": 1055,
+      "sha1": "516b8db85748d1670d5f32f4eab82fec306ab118"
+    },
+    {
+      "relPath": "未分类/UN-501.jpg",
+      "size": 1094,
+      "sha1": "fe96ed0d251bc20639fc7ffd6553d28d6c2b764b"
+    },
+    {
+      "relPath": "未分类/UN-501.rar",
+      "size": 1131,
+      "sha1": "03047146dcb3bb7c7ab675a97cc34df32164e52c"
+    },
+    {
+      "relPath": "未分类/UN-502.png",
+      "size": 1168,
+      "sha1": "441fde6c7d8060dff9c41b15cc207bd501987e14"
+    },
+    {
+      "relPath": "ambiguous/AMB-multiPkg.jpg",
+      "size": 1199,
+      "sha1": "aaed410d7a3008eb93a0be1117f83980860b9528"
+    },
+    {
+      "relPath": "ambiguous/AMB-multiPkg.rar",
+      "size": 1236,
+      "sha1": "59c56a59b74d43910c8640318dc00160c8f175d8"
+    },
+    {
+      "relPath": "ambiguous/AMB-multiPkg.zip",
+      "size": 1273,
+      "sha1": "dc42fada7dd7ffbdd678b6d67ef90d232c6c3dec"
+    },
+    {
+      "relPath": "ambiguous/AMB-multiImg.jpg",
+      "size": 1310,
+      "sha1": "12b32ea057fe13ec8e02b86ae5ea3fd5cc270c5a"
+    },
+    {
+      "relPath": "ambiguous/AMB-multiImg.png",
+      "size": 1347,
+      "sha1": "766671dc74b776bee1370de15b200d67cda1ec18"
+    },
+    {
+      "relPath": "ambiguous/AMB-multiImg.rar",
+      "size": 1384,
+      "sha1": "4f5b1d4c84a37e6a1538703a17154d22ea1477ed"
+    }
+  ],
+  "counts": {
+    "files": 32,
+    "dirs": 6,
+    "paired": 15,
+    "ambiguous": 2
+  }
+}

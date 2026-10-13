@@ -201,7 +201,15 @@ PREPARED ──→ STAGED ──→ VERIFIED ──→ COMMITTED ──→ CLEAN
 
 ---
 
-## 8. 故障注入测试（**实现该模块时的硬门禁，当前未执行**）
+## 8. 故障注入测试（**实现该模块时的硬门禁**）
+
+> ✅ **2026-10-13：已执行 9 / 10 例**（其中 **8 例是"真的杀进程"**），原始输出归档在
+> [`reports/G-D-20261013/p4-txn-gates.md`](../../reports/G-D-20261013/p4-txn-gates.md)、
+> 结论与逐例对照在 [`reports/G-D-20261013/p4-transactions.md`](../../reports/G-D-20261013/p4-transactions.md) §4。
+> ⚠️ **第 9 例（跨卷 `G:→E:` 与"E: 拔盘"）本环境无法验证**，理由与"怎么才能验"已如实记在该证据 §5 —— **未伪造**。
+> ⚠️ **"真的杀进程"不能省**：用"抛个异常假装被杀"会被调用点的 `catch` 接住，盘上留下的状态**不一样**。
+> 实现上还必须让"崩溃钩子"**永不返回**（`Atomics.wait`）—— 实测用 `setInterval` 挂住是无效的（它照样返回，
+> 于是子进程**崩溃退出**而不是被杀），父进程与被杀子进程赛跑会让用例**时绿时红**。
 
 必须**真的杀进程**，不能只做代码评审。在每个状态边界各注入一次：
 
@@ -225,7 +233,14 @@ PREPARED ──→ STAGED ──→ VERIFIED ──→ COMMITTED ──→ CLEAN
 ## 9. 与界面/引擎的接口约定
 
 - 引擎**唯一**允许写文件的路径是事务执行器；**任何其它代码不得直接 `fs.rename`/`fs.unlink` 素材文件**。
-  （用一条单测/静态检查守住这条：搜 `unlink`/`rename` 只允许出现在 `packages/engine/src/transactions/` 目录内 —— 该目录尚未创建。）
+  （用一条单测/静态检查守住这条：搜 `unlink`/`rename` 只允许出现在 `packages/engine/src/transactions/` 目录内。）
+  ✅ **2026-10-13：该目录已创建，断言已上牙且双向验证过** ——
+  `packages/engine/tests/transactions-write-path.test.mjs`（`TX-W1`：破坏性写调用 `fs.rename|unlink|rm|rmdir`
+  只允许出现在 `src/transactions/`）。两条实测要点：① 判据必须匹配 **`fs.<api>(`** 而非裸搜 `rename`
+  —— `fake.mjs:480` 有 `req.op || 'rename'` 这种**操作名**，裸搜立刻假阳性；② 必须**剥注释**
+  （复用 `apps/desktop/tests/helpers/source-scan.mjs`，不写第二份）。
+  **它当场抓到一处真实边界**：`engine.mjs:384/:432` 是 `collect`（取件）的 `mkdirSync`+`copyFileSync(COPYFILE_EXCL)`，
+  写的是**库外**取件目录、绝不覆盖 ⇒ 不属本条"写素材文件"，由 `TX-W4` 钉住"除 `transactions/` 外写文件的只有它"。
 - `mutate()` 返回事务 id；界面据 id 查询状态、显示进度、提供撤销入口。
 - 事务**永不**部分成功返回"成功"：返回值只有 `committed` / `aborted` / `recovery_needed`。
 

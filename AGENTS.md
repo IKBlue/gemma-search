@@ -137,7 +137,7 @@ UI(组件) ──> Operation(store/composable/utils) ──> Adapter(唯一 invo
 | `packages/indexer/` | 索引构建（ONNX + WebGPU）与重采样兼容层、BMP 解码；唯一能建索引的地方 | ⚠️ 谨慎：动了要重建索引验证 | ✅ |
 | `packages/design-tokens/tokens.css` | **视觉令牌唯一来源**（生产依赖，被 `apps/desktop/src/renderer/src/main.jsx` 直接 import） | ✅ 只在这里加令牌，不要复制第二份。⚠️ **2026-10-13 所有者已确认降级**：Tailwind 接管后本文件成为**主题输入之一**（不再是"唯一来源"），见 `docs/plan/ROADMAP.md` §10；**落地前仍是唯一来源** | ✅ |
 | `docs/` | 全部正文文档：`spec/`（约束）· `design/`（设计）· `guide/`（上手/排障）· `plan/`（做什么、什么顺序）· `audit/`（审查产物）· `archive/`（**已失效的东西全放这里**）。⚠️ **行动清单不在这里**，在根目录 [`TODO.md`](TODO.md) | ✅ 见 §6 纪律 | ✅ |
-| `fixtures/` | **契约 §8 要求的样例索引**：`sample-index.json`（3 库 / 30 条，覆盖空 / 无结果 / 无索引 / 索引损坏 / `COMPAT_MISMATCH` / `RECOVERY_NEEDED` / 部分成功 / 待重编码 / 已移除 / GPU 回退 / BMP 回退档）。⚠️ **路径是契约指定的**（`fixtures/sample-index.json`），别挪。<br>由**主进程**读入并**注入**引擎（渲染层读不到 —— 打包后 `import.meta.url` 会解到仓库外，实测主进程崩在建窗之前）；用 `GEMMA_FAKE=1` 打开。加演示分支要同步 `fake.test.mjs` 的 **F10** | ✅ | ✅ |
+| `fixtures/` | **契约 §8 要求的样例索引**：`sample-index.json`（3 库 / 30 条，覆盖空 / 无结果 / 无索引 / 索引损坏 / `COMPAT_MISMATCH` / `RECOVERY_NEEDED` / 部分成功 / 待重编码 / 已移除 / GPU 回退 / BMP 回退档）。⚠️ **路径是契约指定的**（`fixtures/sample-index.json`），别挪。<br>由**主进程**读入并**注入**引擎（渲染层读不到 —— 打包后 `import.meta.url` 会解到仓库外，实测主进程崩在建窗之前）；用 `GEMMA_FAKE=1` 打开。加演示分支要同步 `fake.test.mjs` 的 **F10**<br>✅ **2026-10-13 新增 `lib-a/`**：P4 写操作/故障注入的**夹具库**（32 文件 / 6 目录，覆盖配对全分支含"只有包"与两个**歧义**分支；内容是**确定性合成的 ASCII 字节，不是真图** —— 事务只看字节与扩展名）。`manifest.json` 记每份 sha1；复现配方写在它自己的 `README.md` 里。**事务类测试只对它做写操作，且都写副本** | ✅ | ✅ |
 | `tools/` | **2 个只读守卫**（`verify_encoder_path` / `check_search`，本机都跑不动）+ `probe_electron_start/` | ✅ | ✅ |
 | `scripts/` | 启动辅助（`electron-vite.mjs`：摘 `ELECTRON_RUN_AS_NODE`、探测沙箱、必要时加 `--no-sandbox`） | ⚠️ 谨慎 | ✅ |
 | `reports/` | 门禁证据，命名 `G-<字母>-<日期>/`。**项目规则：无归档证据 = 门禁未通过** | ✅ 只能加新证据，不改历史证据 | ✅ md/json/csv；截图否（见 `.gitignore`） |
@@ -228,7 +228,7 @@ UI(组件) ──> Operation(store/composable/utils) ──> Adapter(唯一 invo
 | 应用技术栈与目录结构 | [`docs/spec/SPEC-app.md`](docs/spec/SPEC-app.md) |
 | 引擎接口形状（方法 / 错误码 / 事件 / 恢复） | [`docs/spec/CONTRACT-engine-v1.md`](docs/spec/CONTRACT-engine-v1.md) |
 | 索引元数据 / 身份 / 配对 / 指纹 | [`docs/spec/SPEC-identity.md`](docs/spec/SPEC-identity.md) |
-| 事务 / 撤销 / 并发（**规格已成文，实现未开始**） | [`docs/spec/SPEC-transactions.md`](docs/spec/SPEC-transactions.md) |
+| 事务 / 撤销 / 并发（**地基已实现 2026-10-13；`ingest`/`mutate` 未接线**） | [`docs/spec/SPEC-transactions.md`](docs/spec/SPEC-transactions.md) |
 | **验收阈值 / 性能口径 / 门禁**（阈值唯一出处） | [`docs/spec/SPEC-acceptance.md`](docs/spec/SPEC-acceptance.md) |
 | 传输层与外壳安全（IPC / `thumb://` / 渲染进程姿态 / 权限用例） | [`docs/spec/SPEC-security.md`](docs/spec/SPEC-security.md) |
 | UI / UX | [`docs/design/UI-REVIEW-and-migration.md`](docs/design/UI-REVIEW-and-migration.md)（摘要见 `DESIGN-app-details.md` §一） |
@@ -246,13 +246,13 @@ UI(组件) ──> Operation(store/composable/utils) ──> Adapter(唯一 invo
 
 ### 5.1 期望值（对不上就是没做完）
 
-> **两条独立的门禁，不要混**：`npm test`（`node:test`，纯逻辑，无 GUI，**248 条**）与
+> **两条独立的门禁，不要混**：`npm test`（`node:test`，纯逻辑，无 GUI，**300 条**）与
 > `npm run e2e`（Playwright，真启动 Electron，**56 条**）。前者快、随时能跑；后者慢、**需要能出窗的环境**。
 > 绿了哪一条就只说哪一条 —— 别用"测试全绿"含糊过去。
 
 | 门禁 | 期望 |
 |---|---|
-| `npm test` | `tests 248 · pass 247 · fail 0 · skipped 1`（**2026-10-13 实测**。引擎 **96** = engine 33 + fake 22 + index 18 + security 16 + uid 7；桌面 **152** = library-config 14 + permissions 15 + search-store 17 + source-scan 17 + task-store 13 + adapter 11 + item-actions 10 + styles 10 + window-security 10 + deps 8 + layering 8 + gate 6 + router 5 + dom-validity 4 + ports 4） |
+| `npm test` | `tests 300 · pass 299 · fail 0 · skipped 1`（**2026-10-13 实测**。引擎 **148** = engine 33 + fake 22 + index 18 + security 16 + uid 7 + **transactions 24** + **transactions-recovery 14** + **transactions-fault-injection 10** + **transactions-write-path 4**；桌面 **152** = library-config 14 + permissions 15 + search-store 17 + source-scan 17 + task-store 13 + adapter 11 + item-actions 10 + styles 10 + window-security 10 + deps 8 + layering 8 + gate 6 + router 5 + dom-validity 4 + ports 4） |
 | `npm run build` | 成功，且 `out/main` · `out/preload` · `out/renderer` 三端齐备（**已实测通过**；受限沙箱内需提权，见下） |
 | `npm run typecheck` | EXIT=0，**且注入类型错误时必须变红**（2026-10-13 T1 加回）。⚠️ **只覆盖 `.ts`** —— 当前仅 `ipc.ts` |
 | `npm run e2e` | **`56 passed`**（**2026-10-13 实测**）。系列：E0 出窗与安全 · E1 首启向导 · E2 路由（含 `/item` 参数消费）· E3 窗口安全真行为 · E4 样式保真 · E5 无障碍 · E6 返回控件语义 · E7 确认弹窗（6 条，靠**主进程 IPC 打桩**摆脱模型依赖）· **E8 模拟模式（6 条）** · **E9 图片详情 P3c（6 条）** · **E10 索引任务 P3d（6 条）** · **E11 操作记录（6 条）**。<br>⚠️ **它真启动 Electron** ⇒ 在 agent 沙箱内需要 `--no-sandbox`（助手已带）**且要提权**；普通终端直接跑即可 |
