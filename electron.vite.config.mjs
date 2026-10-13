@@ -25,9 +25,17 @@
 //    （SPEC-security §5 要求 sandbox，所以这里显式把它压回 CJS + `.cjs` 扩展名）。
 // 4) **插件版本跟着 Vite 走**：本工程是 Vite 7（electron-vite 5），
 //    所以 `@vitejs/plugin-react` 锁 **^5**（v6 的 peer 要求 Vite 8，装了会 ERESOLVE）。
+// 5) **Tailwind 只加在渲染层**（2026-10-13，T3）。它是**构建期**插件：`tailwindcss()` 扫源码
+//    里的类名、生成 CSS。所以
+//      · 它**不能**进 main / preload 两段（那两段跑 `externalizeDepsPlugin`，且没有 CSS）；
+//      · 它也不该被 external —— 渲染层的构建不需要 external 逻辑（只有 main/preload 用）。
+//    入口是 `apps/desktop/src/renderer/src/styles/tailwind.css`，由 `main.jsx` 在
+//    `renderer.css` **之前** import（生成层在前、手写层在后 ⇒ 手写样式仍能覆盖工具类，
+//    迁移期这是必要的；顺序写反会让现有外观被工具类意外改掉）。
 import { resolve } from 'node:path';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 // 本配置文件就在仓库根 ⇒ import.meta.dirname 即仓库根。
 const root = import.meta.dirname;
@@ -83,7 +91,7 @@ export default defineConfig({
     // 渲染层是 React：JSX 转换 + Fast Refresh。
     // 显式 root：electron-vite 的默认值是 `./src/renderer`（相对 cwd），新布局下不存在。
     root: desktop('src', 'renderer'),
-    plugins: [react(), devCspRelax()],
+    plugins: [react(), tailwindcss(), devCspRelax()],
     resolve: {
       alias: { '@renderer': desktop('src', 'renderer', 'src') },
     },
