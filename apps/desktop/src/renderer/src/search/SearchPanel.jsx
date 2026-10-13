@@ -3,7 +3,7 @@ import Button from '../ui/Button.jsx'
 import Chip from '../ui/Chip.jsx'
 import Field from '../ui/Field.jsx'
 import SearchBox from '../ui/SearchBox.jsx'
-import { CHIPS } from '../hooks/useSearch.js'
+import { CHIPS } from '../store/search.js'
 
 const SORTS = [
   { value: 'score', label: '相关度优先' },
