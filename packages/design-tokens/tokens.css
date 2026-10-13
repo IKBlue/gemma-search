@@ -18,7 +18,11 @@
 
    规则：**组件里不写死十六进制**。派生色一律用 color-mix() 算，
         这样"改一个令牌 = 全局一致"，不会留下孤立色值。
-        （由 tools/verify_renderer_styles.mjs 守卫。）
+        ⚠️ 原文写「由 tools/verify_renderer_styles.mjs 守卫」—— 该守卫已于 2026-10-13 按所有者指令删除。
+        现在由 `apps/desktop/tests/styles.test.mjs` 的断言承担（T1/T1c 双向验证过：注入色值会变红）。
+        另：2026-10-13（T3）起 Tailwind 接管**样式生成层**，本文件降级为**主题输入之一**，
+        由 `apps/desktop/src/renderer/src/styles/tailwind.css` 的 @theme inline 映射成工具类 ——
+        **但色值仍然只在本文件定义一次**。
    ============================================================ */
 
 /* ---------- 1) Apple 风格设计令牌（DESIGN-tokens.md §10 原样） ---------- */
@@ -126,6 +130,10 @@
   --layout-page-padding: 24px;        /* §4.2 是 22px → §4.1 就近取整到 24 */
   --layout-content-max: 1500px;       /* 应用是整窗，取原型的内容上限 */
   --layout-topbar-height: 68px;       /* 原型 68px（§4.2 的 nav.height 48px 是网页吸顶导航） */
+  --layout-dialog-width: 420px;       /* **本项目新增**（2026-10-13 T4）：确认弹窗的宽度上限。
+                                         §10 的变量表里没有弹窗尺寸；按 §12「找不到再加，并标注来源」登记。
+                                         420px ≈ 3 个 --layout-grid-min-card（240px）的视觉比例，
+                                         够放两行文案 + 两个按钮；小屏由 `calc(100vw - --space-12)` 兜底。 */
 
   --radius-circle: 50%;               /* §5 radius.circle */
   --control-icon-size: 18px;          /* §7 control.icon.size */

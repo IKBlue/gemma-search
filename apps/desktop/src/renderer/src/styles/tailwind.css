@@ -1,0 +1,97 @@
+/* apps/desktop/src/renderer/src/styles/tailwind.css —— **样式生成层**入口（Tailwind v4）
+ *
+ * 2026-10-13（T3）接入。职责边界与 renderer.css 的分工：
+ *   · 本文件        —— **生成层**：Tailwind 从这里按组件里的类名生成工具类。持续增长。
+ *   · renderer.css  —— **手写层**：现有的 400 行基础/组件样式。**逐步迁出**，迁完即退场。
+ *   ⚠️ 两层并存是**过渡态**，不是终态。T3-B 起分批迁移；迁到哪一步、还剩多少，
+ *      记在 `TODO.md` 的 T3 完成记录里 —— **不许声称"全迁完了"而实际没有**。
+ *
+ * ── 决定 1：**故意不引 preflight**（Tailwind 的 reset）
+ *   `@import "tailwindcss"` 会一次带上 theme + preflight + utilities。而 renderer.css
+ *   已经自成体系（`* { box-sizing }`、`html/body/#root` 高度、body 字体、按钮/输入框/列表的默认样式）。
+ *   两套 reset 叠加会把现有外观打坏，而这一步的目标是**接入生成层**，不是重做基础层。
+ *   ⇒ 只取 theme + utilities。**这是有意的取舍**：迁移期保住现有外观优先；
+ *     等 renderer.css 迁完（T3-B 结束后）再评估要不要收编 preflight。
+ *
+ * ── 决定 2：**色值仍然只有一处定义**（`packages/design-tokens/tokens.css`）
+ *   这里用 `@theme inline` 把令牌**映射**成工具类名。`inline` 的语义是
+ *   「不要把值写进 `:root`，工具类里直接引用 `var(--token)`」⇒ 不产生第二份值。
+ *   ⇒ 所以 `bg-surface` 生成的其实是 `background-color: var(--color-bg-primary)`，
+ *     改令牌 = 全局一起变，**这正是 T3-C 那条断言要钉住的**。
+ *
+ * ── 决定 3：颜色起**语义别名**，不起 `bg-bg-primary` 这种套娃名
+ *   令牌名已经是 `--color-bg-primary`；直接映射会得到 `bg-bg-primary` / `text-text-primary`，
+ *   难读也难写。别名让类名可读（`bg-surface` / `text-ink`），**值仍只定义一处**。
+ *
+ * ── 决定 4：间距**完全对齐**，不是"另立一套"
+ *   Tailwind v4 的数值档 = `calc(var(--spacing) * N)`；本项目令牌恰好是 4px 阶梯
+ *   （`--space-1: 4px` … `--space-4: 16px` … `--space-8: 32px`）。
+ *   把 `--spacing` 指向 `--space-1` ⇒ `p-4` = `calc(var(--space-1) * 4)` = 16px = `var(--space-4)`。
+ *   ⇒ **两套间距体系数值上恒等**，迁移时不会出现"看起来差不多但差 1px"的漂移。
+ */
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* 显式给扫描范围（相对**本文件**）。不写就靠自动探测 —— 而本文件在 `src/styles/` 下、
+   组件在 `src/**`，靠默认探测容易漏掉上层目录。显式写死更可预期。 */
+@source "../**/*.{js,jsx}";
+
+@theme inline {
+  /* ============ 颜色 → 令牌（值只在 tokens.css 定义一次） ============ */
+  --color-surface: var(--color-bg-primary);          /* 主背景 */
+  --color-surface-2: var(--color-bg-secondary);      /* 次级背景 / 侧栏 */
+  --color-surface-raised: var(--color-bg-elevated);  /* 浮起层 */
+  --color-ink: var(--color-text-primary);            /* 主文字 */
+  --color-ink-muted: var(--color-text-secondary);    /* 次要文字 */
+  --color-ink-faint: var(--color-text-secondary);    /* 更弱的说明文字（同为 secondary，保留名字以便将来分化） */
+  --color-line: var(--color-separator-subtle);       /* 细分隔线 */
+  --color-line-strong: var(--color-separator);       /* 强分隔线 */
+  --color-accent: var(--color-accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--color-on-accent);
+  --color-selection: var(--color-selection);
+  --color-glass: var(--color-glass);
+  --color-critical: var(--color-critical);
+  --color-warning: var(--color-warning);
+  --color-success: var(--color-success);
+  /* 遮罩（弹窗用）—— T4 加确认弹窗时才需要，仍指向令牌、不写字面值 */
+  --color-scrim: var(--scrim);
+
+  /* ============ 浮起阴影（弹窗/浮层）—— 用不重名的别名，避开 `--shadow-x: var(--shadow-x)` 自引用 ============ */
+  --shadow-raised: var(--shadow-float);
+
+  /* ============ 间距：数值档与 --space-N 恒等（见决定 4） ============ */
+  --spacing: var(--space-1);                         /* 4px ⇒ p-4 = 16px = var(--space-4) */
+
+  /* ============ 字体：用**不重名**的别名，避免 `--font-sans: var(--font-sans)` 自引用 ============ */
+  --font-app: var(--font-sans);
+  --font-code: var(--font-mono);
+
+  /* ============ 圆角：同样用不重名的别名（`--radius-lg: var(--radius-lg)` 是自引用） ============ */
+  --radius-xs: var(--radius-sm);                     /* 8px  */
+  --radius-control: var(--radius-md);                /* 10px */
+  --radius-card: var(--radius-lg);                   /* 12px */
+  --radius-panel: var(--radius-xl);                  /* 16px */
+  --radius-hero: var(--radius-2xl);                  /* 24px */
+  --radius-pill: var(--radius-pill);                 /* 999px */
+  --radius-circle: var(--radius-circle);             /* 50% */
+
+  /* ============ 字号：搭上 Tailwind 的 text-* 体系 ============ */
+  --text-h1: var(--type-h1);
+  --text-title2: var(--type-title2);
+  --text-metric: var(--type-metric);
+  --text-lede: var(--type-lede);
+  --text-body: var(--type-body-app);
+  --text-callout: var(--type-callout);
+  --text-caption: var(--type-caption);
+  --text-micro: var(--type-micro);
+
+  /* ============ 布局与控件尺寸（给 w-/h-/max-w- 用） ============ */
+  --container-content: var(--layout-content-max);
+  --container-dialog: var(--layout-dialog-width);
+  --spacing-sidebar: var(--layout-sidebar-width);
+  --spacing-topbar: var(--layout-topbar-height);
+  --spacing-icon-btn: var(--control-icon-btn);
+  --spacing-search: var(--control-search-height);
+}

@@ -1,16 +1,33 @@
-/* apps/desktop/src/renderer/src/renderer.css —— 渲染层样式表（**只用令牌，值全部落在 DESIGN-tokens 的阶梯上**）
+/* apps/desktop/src/renderer/src/renderer.css —— 渲染层样式表**手写层**（只用令牌，值全部落在 DESIGN-tokens 的阶梯上）
  *
- * 视觉唯一来源：packages/design-tokens/tokens.css（DESIGN-tokens.md §10 的可执行版本 + §2.5 补齐的
- * 字号/布局/控件变量）。本文件不定义任何颜色，只消费 var(--…)。
+ * ── 与 Tailwind 的职责边界（2026-10-13 T3 起，**必读**）────────────────────────
+ *   · `styles/tailwind.css` —— **生成层**：Tailwind 按组件里的类名生成工具类。**新样式优先放这里。**
+ *   · 本文件                —— **手写层**：基础层（`*` / `body` / 布局外壳）与**尚未迁移**的组件样式。
+ *   ⚠️ 两层并存是**过渡态，不是终态**。迁移进度（**如实记账，不许写"全迁完了"**）：
+ *       · 迁移前 **126** 条规则；2026-10-13 T3 迁出 **12** 条（≈9.5%）⇒ 现 **114** 条
+ *       · 已**整族迁完并删除旧规则**：`Button`（`.btn` / `.btn.primary` / `.btn.wide` / `.icon-btn`
+ *         / `.card-acts .btn` / `.card-acts .btn.pri`）· `Chip`（`.chip` / `.chip.active`）
+ *       · 其余 114 条**未迁** —— 逐族推进，别一次全动（那会让 diff 无法评审）
+ *   ⚠️ import 顺序是**有意的**：`main.jsx` 先生成层、后本文件 ⇒ **手写层仍能覆盖工具类**。
+ *      这是迁移期的必要保证（写反会让现有外观被工具类意外改掉）。
  *
- * 为什么不直接引原型归档里的 style.css：它的**颜色**走了令牌（合规），但间距/字号/圆角是裸 px
- * （22/14/28/13/23/35px…），不在 §4.1 的 4pt 阶梯上。DESIGN-tokens.md §4.1 明确要求
- * 「接入时就近取整到 16/20/24」——所以这里按文档的阶梯与字号档重写，外观与原型一致。
- * （原型套件**已归档**到 docs/archive/prototype/，不再被应用加载，仅作设计意图对照。）
+ * ── 为什么不直接引原型归档里的 style.css ─────────────────────────────────
+ *   它的**颜色**走了令牌（合规），但间距/字号/圆角是裸 px（22/14/28/13/23/35px…），
+ *   不在 §4.1 的 4pt 阶梯上。DESIGN-tokens.md §4.1 明确要求「接入时就近取整到 16/20/24」
+ *   ——所以这里按文档的阶梯与字号档重写，外观与原型一致。
+ *   （原型套件**已归档**到 `docs/archive/prototype/`，不再被应用加载，仅作设计意图对照。）
  *
- * 纪律（由 tools/verify_renderer_styles.mjs 守卫）：
+ * ── 视觉唯一来源 ──────────────────────────────────────────────────────
+ *   `packages/design-tokens/tokens.css`（DESIGN-tokens.md §10 的可执行版本 + §2.5 补齐的
+ *   字号/布局/控件变量）。本文件**不定义任何颜色**，只消费 `var(--…)`。
+ *   ⚠️ 2026-10-13 起 Tailwind 成为**样式生成层**、`tokens.css` 降级为**主题输入之一**
+ *      （`styles/tailwind.css` 用 `@theme inline` 把它映射成工具类）—— 但**色值仍然只有一处定义**。
+ *
+ * ── 纪律（由 `apps/desktop/tests/styles.test.mjs` 断言，**不再是守卫**）────────────
  *   ① 不写死颜色（hex/rgb/hsl 一律不许）  ② 间距只用 var(--space-*)
  *   ③ 字号只用 var(--type-*)              ④ 圆角只用 var(--radius-*)
+ *   ⚠️ 原文写的 `tools/verify_renderer_styles.mjs` **已于 2026-10-13 按所有者指令删除**；
+ *      样式纪律改由 `npm test` 里的断言承接（T1/T1c 已**双向验证**：注入色值会变红）。
  */
 
 /* ============ 0) 基础 ============ */
@@ -121,15 +138,6 @@ body {
 .crumb strong { color: var(--color-text-primary); font-weight: 600; }
 .crumb-sep { padding: 0 var(--space-1); color: var(--color-separator); }
 .top-actions { display: flex; align-items: center; gap: var(--space-2); }
-.icon-btn {
-  width: var(--control-icon-btn); height: var(--control-icon-btn);
-  border: 1px solid var(--color-separator-subtle);
-  background: var(--color-bg-elevated);
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  font-size: var(--type-caption);
-}
-.icon-btn:hover { border-color: var(--color-accent); color: var(--color-text-primary); }
 
 .content { max-width: var(--layout-content-max); width: 100%; padding: var(--layout-page-padding); overflow-y: auto; }
 
@@ -141,36 +149,8 @@ body {
 .head-buttons { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 
 /* ============ 3) 控件 ============ */
-.btn {
-  border: 1px solid var(--color-separator-subtle);
-  background: var(--color-bg-elevated);
-  border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-3);
-  color: var(--color-text-primary);
-  font-size: var(--type-caption);
-  font-weight: 600;
-  display: inline-flex; align-items: center; gap: var(--space-2);
-  min-height: var(--touch-min);
-}
-.btn:hover:not(:disabled) { border-color: var(--color-accent); }
-.btn.primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); }
-.btn:disabled { opacity: .5; cursor: default; }
-.btn.wide { width: 100%; }
-.card-acts .btn { min-height: 32px; padding: var(--space-1) var(--space-2); font-weight: 500; }
-.card-acts .btn.pri { border-color: var(--color-accent); color: var(--color-accent); }
 
-.chip {
-  border: 1px solid var(--color-separator-subtle);
-  background: var(--color-bg-elevated);
-  border-radius: var(--radius-pill);
-  padding: var(--control-chip-padding);
-  font-size: var(--type-caption);
-  color: var(--color-text-secondary);
-  min-height: 32px;
-}
-.chip:hover { border-color: var(--color-accent); }
 /* §2.2 color.chip.active：深色药丸，深色模式反相 */
-.chip.active { background: var(--color-text-primary); border-color: var(--color-text-primary); color: var(--color-bg-elevated); }
 
 .field {
   border: 1px solid var(--color-separator);
@@ -317,7 +297,7 @@ body {
    为什么是遮挡式：一个库都没有时，界面上别的功能都不能用（检索必然 LIB_NOT_FOUND）。
    所以它不是"提示"，而是必经步骤。但它**不是死路** —— 应用随时能关，
    向导自己不写任何东西，只有点「添加这个库」才会写注册表。
-   颜色一律取令牌，组件里不写死十六进制（tools/verify_renderer_styles.mjs 会查）。
+   颜色一律取令牌，组件里不写死十六进制（`apps/desktop/tests/styles.test.mjs` 的 T1 会查）。
    ============================================================ */
 .wizard-overlay {
   position: fixed;
@@ -397,4 +377,3 @@ body {
 }
 .wizard-acts { display: flex; gap: var(--space-2); }
 .wizard-foot { overflow-wrap: anywhere; }
-

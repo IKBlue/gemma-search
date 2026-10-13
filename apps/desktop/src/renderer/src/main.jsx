@@ -11,6 +11,9 @@ import { createRoot } from 'react-dom/client'
 import { version as reactVersion } from 'react'
 
 import '../../../../../packages/design-tokens/tokens.css'
+// 生成层（Tailwind v4，2026-10-13 T3）—— 必须在手写层**之前**：手写样式仍要能覆盖工具类，
+// 这是迁移期的必要顺序（写反会让现有外观被工具类意外改掉）。见 styles/tailwind.css 头注释。
+import './styles/tailwind.css'
 import './renderer.css'
 
 import App from './App.jsx'
