@@ -21,6 +21,12 @@
 
 ---
 
+> ⚠️ **2026-10-13：本文档里凡引用 `verify_app_build` / `verify_main_wiring` / `verify_renderer_dom` /
+> `verify_renderer_styles` / `smoke_app` / `verify-doc-refs` 的地方，那些守卫**已按所有者指令移除**
+> （原件备份在 `data/_removed-guards-backup/`）。文中的"有自动化/由它断言"一律**不再成立**；
+> 现存守卫只剩 `verify_encoder_path` 与 `check_search`，且两者都需要模型与已注册索引（沙箱跑不动）。
+> 详见 [`AGENTS.md`](../AGENTS.md) §5.2 的"移除的代价"。
+
 ## 1. 通用形状
 
 ### 1.1 调用与返回

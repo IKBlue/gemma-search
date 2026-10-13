@@ -58,9 +58,10 @@
 | 语言 | **普通 JS / JSX**（`.js` / `.jsx`，全仓 **0 个 `.ts`/`.tsx`**） | **TypeScript 迁移是计划**（P3a），当前 `tsconfig*.json` 的 `checkJs: false`，**没有 typecheck 门禁** |
 | UI 框架 | **React 19**（`react` / `react-dom` + `@vitejs/plugin-react`） | 结果网格 / 侧栏 / 面板等交互 |
 | 组件库 | **自研 `ui/`**（约 10 个函数组件 + 极小 `cx()` class 合并） | 不引第三方组件库 |
-| 样式 | **手写 CSS**：`renderer.css` 只消费 `var(--*)` 令牌 | 令牌唯一来源 = `packages/design-tokens/tokens.css`；**Tailwind 已装但零 import**（构建配置里没有 tailwind 插件） |
-| 状态 | **自研 hooks**（`useEngine` / `useSearch` / `useToast`）+ IPC 事件流 | 索引进度是**推送**而非轮询；`zustand` 已装但零 import |
+| 样式 | **迁移前＝手写 CSS**：`renderer.css` 只消费 `var(--*)` 令牌 | ⚠️ **2026-10-13 所有者已确认反转**：落地 TypeScript + Tailwind CSS + shadcn/ui + Zustand + React Router，且**允许 Tailwind 成为新的样式来源**（`tokens.css` 降级为其输入之一）。详见 `docs/plan/ROADMAP.md` §10（迁移规模/顺序/验收）。**在 §10.3 第 4 步落地前，新组件仍按手写 CSS 写** |
+| 状态 | **自研 hooks**（`useEngine` / `useSearch` / `useToast`）+ IPC 事件流 | 索引进度是**推送**而非轮询；`zustand` 已装但零 import。**2026-10-13 已决定改用 Zustand**（ROADMAP §10.3 第 3 步） |
 | 长列表 | **暂无虚拟化**（P3 只做到搜索页） | `@tanstack/react-virtual` 已装但零 import；需要时再接 |
+| 路由 | **单页**（`LibraryGate → SearchPage`） | **2026-10-13 已决定接 React Router**（ROADMAP §10.3 第 3 步）；P3c/P3d 的多页本来就缺它 |
 | 工程化 | **electron-vite**（三端一体构建） | 产物显式落 `<仓库根>/out/{main,preload,renderer}` |
 | 契约校验 | **zod**（`apps/desktop/src/shared/ipc.mjs`） | 方法白名单 + 逐方法 `.strict()` + 载荷上限；**TS 类型是计划中**，当前不导出 |
 | 单测 | **`node:test`**（`npm test`） | 引擎与事务状态机；`vitest` 已装但零使用 |
@@ -111,7 +112,7 @@
 cd <仓库根>
 
 # 引擎无头单测（node:test，不经传输层）
-npm test                                  # 期望：tests 90 · pass 89 · fail 0 · skipped 1
+npm test                                  # 期望：tests 113 · pass 112 · fail 0 · skipped 1
 
 # 应用（Electron）开发与构建
 npm install
@@ -131,14 +132,12 @@ node packages/indexer/src/build_index_onnx.mjs --model <ONNX 模型目录> --lib
      --out data/idx-full --seq 140 --device webgpu --lib-id L1
 
 # 守卫（全部只读；期望值与前置条件见 AGENTS.md §5）
-node tools/verify_app_build.mjs           # 产物形状（需先 build）
-node tools/verify_renderer_dom.mjs        # 渲染层在 jsdom 里真跑（需先 build）
-node tools/verify_renderer_styles.mjs     # 样式与令牌一致性
 node tools/verify_encoder_path.mjs --model <ONNX 模型目录>   # 编码路径（跑真实推理）
-node tools/smoke_app.mjs                  # 应用冒烟：真启动产物并给判定
 node tools/check_search.mjs               # 检索端到端自查（需查询向量）
-node tools/verify-doc-refs.mjs            # 文档引用解算 + 根目录越界
 ```
+
+> 已按所有者指令移除**（原件备份在 `data/_removed-guards-backup/`）。上面只列现存的两个 —— 这两个都需要
+> 模型目录与已注册索引，**在 agent 沙箱里跑不动**；移除的代价见 [`AGENTS.md`](../AGENTS.md) §5.2。
 
 > 日志：主进程 + 渲染进程诊断都写 `data\_app.log`（GUI 子系统没有 stdout）。
 > 前后端命令口径的完整版（含每个守卫的前置条件与"证明不了什么"）见 `AGENTS.md` §5 与 `README.md` §2。

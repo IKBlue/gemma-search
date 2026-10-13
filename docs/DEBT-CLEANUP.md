@@ -2,7 +2,8 @@
 
 > ## ⚠️ 状态：**历史记录，不是现状**
 >
-> **状态：历史** · 最后核对：2026-10-12 · 权威范围：**无**（现状债务见 `AGENTS.md` §7「已知边界」与 `docs/plan/ROADMAP.md`）
+> **状态：历史** · 最后核对：2026-10-13 · 权威范围：**无**（**现状行动清单见仓库根 [`TODO.md`](../TODO.md)**；
+> 本文件是历史台账，逐条已清/未清，**保留不改写**，也不要在本文件新增待办）
 >
 > 本文是**多轮债务清理的过程记录**（建立 → 清债 → 仓库重组 → P2 迁移 → 合规审查 → Python 退役）。
 > 它记的是「**每一轮当时清了什么、还欠什么**」，因此：
@@ -28,6 +29,11 @@
 ---
 
 ## 一、本轮建立与补充
+
+> ℹ️ **历史记录注（2026-10-13）**：本文中出现的 `verify_app_build` / `verify_main_wiring` /
+> `verify_renderer_dom` / `verify_renderer_styles` / `smoke_app` / `verify-doc-refs` **均已于 2026-10-13
+> 按所有者指令移除**（原件在 `data/_removed-guards-backup/`）。下面这些"实测通过/EXIT=0"是**当时的真实记录**，
+> 保留不改写；但它们**不再可复跑**。
 
 ### 1.1 建立
 
@@ -429,7 +435,7 @@ A ↔ B 的对照足以定性：**同一个二进制，Node 模式完好，浏�
 
 | # | 债务 | 严重度 | 证据 |
 |---|---|---|---|
-| 26 | 🔴 **`docs/spec/SPEC-security.md` 声称的「16 权限测试用例（P2 验收必须全过）」实际存在 0 条**。`tests/security.test.mjs` 并不是那套用例，它是 `docs/spec/CONTRACT-engine-v1.md` §7 的 **5 条引擎不变量**（文件头自述）。整个 Electron 面（IPC `validateCall`、`senderFrame` 校验、`setWindowOpenHandler`、`protocol.handle`、preload 暴露面）**无任何测试**。16 条中仅 4 条有**引擎层**的近似物（S7/S8/S15/S16），且都是直调 `resolveInLibrary` 而非经 `item`/`thumb` 方法。 | **High** | `docs/spec/SPEC-security.md:226-247` vs `tests/security.test.mjs:1-187`；`package.json:19` 只跑 `tests/*.test.mjs` |
+| 26 | ✅ **已清（2026-10-12）**：16 条权限用例已全部补上自动化 —— 纯逻辑单测（`apps/desktop/tests/{permissions,window-security}.test.mjs`）+ 构建产物结构断言（`tools/verify_app_build.mjs` §1c/§2b）+ jsdom（`verify_renderer_dom.mjs` §11/§12）。逐条出处与**仍未验证的边界**见 `docs/spec/SPEC-security.md` §8/§8.1。原始记录（供追溯）：**曾声称「16 权限测试用例（P2 验收必须全过）」而实际存在 0 条**。`tests/security.test.mjs` 并不是那套用例，它是 `docs/spec/CONTRACT-engine-v1.md` §7 的 **5 条引擎不变量**（文件头自述）。整个 Electron 面（IPC `validateCall`、`senderFrame` 校验、`setWindowOpenHandler`、`protocol.handle`、preload 暴露面）**无任何测试**。16 条中仅 4 条有**引擎层**的近似物（S7/S8/S15/S16），且都是直调 `resolveInLibrary` 而非经 `item`/`thumb` 方法。 | **High** | `docs/spec/SPEC-security.md:226-247` vs `tests/security.test.mjs:1-187`；`package.json:19` 只跑 `tests/*.test.mjs` |
 | 27 | 🟡 **CSP 只设了 `<meta>`，没有响应头**。`docs/spec/SPEC-security.md:134` 要求"响应头或 `meta`，**两者都设**"，但 `src/` 内无 `onHeadersReceived` / `session.*`。连带 `frame-ancestors 'none'`（`src/renderer/index.html:11`）在 `meta` 里**被浏览器忽略** → 该指令实际失效。 | Med | docs/DEBT-CLEANUP.md:163/355 已记为 OPEN→P6，但本条量化了后果 |
 | 28 | 🟡 **1 MB 载荷上限只量 `params`，不量信封** `{method,params}`，且字符串在尺寸检查**之前**就已物化（轻微内存放大）。 | Low | `src/shared/ipc.mjs:76,87-88` vs `docs/spec/SPEC-security.md:73` |
 | 29 | 🟡 **`docs/spec/SPEC-security.md` 有两处数字与实测不符**：`sharp` 被列进"刻意不引入"表（实际是已声明运行时依赖，`package.json:45`，理由写在 `package.json:55-56`）；运行时依赖写「21 个」而 `package.json` 实为 **23 个**（`sharp` + `bmp-js` 未对账）。 | Med | `docs/spec/SPEC-security.md:170,192` vs `package.json:25-48` |

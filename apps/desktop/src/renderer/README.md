@@ -15,7 +15,7 @@ apps/desktop/src/renderer/src/renderer.css     渲染层样式（只消费 var(-
 - **原型套件已归档**到 `docs/archive/prototype/`，仅供对照设计意图，**不再是依据**；
   它的三张样式表（`style.css` / `tokens.css` / `app.css`）**不再被应用加载**。
 - **不要写第二套视觉，也不要写死颜色** —— 一律 `var(--token)`，令牌只在上面那一个文件里加。
-  （纪律由 `tools/verify_renderer_styles.mjs` 守卫。）
+  （纪律**原先**由 `tools/verify_renderer_styles.mjs` 守卫 —— ⚠️ 该守卫已于 2026-10-13 移除，现在只能靠 code review。）
 
 ## 组件分层
 
@@ -49,7 +49,7 @@ src/
 
 ## 契约：这些类名与文案被守卫断言，别随手改
 
-`tools/verify_renderer_dom.mjs`（jsdom 真跑构建产物）：
+`tools/verify_renderer_dom.mjs`（jsdom 真跑构建产物）—— **⚠️ 该守卫已于 2026-10-13 移除**，本节仅存历史说明：
 
 | 契约 | 谁负责 |
 |---|---|

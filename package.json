@@ -17,7 +17,6 @@
     "start": "node scripts/electron-vite.mjs preview",
     "build": "electron-vite build",
     "build:unpack": "npm run build && electron-builder --dir",
-    "smoke": "node tools/smoke_app.mjs",
     "build:win": "npm run build && electron-builder --win",
     "test": "node --test --test-isolation=none \"packages/engine/tests/*.test.mjs\" \"apps/desktop/tests/*.test.mjs\"",
     "test:watch": "node --test --watch --test-isolation=none \"packages/engine/tests/*.test.mjs\" \"apps/desktop/tests/*.test.mjs\"",

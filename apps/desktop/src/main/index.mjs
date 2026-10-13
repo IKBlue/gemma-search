@@ -1,4 +1,4 @@
-﻿// apps/desktop/src/main/index.mjs —— Electron 主进程（P2）
+// apps/desktop/src/main/index.mjs —— Electron 主进程（P2）
 //
 // 职责（SPEC-security §2–§5）：
 //   · 组装引擎（注入 ONNX 编码器端口）—— 库来源见 library-config.mjs（D2 修复）
@@ -26,6 +26,12 @@ import { createEngine } from '../../../../packages/engine/src/engine.mjs';
 import { CH_INVOKE, CH_EVENT, validateCall, METHOD_NAMES } from '../shared/ipc.mjs';
 import { resolveLibraries, loadRegistry, saveRegistry, normalizeLibraries, registryPath } from './library-config.mjs';
 import { createRevealPort } from './ports.mjs';
+import { parseThumbUrl, createLibIdResolver, thumbFailureStatus } from './thumb-url.mjs';
+import {
+  isTrustedSender as isTrustedSenderImpl,
+  decideWindowOpen,
+  decideNavigation,
+} from './window-security.mjs';
 
 import electron from 'electron';
 const { app, BrowserWindow, ipcMain, protocol, nativeImage, dialog, shell } = electron;
@@ -186,21 +192,11 @@ async function ensureEncoder() {
 }
 
 // ---------------------------------------------------------------- 应用自身地址（§2 + §5）
-function isAppUrl(u) {
-  if (!u) return false;
-  if (u.startsWith('file://')) return true;                             // 打包/预览态
-  if (DEV_RENDERER_URL && u.startsWith(DEV_RENDERER_URL)) return true;  // dev 态（electron-vite）
-  return false;
-}
-
+// 判据与"开新窗口/导航/来源校验"的**决策**都在 `main/window-security.mjs`（可脱离 Electron 单测）；
+// 这里只做**接线**，并把 DEV_RENDERER_URL 作为参数喂进去。
 function isTrustedSender(event) {
   const w = winRef.win;
-  if (!w || w.isDestroyed()) return false;
-  if (event.sender !== w.webContents) return false;              // 只认主窗口
-  const frame = event.senderFrame;
-  if (!frame) return false;
-  if (frame.parent !== null) return false;                        // 拒 iframe
-  return isAppUrl(frame.url || '');
+  return isTrustedSenderImpl(event, w, DEV_RENDERER_URL);
 }
 
 // ---------------------------------------------------------------- IPC（§2 + §4）
@@ -334,39 +330,39 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 const THUMB_DIR = path.join(DATA_DIR, 'thumbs');
-const ALLOWED_SIZE = new Set([128, 256, 512]);
 
-/** host（URL 规范会小写）→ 引擎注册时的 libId 写法；带缓存，避免每个缩略图都查一次 */
-const LIB_ID_CANON = new Map();
+// ⚠️ 形状解析、尺寸白名单**与失败状态码映射**已抽到 `main/thumb-url.mjs`
+// （SPEC-security §8 的 S4–S6）。抽出去的理由只有一个：`index.mjs` import 了 electron，
+// `node:test` 加载不了它 ⇒ 这段代码本来**零自动化覆盖**。它是渲染进程唯一能"指定读哪个文件"的表面。
+// **行为变更（唯一一处，已记录）**：原实现把"库 id 无法还原"与"形状不对"合并成 400；
+// 按 `SPEC-security.md` §3 的表（`libId` 不在注册表 ⇒ 404）现在拆成 404。这是**对齐 §3**。
+async function listRegisteredLibIds() {
+  if (!engine) return [];
+  const st = await engine.indexStatus({});
+  return ((st && st.ok && st.data && st.data.libs) || []).map((l) => l.libId);
+}
+const resolveLibId = createLibIdResolver({ listLibIds: listRegisteredLibIds, log });
+/** 引擎未就绪时不尝试还原（还原器本身对"空结果"也不会缓存，见 thumb-url.mjs） */
 async function canonicalLibId(host) {
   if (!engine) return '';
-  if (LIB_ID_CANON.size === 0) {
-    const st = await engine.indexStatus({});
-    for (const l of ((st && st.ok && st.data && st.data.libs) || [])) {
-      LIB_ID_CANON.set(String(l.libId).toLowerCase(), l.libId);
-    }
-    log('thumb 库 id 映射', JSON.stringify([...LIB_ID_CANON.entries()]));
-  }
-  return LIB_ID_CANON.get(String(host).toLowerCase()) || '';
+  return resolveLibId(host);
 }
 
 async function handleThumb(request) {
   // thumb://L1/<uid>@256  → host=libId, pathname=/<uid>@256
-  let url;
-  try { url = new URL(request.url); } catch { return new Response('bad url', { status: 400 }); }
-  // ⚠️ URL 的 host **一律小写**（URL 规范如此），而引擎的 libId 是大小写敏感的（`L1`）——
-  // 实测 `thumb://L1/...` 到这里会变成 `l1`，引擎回 LIB_NOT_FOUND，界面全是"无预览"。
-  const rawHost = decodeURIComponent(url.host || '');
-  const libId = rawHost ? await canonicalLibId(rawHost) : '';
-  const m = /^\/([0-9a-f]{12})@(\d+)$/.exec(url.pathname || '');
-  if (!libId || !m) {
-    log('thumb 拒绝：库 id 无法还原或形状不对', rawHost, url.pathname);
-    return new Response('bad shape', { status: 400 });
+  const p = parseThumbUrl(request.url);
+  // ⚠️ **顺序是契约**：先判形状（400），再判库（404）。写成
+  // `thumbFailureStatus(p.ok ? 400 : p.status, libId)` 会让形状错也返回 404 ——
+  // 实测被 `tools/verify_main_wiring.mjs`（**已移除 2026-10-13**） 抓到（调用真实产物，`@999` 回了 404 而非 §3 要求的 400）。
+  const libId = p.ok ? await canonicalLibId(p.rawHost) : '';
+  const status = thumbFailureStatus({ shapeOk: p.ok, libId });
+  if (status !== null) {
+    log('thumb 拒绝', p.ok ? `库 id 无法还原：${p.rawHost}` : p.reason, '→', status);
+    return new Response('bad shape', { status });
   }
-  const uid = m[1];
-  const size = Number(m[2]);
+  const uid = p.uid;
+  const size = p.size;
   log('thumb 请求', libId, uid, size);
-  if (!ALLOWED_SIZE.has(size)) { log('thumb 拒绝：尺寸不合法', size); return new Response('bad size', { status: 400 }); }
   if (!engine) return new Response('engine not ready', { status: 503 });
 
   const cachePath = path.join(THUMB_DIR, libId, `${uid}@${size}.jpg`);
@@ -426,9 +422,10 @@ function createWindow() {
   winRef.win = win;
 
   win.once('ready-to-show', () => win.show());           // 冷启动不闪白
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // 决策在 window-security.mjs（可单测），这里只接线
+  win.webContents.setWindowOpenHandler(() => decideWindowOpen());
   win.webContents.on('will-navigate', (e, url) => {
-    if (!isAppUrl(url)) { e.preventDefault(); log('阻止导航', url); }
+    if (!decideNavigation(url, DEV_RENDERER_URL)) { e.preventDefault(); log('阻止导航', url); }
   });
   win.webContents.on('render-process-gone', (_e, d) => log('渲染进程结束', JSON.stringify(d)));
 

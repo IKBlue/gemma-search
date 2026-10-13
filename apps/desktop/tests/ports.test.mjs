@@ -6,7 +6,7 @@
 // 本文件就是把那一层钉住：端口的形状、转发、异常行为。
 //
 // 兜底说明：这里测不到"主进程真的把端口传给了 createEngine"（那需要跑 Electron）。
-// 那一层的证据是 `tools/verify_renderer_dom.mjs` 的端到端断言 + 代码审查。
+// 那一层的证据是 `tools/verify_renderer_dom.mjs`（**已移除 2026-10-13**） 的端到端断言 + 代码审查。
 // **不得**因为本文件绿了就声称"接线已端到端验证"。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

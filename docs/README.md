@@ -58,7 +58,8 @@ docs/
 | `apps/desktop/src/README.md` · `apps/desktop/src/renderer/README.md` | 应用主体的就地说明（改代码前先读） |
 | `tools/probe_electron_start/` | Electron 起不来时的最小探针 + 判读表 |
 
-> 仓库根**只有** `AGENTS.md` + `README.md` 两份 `.md`（由 `tools/verify-doc-refs.mjs` 的第 2 项强制）。本轮审查的三份汇总报告已经归位到 `docs/audit/`。
+> 仓库根**只有** `AGENTS.md` + `README.md` 两份 `.md`。⚠️ **2026-10-13 起没有守卫强制这一条了**
+> （原由 `tools/verify-doc-refs.mjs` 的第 2 项检查，该守卫已移除），只能靠人看。本轮审查的三份汇总报告已经归位到 `docs/audit/`。
 
 ---
 
@@ -68,7 +69,8 @@ docs/
 
 | 这件事 | 以谁为准 |
 |---|---|
-| 项目是什么 / 什么状态 / 怎么跑 | [`README.md`](README.md) |
+| 项目是什么 / 什么状态 / 怎么跑 | [`README.md`](../README.md) |
+| **现在还有什么没做完 / 什么坏了** | [`TODO.md`](../TODO.md)（仓库根） |
 | 怎么干活（目录职责、放置、门禁、写作纪律） | [`AGENTS.md`](AGENTS.md) |
 | 顺序与进度（做什么、什么顺序、什么算做完） | [`plan/ROADMAP.md`](docs/plan/ROADMAP.md) |
 | 应用技术栈与目录结构 | [`spec/SPEC-app.md`](docs/spec/SPEC-app.md) |
@@ -118,7 +120,6 @@ docs/
 ## 5. 改文档时的纪律（完整版见 `AGENTS.md` §6）
 
 ```powershell
-node tools\verify-doc-refs.mjs      # 全仓 .md 引用解算 + 根目录越界检查（只读）
 ```
 
 - **正文文档放 `docs/`**；仓库根只留 `AGENTS.md` + `README.md`。

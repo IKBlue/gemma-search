@@ -81,13 +81,9 @@ Windows 上 Electron 是 GUI 子系统程序，**stdout 不连终端**，`consol
 ## 3. 验收：确认你的环境是对的
 
 ```powershell
-npm test                                  # 期望：tests 90 · pass 89 · fail 0 · skipped 1
+npm test                                  # 期望：tests 113 · pass 112 · fail 0 · skipped 1
 npm run build                             # 期望：out/{main,preload,renderer} 三端齐备
 
-node tools\verify_app_build.mjs           # 产物形状
-node tools\verify_renderer_dom.mjs        # 渲染层在 jsdom 里真跑（需先 build）
-node tools\verify_renderer_styles.mjs     # 样式与令牌一致性
-node tools\verify-doc-refs.mjs            # 文档引用解算 + 根目录越界
 ```
 
 **只有 1 项跳过**，原因是环境限制（详见 [`AGENTS.md`](AGENTS.md) §5.1）：
@@ -108,6 +104,9 @@ node tools\verify-doc-refs.mjs            # 文档引用解算 + 根目录越界
 重建（唯一可用路径）：
 
 ```powershell
+
+> 已按所有者指令移除**（原件备份在 `data/_removed-guards-backup/`）。上面只列现存的两个 —— 这两个都需要
+> 模型目录与已注册索引，**在 agent 沙箱里跑不动**；移除的代价见 [`AGENTS.md`](../AGENTS.md) §5.2。
 node packages/indexer/src/build_index_onnx.mjs --model <ONNX 模型目录> --lib <素材库根> `
      --out data/idx-full --seq 140 --device webgpu --lib-id L1
 ```

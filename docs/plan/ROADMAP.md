@@ -28,7 +28,7 @@
 | **库** | `G:\model`（示例库根）—— 3594 预览图 + 3594 压缩包（`.rar` 2329 / `.zip` 1189 / `.7z` 76），207.3 GB |
 | **已锁定的关键判断** | 事务而非"原子"· UID 不等于内容哈希 · 权重精度 ≠ 向量精度 · 现在不引 REST |
 | **当前进度** | 规格/设计/验收口径已成文 · 全量 v1 判 FAIL（min 0.9153）→ 根因已定位并修复 → **全量 v2 PASS · 索引已接受**（`data/libraries/L1/`）· **引擎与桌面测试 90 条：89 过 / 0 败 / 1 跳过**（D2 修好两条集成断言；F-01/F-02 各加回归锁定）· **Electron 出窗 + React 挂载 + WebGPU 载入成功**（证据 `reports/G-D-p2-electron/`）· **应用主体已迁到 monorepo 布局**（`apps/desktop/` + `packages/`）· **`npm run build` 三端可产出**（已实测）· **D2 配置缺口 + F-04 取件白名单已修**（库四路解析 + 首启向导 + 索引自举）· **P3 界面只完成 1/4 页**（`App.jsx` 目前只有 `<LibraryGate>` → `<SearchPage />`）· **旧 Python 档已整体退役**（`4555c1b`，0 个 `.py`） |
-| **下一步** | 断点已收窄到**两页界面**：**P3c 图片详情** + **P3d 索引任务/操作记录**（P3b 搜索结果页已完成）。~~D2 配置来源~~（✅ 已修，连带 F-04）· ~~F-01 `reveal` 未接线~~（✅ 已修）· ~~F-02 界面自算阈值~~（✅ 已修）都不再是断点。之后才是 P4/P5/P6；另有 §8.3 的四项欠账（16 条权限用例无自动化 · 多页路由 · 三项未验证能力） |
+| **下一步** | 断点已收窄到**两页界面**：**P3c 图片详情** + **P3d 索引任务/操作记录**（P3b 搜索结果页已完成）。~~D2 配置来源~~（✅ 已修，连带 F-04）· ~~F-01 `reveal` 未接线~~（✅ 已修）· ~~F-02 界面自算阈值~~（✅ 已修）· ~~16 条权限用例无自动化~~（✅ 已补，见 `docs/spec/SPEC-security.md` §8/§8.1）都不再是断点。之后才是 P4/P5/P6；**仍欠**：多页路由 · 三项未验证能力（冷启动/打包态/真实 `thumb://` 取图）· 真 Electron 窗口内的权限行为（§8.1）。⚠️ **另有一条待你定方向的 TODO**：**技术栈对齐（TS + Tailwind + shadcn/ui + Zustand + React Router）** —— 见 **§10**（要反转一项既定决策，未开工） |
 | **需要你定** | ① **人工标注档位**（见 §8；不做则 G-B 只能说"未退化"，**不能**说"质量达标"）② **分发精度档**：P6 定论是统一 fp32（`q4f16` 的检索质量从未测过）③ **侧栏深浅**：默认按令牌（浅侧栏），深色侧栏是一个 `<html data-sidebar="dark">` 开关（见 §8 决策 4） |
 
 ---
@@ -198,7 +198,7 @@ asar 打包态与冷启动计时留到 P6；证据 `reports/G-D-p2-electron/`。
 | | |
 |---|---|
 | 任务 | `electron-vite` 工程化 · 主进程载引擎 · **worker 线程跑编码**（不冻结界面）· `thumb://` 自定义协议（**只按 lib_id+uid 解析，防路径穿越/符号链接越界**）· `apps/desktop/src/preload/index.js` 白名单 + **zod 参数校验** · `nodeIntegration:false` / `contextIsolation:true` · 退出清理 worker 与模型 |
-| **前置门禁** | **`docs/spec/SPEC-security.md` 必须已完成并批准**（内容：IPC 每个方法的参数类型与允许路径范围、调用来源验证、错误返回约定、**权限测试用例**）—— 审查指出它属于 P2 而非 P1。**现状：本文件已「暂批」（§9 决定 1），但它 §8 的 16 条权限用例没有任何自动化实现**（见 `docs/spec/SPEC-security.md` §8 顶部声明） |
+| **前置门禁** | **`docs/spec/SPEC-security.md` 必须已完成并批准**（内容：IPC 每个方法的参数类型与允许路径范围、调用来源验证、错误返回约定、**权限测试用例**）—— 审查指出它属于 P2 而非 P1。**现状（2026-10-12 更新）：本文件已「暂批」（§9 决定 1），§8 的 16 条权限用例**已全部补上自动化**（纯逻辑单测 + 构建产物结构断言 + jsdom；逐条出处见该文件 §8，仍未验证的边界见 §8.1） |
 | 验收 | 冷启动 ≤5 s 出窗 ⚠️ **未计时**；关窗无残留进程 ⚠️ 未验；渲染进程无法读任意路径 ✅ 结构上成立；**权限测试用例全过** ❌ **未做** |
 | 门禁 | G-D |
 
@@ -291,7 +291,7 @@ asar 打包态与冷启动计时留到 P6；证据 `reports/G-D-p2-electron/`。
 | P0 基线复核 | 我 | 你确认 | ✅ 已完成 | — | ✅ | — |
 | P0.5 索引重建 | 我 | **你**（G-B） | 0.5–1 | P0 | ✅ **PASS** | G-B 不过 → 修构建器/参数后**重跑 P0.5**（旧索引继续可用，不影响其它） |
 | P1 引擎 + 契约 | 我 | **你**（G-C→G-D） | 3–5 | G-B | ⚠️ **部分**（事务/审计未做；契约未冻结） | G-C 不过 → 改规格，**不重跑 P0.5**；G-D 不过 → 只修引擎，重跑故障注入 |
-| P2 骨架 | 我 | 你（G-D） | 1–2 | P1 契约冻结 | ⚠️ **主体完成**（worker 未做；权限用例未自动化） | 修骨架，不影响索引 |
+| P2 骨架 | 我 | 你（G-D） | 1–2 | P1 契约冻结 | ⚠️ **主体完成**（worker 未做）；**权限用例已自动化（2026-10-12）**，但真 Electron 窗口内的行为仍未实测（见 `docs/spec/SPEC-security.md` §8.1） | 修骨架，不影响索引 |
 | P3a 设计系统 | 我 | 你（G-D） | 1 | P2 | ⚠️ 部分（令牌+壳已落地，路由/库选择器未做） | 修壳 |
 | P3b 搜索结果 | 我 | 你（G-D） | 1–2 | P3a | ⚠️ 1/4 页 | 修界面；性能不达标先看是否误测（口径见 `docs/spec/SPEC-acceptance.md` §3） |
 | P3c 图片详情 | 我 | 你（G-D） | 0.5–1 | P3a | ❌ 未开始 | 与 P3d **可并行**（若有多人） |
@@ -339,7 +339,7 @@ reports/
 | **G-A** | P0 后 | **五条检查项**（当时的自检脚本**已随 Python 档退役删除**，判据存档在 `data/baseline-v1.json`）：① 库指纹已计算 ② **旧索引副本可实际恢复** ③ 配对已独立核对 ④ 无零向量/越界向量 ⑤ **索引条目数 = 磁盘预览图数** | `baseline-v1.json` · 读回校验输出 · 备份目录清单 | ✅ **通过 5/5**（⚠️ **不可复跑**） |
 | **G-B** | P0.5 接受前 | ① 向量等价性 ② Top-10 重合率 ③ 语义质量 ④ 人工复核 | `reports/G-B-20261010-v2/`：A/B/C + `vector-equiv.json` + `top10.json`/`top10-diff.csv` + `human-review.md` + `VERDICT.txt` | ✅ **自动判定 PASS（2026-10-10）**：min 0.967894（门槛 0.700）· 中位 0.999263 · ② 重合率 ✔ · ③ self/hard ✔；**④ 按所有者决定本轮不执行**（④ 本就不是门槛，见 `docs/spec/SPEC-acceptance.md` §2.2）。⚠️ **判据脚本已删，不可复跑** |
 | **G-C** | P1 编码**前** | `docs/spec/SPEC-transactions.md` / `SPEC-identity` / `SPEC-acceptance` 评审通过；**`docs/spec/SPEC-security.md` 作为前置交付物已完成并批准**；故障注入用例设计完成 | 四份规范 + 安全用例清单 + 契约草案 | 🔶 **部分**：规格均已成文，安全规范**已「暂批」**；但**契约仍未冻结**、故障注入未执行 |
-| **G-D** | P2–P5 每阶段 | 该阶段单测 + 集成测试 + 验收条件通过；接口契约未被破坏 | 测试输出 + 该阶段验收记录 | ⚠️ P1 引擎单测 68/65/0/3 ✅；P2 的**权限用例未过**（`docs/spec/SPEC-security.md` §8） |
+| **G-D** | P2–P5 每阶段 | 该阶段单测 + 集成测试 + 验收条件通过；接口契约未被破坏 | 测试输出 + 该阶段验收记录 | ⚠️ P1 引擎单测 68/65/0/3 ✅；P2 的权限用例**已自动化**（`docs/spec/SPEC-security.md` §8 逐条给出出处），**但 §8.1 列的"真窗口行为 / 构建那一步"仍未验证** —— 所以 G-D 只能说"自动化到位"，不能说"端到端已验证" |
 | **G-E1** | P6 后 | **打包后**功能 / 性能 / 离线 / 异常恢复 / 干净环境验收全过 | 打包产物 + 各项实测数据 + 干净环境首启记录 | ❌ 未做 |
 | **G-E2** | P7 **前**（与 G-E1 分开） | 新应用在目标环境**稳定运行**；旧档备份与**回退步骤已实测**演练过一次 | 回退演练记录 + DSH 启动确认 + 配置字节校验结果 | ⚠️ **前置未满足即执行了 P7**（见 P7 节） |
 
@@ -358,7 +358,7 @@ reports/
 | `docs/spec/SPEC-transactions.md` | 事务日志、状态机、跨卷流程、启动恢复、撤销、并发、空间核算、10 项故障注入 |
 | `docs/spec/SPEC-identity.md` | uid 语义、文件身份、配对规则、库指纹、**索引元数据（权重精度 vs 向量精度）**、`index.bin` 格式、跨库前置条件 |
 | `docs/spec/SPEC-acceptance.md` | 三项独立验收、语义质量阈值、性能计时边界、离线与打包验证、门禁 |
-| `docs/spec/SPEC-security.md` | ✅ **现行规格**（§9 决定 1「暂批」）：IPC 每个方法的参数类型与**允许路径范围**、调用来源验证、错误返回约定、**权限测试用例**（⚠️ 16 条用例**尚无自动化实现**）。它是 **P2 的前置交付物**，不是 P1 的产物 |
+| `docs/spec/SPEC-security.md` | ✅ **现行规格**（§9 决定 1「暂批」）：IPC 每个方法的参数类型与**允许路径范围**、调用来源验证、错误返回约定、**权限测试用例**（✅ 2026-10-12：16 条**均已自动化**，逐条出处见该文件 §8，边界见 §8.1）。它是 **P2 的前置交付物**，不是 P1 的产物 |
 | `docs/spec/CONTRACT-engine-v1.md` | ⏳ **待冻结**：方法请求/响应结构、错误码与用户可见文案、长任务进度/取消/续跑/失败清单结构、事务状态与 `RECOVERY_NEEDED` 恢复操作、多库不兼容的**结构化原因**、**UI 测试数据与模拟接口** |
 | `docs/audit/AUDIT-FINAL.md` · `docs/audit/STACK-AUDIT.md` · `docs/audit/UIUX-AUDIT.md` | 本轮三条宪章的审查产物（**已从仓库根移入 `docs/audit/`**） |
 | `reports/` | ⏳ 门禁证据归档（G-A…G-E2，结构见 §3.1）。**没有归档证据 = 门禁没过** |
@@ -497,3 +497,121 @@ reports/
 - **改约束**（目标/标准/决策/验收阈值）→ 改对应 `SPEC-*.md`，然后回来同步本文件 §1/§2。
 - **改 UI** → 改 `docs/design/UI-REVIEW-and-migration.md`（信息架构）+ `docs/design/DESIGN-tokens.md` / `packages/design-tokens/tokens.css`（视觉值）。⚠️ 原型套件已归档在 `docs/archive/prototype/prototype/`，**不再改原型**。
 - **发现实测推翻了文档** → **先改文档再改代码**，并在 `docs/DEBT-CLEANUP.md` 记账（本项目已发生多次：`.7z` 漏判、`toast` 未定义、精度字段含混）。
+
+---
+
+> ⚠️ **2026-10-13：本文档里凡引用 `verify_app_build` / `verify_main_wiring` / `verify_renderer_dom` /
+> `verify_renderer_styles` / `smoke_app` / `verify-doc-refs` 的地方，那些守卫**已按所有者指令移除**
+> （原件备份在 `data/_removed-guards-backup/`）。文中的"有自动化/由它断言"一律**不再成立**；
+> 现存守卫只剩 `verify_encoder_path` 与 `check_search`，且两者都需要模型与已注册索引（沙箱跑不动）。
+> 详见 [`AGENTS.md`](../AGENTS.md) §5.2 的"移除的代价"。
+
+## 10. 待办：技术栈对齐（TypeScript + Tailwind CSS + shadcn/ui + Zustand + React Router）
+
+> **状态：已立项，未开工。** 记录于 2026-10-13，来源＝所有者指令「add todo Electron + React + TypeScript + shadcn/ui + Tailwind CSS + Zustand + React Router」。
+>
+> ✅ **方向已由所有者确认（2026-10-13）**：
+> 1. **按指令落地这套栈** —— 落实为**反转**此前"手写 CSS + 自研 `ui/`"的方向；
+> 2. **Tailwind 成为新的样式来源** —— `packages/design-tokens/tokens.css` 由"唯一来源"**降级为 Tailwind 主题的输入之一**。
+>
+> ⚠️ 这两个确认**推翻了此前三处明文约束**，因此按 §9 变更控制同步：
+> `docs/spec/SPEC-app.md` §2（样式行）· `docs/design/DESIGN-tokens.md` §11（附录从"已否决"改为"迁移对照"）·
+> `AGENTS.md` §3（样式纪律）与 §5.2（`verify_renderer_styles.mjs` 的职责）。
+> **在 §10.3 第 4 步真的落地之前，新组件仍按手写 CSS + `var(--*)` 写** —— 同一时刻两套规则并存只会更乱。
+
+### 10.1 逐项现状（**实测**，非记忆；grep `package.json` + 渲染层 import）
+
+| 项 | 现状 | 证据 |
+|---|---|---|
+| **Electron** | ✅ **已在用** | 主进程/preload/渲染进程三端，`electron-vite` 构建 |
+| **React** | ✅ **已在用**（React 19） | 但**是普通 JS/JSX，不是 TypeScript** |
+| **TypeScript** | ⚠️ **已声明未启用** | `typescript ^7.0.2` 在 devDependencies；渲染层/主进程全是 `.js`/`.jsx`/`.mjs`；两个 tsconfig 的 **`checkJs` 都关着** |
+| **Tailwind CSS** | ⚠️ **已声明未接入** | `tailwindcss ^4.3.3` + `@tailwindcss/vite ^4.3.3` 在 devDependencies，**构建里没有插件**；渲染层零 import |
+| **shadcn/ui** | ⚠️ **依赖已装、组件未接入** | shadcn 的整条基础依赖都在：`clsx` · `tailwind-merge` · `class-variance-authority` · `lucide-react` · `@radix-ui/react-dialog` · `@radix-ui/react-alert-dialog` —— **渲染层零 import** |
+| **Zustand** | ⚠️ **已声明未接入** | `zustand ^5.0.15` 在 dependencies，**零 import**（状态现为本地 hooks：`useSearch` / `useIndexStatus` / `useLibraryConfig`） |
+| **React Router** | ❌ **未安装** | `react-router` / `react-router-dom` **都不在 `package.json`** —— 7 项里**唯一需要新增依赖**的 |
+
+**合计**：7 项里 **2 项已在用**（Electron / React）、**4 项依赖已装但零 import**、**1 项未装**（React Router）。
+
+### 10.1.1 TypeScript 迁移的**真实规模**（2026-10-13 本轮实测）
+
+两个 tsconfig 的 `checkJs` 都关着 ⇒ 现状 `npx tsc --noEmit` 是**假绿**（EXIT=0）。临时打开 `checkJs` 后的实测：
+
+| 范围 | 错误数 | 主要错误码 |
+|---|---|---|
+| **渲染层**（`tsconfig.web.json`） | **148** | TS7031 绑定元素隐式 any **64** · TS2339 属性不存在 **31** · TS7006 参数隐式 any **24** · TS2741 缺属性 **15** · TS2322 类型不匹配 7 |
+| **主进程/preload/契约/引擎/守卫**（`tsconfig.node.json`，含 `packages/engine/src` + `tools/` + `scripts/`） | **472** | TS7006 **187** · TS2339 **89** · TS7005 **47** · TS18046 **31** · TS2584（node 侧无 DOM 库，预期） **23** |
+
+两点解读（**这两点决定了执行顺序**）：
+
+- **大头是"隐式 any"，不是"类型不匹配"**：渲染层 148 里有 **88 条**（TS7031+TS7006）只是因为 JS 的
+  解构/形参没有类型标注；主进程侧 TS7006 一项就 187 条。这类错误**加标注即消**，
+  但**在 JS 里撒 `any` 只是把红灯涂绿**（`tsconfig.node.json` 自己的注释 2026-10-12 就写明了这一点）。
+  ⇒ 正确做法是**先转 `.ts` + 给契约边界类型**，而不是全局 `any`。
+- ⚠️ **`tsconfig.node.json` 自己的注释写着基线是 356 条，现在是 472 条** —— 差额来自
+  2026-10-12/13 新增的几个 `.mjs`（`thumb-url` / `window-security` / `ports` / `library-config` /
+  `verify_main_wiring` 等）。**结论：这份债会随着继续用 JS 写新代码而持续变大**，
+  这是"尽早转 TS"的一条独立理由（不只是"主流如此"）。
+⇒ 这条 TODO 的**大头是"接线 + 迁移"，不是"装依赖"**。已装的这些大约占安装包 ~38 MB（见 `docs/audit/STACK-AUDIT.md` §5–§6），**目前是纯负担**。
+
+### 10.2 为什么这条值得单独记（不是"追新"）
+
+- **P10（`STACK-AUDIT.md`）**：规格承诺栈与实际栈**系统性偏离**，`docs/spec/SPEC-app.md` §2 那句"手写 CSS"与当初计划书写的 TS+Tailwind+shadcn 是**两个方向**。本条 TODO 就是要把这个偏离**一次性收敛到一边**（要么落地、要么从 `package.json` 里删掉，别再挂着）。
+- **P1（`STACK-AUDIT.md`）**：**类型门禁是假绿的** —— `npx tsc --noEmit -p tsconfig.web.json` 返回 EXIT=0 / 0 错误，因为 `checkJs` 关着。⇒ **"我跑了 tsc 是绿的"目前等于没跑。**
+- **React Router 不是"顺手加的"**：§8.3 的 **P3c/P3d 是多个页面**，而现在是单页 `LibraryGate → SearchPage`，**多页路由本来就是缺的**。所以这一项有独立理由，即使不采纳 TS/Tailwind。
+
+### 10.3 建议执行顺序（若确认落地）
+
+> 顺序依据 `STACK-AUDIT.md` §P1 的建议：**先修假绿门禁，再转契约边界**。理由：门禁不可信时，"迁移完了"无法验证。
+
+1. **先修类型门禁（零迁移成本，且必须先做）**：把 `package.json` 的 `typecheck` 脚本加回来（`tsc -b` 或两条 `tsc --noEmit -p`），并打开 `checkJs` 得到**真实的错误规模**作为基线。**在此之前不得声称"TS 已就绪"。**
+2. **只转契约边界（收益最高、改动最小）**：`apps/desktop/src/shared/ipc.mjs` → `ipc.ts`，导出 `z.infer` 的请求/响应类型（契约是本项目核心资产：13 个方法 + 19 个错误码目前**只有运行时校验**）。再让 preload 与渲染层消费这些类型。
+3. **Zustand / React Router**：状态与路由的收益**独立于** TS/Tailwind，可以先做，也可与第 2 步并行（不同文件）。
+4. **Tailwind 接管样式生成层（改动面最大，故最后做）** —— 已确认方向：**Tailwind 成为新的样式来源**，
+   `packages/design-tokens/tokens.css` **降级为 Tailwind 主题的输入之一**（不再是"唯一来源"）。
+   ⇒ 必须同步**重写 `tools/verify_renderer_styles.mjs`**：它现在的职责是"渲染层只消费 `var(--*)`、
+   不写死颜色"，与新方向**正面冲突**。重写后的职责应改为"**色值只有一处定义**"（无论那份定义落在
+   `tokens.css` 还是 Tailwind theme），并保留"新守卫能红"的双向验证。
+5. **shadcn/ui 按需接入**：`DESIGN-tokens.md` §4 的既有判断仍成立 —— 只装确实缺的
+   （确认弹窗/焦点陷阱，先 `@radix-ui/react-alert-dialog`），**不要一次把 12 个 `@radix-ui/*` 全接上**。
+6. **依赖清账**：第 5 步之后，仍未 import 的包**要么接上、要么从 `package.json` 删掉**（见 §10.4 第 6 条）。
+
+### 10.4 若确认落地，验收标准（可验证，逐条）
+
+| # | 断言 | 怎么验 |
+|---|---|---|
+| 1 | `typecheck` 脚本存在且**不是假绿** | `npm run typecheck` EXIT=0，且**故意引入一个类型错误时它必须变红**（这是 P1 的本质） |
+| 2 | Tailwind 真的接入了（不是"装了插件但没生成类"） | 构建产物 CSS 里能找到 Tailwind 生成的类；且 `renderer.css` 的令牌引用仍全部有定义（`verify_renderer_styles` EXIT=0） |
+| 3 | **色值仍然只有一处定义**（已确认方向：**出处改为 Tailwind theme**，`tokens.css` 降级为其输入） | 全仓 grep 找不到第二份同义色值；`verify_renderer_styles.mjs` **重写后**仍能抓到"写死颜色"（且**双向验证**过：注入一处硬编码色值必须变红） |
+| 4 | `zustand` 的引入有**实际 import**，且删掉了被它取代的本地 hook | grep 有 import；被取代的 hook 已删（不留死代码） |
+| 5 | React Router 接管多页，且 `LibraryGate` 的"无库先向导"行为不回归 | `verify_renderer_dom` §8（首启向导 7 条断言）仍 EXIT=0 |
+| 6 | 未接入的依赖**要么接上、要么从 `package.json` 删除** | `npm ls --depth=0` 与 grep 对照，**不再有"已装零 import"**（消除那 ~38 MB 纯负担） |
+| 7 | 全部既有门禁不回归 | `npm test` fail=0；`verify_app_build` / `verify_main_wiring` / `verify_renderer_dom` / `verify_renderer_styles` 全 EXIT=0 |
+
+### 10.5 已决定（2026-10-13，所有者）
+
+| # | 问题 | 决定 |
+|---|---|---|
+| 1 | 方向 | **落地这套栈**（按 §10.3 执行）。**不选**"保持手写 CSS + 把已装依赖删掉"那条路 |
+| 2 | Tailwind vs 令牌制 | **允许 Tailwind 成为新的样式来源** ⇒ `tokens.css` 从"唯一来源"降级为**输入之一**；`renderer.css` 的手写令牌消费方式**将被改写**；`verify_renderer_styles.mjs` **必须重写**（见 §10.3 第 4 步与 §10.4 第 3 条） |
+
+> ⚠️ **这仍是"已立项、未开工"**：本节记录方向与验收标准，**尚未动任何代码**。
+> 开工时按 §10.3 顺序，每步都要过 §10.4 的验收。
+
+**已落到任务板**（2026-10-13），且**串行**（因为 `package.json` 与 `apps/desktop/src/renderer` 是共享写入面，
+并行会互相踩）：
+
+| 任务 | 对应 §10.3 的步骤 | 前置 |
+|---|---|---|
+| `task-17` **T1** 类型门禁：契约边界先转 TS（修 P1 假绿） | 第 1–2 步 | — |
+| `task-21` **T5** 三层架构落地（Adapter 唯一入口 + P1/P2/P3 + **分层守卫**） | 见 `AGENTS.md` §0.1 | task-17 |
+| `task-18` **T2** Zustand 接管状态 + React Router 接管多页 | 第 3 步 | task-21 |
+| `task-19` **T3** Tailwind 接管样式生成层（含**重写**样式守卫） | 第 4 步 | task-18 |
+| `task-20` **T4** shadcn/ui 按需接入 + 依赖清账 | 第 5–6 步 | task-19 |
+
+> **T5 插在 T2 之前**（2026-10-13 所有者追加三层架构后新增）：Adapter 不存在时，
+> T2/T3/T4 会继续往 UI 里加 `window.api` 直调（`AGENTS.md` §0.1 已实测 **3 个文件、7 处**违例）。
+> **先把唯一入口建好，后面几步才不用回头改。**
+
+按 `AGENTS.md` §0 第 1 条，**每一步完成后都要有独立 Agent 复核**（本仓库这套流程已经抓到过
+"抽了函数但调用点零断言""守卫的文本断言可被 `false &&` 绕过"这类问题，代价很真实）。

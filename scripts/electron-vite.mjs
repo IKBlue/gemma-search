@@ -98,7 +98,7 @@ if (isRunCmd && !askedFlags) {
         say(`[run] 探测：本次附加 ${restrictedArgs().join(' ')}（**仅本次**，不写进配置；普通机器不会有这两行）`);
         extra = restrictedArgs();
       } else {
-        say('[run] 探测：Electron 连 --no-sandbox 都跑不起来 —— 先看判定：node tools/smoke_app.mjs');
+        say('[run] 探测：Electron 连 --no-sandbox 都跑不起来 —— 判定工具 smoke_app.mjs 已于 2026-10-13 移除，' + '现在看 tools/probe_electron_start/ 的判读表');
       }
     }
   }
@@ -129,7 +129,7 @@ function launch() {
     if (GUI_BLOCKED.has(u)) {
       say(`[run] Electron 以 0x${u.toString(16).toUpperCase()} 退出 —— 浏览器进程没能起来。`);
       say('[run] 受限环境直接显式指定：npm run dev:restricted   # dev --noSandbox --entry out/main/index.js');
-      say('[run] 还起不来就看判定：node tools/smoke_app.mjs --no-sandbox');
+      say('[run] 还起不来：判定工具已移除（2026-10-13），看 tools/probe_electron_start/');
     }
     process.exit(code ?? 0);
   });

@@ -1,10 +1,14 @@
 # AGENTS.md · 在这个仓库里怎么干活
 
-> **本文件是唯一权威的「工作指南」**：目录职责 · 东西该放哪儿 · 什么算做完 · 写作纪律 · 禁止事项。
-> **它不重复项目介绍。** 想知道「这是什么、现在什么状态、怎么跑起来」，读 [`README.md`](README.md)。
+> **本文件只记两样东西：① 项目架构 · ② 执行规范。** 它**不记**待办与缺陷。
+> - 项目是什么、现在什么状态、怎么跑 → [`README.md`](README.md)
+> - **还有什么没做完 / 什么坏了** → [`TODO.md`](TODO.md)
+> - 什么顺序、什么算做完 → [`docs/plan/ROADMAP.md`](docs/plan/ROADMAP.md)
+>
+> **别在本文件里加 TODO 或 BUG** —— 那是 `TODO.md` 的职责（单一事实来源）。
 > 本文合并了原 `AGENTS.md`（任务宪章）与 `PROJECT-GUIDE.md`（结构总览），两者已不再单独存在。
 >
-> 最后核对：2026-10-12 · 对应布局：monorepo（`apps/` + `packages/`，见 [`docs/MIGRATION-PLAN.md`](docs/MIGRATION-PLAN.md) §1，该结构已冻结）
+> 最后核对：2026-10-13 · 对应布局：monorepo（`apps/` + `packages/`，见 [`docs/MIGRATION-PLAN.md`](docs/MIGRATION-PLAN.md) §1，该结构已冻结）
 
 ---
 
@@ -19,6 +23,54 @@
 - 结论必须可追溯：每条带 `文件:行号` 或「命令 + 原始输出」；无证据的写【判断，非实测】。
 - 必须区分三种东西：**① 代码事实 · ② 文档声称 · ③ 行业做法**。混在一起写就是耍流氓。
 - 复核者不得只读结论，必须自己跑命令、自己回原文件核对。
+
+### 0.1 所有者追加约束（2026-10-13，优先级同 §0）
+
+#### 严格禁止事项
+
+| # | 禁止 | 判据（**怎么算违反**，别靠感觉） |
+|---|---|---|
+| **P1** | **创建同一概念的多个实现** | 同一件事在仓库里有**两份代码 / 两份定义**。原则：**单一事实来源**（同 §4）——发现两处不一致，**改错的那处**，不要两处各改一半 |
+| **P2** | **复制粘贴代码块** | 同一段逻辑（**哪怕有细微差异**）出现在 ≥2 处 → **提取到共享函数/模块**再复用 |
+| **P3** | **硬编码应可配置的值** | 绝对路径、目录、端口、数量上限、超时、默认库位置等**写死在代码里** → **从配置文件或环境变量取**（与 §7「不把本机绝对路径写进代码」同源） |
+
+#### 强制要求
+
+| # | 要求 | 怎么做（**可执行**的做法） |
+|---|---|---|
+| **R1** | **债务预防** | **建新功能前先查有没有现成的**：grep 全仓 + 读 §4 权威表。确认没有再新建，**并在回报里写明"查过了，没有"**（不是默默新建） |
+| **R2** | **新建文件必须修正目录结构** | 新文件落在 §3 规定的位置。**若磁盘结构与本文档不一致 → 改文档或改结构，两者必须一致**，不允许留下"文档说 A、磁盘是 B" |
+
+#### 三层架构（MVC 分层，新增代码必须遵守）
+
+```
+UI(组件) ──> Operation(store/composable/utils) ──> Adapter(唯一 invoke 入口) ──> repo/service
+```
+
+| 层 | 职责 | 放在哪 | 禁止 |
+|---|---|---|---|
+| **UI**（组件 / View） | 只做渲染与用户交互 | `renderer/src/{pages,layout,ui,search}/**` | ❌ **不得直接碰 `window.api`**；不得写业务规则 |
+| **Operation**（store / composable / utils） | 状态与编排；把 Adapter 的结果转成界面要的形状 | `renderer/src/store/**`（**新**）· `renderer/src/hooks/**` · `renderer/src/utils/**` | ❌ 不得散落协议细节（协议归 Adapter） |
+| **Adapter**（**唯一 invoke 入口**） | **全应用只有一个地方碰 `window.api`**；统一解包错误信封、统一类型 | `renderer/src/adapter/**`（**新**） | ❌ 不得有第二个文件直调 `window.api` |
+| **repo / service** | 数据来源 | `apps/desktop/src/main/**` · `packages/engine/**` | — |
+
+**现状（2026-10-13）：这套架构是「目标态」，尚未落地。** 已实测的违例（3 个文件 7 处直调 `window.api` ·
+UI 层直调 · 20 处信封解包 · 硬编码取件目录 · `cx.js` 与 `clsx` 同概念）
+**逐条列在 [`TODO.md`](TODO.md) A 节**，每条带 `文件:行号` 与复现命令 —— **本文件不再重复，也不在别处再列一遍**。
+
+⚠️ **规范（现在就要守）**：不要往第 4 个文件里再加 `window.api` 直调（违例会继续变大）；
+碰引擎的新代码**一律经 `hooks/` 或未来的 `adapter/`**。
+
+### 0.2 技术栈：现状与目标（2026-10-13 所有者指令）
+
+**目标栈**：Electron · React · **TypeScript** · **shadcn/ui** · **Tailwind CSS** · **Zustand** · **React Router**。
+⇒ 面向该目标的技术迁移**是一个计划，不是规范** —— 逐项实测现状、串行任务（T1→T5→T2→T3→T4）与
+"依赖清账"全部在 **[`TODO.md`](TODO.md) B-1**；逐条验收标准在 [`docs/plan/ROADMAP.md`](docs/plan/ROADMAP.md) §10。
+
+⚠️ **两条必须记住的规范**：
+- **在 Tailwind 真正落地之前**，§3 的"手写 CSS + `var(--*)`"仍是现行规则 —— 别提前混写两套。
+- **`npx tsc --noEmit` 目前是「假绿」**（两个 tsconfig 的 `checkJs` 都关着 ⇒ 0 错误）。
+  **在 T1 完成前，不得声称"类型检查通过"。**
 
 ---
 
@@ -38,9 +90,9 @@
 | `apps/desktop/` | Electron 应用：`src/main`（窗口/IPC/`thumb://`/日志）· `src/preload`（安全桥，产物必须 CJS）· `src/renderer`（React 19 界面）· `src/shared/ipc.mjs`（**IPC 契约唯一来源**） | ✅ 主战场 | ✅ |
 | `packages/engine/` | 搜索引擎本体：`src/*.mjs`（**零第三方依赖**、传输无关）+ `tests/*.test.mjs` | ✅ 改完必须过 `npm test` | ✅ |
 | `packages/indexer/` | 索引构建（ONNX + WebGPU）与重采样兼容层、BMP 解码；唯一能建索引的地方 | ⚠️ 谨慎：动了要重建索引验证 | ✅ |
-| `packages/design-tokens/tokens.css` | **视觉令牌唯一来源**（生产依赖，被 `apps/desktop/src/renderer/src/main.jsx` 直接 import） | ✅ 只在这里加令牌，不要复制第二份 | ✅ |
-| `docs/` | 全部正文文档：`spec/`（约束）· `design/`（设计）· `guide/`（上手/排障）· `plan/`（做什么、什么顺序）· `audit/`（审查产物）· `archive/`（**已失效的东西全放这里**） | ✅ 见 §6 纪律 | ✅ |
-| `tools/` | 7 个只读守卫 + `probe_electron_start/`（Electron 起不来的最小探针） | ✅ 改完自己先跑一遍 | ✅ |
+| `packages/design-tokens/tokens.css` | **视觉令牌唯一来源**（生产依赖，被 `apps/desktop/src/renderer/src/main.jsx` 直接 import） | ✅ 只在这里加令牌，不要复制第二份。⚠️ **2026-10-13 所有者已确认降级**：Tailwind 接管后本文件成为**主题输入之一**（不再是"唯一来源"），见 `docs/plan/ROADMAP.md` §10；**落地前仍是唯一来源** | ✅ |
+| `docs/` | 全部正文文档：`spec/`（约束）· `design/`（设计）· `guide/`（上手/排障）· `plan/`（做什么、什么顺序）· `audit/`（审查产物）· `archive/`（**已失效的东西全放这里**）。⚠️ **行动清单不在这里**，在根目录 [`TODO.md`](TODO.md) | ✅ 见 §6 纪律 | ✅ |
+| `tools/` | **2 个只读守卫**（`verify_encoder_path` / `check_search`，本机都跑不动）+ `probe_electron_start/` | ✅ | ✅ |
 | `scripts/` | 启动辅助（`electron-vite.mjs`：摘 `ELECTRON_RUN_AS_NODE`、探测沙箱、必要时加 `--no-sandbox`） | ⚠️ 谨慎 | ✅ |
 | `reports/` | 门禁证据，命名 `G-<字母>-<日期>/`。**项目规则：无归档证据 = 门禁未通过** | ✅ 只能加新证据，不改历史证据 | ✅ md/json/csv；截图否（见 `.gitignore`） |
 | `build/` | 打包图标 + 签名配置（electron-builder 的 `buildResources`）。**不是产物目录** | ⚠️ 别当产物删了 | ✅ |
@@ -52,7 +104,8 @@
 | `tests/` | 预留的**跨包**集成测试位置（当前**不存在**；引擎单测随引擎走，在 `packages/engine/tests/`） | — | （未来）✅ |
 | 根配置文件 | `package.json`（workspaces 根）· `electron.vite.config.mjs` · `electron-builder.yml` · `tsconfig*.json` · `.gitignore` · `.gitattributes` · `LICENSE` | ⚠️ **改前先问**（会同时影响构建、守卫与所有人） | ✅ |
 
-**约定**：仓库根**只放** `AGENTS.md` + `README.md` 两份 `.md`（`tools/verify-doc-refs.mjs` 的第 2 项会检查这一点）。
+**约定**：仓库根**只放** `AGENTS.md` · `README.md` · `TODO.md` 三份 `.md`。
+⚠️ **2026-10-13：原先强制它的 `verify-doc-refs.mjs` 已移除** ⇒ 这条现在**没有自动化**，只能靠人看（见 §5.2）。
 本轮审查的三份汇总报告在 `docs/audit/`（`AUDIT-FINAL.md` · `STACK-AUDIT.md` · `UIUX-AUDIT.md`）。
 
 ---
@@ -61,7 +114,10 @@
 
 | 你要加的东西 | 放哪儿 | 注意 |
 |---|---|---|
-| 界面页面 / 组件 | `apps/desktop/src/renderer/src/`（页面进 `pages/`，通用组件进 `ui/`，布局进 `layout/`，hooks 进 `hooks/`） | 样式写**手写 CSS**（`renderer.css`），不引入 Tailwind 类名 |
+| 界面页面 / 组件 | `apps/desktop/src/renderer/src/`（页面进 `pages/`，通用组件进 `ui/`，布局进 `layout/`，hooks 进 `hooks/`） | 样式写**手写 CSS**（`renderer.css`），不引入 Tailwind 类名。⚠️ **2026-10-13 所有者已确认反转**：将落地 Tailwind + shadcn/ui（**Tailwind 成为样式来源**、`tokens.css` 降级为其输入），见 `docs/plan/ROADMAP.md` §10。**在 §10.3 第 4 步落地前，本行仍是现行规则** —— 别提前混写两套。<br>⚠️ **UI 层不得直接碰 `window.api`**（见 §0.1 三层架构） |
+| **Operation 层**（状态 / 编排 / 工具） | `renderer/src/store/**`（**新，Zustand 落地后**）· `renderer/src/hooks/**` · `renderer/src/utils/**` | 把 Adapter 的原始结果转成界面要的形状；**不放协议细节**（那归 Adapter）。🔴 **`store/` 与 `utils/` 目前尚不存在**（属未完成项，见 [`TODO.md`](TODO.md) B-1/B-2）—— 新建时按此路径，别另发明一个 |
+| **Adapter 层**（**唯一 invoke 入口**） | `renderer/src/adapter/**`（**新**） | ⚠️ **全应用只有这里能碰 `window.api`**；统一解包 `{ok,data,warnings}` / `{ok:false,error}` 与统一类型。🔴 **目前不存在**：现有 7 处直调散在 3 个文件 —— 清单见 [`TODO.md`](TODO.md) **A-1**，迁移见 `task-21` |
+| 通用去重工具（class 合并等） | 与 Tailwind 一起定：**用已装的 `clsx` + `tailwind-merge`（shadcn 的 `cn()`）** | ⚠️ `ui/cx.js` 是**同一概念的既有实现**（P1）。Tailwind 落地时**必须合并成一份**，不要留下两套 class 合并工具 |
 | 引擎能力 | `packages/engine/src/` + 对应测试放 `packages/engine/tests/` | **必须保持零第三方依赖**，且不得 import `electron` / `http` |
 | 契约 / 新 IPC 方法 | `apps/desktop/src/shared/ipc.mjs` | ⚠️ **唯一来源**。preload **不需要改**（它是通用转发 `invoke`，校验全在 zod 白名单）；要同步的是 `docs/spec/CONTRACT-engine-v1.md`。⚠️ 若新方法**不经引擎**（由主进程直接处理，如库配置三个方法），还要在 `main/index.mjs` 的 `registerIpc` 里**显式分派**，否则会被当成"引擎无此方法"拒绝 |
 | 索引构建 / 重采样 / 解码 | `packages/indexer/src/` | 改了编码路径必须重建索引并给证据 |
@@ -93,7 +149,7 @@
 | 这件事 | 以谁为准 |
 |---|---|
 | 项目是什么 · 现在什么状态 · 怎么跑 | [`README.md`](README.md) |
-| 在这个仓库里怎么干活（本文件） | `AGENTS.md` |
+| 在这个仓库里怎么干活（本文件：**项目架构 + 执行规范**） | `AGENTS.md` |
 | 文档谁指向谁 | [`docs/README.md`](docs/README.md) |
 | 做什么、什么顺序、什么算做完 | [`docs/plan/ROADMAP.md`](docs/plan/ROADMAP.md) |
 | 应用技术栈与目录结构 | [`docs/spec/SPEC-app.md`](docs/spec/SPEC-app.md) |
@@ -104,7 +160,8 @@
 | 传输层与外壳安全（IPC / `thumb://` / 渲染进程姿态 / 权限用例） | [`docs/spec/SPEC-security.md`](docs/spec/SPEC-security.md) |
 | UI / UX | [`docs/design/UI-REVIEW-and-migration.md`](docs/design/UI-REVIEW-and-migration.md)（摘要见 `DESIGN-app-details.md` §一） |
 | 视觉令牌 | [`docs/design/DESIGN-tokens.md`](docs/design/DESIGN-tokens.md)（可执行版 = `packages/design-tokens/tokens.css`） |
-| 还欠什么 | [`docs/DEBT-CLEANUP.md`](docs/DEBT-CLEANUP.md) |
+| **现在还有什么没做完 / 什么坏了**（行动清单，唯一） | [`TODO.md`](TODO.md) |
+| 历史欠账台账（逐条已清/未清，含陈旧记录） | [`docs/DEBT-CLEANUP.md`](docs/DEBT-CLEANUP.md) |
 | 本次 monorepo 重构怎么执行 | [`docs/MIGRATION-PLAN.md`](docs/MIGRATION-PLAN.md) |
 | 现状事实基线（审查用） | [`docs/audit/00-current-state.md`](docs/audit/00-current-state.md) |
 | 门禁证据协议 | [`reports/README.md`](reports/README.md) |
@@ -118,9 +175,9 @@
 
 | 门禁 | 期望 |
 |---|---|
-| `npm test` | `tests 90 · pass 89 · fail 0 · skipped 1`（引擎 68 + F-01 新增 5 + R-3 新增 1 = 74；桌面配置 12 + 端口 4 = 16） |
+| `npm test` | `tests 113 · pass 112 · fail 0 · skipped 1`（引擎 74；桌面 39 = 库配置 12 + reveal 端口 4 + 权限 13 + 窗口安全 10） |
 | `npm run build` | 成功，且 `out/main` · `out/preload` · `out/renderer` 三端齐备（**已实测通过**；受限沙箱内需提权，见下） |
-| 守卫 | 下表 EXIT=0（`verify-doc-refs.mjs` 的**两类已知误报**除外 —— 外部 URL 末段 5 条 + 散文里裸写的文档名 1 条，见 §6；根目录越界必须为 0） |
+| 守卫 | 下表 EXIT=0（**2026-10-13 起只剩 2 个**；其余 6 个按所有者指令移除，见 §5.2 的说明） |
 | 证据 | 每条被声称通过的 G-* 门禁，在 `reports/` 里都有归档证据 |
 
 **那个跳过（如实记录，不要当成通过）**：
@@ -156,30 +213,42 @@ error during build: Error: spawn EPERM
 > out/renderer/assets/index-*.css         25.50 kB     `../../../../out/renderer/…`，
 > out/renderer/assets/index-*.js         673.37 kB     正是 outDir 显式配置生效的实证
 > ```
+> ⚠️ **下面两条守卫已于 2026-10-13 移除**（原件在 `data/_removed-guards-backup/`）—— 这是**当天的真实记录**，保留不改写，但**不再可复跑**。
 > 随后 **`verify_app_build.mjs` EXIT=0**（含 preload 是 CJS、依赖 external、路径相对、CSP 在、`thumb://` 还在）
 > 与 **`verify_renderer_dom.mjs` EXIT=0**（启动 / 文字检索 / 分类 / 以图搜图 / 卡片动作 / 事件全过），
 > 两条**首次获得判定**。
 
-- **但这条边界仍然成立**：在无提权的受限环境里 `npm run build` 仍会以 `spawn EPERM` 失败。
-  因此 `verify_app_build` / `verify_renderer_dom` / `smoke_app` 这三条**依赖 `out/`** 的检查，
-  **必须在一次成功的 `npm run build` 之后**才有意义（顺序不能反）。
+- （历史教训）原先 `verify_app_build` / `verify_renderer_dom` / `smoke_app` 这三条依赖 `out/` 的检查，
+  必须在一次成功的 `npm run build` 之后才有意义（顺序不能反）—— **这三条已移除**，此条留作提醒。
 - `out/` **不进 git**（`.gitignore` 已覆盖），所以**新克隆的仓库里它不存在** ——
-  直接跑那三条守卫会报「找不到 `out/main/index.js`」，**那是缺前置条件，不是重构坏了**。
-- 仍然**未验证**的是 `smoke_app.mjs`（真启动 Electron 出窗）与打包态 —— 见 §7。
+  直接跑那三条守卫会报「找不到 `out/main/index.js`」，**那是缺前置条件，不是重构坏了**（同样已移除）。
+- 仍然**未验证**的是真启动 Electron 出窗与打包态 —— 见 [`TODO.md`](TODO.md) B-3。
 
-### 5.2 七个守卫（全部只读）
+### 5.2 两个守卫（全部只读）
+
+> ⚠️ **2026-10-13：所有者指令「仅保留 `verify_encoder_path` 与 `check_search`，其余全部移除」。**
+> 被移除的 6 个：`verify_app_build` · `verify_main_wiring` · `verify_renderer_dom` · `verify_renderer_styles` · `smoke_app` · `verify-doc-refs`。
+> **原件已备份在 `data/_removed-guards-backup/`**（含从未提交的 `verify_main_wiring.mjs` —— 不在备份里就永久丢失）。
+> 恢复方式：拷回 `tools/` + 还原 `package.json` 的 `smoke` 脚本。该目录已 gitignore，可随时删。
 
 | 守卫 | 断言什么 | 前置条件 |
 |---|---|---|
-| `node tools/verify_app_build.mjs` | 产物形状：ESM/CJS、依赖 external、相对路径、原生模块未内联、**且能力端口真的接上了**（§1b：在 main bundle 里**剥掉注释**、取 **`createEngine` 调用点的实参区间**、断言里面有 `shell: createRevealPort(...)`） | 先 `npm run build` |
-| `node tools/verify_renderer_dom.mjs` | React 渲染层在 jsdom 里**真跑**：启动 / 文字检索 / 以图搜图 / 结果卡 / 事件 / **首启向导 / 定位失败必须显示失败 + 成功文案不得越界 / 档位来自引擎** | 先 `npm run build` |
-| `node tools/verify_renderer_styles.mjs` | 渲染层样式与令牌一致性 + **渲染层不得自算分数阈值**（§5，F-02；扫 `.jsx`/`.js`/`.css`，认 `0.97` 与 `.97` 两种写法）。**注意它的方向性**：只校验「用到的令牌都已定义」，**不查「定义了但没人用」** | 无 |
-| `node tools/verify_encoder_path.mjs --model <ONNX 模型目录>` | 编码路径一致性（跑真实推理） | 本机有 ONNX 模型目录 |
-| `node tools/smoke_app.mjs` | 应用冒烟：真启动构建产物并给判定（退出码 0/1/2/3/4 分档） | 先 `npm run build`；受限环境加 `--no-sandbox` |
-| `node tools/check_search.mjs` | 检索端到端自查（向量模式，走引擎真实检索路径） | 已有查询向量与已注册索引 |
-| `node tools/verify-doc-refs.mjs` | 全仓 `.md` 引用解算 + 根目录越界检查 | 无 |
+| `node tools/verify_encoder_path.mjs --model <ONNX 模型目录>` | 编码路径一致性（**跑真实推理**）：改过编码路径就必须重建索引，否则检索质量静默退化 | 本机有 ONNX 模型目录 |
+| `node tools/check_search.mjs` | 检索**端到端**自查（向量模式，走引擎真实检索路径）。退出码 `0`=打通 · `1`=失败/无结果 · `2`=参数缺失 | 已有查询向量与已注册索引 |
 
-> 守卫**证明不了**的事情，不要当成证明了：DOM 守卫不证明 CSS 生效、`thumb://` 真能取到图、真实 IPC 或真实窗口（它自己在注释里写明了）；样式守卫只查一个方向。
+**这两个都有个现实问题：本机（agent 沙箱）跑不动** —— 需要模型目录与已注册索引。
+⇒ **"守卫全绿"在本环境已无法验证**，不要声称验证过。
+
+#### 移除的代价
+
+逐条"失去了什么能力 / 后果是什么"见 **[`TODO.md`](TODO.md) B-4**（含备份路径与恢复方式）。
+一句话：**以下回归现在没有自动化** —— F-01 静默假成功 · F-02 界面自算阈值 · 首启向导 ·
+S11/S12/S13 窗口与来源校验 · `thumb://` 状态码 · preload 暴露面 · 根目录纪律。
+只剩 `npm test` 的纯逻辑单测（引擎 74 + 桌面 39）覆盖其中一部分。
+
+#### 仍然有效的那句话
+
+> 守卫**证明不了**的事情，不要当成证明了。现在更要紧：**"没跑过" ≠ "没问题"**。
 
 ### 5.3 两条硬规则
 
@@ -190,17 +259,12 @@ error during build: Error: spawn EPERM
 
 ## 6. 写作纪律
 
-```powershell
-node tools\verify-doc-refs.mjs      # 全仓 .md 引用解算 + 根目录越界检查（只读）
-```
-
-- **正文文档放 `docs/`**（spec / design / guide / plan / audit）；**仓库根只留 `AGENTS.md` + `README.md`**。
+- **正文文档放 `docs/`**（spec / design / guide / plan / audit）；**仓库根只留 `AGENTS.md` + `README.md` + `TODO.md`**。
 - **引用写「仓库根相对」路径**（`docs/spec/SPEC-app.md`），不要写 `../`——引用散落在不同深度，`../` 会随深度变化，根相对写法全局一致。
-- **改文档后跑守卫**；新增的死引用自己清掉。
-- **已知误报有两类**（当前 6 条死引用全属这两类，都在 `docs/audit/`，**不计入你的账**，但也不要新增）：
-  - **① 外部 URL 的末段**（5 条）：URL 路径以 `xxx.md` 结尾的镜像文件 —— `docs/audit/uiux-evidence.md:624-627` 的 `color.md` / `materials.md` / `typography.md` 与那条 jsDelivr 路径；
-  - **② 中文散文里裸写的文档名**（1 条）：`docs/audit/REVIEW-UIUX-AUDIT.md:432` 的 `materials.md` —— **既不在 URL 里，也不在行内代码里**，只是正文里提到了一个形如文档名的词。
-  > 守卫只做「形如 `.md` 的引用解算」，**不区分这两者**。**先分类再归因**，否则下一位审查者会漏掉第 ② 类（它不在 URL 里，按"外部 URL 误报"一句话就盖过去了）。
+- **改文档后自己过一遍引用**：死引用与根目录越界**已经没有守卫了**（见下条），只能靠人看。
+- ⚠️ **2026-10-13：`verify-doc-refs.mjs` 已按所有者指令移除** —— 根目录纪律与死引用解算
+  从此**没有自动化**，只能靠人看。移除前它刚被修成真门禁（6 条历史误报清零），所以这次移除
+  等于把那份清理工作一起放弃了；若日后要恢复，原件在 `data/_removed-guards-backup/verify-doc-refs.mjs`。
 
 ### 定位行号：必须用 `read` 工具或 node，**不要用 `Get-Content`**
 
@@ -231,8 +295,10 @@ node -e "const s=require('fs').readFileSync('docs/design/DESIGN-tokens.md','utf8
 
 **禁止**
 
+> ⚠️ **2026-10-13 追加的三条（P1 同概念多实现 · P2 复制粘贴 · P3 硬编码可配置值）见 §0.1** —— 那三条优先级更高，且已列出**现成违例**。以下为既有禁止项。
+
 - **不写素材库。** 检索、缩略图、`scan` 等只读操作在文件系统上**零写入**；写入素材库只允许走 `docs/spec/SPEC-transactions.md` 的四步纪律（且当前 `ingest`/`mutate` 尚未实现）。
-- **不把本机绝对路径写进代码或文档**（如 `G:\model`）。库位置由配置提供；文档里的示例路径要标明是示例。
+- **不把本机绝对路径写进代码或文档**（如 `G:\model`）。库位置由配置提供；文档里的示例路径要标明是示例。<br>⚠️ **已知有一处现存违例**（取件目录默认值硬编码）—— 逐条与修法见 [`TODO.md`](TODO.md) **A-3**，本文件不重复记 BUG。
 - **不在 `packages/engine/` 里 import `electron` 或 `http`**（「传输无关」的可执行判据，单测会拦）。
 - **不让渲染进程拿到 `ipcRenderer` 或任意绝对路径入参**；路径只能由 `libId + uid` 解析。
 - **不声称嵌入模型「看得出图里是什么」**——它只产出向量。
@@ -243,16 +309,15 @@ node -e "const s=require('fs').readFileSync('docs/design/DESIGN-tokens.md','utf8
 
 | 边界 | 事实 |
 |---|---|
-| **未验证的能力** | **冷启动耗时 · 打包后行为 · 真实 `thumb://` 取图** 均**尚未验证**。任何文档、报告、提交信息都不得据此声称可用。 |
+| **未验证的能力**（冷启动 · 打包态 · 真实 `thumb://` · 真窗口行为） | **均未验证，不得据此声称可用**。逐条与原因见 [`TODO.md`](TODO.md) B-3 |
 | 受限沙箱 | Chromium 进程沙箱起不来时 Electron 会**秒退且一行日志都不生成**；此时用 `npm run dev:restricted` / `npm run start:restricted`（= 附加 `--no-sandbox`）。**普通终端不需要**。 |
 | 生产态 DevTools | 生产态保留 `devTools: true` 是**已决策项**（`docs/spec/SPEC-security.md` §9 决定 3），不是疏漏。 |
 | 日志 | 主进程与渲染进程的诊断都写 `data\_app.log`。Windows 上 Electron 是 GUI 子系统程序，**stdout 不连终端**，`console.log` 一条都看不到。 |
 | **D2 · 库根配置缺口** | ✅ **已修（2026-10-12）**：库不再只从 `config.json` 读。主进程按**四条优先级**解析（`apps/desktop/src/main/library-config.mjs`）：① `GEMMA_LIB_ROOT` 环境变量 ② `userData/library-registry.json`（决策 9 的正规存储）③ `config.json`（兼容回退，**不要求用户去配**）④ **从已有索引 `data/libraries/*/meta.json` 自举**（`meta` 里本就存着 `lib_id` + `lib_root`）⇒ **有索引的机器零配置即用**。无库时界面显示**首启向导**（`pages/LibraryGate.jsx` → `FirstRunWizard.jsx`）而不是裸 `LIB_NOT_FOUND`。测试 `apps/desktop/tests/library-config.test.mjs`（12 条）+ `verify_renderer_dom.mjs` §8（7 条） |
 | **F-04 · 取件白名单为空** | ✅ **随 D2 一并解决**：`collect.dirs` 原先恒为 `{}` ⇒ 任何 `collect` 都返回 `COLLECT_DIR_NOT_ALLOWED`。现按规格给默认值（`E:\素材待用` / `E:\移出素材`，出处 `docs/spec/SPEC-app.md` §9 与 `docs/spec/SPEC-transactions.md` §7），并可由注册表覆盖 |
-| **D8 · 多库注册表未持久化** | 现在只有「从配置派生单库」（`packages/engine/src/library.mjs`）；**真正的多库注册表是 P5，未实现**，没有任何持久化。 |
-| **F-01 · `reveal` 未接线** | ✅ **已修（2026-10-12）**：原先主进程**从未注入 `shell` 端口**，而引擎在无 `shell` 时仍返回 `ok({revealed:true})` ⇒ **静默假成功**。现在：① 引擎在端口缺失/形状不对时返回**新错误码 `PORT_MISSING`**（绝不 `ok`），且顺序是**先确认文件在盘上再调端口**；② `apps/desktop/src/main/index.mjs` 注入 `shell: createRevealPort(shell)`（`apps/desktop/src/main/ports.mjs`）。**回归锁定分三层**：引擎 +5 条单测 · 端口本体 +4 条（`apps/desktop/tests/ports.test.mjs`）· **`verify_app_build.mjs` §1b** 在构建产物的 main bundle 上断言端口真的被注入 + 渲染层守卫 §9（失败必须显示失败、成功文案不越界）。⚠️ **能力边界**：`shell.showItemInFolder` **返回 void、不报告失败** ⇒ 成功文案写「已请求在资源管理器中定位（系统未回报结果）」，**不写**「已定位」。<br>⚠️ **§1b 写对不容易，两个反复被证伪的坑（都在注释里写明）**：① **必须先剥注释** —— 实测 bundle **保留源码行注释**，直接匹配会命中 `// shell: createRevealPort(...)`；而"注释掉一行"正是禁用接线的常见手法。剥注释器还必须**认识正则字面量**（含引号的正则 `/["']/g` 会让朴素实现误入字符串模式 ⇒ 被注释的接线重新可匹配；差分实测证实）。**不能用 `esbuild.transform`** —— 它在受限沙箱 `spawn EPERM`，会让守卫整体失效。② **必须取"调用点的实参"** —— 引擎函数签名里就写着形参 `shell = null`，若按"第一个 `createEngine(`"取，会取到**函数声明**，"接线有没有接上"就永远为真 |
-| **F-02 · 界面自算分数阈值** | ✅ **已修（2026-10-12）**：原先 `ui/Score.jsx` 硬编码 `0.97/0.93` ⇒ **每次文本检索的全部结果都被标成「较弱」**（文本真实 top-1 在 0.74–0.80）。现在档位**只来自引擎的 `item.band`**，`band` 缺失时**只显示分数、不猜档位**。**回归锁定两层**：`verify_renderer_styles.mjs` §5 **实际执行**「渲染层不得出现 0.7x/0.8x/0.9x 比值常量」+ 正例锚（确认 Score.jsx 仍以 `band` 为来源，不是把功能删了来通过）· 渲染层守卫 §10 端到端断言 |
-| 未实现的契约方法 | `ingest` / `mutate` / `indexStart` / `indexCancel` 由主进程**显式拒绝**（P4/P5 欠账），契约先冻结了形状。见 `docs/spec/CONTRACT-engine-v1.md` §2.5–§2.10。 |
+| **F-01 · `reveal` 未接线** | ✅ **已修（2026-10-12）**：原先主进程**从未注入 `shell` 端口**，而引擎在无 `shell` 时仍返回 `ok({revealed:true})` ⇒ **静默假成功**。现在：① 引擎在端口缺失/形状不对时返回**新错误码 `PORT_MISSING`**（绝不 `ok`），且顺序是**先确认文件在盘上再调端口**；② `apps/desktop/src/main/index.mjs` 注入 `shell: createRevealPort(shell)`（`apps/desktop/src/main/ports.mjs`）。**回归锁定（⚠️ 2026-10-13 已削弱）**：引擎 +5 条单测 · 端口本体 +4 条（`apps/desktop/tests/ports.test.mjs`）**仍然有效**；但原本在**行为面**锁它的 `verify_main_wiring.mjs`（真调 `reveal`、断言壳端口真的收到绝对路径）**已随所有者指令移除** ⇒ **"接线接上了"现在只有纯逻辑单测，没有行为证据**。恢复方式见 §5.2 的备份路径。⚠️ **能力边界**：`shell.showItemInFolder` **返回 void、不报告失败** ⇒ 成功文案写「已请求在资源管理器中定位（系统未回报结果）」，**不写**「已定位」。<br>⚠️ **§1b 写对不容易，两个反复被证伪的坑（都在注释里写明）**：① **必须先剥注释** —— 实测 bundle **保留源码行注释**，直接匹配会命中 `// shell: createRevealPort(...)`；而"注释掉一行"正是禁用接线的常见手法。剥注释器还必须**认识正则字面量**（含引号的正则 `/["']/g` 会让朴素实现误入字符串模式 ⇒ 被注释的接线重新可匹配；差分实测证实）。**不能用 `esbuild.transform`** —— 它在受限沙箱 `spawn EPERM`，会让守卫整体失效。② **必须取"调用点的实参"** —— 引擎函数签名里就写着形参 `shell = null`，若按"第一个 `createEngine(`"取，会取到**函数声明**，"接线有没有接上"就永远为真 |
+| **F-02 · 界面自算分数阈值** | ✅ **已修（2026-10-12）**：原先 `ui/Score.jsx` 硬编码 `0.97/0.93` ⇒ **每次文本检索的全部结果都被标成「较弱」**（文本真实 top-1 在 0.74–0.80）。现在档位**只来自引擎的 `item.band`**，`band` 缺失时**只显示分数、不猜档位**。**⚠️ 回归锁定已失效（2026-10-13）**：原先锁它的 `verify_renderer_styles.mjs` §5 与 `verify_renderer_dom.mjs` §10 **均已随所有者指令移除** ⇒ 现在**只剩渲染层单测**，改 `ui/Score.jsx` 时特别小心（见 [`TODO.md`](TODO.md) C-2） |
+| 未实现的契约方法 / 多库注册表 / 两个页面 | **未完成项**，清单见 [`TODO.md`](TODO.md) B-2（本表只记"边界事实"，不记待办） |
 | 素材库只读 | 检索**不移动、不复制、不重命名、不删除**任何素材；结果是路径。 |
 | 20 个假 `.jpg` | 预览图里有 20 个文件名是 `.jpg`、实际内容是 BMP（集中在 `VR`）。解码路径会自动回退，**它们不是坏文件**。 |
 | 索引与库位置绑定 | 索引里存了素材的**绝对路径**；素材库再次移动会让索引失效，必须重建。 |
@@ -270,7 +335,7 @@ node -e "const s=require('fs').readFileSync('docs/design/DESIGN-tokens.md','utf8
 | **契约 (contract)** | 接口形状约定（有哪些方法、会报什么错）——先冻结，再写实现 |
 | **门禁 (gate)** | 必须通过的检查点（`G-A`…`G-E2`） |
 | **证据 (evidence)** | 门禁通过的凭据，存 `reports/`。**没有归档证据 = 门禁没通过** |
-| **守卫 (guard)** | `tools/` 下 7 个只读校验脚本，跑完给 EXIT 码 |
+| **守卫 (guard)** | `tools/` 下**只读**校验脚本，跑完给 EXIT 码。⚠️ 2026-10-13 起**只剩 2 个**（见 §5.2） |
 | **主进程 / 渲染进程** | 主进程管窗口与磁盘；渲染进程就是那个网页界面。两者严格隔离 |
 | **preload / 安全桥** | 界面唯一能用的通道（只暴露 `invoke` / `onEvent` / `platform`），别的够不着 |
 | **IPC** | 主进程与渲染进程之间的受控通信（本项目 2 个通道、**13 个方法**白名单：原 11 个引擎方法 + 库配置的 `libraryConfig`/`libraryPickDir`/`libraryAdd`） |

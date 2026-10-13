@@ -13,6 +13,11 @@
 
 ---
 
+> ℹ️ **历史记录注（2026-10-13）**：本文中出现的 `verify_app_build` / `verify_main_wiring` /
+> `verify_renderer_dom` / `verify_renderer_styles` / `smoke_app` / `verify-doc-refs` **均已于 2026-10-13
+> 按所有者指令移除**（原件在 `data/_removed-guards-backup/`）。下面这些"实测通过/EXIT=0"是**当时的真实记录**，
+> 保留不改写；但它们**不再可复跑**。
+
 ## 1. 目标目录结构（冻结）
 
 ```

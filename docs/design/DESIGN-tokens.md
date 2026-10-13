@@ -255,14 +255,30 @@
 }
 ```
 
-## 11. 附录：映射到 Tailwind + shadcn/ui —— **已否决，未采纳**
+> ⚠️ **2026-10-13：本文档里凡引用 `verify_app_build` / `verify_main_wiring` / `verify_renderer_dom` /
+> `verify_renderer_styles` / `smoke_app` / `verify-doc-refs` 的地方，那些守卫**已按所有者指令移除**
+> （原件备份在 `data/_removed-guards-backup/`）。文中的"有自动化/由它断言"一律**不再成立**；
+> 现存守卫只剩 `verify_encoder_path` 与 `check_search`，且两者都需要模型与已注册索引（沙箱跑不动）。
+> 详见 [`AGENTS.md`](../AGENTS.md) §5.2 的"移除的代价"。
 
-> ⚠️ **这一章是历史附录，不是方案。** 任务计划书当初选定 Tailwind + shadcn/ui，
-> 但**实际实现从未接入**：`tailwindcss` / `@tailwindcss/vite` 装了却在构建里没有插件，
-> 12 个 `@radix-ui/react-*` **零 import**，界面是 **JS/JSX + 手写 CSS + 自研 `ui/`**。
-> 否决理由（令牌纪律会被打散到 class 串里、现有样式量小且高度定制、收益比不成立）见
-> `docs/audit/STACK-AUDIT.md` §5.2 与 §6（P10）。**下表只作对照留档；不要按它去接 Tailwind。**
-> 现行做法见 §10：令牌就是 CSS 变量，组件只消费 `var(--*)`。
+## 11. 附录：映射到 Tailwind + shadcn/ui —— **已否决，但 2026-10-13 被所有者推翻**
+
+> ✅ **2026-10-13 所有者决定：反转本节的否决，落地 Tailwind + shadcn/ui**
+> （连同 TypeScript · Zustand · React Router）。**Tailwind 成为新的样式来源**，
+> 本文件的令牌表从"唯一来源"**降级为 Tailwind 主题的输入之一**。
+> 执行顺序、实测迁移规模与逐条验收见 `docs/plan/ROADMAP.md` §10。
+>
+> ⚠️ **本附录的身份随之改变**：下表**从"不要按它去接"变成"迁移时的对照表"** ——
+> 它就是"shadcn/ui 变量 ↔ 本文件令牌"的映射，正是 §10.3 第 4 步要用的输入。
+> 但**在 ROADMAP §10.3 第 4 步真的落地之前，现行做法仍是 §10 的"令牌即 CSS 变量、组件只消费 `var(--*)`"**。
+
+> ⚠️ **以下是 2026-10-12 的历史记录，保留以便追溯当时的理由与实测**（`docs/audit/**` 与本节都属留档，不改写）。
+> 当初任务计划书选定 Tailwind + shadcn/ui，但**实际实现从未接入**：`tailwindcss` / `@tailwindcss/vite`
+> 装了却在构建里没有插件，12 个 `@radix-ui/react-*` **零 import**，界面是 **JS/JSX + 手写 CSS + 自研 `ui/`**。
+> 当时的否决理由（令牌纪律会被打散到 class 串里、现有样式量小且高度定制、收益比不成立）见
+> `docs/audit/STACK-AUDIT.md` §5.2 与 §6（P10）。
+> ⚠️ **注意：那些理由是"当时"的权衡，不是"永久"的结论。** 所有者已选择另一条路；
+> 若日后复盘发现令牌纪律真的被打散了，**该修的是新方案，而不是回过头说这份记录错了**。
 
 | shadcn/ui 变量 | 对应令牌 |
 |---|---|

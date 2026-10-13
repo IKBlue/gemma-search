@@ -82,9 +82,13 @@ export const METHODS = {
 
 | 段 | 校验 |
 |---|---|
-| `libId` | 必须在**库注册表**里；否则 404 |
+| `libId` | 必须在**库注册表**里；否则 404（⚠️ **形状优先**：`uid`/`size` 也不合法时按 400 处理，见下） |
 | `uid` | `/^[0-9a-f]{12}$/`；否则 400 |
 | `size` | 仅允许 `128` / `256` / `512`；否则 400 |
+
+> **判定顺序（2026-10-12 明确，实测钉住）**：**先形状、后库登记**。
+> 一个请求同时违反两条（例如 `thumb://R3/`）时返回 **400**（实测）。
+> 行为断言在 `tools/verify_main_wiring.mjs` §4：`@999`⇒400、`not-a-uid`⇒400、穿越⇒400、未注册库（形状合法）⇒404。
 
 **处理器实现要求**
 1. **绝不把 URL 当路径用**：路径由 `注册表.root + 索引里的 relPath` 反查，再经
@@ -109,7 +113,7 @@ export const METHODS = {
 |---|---|
 | 顶层 frame | `event.senderFrame.parent === null`（拒绝 iframe） |
 | 已知窗口 | `event.sender` 必须是主窗口的 `webContents`（拒绝任何 `webContents.fromId` 未知对象） |
-| 页面来源 | `senderFrame.url` 必须是应用自身：开发态 `http://localhost:<port>`，生产态 `app://…` 或 `file://…` 的**应用根**；**不接受** `http(s)://` 外部来源 |
+| 页面来源 | `senderFrame.url` 必须是应用自身：开发态 `http://localhost:<port>`，生产态 `file://…`（⚠️ 实现是 **`startsWith('file://')` 前缀放行**，不是"应用根"精确比对；本仓库也没有 `app://`。影响与收紧方向见 §8.1）；**不接受** `http(s)://` 外部来源 |
 | 窗口数 | 只允许**一个**主窗口；`setWindowOpenHandler` 一律 `deny` |
 | 导航 | `will-navigate` → 除应用自身以外**一律 `preventDefault()`** |
 
@@ -252,16 +256,21 @@ new BrowserWindow({
 
 ### 7.5 测试运行器的现状（如实记录一处规格偏离）
 
-`docs/spec/SPEC-app.md` §7 曾写 vitest。**当前测试共 90 条（引擎 74 + 桌面 16）跑在 `node:test` 上**
-（`packages/engine/tests/*.test.mjs`）—— 起因是当时受限沙箱下 `npm install` 会 EPERM，
-于是引擎刻意做成**零依赖**（这也让"引擎传输无关"变成最强的形式：它连测试框架都拉不进来）。
+`docs/spec/SPEC-app.md` §7 曾写 vitest。**当前测试共 113 条（引擎 74 + 桌面 39）跑在 `node:test` 上**
+（`packages/engine/tests/*.test.mjs` 与 `apps/desktop/tests/*.test.mjs`）—— 起因是当时受限沙箱下
+`npm install` 会 EPERM，于是引擎刻意做成**零依赖**（这也让"引擎传输无关"变成最强的形式：
+它连测试框架都拉不进来）。
 
 现状与处置：
 
 - **引擎继续用 `node:test`** —— 零依赖是引擎的一项特性，不是权宜
-- **应用侧的自动化测试仍很薄**：`vitest` 装了但**一行用例都没有**（0 使用）——要么接线，要么删除；
-  **在没有用例之前，不得声称应用侧有测试**。D2 之后新增了 `apps/desktop/tests/library-config.test.mjs`（12 条），
-  但它**跑在 `node:test` 上、只测库配置解析**（纯逻辑，不经 IPC），不等于应用侧有测试覆盖。
+- **应用侧的自动化测试已不再"很薄"（2026-10-12 更新）**：`apps/desktop/tests/` 现有 **39 条**，
+  分布在 `library-config.test.mjs`（12，库配置解析）· `ports.test.mjs`（4，reveal 端口）·
+  `permissions.test.mjs`（13，IPC 参数校验与 `thumb://` 形状 —— §8 的 S1/S2/S3/S4/S5/S6/S14）·
+  `window-security.test.mjs`（10，窗口与来源判定 —— §8 的 S11/S12/S13）。
+  ⚠️ **仍要分清**：这些测的是**能被隔离出来的纯逻辑**；`main/index.mjs` 里的**接线**
+  由 `tools/verify_app_build.mjs` 在**构建产物**上做结构断言，**真 Electron 窗口**里的行为仍未实测（§8.1）。
+  `vitest` 依旧 0 使用 —— 要么接线，要么删除（未变）。
 - ✅ **跳过数 3 → 1**（2026-10-12）：另两条当时跳过是因为测试自己读已删除的 `config.json`，现改用与生产同序的库根解析后真跑（见 §7.6 末）
 
 ### 7.6 流水线与约束
@@ -273,43 +282,80 @@ new BrowserWindow({
 - ✅ **原先登记的「未修上游缺口」已修（D2，2026-10-12）**：库不再只从 `config.json` 读，而是四路解析
   （`GEMMA_LIB_ROOT` > `userData/library-registry.json` > `config.json` > **索引自举**）；
   取件白名单 `collect.dirs` 也不再为空（F-04 同时解决）。实现 `apps/desktop/src/main/library-config.mjs`。
-  ⚠️ **但 §8 的 16 条权限用例仍然没有任何自动化实现** —— 那一条欠账没变，且现在多了一个新面：
-  新增的 `libraryPickDir` 会**弹出系统目录选择框**，它是渲染层唯一能让用户"主动指一个路径"的入口，
-  **必须有人复核它的滥用面**（当前设计：它只把结果交回主进程，不把路径能力授予渲染层）。
+  ⚠️ **§8 的 16 条权限用例已于 2026-10-12 全部补上自动化**（此前零覆盖，P2 验收未通过）。
+  根因是传输层（主进程 IPC 分发、preload 暴露面、`thumb://` 处理器）**测不了** ——
+  `main/index.mjs` import 了 `electron`，`node:test` 加载不了。修法是**把纯逻辑抽出来**
+  （先例：`main/ports.mjs`、`main/library-config.mjs`）：
+  `main/thumb-url.mjs`（`thumb://` 形状 + 尺寸白名单）与 `main/window-security.mjs`
+  （`isAppUrl` / `decideWindowOpen` / `decideNavigation` / `isTrustedSender`）。
+  逐条覆盖与**仍未验证的边界**见 §8 与 §8.1。
+  另：`libraryPickDir` 会**弹出系统目录选择框**，它是渲染层唯一能让用户"主动指一个路径"的入口，
+  **必须有人复核它的滥用面**（当前设计：它只把结果交回主进程，不把路径能力授予渲染层）——
+  这一条**仍未有专门的对抗用例**，如实记账。
 - **仍未修**：`P5` 的真·多库注册表 CRUD（`LibraryRegistry` 仍是纯内存派生，无持久化）
 
 ---
 
+> ⚠️ **2026-10-13：本文档里凡引用 `verify_app_build` / `verify_main_wiring` / `verify_renderer_dom` /
+> `verify_renderer_styles` / `smoke_app` / `verify-doc-refs` 的地方，那些守卫**已按所有者指令移除**
+> （原件备份在 `data/_removed-guards-backup/`）。文中的"有自动化/由它断言"一律**不再成立**；
+> 现存守卫只剩 `verify_encoder_path` 与 `check_search`，且两者都需要模型与已注册索引（沙箱跑不动）。
+> 详见 [`AGENTS.md`](../AGENTS.md) §5.2 的"移除的代价"。
+
 ## 8. 权限测试用例（**P2 验收必须全过**）
 
-> ⚠️ **现状：本表 16 条目前没有任何自动化实现，P2 验收未通过。**
-> `packages/engine/tests/security.test.mjs` 测的是 `docs/spec/CONTRACT-engine-v1.md` §7 的
-> **5 条引擎层不变量**（该文件头部自述），**不是**本表 —— 传输层（主进程 IPC 分发、
-> preload 暴露面、`thumb://` 处理器）**零单测**（实测：在 `packages/engine/tests/*.test.mjs` 里
-> grep `ipc|thumb|preload|senderFrame|setWindowOpenHandler|validateCall` **只命中一处注释**）。
-> 引用本条时必须写明"未实现"，不得当成已通过。详见 `docs/audit/STACK-AUDIT.md` §11（P4）与 `docs/DEBT-CLEANUP.md`。
+> ✅ **现状（2026-10-12）：本表 16 条都接到了自动化上**（下表逐条给出出处）。⚠️ 但**举证力不均** —— 行为级 / 纯单测 / 只读产物文本三种强度都有，逐条见下表「怎么验」一栏；**不要把"有断言"读成"行为已验证"**。
+> ⚠️ 另：凡读**构建产物**的断言（`verify_app_build` / `verify_main_wiring` / `verify_renderer_dom`）都**依赖一次成功的 `npm run build`**（见 `AGENTS.md` §5.1 的环境限制）。
+>
+> 覆盖分布在四处：
+> - `apps/desktop/tests/permissions.test.mjs` —— 纯函数边界（IPC 参数校验、`thumb://` 形状）
+> - `apps/desktop/tests/window-security.test.mjs` —— 窗口/来源判定的**决策**
+> - `tools/verify_main_wiring.mjs` —— **用假 `electron` 加载真实产物并真的调用它注册的 handler**（行为级：S4/S5/S6/S11/S12/S13/F-01）
+> - `tools/verify_app_build.mjs`（§1b/§1c/§2b，跑**构建产物**的文本/结构）与 `tools/verify_renderer_dom.mjs`（§11/§12，jsdom）
+>
+> ⚠️ **必须分清两件事，不许合起来说"端到端已过"**：
+> ① **决策对不对** —— 由单测证明（把防线临时拆掉，对应用例会变红；S1/S2/S4b/S5/S11/S12/S13 已实测双向验证）；
+> ② **接线接没接上** —— 由 `verify_app_build` 在构建产物上做**结构断言**（如"`ipcMain.handle` 实参里调用了 `isTrustedSender`"、"`setWindowOpenHandler` 真的注册了"）。
+> 只有 ① 会重演 F-01 那种"引擎能力对、应用没接"的坑；只有 ② 则可能把判定写错却仍"接线在"。
+>
+> 仍然是**未覆盖**的两处（如实记账，不要当已通过）：
+> - `libraryPickDir` 的**滥用面**没有独立复核（它是渲染层唯一能让用户主动指路径的入口）。当前设计上它只把结果交回主进程、不把路径能力授予渲染层；但"渲染层能否靠它做目录探测"这类问题**没有专门的对抗用例**。
+> - 本表原先的**根因**（传输层零单测）已消除，但**真 Electron 窗口内**的 iframe/新窗口行为仍未实测 —— 见 §8.1 的"未验证"一栏。
 
 自动化（写进 `packages/engine/tests/`——纯函数部分）或 `apps/desktop/` 的组件/E2E 测试；
 可在无窗口下覆盖的尽量覆盖：
 
-| # | 用例 | 期望 |
-|---|---|---|
-| S1 | 调未登记方法 `engine:invoke {method:'exec'}` | 拒绝，`BAD_REQUEST` |
-| S2 | `search` 传未知字段（`zod.strict`） | 拒绝，`BAD_REQUEST` |
-| S3 | `libId` 传 `../etc`、`uid` 传 `../../../x` | 拒绝（格式不符） |
-| S4 | `thumb://../../windows/win.ini` | 400/404，**不产生文件读取** |
-| S5 | `thumb://L1/<合法 uid>@999` | 400（size 不在白名单） |
-| S6 | `thumb://L9/<合法 uid>@256`（未注册库） | 404 |
-| S7 | 索引里投毒 `relPath = ..\..\windows\system32\x.dll` 后 `item` | `PATH_ESCAPES_LIB` |
-| S8 | 库内放指向库外的 junction 后 `item`/`thumb` | `SYMLINK_REJECTED` |
-| S9 | 渲染进程 `typeof window.require` / `window.process` | `undefined` |
-| S10 | 文件名设为 `<img src=x onerror=alert(1)>.jpg`，在结果网格显示 | 页面无脚本执行；DOM 里是文本节点 |
-| S11 | `setWindowOpenHandler` 尝试开新窗口（`window.open('https://example.com')`） | 被 deny，无新窗口 |
-| S12 | 主窗口内 `location.href='https://example.com'` | `will-navigate` 阻止 |
-| S13 | iframe 内调用 `engine:invoke` | 拒绝（来源校验） |
-| S14 | `engine:invoke` 载荷 > 1 MB | 拒绝 |
-| S15 | 取件到白名单外目录 | `COLLECT_DIR_NOT_ALLOWED` |
-| S16 | 只读流程跑完，库指纹比对 | 不变 |
+| # | 用例 | 期望 | 自动化在哪里（命令 + 位置） |
+|---|---|---|---|
+| S1 | 调未登记方法 `engine:invoke {method:'exec'}` | 拒绝，`BAD_REQUEST` | `npm test` · `permissions.test.mjs`「S1」——含 `exec`/`__proto__`/`toString` 等原型键 |
+| S2 | `search` 传未知字段（`zod.strict`） | 拒绝，`BAD_REQUEST` | `npm test` · `permissions.test.mjs`「S2」（顶层与嵌套 `filters` 各一） |
+| S3 | `libId` 传 `../etc`、`uid` 传 `../../../x` | 拒绝（格式不符） | `npm test` · `permissions.test.mjs`「S3」（10 种坏形状 + 2 种反例锚） |
+| S4 | `thumb://../../windows/win.ini` | 400/404，**不产生文件读取** | `npm test` · `permissions.test.mjs`「S4」——**注入计数 fs 证明读取次数 = 0**，并断言该模块不 import `fs` |
+| S5 | `thumb://L1/<合法 uid>@999` | 400（size 不在白名单） | `npm test` · `permissions.test.mjs`「S5」（9 种坏 size + 3 种白名单值） |
+| S6 | `thumb://L9/<合法 uid>@256`（未注册库） | 404 | `npm test` · `permissions.test.mjs`「S6」（映射规则）+ **`verify_main_wiring.mjs`**：**真的调用**产物里的 `thumb` 协议 handler，断言未注册库 ⇒ 404、形状/尺寸错 ⇒ 400（**这条是 B2 缺的"调用点"断言**） |
+| S7 | 索引里投毒 `relPath = ..\..\windows\system32\x.dll` 后 `item` | `PATH_ESCAPES_LIB` | `npm test` · `engine/tests/security.test.mjs`（**已有**：①..④ 逃逸） |
+| S8 | 库内放指向库外的 junction 后 `item`/`thumb` | `SYMLINK_REJECTED` | `npm test` · `engine/tests/security.test.mjs`（**已有**：junction + 文件 symlink。本环境建不了文件 symlink 的那条会**如实跳过**） |
+| S9 | 渲染进程 `typeof window.require` / `window.process` | `undefined` | 两面：`verify_app_build.mjs` §2b（**产物**：暴露面恰好三键）· `verify_renderer_dom.mjs` §11（**jsdom**：`require`/`module` undefined，`process` 无 `binding`/`dlopen`/`getBuiltinModule` 等能力） |
+| S10 | 文件名设为 `<img src=x onerror=alert(1)>.jpg`，在结果网格显示 | 页面无脚本执行；DOM 里是文本节点 | `verify_renderer_dom.mjs` §12：注入载荷后断言 ①无 `<img src=x>` 元素 ②`innerHTML` 里是 `&lt;img` 实体（=文本节点语义）。⚠️ **"脚本没执行"这一半本 harness 证明不了**：实测本 jsdom 连显式插入的 `<script>` 都不执行，所以那条断言已删（详见该节注释） |
+| S11 | `setWindowOpenHandler` 尝试开新窗口（`window.open('https://example.com')`） | 被 deny，无新窗口 | **判定**：`npm test` · `window-security.test.mjs`「S11」· **接线 + 行为**：`verify_main_wiring.mjs`（真调用 `setWindowOpenHandler` 抓到的回调，断言 `action === "deny"`）· 结构面 `verify_app_build.mjs` §1c |
+| S12 | 主窗口内 `location.href='https://example.com'` | `will-navigate` 阻止 | **判定**：`npm test` · `window-security.test.mjs`「S12/S12b」· **接线 + 行为**：`verify_main_wiring.mjs`（真调用 `will-navigate` 回调，断言库外 URL 触发 `preventDefault`）· 结构面 `verify_app_build.mjs` §1c。⚠️ 已知边界：`file://` 是**前缀放行**，见下 |
+| S13 | iframe 内调用 `engine:invoke` | 拒绝（来源校验） | **判定**：`npm test` · `window-security.test.mjs`「S13/S13b–e」· **接线 + 行为**：`verify_main_wiring.mjs`（**真的调用** handler：iframe / 异 webContents / 远程 URL / 缺 frame 都必须回 `BAD_REQUEST`，可信来源必须不拦）· 结构面 `verify_app_build.mjs` §1c |
+| S14 | `engine:invoke` 载荷 > 1 MB | 拒绝 | `npm test` · `permissions.test.mjs`「S14」（超限拒 + 边界不误判 + 循环引用不抛异常） |
+| S15 | 取件到白名单外目录 | `COLLECT_DIR_NOT_ALLOWED` | `npm test` · `engine/tests/security.test.mjs`（**已有**：② 白名单外两例）+ `engine.test.mjs`「collect：白名单外/未配置」 |
+| S16 | 只读流程跑完，库指纹比对 | 不变 | `npm test` · `engine/tests/security.test.mjs`（**已有**：⑤ 解析与指纹只读 + 跨语言指纹一致性） |
+
+### 8.1 自动化的边界（**要如实引用，不要含糊**）
+
+| 项 | 事实 |
+|---|---|
+| **结构断言 ≠ 端到端** | S9/S11/S12/S13 的"接线在不在"是在**构建产物**上做文本/结构断言。它证明"注册语句存在且形如预期"，**不证明**真 Electron 窗口里那些 handler 被调用时的实际效果。 |
+| **真窗口行为未实测** | 在**真 Electron 窗口**里：`window.open` 是否真被 deny、iframe 内 `invoke` 是否真被拒、`process` 到底暴露了哪些字段 —— **均未实测**（本项目一向如此记录）。要做需要 `smoke_app.mjs` 级别的真启动，属 P6 收尾。 |
+| **S12 的 `file://` 前缀放行** | `isAppUrl` 用 `startsWith('file://')`，因此**任何** `file://` URL 都被放行（含指向**别的本地文件**的）。`window-security.test.mjs` 里**显式断言了这个现状**，不假装已收紧。 |
+| ⚠️ **上面这条的真实影响比"无网络请求"更大**（2026-10-12 复核实测 + 判断） | 初版这里写的是"不是远程内容风险（file:// 下无请求、CSP 仍在）"—— **那个理由不成立**：CSP 只是**我们自己 index.html 的 meta**（§10 自己写着响应头未设），导航到**别的**本地 HTML 后，那份文件的"在不在"与我们的 CSP 无关。而 `webPreferences.preload` 是**按 webContents 挂**的、`isTrustedSender` 只要求 `frame.url` 以 `file://` 开头 ⇒ **主窗口一旦被导航到本机任意 HTML，那个文档仍拿得到 `window.api`，且它的 IPC 会被判为可信来源**。<br>**可利用性【判断，非实测】**：需要先有脚本执行或用户主动导航。收紧方向是"比对完整路径前缀白名单"（而非 scheme 前缀），属 P6 打包期项。 |
+| **"只允许一个主窗口"没有对应用例** | §4 的约束在 §8 的 16 条里**没有**对应条目，本表也没把它列为未覆盖 —— 如实补记在此：`isTrustedSender` 只比对 `winRef.win` 那**一个** webContents，所以"会不会存在第二个窗口"靠的是`createWindow` 只被调用一次的代码事实，**不是**一条断言。 |
+| **S8 的一条会跳过** | 本环境无法创建**文件**符号链接（EPERM，仅 junction 可以）。跳过时 `node:test` 会标 skipped，**不算通过**。 |
+| **抽出 `thumb-url.mjs` 时改了**一处**状态码** | 原 `handleThumb` 把"库 id 无法还原"与"形状不对"合并成 **400**；按 §3 的表拆成**两条**：**形状/尺寸错 ⇒ 400（先判）**、**库无法还原 ⇒ 404（后判）**。这是**对齐 §3**，不是漂移 —— 但确实是本节工作顺带的行为变更，如实记录。渲染层不区分二者（都渲染成"无预览"），所以无下游影响。 |
+
 
 人工（无法自动化，单列）：DevTools 里确认无远程请求；断网全流程可用。
 

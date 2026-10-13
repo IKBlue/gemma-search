@@ -64,8 +64,6 @@ npm run dev:restricted / npm run start:restricted   # 受限环境（Chromium �
 
 ```powershell
 npm run build
-node tools/verify_app_build.mjs      # 产物存在与形状（ESM/CJS/external/相对路径/原生模块未内联/CSP 还在）
-node tools/verify_renderer_dom.mjs   # 渲染进程逻辑（jsdom，不需 Electron）
 ```
 
 > ✅ **2026-10-12 重构后已实测通过**：`npm run build` EXIT=0，三端齐备；`verify_app_build.mjs` 与
@@ -75,6 +73,11 @@ node tools/verify_renderer_dom.mjs   # 渲染进程逻辑（jsdom，不需 Elect
 > （esbuild 常驻服务 `spawn EPERM`，**失败点在加载配置之前**）—— 环境限制，不是配置问题。
 > 又因 `out/` **不进 git**（新克隆里不存在），上面两条守卫**必须先成功 build 一次**才有意义，
 > 否则会报「找不到 `out/main/index.js`」。详见 `AGENTS.md` §5.1。
+
+> ℹ️ **历史记录注（2026-10-13）**：本文中出现的 `verify_app_build` / `verify_main_wiring` /
+> `verify_renderer_dom` / `verify_renderer_styles` / `smoke_app` / `verify-doc-refs` **均已于 2026-10-13
+> 按所有者指令移除**（原件在 `data/_removed-guards-backup/`）。下面这些"实测通过/EXIT=0"是**当时的真实记录**，
+> 保留不改写；但它们**不再可复跑**。
 
 ## 4. 日志在 `data/_app.log`
 

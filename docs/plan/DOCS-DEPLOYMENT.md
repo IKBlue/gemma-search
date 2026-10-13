@@ -104,7 +104,7 @@ config.json 不存在
 | **无库时** | 界面显示**首启向导**（选文件夹 → 写注册表），不是裸 `LIB_NOT_FOUND` |
 
 实现 `apps/desktop/src/main/library-config.mjs`；测试 `apps/desktop/tests/library-config.test.mjs`（12 条）
-+ `tools/verify_renderer_dom.mjs` §8（7 条）。定性见 [`../audit/AUDIT-FINAL.md`](../audit/AUDIT-FINAL.md) 与 `AGENTS.md` §7。
++ `tools/verify_renderer_dom.mjs` §8（7 条）—— **⚠️ 该守卫已于 2026-10-13 移除**，界面侧的向导验证现在没有自动化。定性见 [`../audit/AUDIT-FINAL.md`](../audit/AUDIT-FINAL.md) 与 `AGENTS.md` §7。
 **仍然断的**：`loadConfig()` 本身没删（它是第③层），只是不再是主来源；`P5` 的真·多库注册表 CRUD 仍欠。
 
 ---
@@ -187,30 +187,21 @@ node -v                                  # 期望 ≥ v20
 npm install                              # 卡住见 §1.2 镜像方案
 
 # 2) 引擎自证（不需要模型/GPU）
-npm test                                 # 期望 tests 90 / pass 89 / fail 0 / skipped 1
+npm test                                 # 期望 tests 113 / pass 112 / fail 0 / skipped 1
 
 # 3) 构建三端
 npm run build
 
-# 4) 产物形状
-node tools\verify_app_build.mjs
-node tools\verify_renderer_dom.mjs
-node tools\verify_renderer_styles.mjs
 
-# 5) 应用实跑（需 Electron 可出窗）
-node tools\smoke_app.mjs                 # 退出码 0 = 起来了
-#   受限沙箱：node tools\smoke_app.mjs --no-sandbox
 
-# 6) 文档引用完整性
-node tools\verify-doc-refs.mjs
 ```
 
 **本环境限制（影响可复现性）**：
 
 | 步骤 | 本环境能否跑 |
 |---|---|
-| 1-4、6 | ✅ 可以 |
-| 5（Electron 出窗） | ⚠️ 受限沙箱需 `--no-sandbox`；且本环境未实测 |
+| 1-3 | ✅ 可以 |
+| （原 4/5/6：产物形状 / Electron 出窗 / 文档引用） | ❌ **2026-10-13 起这些守卫已移除**，无对应步骤 |
 | 编码路径校验（`verify_encoder_path.mjs`） | ❌ 需模型目录 |
 
 ---

@@ -75,20 +75,25 @@ npm run start:restricted    # 跑构建产物（file://）
 
 ---
 
+## 1.5 现在还有什么没做完 / 什么坏了
+
+→ **[`TODO.md`](TODO.md)**（**唯一行动清单**：待修 BUG · 未完成项 · 防回归清单）。
+本文只讲"是什么 / 怎么跑"；架构与执行规范看 [`AGENTS.md`](AGENTS.md)。
+
+---
+
 ## 2. 验证（全部只读）
 
 ```powershell
 npm test                                  # 引擎单测（node:test，不经传输层）
 npm run build                             # 三端构建
 
-node tools\verify_app_build.mjs           # 产物形状（ESM/CJS/external/相对路径/原生模块未内联）
-node tools\verify_renderer_dom.mjs        # React 渲染层在 jsdom 里真跑（启动/搜索/交互/事件）
-node tools\verify_renderer_styles.mjs     # 渲染层样式与令牌一致性（只查「用到的令牌都已定义」）
 node tools\verify_encoder_path.mjs --model <ONNX 模型目录>   # 编码路径一致性（跑真实推理）
-node tools\smoke_app.mjs                  # 应用冒烟：真启动构建产物并给判定（受限环境加 --no-sandbox）
 node tools\check_search.mjs               # 检索端到端自查（向量模式，需已有查询向量）
-node tools\verify-doc-refs.mjs            # 文档引用解算 + 根目录越界检查
 ```
+
+> 已按所有者指令移除**（原件备份在 `data/_removed-guards-backup/`）。上面只列现存的两个 —— 这两个都需要
+> 模型目录与已注册索引，**在 agent 沙箱里跑不动**；移除的代价见 [`AGENTS.md`](../AGENTS.md) §5.2。
 
 - 前 6 条与 `npm run build` 的期望值、前置条件、以及「守卫证明不了什么」，见 [`AGENTS.md`](AGENTS.md) §5。
 - 若「Electron 起不来」需要定性：`tools\probe_electron_start\`（最小 Electron 探针 + 判读表）。
@@ -109,6 +114,11 @@ node tools\verify-doc-refs.mjs            # 文档引用解算 + 根目录越界
 > 仍然**未验证**：`smoke_app.mjs`（真启动 Electron 出窗）· 打包态 · 冷启动计时 · 真实 `thumb://` 取图。
 
 ---
+
+> ℹ️ **历史记录注（2026-10-13）**：本文中出现的 `verify_app_build` / `verify_main_wiring` /
+> `verify_renderer_dom` / `verify_renderer_styles` / `smoke_app` / `verify-doc-refs` **均已于 2026-10-13
+> 按所有者指令移除**（原件在 `data/_removed-guards-backup/`）。下面这些"实测通过/EXIT=0"是**当时的真实记录**，
+> 保留不改写；但它们**不再可复跑**。
 
 ## 3. 索引
 
