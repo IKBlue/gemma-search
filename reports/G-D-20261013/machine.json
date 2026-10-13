@@ -1,0 +1,80 @@
+{
+  "gate": "G-D",
+  "phase": "P3 (P3a–P3d)",
+  "date": "2026-10-13",
+  "collected_at": "2026-10-13 15:04:47 +08:00",
+  "commit": {
+    "full": "1dfd0c7d0b338797775386276aa9a6d8d15aabcb",
+    "short": "1dfd0c7",
+    "worktree_clean_tracked": true
+  },
+  "env": {
+    "node": "v24.14.0",
+    "npm": "11.9.0",
+    "electron": "^44.7.0",
+    "playwright": "^1.64.0"
+  },
+  "results": {
+    "npm_test": {
+      "tests": 248,
+      "pass": 247,
+      "fail": 0,
+      "skipped": 1
+    },
+    "typecheck_exit": 0,
+    "build_exit": 0,
+    "e2e_exit": 0,
+    "e2e": {
+      "passed": 56,
+      "failed": 0
+    }
+  },
+  "bidirectional": {
+    "doc": "reports/G-D-20261013/bidirectional.md",
+    "judge": "注入防线 ⇒ 断言必须变红；还原 ⇒ 必须变绿",
+    "cases": [
+      {
+        "id": "IA1",
+        "injection": "把 changed→stale 提到 exists→removed 之前",
+        "injected_red": true,
+        "restored_green": true
+      },
+      {
+        "id": "T2",
+        "injection": "去掉 done 的 Math.max（进度不再单调）",
+        "injected_red": true,
+        "restored_green": true
+      },
+      {
+        "id": "S13/S14/S16",
+        "injection": "插值后回主循环（复现扫描器旧缺陷）",
+        "injected_red": true,
+        "restored_green": true,
+        "failed_assertions": 3
+      },
+      {
+        "id": "S15",
+        "injection": "uid 改回必填（undo 又需要 uid）",
+        "injected_red": true,
+        "restored_green": true
+      },
+      {
+        "id": "E10-f",
+        "injection": "界面文案抄回引擎原文（靶子不再唯一）",
+        "injected_red": true,
+        "restored_green": true
+      }
+    ]
+  },
+  "not_verified": [
+    "真实 indexStart 的取消边界与 ETA 精度（模拟模式下验的；真实模式该方法未接线）",
+    "检索质量 / 缩略图内容（模拟模式只证接线与渲染）",
+    "打包态 · 冷启动计时 · 真实 thumb:// 取图 · iframe 内 invoke",
+    "真实素材库上的 P3c/P3d（需 ONNX 模型 + 已注册索引）"
+  ],
+  "notes": [
+    "npm test 的 1 条 skip 是环境限制（无法创建文件符号链接 EPERM），不是通过",
+    "typecheck 只覆盖 .ts（checkJs 仍为 false）⇒ 不得声称全局类型检查通过",
+    "e2e 真启动 Electron，沙箱内需 --no-sandbox + 提权"
+  ]
+}
