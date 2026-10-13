@@ -93,7 +93,7 @@
 
 ## 2. 方法
 
-> 下表 `req` / `data` 都是 JSON 形状。**zod schema 是唯一来源**（`apps/desktop/src/shared/ipc.mjs`：方法白名单 + 逐方法 `.strict()` 校验 + 载荷上限）。
+> 下表 `req` / `data` 都是 JSON 形状。**zod schema 是唯一来源**（`apps/desktop/src/shared/ipc.ts`：方法白名单 + 逐方法 `.strict()` 校验 + 载荷上限）。
 > TS 类型是**计划中**的：当前 `tsconfig*.json` 的 `checkJs: false`，**没有 typecheck 门禁**。
 
 ### 2.0 实现状态（2026-10-12 · 与契约的对齐说明）
@@ -108,7 +108,7 @@
 | `ingest` · `mutate` · `indexStart` · `indexCancel` | **冻结形状**（先定形状，界面可并行开发） | ❌ 主进程**显式拒绝**：返回 `{ code: "INTERNAL", userMessage: "这个功能还没做好。", details: { method } }`，不是静默无反应 |
 
 > 这是**有意的诚实降级**：未实现的方法给出明确错误 + 明确文案，用户看得到「这个功能还没做好」。
-> 相关清单在 `apps/desktop/src/main/index.mjs`（`missing` 数组，与 §2.5–§2.10 对应）与 `apps/desktop/src/shared/ipc.mjs`（方法白名单）。
+> 相关清单在 `apps/desktop/src/main/index.mjs`（`missing` 数组，与 §2.5–§2.10 对应）与 `apps/desktop/src/shared/ipc.ts`（方法白名单）。
 
 ### 2.1 `search`
 
@@ -415,5 +415,5 @@
 
 1. 冻结后**新增**字段 = 兼容（旧界面忽略它）
 2. **改名 / 改语义 / 删字段 / 改错误码字符串** = 破坏性 → 必须升 `v2` 并保留 v1 一个周期
-3. 每次改动都要同步：`docs/spec/CONTRACT-engine-v1.md` → `apps/desktop/src/shared/ipc.mjs`（zod 校验 + 方法白名单）→ `apps/desktop/src/preload/index.js`（**手抄的字面量**，不是 import）→ 单测用例
+3. 每次改动都要同步：`docs/spec/CONTRACT-engine-v1.md` → `apps/desktop/src/shared/ipc.ts`（zod 校验 + 方法白名单）→ `apps/desktop/src/preload/index.js`（**手抄的字面量**，不是 import）→ 单测用例
 4. **每个错误码都要有至少一个用例**（P1 验收会逐个查）

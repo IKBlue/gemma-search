@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { validateCall, MAX_PAYLOAD_BYTES, METHOD_NAMES } from '../src/shared/ipc.mjs';
+import { validateCall, MAX_PAYLOAD_BYTES, METHOD_NAMES } from '../src/shared/ipc.ts';
 import { parseThumbUrl, canonicalLibId, ALLOWED_SIZE, createLibIdResolver, thumbFailureStatus } from '../src/main/thumb-url.mjs';
 
 // ============================================================ S1 / S2 / S3 / S14
@@ -74,7 +74,7 @@ test('S14：载荷 > 1 MB 被拒；恰好 1 MB 边界内则放行', () => {
   // 用 text 字段撑大体量（schema 限 200 字符 ⇒ 会先被 zod 拒），所以改用 vector：
   // 但 vector 限 4096 个数字。真正能撑到 1 MB 的只有"未知字段"——那也被 strict 拒。
   // 所以这里直接测**尺寸闸门本身**，绕开 schema（这是它在 validateCall 里的真实位置：
-  // 尺寸检查在 schema 之前，见 shared/ipc.mjs:103）。
+  // 尺寸检查在 schema 之前，见 shared/ipc.ts:103）。
   const big = { x: 'a'.repeat(MAX_PAYLOAD_BYTES + 64) };
   const r = validateCall('indexStatus', big);
   assert.equal(r.ok, false);
