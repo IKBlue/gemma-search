@@ -27,13 +27,41 @@
  * @returns {string} 与输入**等长**的串（逐字符替换为空格，绝不移动位置 ⇒ 行号列号仍准确）
  */
 function scan(src, maskStrings) {
+  return scanCore(src, maskStrings, 0, false).text
+}
+
+/**
+ * 扫描核心。**可以在任意位置开始，并可选地在配对的 `}` 处停下** —— 后者专为模板串插值而加。
+ *
+ * ── ⚠️⚠️ 2026-10-13 修的一个**假阴/假阳双向**的真缺陷（本函数原来是 `scan` 的全部）──────
+ *   症状：**含 `${...}` 插值的模板串之后，整段文件"瞎了"** —— `maskNonCode` 把后面的
+ *   代码骨架也全抹成空格。实测 `SearchPage.jsx:55+`、`TasksPage.jsx:76+`、`ItemPage.jsx:48+`
+ *   都中招 ⇒ 基于本扫描器的 L1–L7 / T1–T6 断言在那些区域**恒为真**（剧场）。
+ *   同时，注释里的反引号内容会**漏出来**再匹配一次 ⇒ 假阳性（L6 就被自己的注释绊倒过）。
+ *
+ *   根因：旧代码处理完 `${...}` 后 `continue` 回了**主循环**，从没回到模板串状态。
+ *   于是模板的**收尾反引号被当成新模板的起始反引号**，一路吞到下一个反引号（甚至文件尾）。
+ *
+ *   修法：把"扫一段"变成可递归 —— 插值里的内容是**代码**，递归扫到配对的 `}` 就返回，
+ *   然后**留在模板串里继续**。一份实现同时服务"整文件"与"插值"，不写第二套（P2）。
+ *
+ * @param {string} src
+ * @param {boolean} maskStrings `true` = 连字符串内容一起抹掉；`false` = 保留字符串内容
+ * @param {number} start        从哪个下标开始
+ * @param {boolean} stopAtBrace `true` = 遇到配对的 `}` 就停（并把它含进去）
+ * @returns {{text: string, end: number}} `end` 是扫完后的下标
+ */
+function scanCore(src, maskStrings, start, stopAtBrace) {
   /** @type {string[]} */
   const out = []
   const n = src.length
-  let i = 0
+  let i = start
+  // 只在 `stopAtBrace` 时有意义：`{` +1、`}` -1，减到 0 就是插值结束
+  let depth = 1
 
-  // 上一个"有意义的"非空白字符 —— 用来判断 `/` 是除法还是正则起始
-  let prev = ''
+  // 上一个"有意义的"非空白字符 —— 用来判断 `/` 是除法还是正则起始。
+  // 插值内部从"表达式位置"开始，所以初始给一个 `(`（`/` 在它后面按正则处理）
+  let prev = stopAtBrace ? '(' : ''
 
   const space = (k) => { for (let j = 0; j < k; j++) out.push(' ') }
   /** 按掩码方式输出一个字符：抹掉时保留换行、其余换空格；保留时原样 */
@@ -70,33 +98,20 @@ function scan(src, maskStrings) {
       let j = i + 1
       while (j < n) {
         if (src[j] === '\\') { emit(src[j]); emit(src[j + 1]); j += 2; continue }
+        // ⭐ 模板插值：里面是**代码** ⇒ 递归扫到配对的 `}`，然后**留在模板里继续**。
+        //    旧代码这里 `continue` 回主循环 —— 那正是"模板之后整段失明"的根因（见 scanCore 头注释）。
         if (quote === '`' && src[j] === '$' && src[j + 1] === '{') {
-          // 模板插值：里面的内容是**代码**，交给主循环处理
-          break
+          out.push('$', '{')
+          const inner = scanCore(src, maskStrings, j + 2, true)
+          out.push(inner.text)
+          j = inner.end
+          continue
         }
-        if (src[j] === quote) break
+        if (src[j] === quote) { out.push(quote); j++; break }
         emit(src[j])
         j++
       }
-      if (j >= n) { i = n; continue }
-      if (quote === '`' && src[j] === '$' && src[j + 1] === '{') {
-        out.push('$', '{')
-        i = j + 2
-        // 递归处理插值内部（按代码走），这里用一个简化的括号配对
-        let depth = 1
-        while (i < n && depth > 0) {
-          const d = src[i]
-          if (d === '{') depth++
-          else if (d === '}') depth--
-          if (depth === 0) { out.push('}'); i++; break }
-          // 插值内部整段当作代码：原样交给主循环更稳，这里直接输出
-          out.push(d)
-          i++
-        }
-        continue
-      }
-      out.push(quote)
-      i = j + 1
+      i = j
       prev = quote
       continue
     }
@@ -131,12 +146,26 @@ function scan(src, maskStrings) {
       continue
     }
 
+    // ---- 普通代码字符 ----
+    // ⚠️ 花括号配平**只在这里**做 —— 必须在"真的当成代码输出"的那条路径上。
+    //    放到循环开头会把字符串/注释/正则里的 `{` `}` 也算进去，那就又错位了。
+    if (stopAtBrace) {
+      if (c === '{') depth++
+      else if (c === '}') {
+        depth--
+        if (depth === 0) {
+          out.push('}')                       // 收尾的 `}` 是插值的一部分
+          return { text: out.join(''), end: i + 1 }
+        }
+      }
+    }
+
     out.push(c)
     if (!/\s/.test(c)) prev = c
     i++
   }
 
-  return out.join('')
+  return { text: out.join(''), end: i }
 }
 
 /**

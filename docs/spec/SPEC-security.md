@@ -225,7 +225,7 @@ new BrowserWindow({
 
 | | 清理前（2026-10-13 实测） | 清理后 |
 |---|---|---|
-| 生产 `dependencies` | **25** | **12** |
+| 生产 `dependencies` | **25** | **13**（12 + T2 核对时重新接入的 `@radix-ui/react-slot`，见下） |
 | 其中零 import | **19** | **0** |
 | 开发 `devDependencies` | 14（零 import **9**） | **12**（零 import 的都在白名单里） |
 
@@ -238,6 +238,7 @@ new BrowserWindow({
 |---|---|---|
 | `@radix-ui/react-alert-dialog` | `apps/desktop/src/renderer/src/ui/ConfirmDialog.jsx` | **破坏性操作的确认弹窗**：`role="alertdialog"` + 焦点陷阱 + ESC 关闭 + 焦点归还 + 点遮罩不误关 —— 这几件是手写 overlay 最难自己实现的 |
 | `class-variance-authority` | `apps/desktop/src/renderer/src/ui/Button.jsx` | 变体声明式化（`variant`/`size`/`block` 一处定义） |
+| `@radix-ui/react-slot` | `apps/desktop/src/renderer/src/ui/Button.jsx` 的 `asChild` | **让按钮样式能用在 `<Link>` 上而不产生 `<a>` 嵌 `<button>`** —— T4 删它是因为当时零 import；T2 的「人工核对观感」发现 4 处非法嵌套（HTML 规范禁止 + 两个可聚焦元素 + 图标不居中）后，`asChild` 是唯一干净的修法 ⇒ 重新接入。断言：`dom-validity.test.mjs` V1–V3 + E2E `routing.spec.mjs` E6-a/b |
 | `clsx` + `tailwind-merge` | `apps/desktop/src/renderer/src/ui/cn.js`（**全应用唯一** class 合并实现） | `tailwind-merge` 按冲突组消解、后者胜 ⇒ 消除"两个同组工具类同时留下、谁赢取决于 CSS 顺序"这一类静默 bug（T3 迁移时真栽过） |
 | ⚠️ 上面这条的**配置前提** | `cn.js` 里还用了 `extendTailwindMerge` 把 8 个自定义字号（`--text-*`）登记进 `font-size` 组 | 否则 `tailwind-merge` 把 `text-caption` 当成**颜色**，与 `text-ink` 判为冲突而**丢掉字号** —— T4 实测踩到（构建通过、只有真窗口量计算样式才发现）。回归锁：`styles.test.mjs` 的 T5/T5b |
 

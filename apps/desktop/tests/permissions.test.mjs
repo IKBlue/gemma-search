@@ -253,3 +253,37 @@ test('thumb:// 的合法形状能正常解出三要素（防止"全拒"骗过上
   assert.equal(r2.ok, true);
   assert.equal(r2.rawHost, 'l1', 'URL 规范会小写 host —— 这正是必须做还原的原因');
 });
+
+// ============================================================ `mutate` 的 uid 规则（2026-10-13）
+
+test('S15 ⭐ `mutate`：`undo` **不需要** uid，其余 op **必须**带 —— 两头都要断言', () => {
+  // 契约 §2.7 的表里写明「`undo` = 撤销**指定事务**」，由 `params.txId` 定位 ⇒ uid 对它无意义。
+  // 而 schema 原先把 uid 写死成必填 ⇒ 操作记录页的"回退"被 BAD_REQUEST 拦掉、状态不变
+  //（E2E E11-d 实测到了这件事）。修法是把 uid 放宽为可选 + `superRefine` 保证其余 op 仍必填。
+  //
+  // ⚠️ 只断言"undo 能过"是不够的：那样把 uid 整个删掉也能过。**两条都要有**。
+  const undo = validateCall('mutate', { libId: 'L1', op: 'undo', params: { txId: 'tx-1' } });
+  assert.equal(undo.ok, true, `undo 不该要求 uid：${undo.ok ? '' : undo.reason}`);
+
+  for (const op of ['rename', 'moveFolder', 'reattachArchive', 'moveOutOfLibrary']) {
+    const bad = validateCall('mutate', { libId: 'L1', op });
+    assert.equal(bad.ok, false, `${op} **必须**要 uid —— 不然改的是哪一条都不知道`);
+    assert.match(bad.reason, /uid/);
+    const good = validateCall('mutate', { libId: 'L1', uid: '0123456789ab', op });
+    assert.equal(good.ok, true, `${op} 带 uid 应通过：${good.ok ? '' : good.reason}`);
+  }
+
+  // `strict()` 不能被这次放宽破坏
+  assert.equal(validateCall('mutate', { libId: 'L1', op: 'undo', params: {}, 多余的键: 1 }).ok, false,
+    '未知字段仍须被拒（strict 没被 .superRefine 弄丢）');
+});
+
+test('S16 ⭐ `transactions` 已登记进白名单，且 `txId`/`limit` 有边界（契约 §2.11）', () => {
+  assert.ok(METHOD_NAMES.includes('transactions'), `transactions 未登记：${METHOD_NAMES.join(',')}`);
+  assert.equal(validateCall('transactions', {}).ok, true);
+  assert.equal(validateCall('transactions', { libId: 'L1', txId: 'tx-1', limit: 5 }).ok, true);
+  assert.equal(validateCall('transactions', { limit: 0 }).ok, false, 'limit 下界是 1');
+  assert.equal(validateCall('transactions', { limit: 201 }).ok, false, 'limit 上界是 200');
+  assert.equal(validateCall('transactions', { txId: 'x'.repeat(65) }).ok, false, 'txId 长度设了上限');
+  assert.equal(validateCall('transactions', { 多余: 1 }).ok, false);
+});

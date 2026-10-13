@@ -17,19 +17,12 @@
 // `grep -nE '0\.[789][0-9]'` 对本文件恒为空 —— 让"又有人开始自算阈值"这件事
 // **在守卫里一眼可见**，而不是要靠人读注释判断。
 
+// ⚠️ `humanSize` 2026-10-13 已移到 `utils/format.js`（格式化工具属 Operation 层）。
+//    这里**只 import 不重新定义** —— 别在本文件里再写一份字节换算（P1）。
+import { humanSize } from '../utils/format.js'
+
 /** 引擎 band → 中文文案。集中在这里，避免同一个概念散落多处。 */
 const BAND_TEXT = { high: '同款区间', mid: '很接近', low: '较弱' }
-
-/** 把字节数写成人类可读（与原型示例里的 "2.3 MB" 一致） */
-export function humanSize(bytes) {
-  const n = Number(bytes)
-  if (!Number.isFinite(n) || n <= 0) return ''
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  let v = n
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1 }
-  return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
-}
 
 /**
  * @param {object} props

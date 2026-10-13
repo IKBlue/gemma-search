@@ -13,6 +13,7 @@ import { readIndexBin, readItems, readMeta, relOf } from './index.mjs';
 import { compatComplete, compatEqual, compatKey, compatReason } from './compat.mjs';
 import { LibraryRegistry, resolveInLibrary, resolveQueryImage } from './library.mjs';
 import { fingerprintV1 } from './fingerprint.mjs';
+import { createFakeKit } from './fake.mjs';
 
 /**
  * 分数区间：**按模态分别定义**。
@@ -38,6 +39,29 @@ export const BANDS = Object.freeze({
  * 现在的行为：不认识的模态 ⇒ 返回 `'unknown'`，**不下档位判断**。
  * 调用的界面（`ui/Score.jsx`）对未知档位**只显示分数、不显示档位文案** —— 诚实降级。
  * `'unknown'` 是**新增**的返回值，契约 §1.3 的"新增=兼容"同样适用于此。
+ */
+/**
+ * **尚未实现的方法（全仓唯一一份定义，2026-10-13 新增）。**
+ *
+ * 这些方法的**请求/响应形状已在契约里冻结**，但真实实现还没接线。
+ * 两处都要用它，所以**必须**从这里读，不许各抄一份（P1）：
+ *   ① 引擎自己：真实模式下如实返回 `ERR.INTERNAL`（**绝不假装成功**）；
+ *   ② 主进程（`apps/desktop/src/main/index.mjs`）：在进引擎**之前**就拒绝，
+ *      以便给出更明确的用户文案「这个功能还没做好。」。
+ *
+ * 模拟模式（契约 §8）下这些方法由 `fake.mjs` 提供假实现 —— 那时主进程**不**拒绝。
+ * 假套件返回对象的键**与这份清单一一对应**（`fake.test.mjs` 的 **F17** 会断言），
+ * 所以引擎侧只要 `fakeKit[name]`，不需要另维护映射表。
+ */
+export const UNIMPLEMENTED_METHODS = Object.freeze([
+  'ingest', 'mutate', 'transactions',
+  'indexStart', 'indexCancel', 'indexResume',
+]);
+
+/**
+ * 把一个分数映射到档位。
+ *
+ * ⚠️ **界面绝不能用自己算的阈值** —— 档位必须来自这里（见 `BANDS` 头注释与 F-02）。
  */
 export function bandOf(score, mode) {
   // ⚠️ 必须用 `Object.hasOwn`，**不能**写 `const b = BANDS[mode]; if (!b)`。
@@ -106,8 +130,23 @@ export function createEngine({
   onEvent = () => {},
   now = () => Date.now(),
   shell = null,                   // { reveal(absPath) } —— P2 注入（Electron shell.showItemInFolder）
+  fake = false,                   // ⭐ 契约 §8 的模拟模式：无模型、无真实库。见 fake.mjs 头注释
 } = {}) {
-  const registry = new LibraryRegistry(config);
+  // ── 模拟模式（契约 §8）────────────────────────────────────────────────
+  // `fake: true` ⇒ 用 fixtures/sample-index.json 造一个**零真实文件系统**的库；
+  // `fake: { fixture }` ⇒ 直接注入样例对象（测试用，不依赖路径解析）。
+  // ⚠️ 真实模式（默认 `false`）**一行都不走这里**。
+  const fakeKit = fake
+    ? createFakeKit({
+        fixture: fake && typeof fake === 'object' ? fake.fixture : null,
+        onEvent, now, bandOf,                       // ⚠️ bandOf 注入 —— 不在这里重算档位阈值（见 fake.mjs 头注释 ③）
+        intervalMs: fake && typeof fake === 'object' ? fake.intervalMs : null,
+        setTimer: fake && typeof fake === 'object' ? fake.setTimer : undefined,
+        clearTimer: fake && typeof fake === 'object' ? fake.clearTimer : undefined,
+      })
+    : null;
+
+  const registry = fakeKit ? fakeKit.registry : new LibraryRegistry(config);
   const idxRoot = indexDir || path.join(config.data_dir || path.join(process.cwd(), 'data'), 'libraries');
   const cache = new Map();        // libId -> { header, items, vectors, meta, byUid, rowToRel }
   const jobs = new Map();         // jobId -> { kind, libId, cancelled }
@@ -118,6 +157,8 @@ export function createEngine({
 
   /** 懒加载并缓存某库索引；任何损坏都抛 INDEX_*（由 envelope 转信封）。 */
   function load(libId, { reload = false } = {}) {
+    // 模拟模式：索引来自内存，**不 requireExistingRoot、不读任何文件**（见 fake.mjs 头注释 ①）
+    if (fakeKit) return fakeKit.load(libId);
     if (!reload && cache.has(libId)) return cache.get(libId);
     registry.requireExistingRoot(libId);
     const d = dirOf(libId);
@@ -410,8 +451,12 @@ export function createEngine({
     reload(libId) { cache.delete(libId); return load(libId); },
     /**
      * 解析某条素材的绝对路径。**仅供主进程内部使用**（`thumb://` 协议处理器），
-     * 刻意**不经 IPC 暴露** —— 契约 §0 要求"路径只能由 lib_id+uid 解析"，
-     * 把这个结果交给渲染进程就等于把绝对路径泄出去了。
+     * 刻意**不主动交给渲染进程** —— 契约 §0 要求"路径只能由 lib_id+uid 解析"。
+     *
+     * ⚠️ **2026-10-13 更正**：这里原来写着"把这个结果交给渲染进程就等于把绝对路径泄出去了"，
+     * 而 P3c 明确要显示两条路径 ⇒ 那句话与需求冲突（而且 `reveal` 早就返回了 `path`，立场本就不自洽）。
+     * 处置（所有者决定）：**不把它塞进 `item`**，而是新增一个语义明确、有文档、可审计的只读方法
+     * **`itemPaths`**（见上面）。本方法保持"主进程内部用"的定位不变 —— 两条路各司其职。
      * 仍走完整的包含校验与符号链接校验。
      */
     absPathFor(libId, uid) {
@@ -420,11 +465,13 @@ export function createEngine({
       if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
       return resolveInLibrary(registry.get(libId).root, relOf(it));
     },
-    search: (req) => envelope(() => doSearch(req)),
-    indexStatus: () => envelope(async () => doIndexStatus()),
-    scan: (req) => envelope(async () => doScan(req)),
+    search: (req) => envelope(async () => (fakeKit ? fakeKit.doSearch(req) : doSearch(req))),
+    indexStatus: () => envelope(async () => (fakeKit ? fakeKit.doIndexStatus() : doIndexStatus())),
+    scan: (req) => envelope(async () => (fakeKit ? fakeKit.doScan(req) : doScan(req))),
     collect: (req) => envelope(async () => doCollect(req)),
     item: ({ libId, uid } = {}) => envelope(async () => {
+      // 模拟模式：索引在内存里，**不 requireExistingRoot、不读盘** —— 所以 exists 也走样例数据
+      if (fakeKit) return fakeKit.doItem({ libId, uid });
       const e = load(libId);
       const it = e.byUid.get(uid);
       if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
@@ -442,6 +489,70 @@ export function createEngine({
         exists: { image: fs.existsSync(abs), archive: arcAbs ? fs.existsSync(arcAbs) : false },
       });
     }),
+    /**
+     * 两条绝对路径（契约 §2.2a，2026-10-13 新增）。
+     *
+     * ⚠️ **为什么单独一个方法，而不是往 `item` 里加字段**（所有者 2026-10-13 决定）：
+     *   `item` 是"索引元数据"。把绝对路径混进去，等于**每一次取元数据都顺带把库内路径交出去**；
+     *   而本应用确实需要显示这两条路径（`ROADMAP.md:221` 的 P3c 验收 · `UI-REVIEW-and-migration.md:235` 流程 2）。
+     *   ⇒ 给它一个**有名字、有文档、语义就是"要路径"**的只读方法，把暴露面收在明处、可审计。
+     *   这也解掉了 `absPathFor` 那条注释与实际需求之间的冲突（见本文件里 `absPathFor` 的说明）。
+     *
+     * 仍走完整的**库根包含校验与符号链接校验**（`resolveInLibrary`）—— 不是绕开它们另开一条路。
+     */
+    itemPaths: ({ libId, uid } = {}) => envelope(async () => {
+      // 模拟模式：路径由样例数据拼出，**不读盘**（fake.mjs 头注释 ①）
+      if (fakeKit) return fakeKit.doItemPaths({ libId, uid });
+      const e = load(libId);
+      const it = e.byUid.get(uid);
+      if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
+      const root = registry.get(libId).root;
+      const imagePath = resolveInLibrary(root, relOf(it));
+      const archivePath = it.archiveRelPath ? resolveInLibrary(root, it.archiveRelPath) : null;
+      return ok({
+        libId, uid, imagePath, archivePath,
+        exists: {
+          image: fs.existsSync(imagePath),
+          archive: archivePath ? fs.existsSync(archivePath) : false,
+        },
+      });
+    }),
+    /**
+     * 事务台账（契约 §2.11，2026-10-13 新增）。
+     *
+     * 依据 `docs/spec/SPEC-transactions.md:229`：
+     *   「`mutate()` 返回事务 id；**界面据 id 查询状态**、显示进度、提供撤销入口」
+     * 而契约里此前**没有**任何列/查事务的方法 ⇒ 界面侧无数据源。补上这一个只读方法。
+     *
+     * 返回值里的 `blocked` 表示"有未收尾事务" —— 此时**任何写方法都会被 `RECOVERY_NEEDED` 挡住**，
+     * 界面据此把「待处理」提到显眼处（`SPEC-transactions.md:141`）。
+     *
+     * ⚠️ 真实模式**没有实现事务日志** ⇒ 如实返回 `INTERNAL`，不返回空数组假装"没有事务"。
+     */
+    // `transactions`（契约 §2.11）也由下面的生成式统一处理 —— 见 `UNIMPLEMENTED_METHODS`。
+    // ── 长任务与写操作（契约 §2.6–§2.11 / §3 / §5）────────────────────────
+    // 这几个方法的**形状已冻结、真实实现未接线**：
+    //   · 真实模式 ⇒ **如实 `INTERNAL`**，绝不假装成功；
+    //   · 模拟模式 ⇒ 交给 `fake.mjs`（契约 §8，让「P3 不等真实库」的那条路）。
+    //
+    // ⚠️ 2026-10-13 改成**生成式**：原来这 6 个是逐段手抄的（每段除了方法名一模一样）—— 那是 P2。
+    //    现在由 **`UNIMPLEMENTED_METHODS` 一份定义**驱动；假套件的键与方法名**一一对应**
+    //    （见 `fake.mjs` 的 return —— 那里刻意按方法名作键），所以这里只要 `fakeKit[name]`，
+    //    不另设"方法名→套件名"的映射表（那种表两个方向都会漂移）。
+    //    主进程也读这份清单来给出**一致的**用户文案（`main/index.mjs`）——
+    //    这样"哪些没做"全仓只有一处定义（P1）。
+    ...Object.fromEntries(UNIMPLEMENTED_METHODS.map((name) => [
+      name,
+      (req) => envelope(async () => {
+        if (!fakeKit) throw fail(ERR.INTERNAL, '这个功能还没做好。', { method: name });
+        const fn = fakeKit[name];
+        if (typeof fn !== 'function') {
+          // 假套件里少接一个方法 = 契约 §8 的演示能力缺一块，必须显式炸而不是静默 undefined
+          throw fail(ERR.INTERNAL, `模拟套件缺少实现：${name}`, { method: name });
+        }
+        return fn(req);
+      }),
+    ])),
     reveal: ({ libId, uid, target = 'archive' } = {}) => envelope(async () => {
       const e = load(libId);
       const it = e.byUid.get(uid);
@@ -473,6 +584,8 @@ export function createEngine({
     _jobs: jobs,
     _cache: cache,
     _onEvent: onEvent,
+    /** 模拟模式的内部句柄（`fake:false` 时为 `null`）—— 供测试断言"零真实 fs"与收尾定时器 */
+    _fake: fakeKit,
   };
   return api;
 }

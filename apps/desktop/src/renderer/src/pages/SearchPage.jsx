@@ -18,8 +18,11 @@ import Gallery from '../search/Gallery.jsx'
 import MetricsRow from '../search/MetricsRow.jsx'
 import SearchPanel from '../search/SearchPanel.jsx'
 import SearchSidebar from '../search/SearchSidebar.jsx'
+import { LABELS } from '../router/paths.js'
+import { useDocumentTitle } from '../utils/useDocumentTitle.js'
 
 export default function SearchPage() {
+  useDocumentTitle(LABELS.search)
   const { invoke } = useEngine()
   const { message, tone, show } = useToast()
   const { lib, loading: indexLoading, error: indexError } = useIndexStatus()

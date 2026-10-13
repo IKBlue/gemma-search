@@ -16,12 +16,14 @@ import { ROUTES } from './paths.js'
 import SearchPage from '../pages/SearchPage.jsx'
 import ItemPage from '../pages/ItemPage.jsx'
 import TasksPage from '../pages/TasksPage.jsx'
+import ActivityPage from '../pages/ActivityPage.jsx'
 
 /** 路由 key → 组件。key 来自 `paths.js`，两边必须一一对应 */
 const COMPONENTS = {
   search: SearchPage,
   item: ItemPage,
   tasks: TasksPage,
+  activity: ActivityPage,
 }
 
 // 启动期断言：表里有 key 却没有组件 ⇒ 立刻炸，别留白屏

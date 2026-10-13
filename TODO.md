@@ -150,6 +150,47 @@
 `npm run e2e` 的 **E2 系列**真的启动应用点侧栏、读 hash、验未知路由回退；**E1 系列**验无库时显示向导。
 见 `apps/desktop/e2e/routing.spec.mjs` 与 `gate.spec.mjs`。
 
+#### ☑ T2 的「人工核对观感」已执行（2026-10-13）—— 并抓出两处真缺陷
+
+**做法**：起草 `data/_t2-verify.mjs`（Playwright 真启动 Electron）—— 点 3 条路由、每页截图、
+并**同时**从渲染进程（`location`/`document.title`）与**主进程**（`BrowserWindow.getURL()/getTitle()`）两侧记录事实。
+
+**⭐ 先纠正一个说法**：Electron 窗口**没有浏览器地址栏**。所谓"地址栏跟着变"只能验两件事：
+渲染进程的 `location.hash`、以及主进程看到的 `win.webContents.getURL()`。两者都验了。
+
+| 操作 | `location.hash` | `<h1>` | 主进程 `win.url` |
+|---|---|---|---|
+| 默认落点 | `""` | 找到你想要的那张图。 | 无 hash |
+| 点「索引任务」 | `#/tasks` | 索引任务与操作记录 | **带 `#/tasks`** |
+| 点「语义搜索」 | `#/` | 找到你想要的那张图。 | 带 `#/` |
+| 深链 `/item/L1/0123456789ab` | `#/item/L1/0123456789ab` | 图片详情 | **带参数** |
+| 未知 hash | `#/`（回退） | 找到你想要的那张图。 | 回退 |
+
+窗口数始终 **1** · `visible=true` · 侧栏当前项高亮正确 · 面包屑正确。**路由本身没问题。**
+
+**❌ 但观感上抓出两处真缺陷（都是 T2 引入的，已修）**：
+
+**① `<a>` 嵌在 `<button>` 里（4 处）** —— `ItemPage:29,48` · `TasksPage:28,41` 写成了
+`<Button><Link>…</Link></Button>`。三条后果，都不是审美问题：
+- **HTML 规范禁止**（交互内容不得嵌套交互内容）
+- **可访问性坏掉**：变成两个可聚焦元素，读屏会念成"按钮里有个链接"
+- **视觉坏掉**：图标按钮内容不居中（截图里可见）
+修法：`Button` 补 **`asChild`**（Radix `Slot` 把 props/className 合并到子元素 ⇒ 只渲染一个 `<a>`）。
+⇒ `@radix-ui/react-slot` **重新接入生产依赖**（T4 删它是因为当时零 import；现在真用了，生产依赖 12 → **13**）。
+
+**② `document.title` 从不随路由变** —— `index.html` 与主进程建窗时各硬编码一份，切到「索引任务」
+任务栏还写着"素材语义检索"。修法：`router/paths.js` 导出 **`LABELS`**(页面名唯一来源) + `APP_NAME`，
+`utils/useDocumentTitle.js` 一处实现，3 个页面各调一行。实测三条路由三个标题，**主进程 `win.title` 同步**。
+
+**⭐ 两处都变成了常驻断言（人工核对 → 断言，这是它该有的归宿）**：
+- `apps/desktop/tests/dom-validity.test.mjs` **V1–V4**（静态：不许按钮套链接 / `Button` 真有 `asChild` / 标题单一来源）
+- `apps/desktop/e2e/routing.spec.mjs` **E6-a/b/c**（真窗口：DOM 里 `button > a` = 0 · 返回控件是 link · 标题随路由变）
+- **双向验证**：把 `asChild` 去掉 ⇒ `npm test` **fail 1** 且精确报出 `TasksPage.jsx → <Button><Link`；还原 ⇒ 全绿
+
+⚠️ **我先前的一个判断是错的，如实记下**：从低分辨率截图我怀疑"右上角图标按钮没居中"，
+**实测 `centerOffset = {dx:0, dy:-0.6}`**（36×36，`justify-content: center`）⇒ **它本来是居中的**。
+截图看走眼 —— 所以这类结论必须量，不能靠看。
+
 #### T3 完成记录（2026-10-13）
 
 | 项 | 实测结果 |
@@ -206,8 +247,63 @@
 
 **⚠️ 人工核对（自动测不到）**：确认弹窗的 **ESC 关闭 / 焦点落位** —— 要走到"有检索结果"才会出现，
 而检索需要 ONNX 模型（`TODO.md` B-3）。`a11y.spec.mjs` 只覆盖到"空闲时不渲染"。
-⇒ ☐ **待办：人工 `npm run dev` 跑一次检索、点「取件」、按 ESC、确认焦点落在确认钮上**
+⇒ ☑ **已完成（2026-10-13）**：确认弹窗的 **ESC / 焦点落位 / 焦点归还**，**全部在真窗口里实测**。
+详见下方「T4 的 ESC / 焦点核对」。
 
+**2026-10-13 的一次尝试（未成功，但把解锁方法找到了）**：
+这条一直卡在"弹窗只在**有检索结果**时出现，而检索需要 ONNX 模型"。试了两条路：
+- ❌ **替换 `window.api`** —— 不可行。实测 `configurable:false / writable:false / frozen:true`
+  （contextBridge 的安全加固，**是特性不是障碍**，别去绕它）。
+- ✅ **在主进程的 `ipcMain.handle('engine:invoke')` 打桩**（`main/index.mjs:207`）—— **这条路是通的**，
+  而且它是**正确的缝**：替换的只是"要 300MB 模型的引擎"，渲染进程侧全是真的
+  （真 preload → 真 IPC → 真 adapter → 真 store → 真 PhotoCard → 真 ConfirmDialog → 真 Radix）。
+  ⇒ **顺带解开一个更大的死结：结果区 UI 从此不依赖模型也能自动化。**
+
+已写成 `apps/desktop/e2e/confirm-dialog.spec.mjs`（6 条：弹前不发 IPC · 焦点陷阱 · ESC 不执行 ·
+取消不执行 + 焦点归还 · 确认恰好一次 · 连点只发一次）。
+✅ **6 条已全部调通并通过**，见下面的完成记录。
+
+#### ☑ T4 的 ESC / 焦点核对（2026-10-13，真窗口实测）
+
+**做法**：`apps/desktop/e2e/confirm-dialog.spec.mjs` 的 **E7-a…E7-f（6 条）**，在真 Electron 窗口里跑。
+关键解锁点：**在主进程的 `ipcMain.handle('engine:invoke')` 打桩**（`main/index.mjs:207`）——
+只把"要 300MB 模型的引擎"换掉，**渲染进程侧全是真的**（真 preload → 真 IPC → 真 adapter → 真 store
+→ 真 PhotoCard → 真 ConfirmDialog → 真 Radix）。⇒ **"结果区 UI"从此不依赖模型也能自动化。**
+
+| 断言 | 实测结果 |
+|---|---|
+| 点「取件」先弹确认框，**此刻零 `collect`** | ✅ E7-a |
+| **焦点陷阱**：打开后焦点落进弹窗；连按 6 次 Tab 焦点始终在弹窗内 | ✅ E7-b（实测落在 `BUTTON "取消"`） |
+| **ESC 关闭**，且此后**一个 `collect` 都没发** | ✅ E7-c |
+| 点「取消」不执行 + **焦点归还**给触发它的「取件」 | ✅ E7-d（实测归还给 `BUTTON "取件"`） |
+| **确认才执行**：`collect` 恰好一次，参数 `{libId:'L1',uids:['aaa111aaa111']}` | ✅ E7-e |
+| 连点两次确认只发一次（先清状态再执行） | ✅ E7-f |
+
+**⭐ 双向验证**：把 `onOpenChange` 注入成空操作（ESC 关不掉）⇒ **E7-c 变红**（`fail 1` / EXIT=1，
+报 `toHaveCount failed`）；还原 ⇒ 6 条全绿。⇒ **这条断言有牙**，不是摆设。
+
+**⚠️ 更正一处原验收措辞**：任务里写的是"焦点落在**确认钮**上"，**实测落在「取消」上** ——
+而且**这是对的**：破坏性操作的确认框，默认焦点应当停在**安全的那一侧**，
+误按 Enter 不该把文件搬走（macOS HIG 的破坏性确认惯例）。**别"顺手改成落在确认钮上"。**
+
+**⭐ 核对过程又抓出一个真缺陷（已修）**：点「取消」关闭后，`document.activeElement` 是 **`BODY`** ——
+**焦点没归还**，键盘/读屏用户会"迷路"（下一个 Tab 从页面开头重新开始）。
+根因：`ConfirmDialog` 用的是**受控 `open`**，那个「取件」按钮**不是 `AlertDialog.Trigger`**
+⇒ Radix 内部没有 trigger 可归还（原文件里"Radix 会归还焦点"那句注释是**错的**，已改）。
+修法：`onOpenAutoFocus` 记下来源 + `onCloseAutoFocus` 里 `preventDefault()` 后显式 `focus()`。
+⚠️ **必须在 `onOpenAutoFocus` 采样，不能用 `useEffect(…, [open])`** —— React 的 effect 是**子先父后**，
+`Content` 的挂载 effect 已经把焦点移到「取消」了，父组件再读 `activeElement` 抓到的是**弹窗里那个按钮**，
+关闭时它已卸载 ⇒ 不还。这个坑第一次改**就是这么错的**（E7-d 仍然红）。
+
+**⚠️ 打桩自身的两个坑（都写在 spec 文件头，别再踩）**：
+① **桩必须回答"启动期"方法**（`libraryConfig` / `indexStatus`），不能对未知方法一律回 `{}` ——
+   第一版就是这么写的，`LibraryGate` 拿到空 data ⇒ `decideGate()` 判成 `wizard` ⇒ 显示首启向导、
+   **压根没有输入框** ⇒ 6 条全卡在 `locator.fill` 超时，**症状伪装成"选择器不对"**。
+② **装桩后必须 `reload()`** —— `firstWindow()` 只等 `domcontentloaded`（`helpers/launch.mjs:58`），
+   React 还没挂载，启动调用会**竞态**落到桩上。reload 之后应用是"对着桩"完成启动的，时序才确定。
+
+**⚠️ 打桩的边界（别读成"什么都测了"）**：它替换的是**引擎语义**，被绕过的包括 zod 参数校验、
+1 MiB 载荷上限、真实 engine 的错误码 —— 那些由 `permissions.test.mjs`(13 条) 与引擎单测覆盖。
 **⚠️ 环境限制（新遇到，已记录）**：本轮起 `npm run build` 出现
 `[vite:esbuild-transpile] remove ...Temp\esbuild-...: Access is denied`（esbuild 删不掉系统 Temp 里的临时文件）。
 **绕法**：把 `TEMP`/`TMP` 指到工作区内（如 `data/_esbuild-tmp`）后 EXIT=0。
@@ -218,11 +314,12 @@
 
 | # | 项 | 现状 / 证据 | 状态 |
 |---|---|---|---|
-| B-2-1 | ~~**多页路由**~~ | ✅ **已完成（2026-10-13 T2）**：hash 路由 3 条（`/` · `/item/:libId/:uid` · `/tasks`）· 侧栏「索引任务」可点 · 未知 hash 回搜索页。⚠️ 真实导航仍需人工 `npm run dev` 确认 | ☑ 已完成 |
+| B-2-1 | ~~**多页路由**~~ | ✅ **已完成（2026-10-13 T2；同日扩到 4 条）**：hash 路由 **4** 条（`/` · `/item/:libId/:uid` · `/tasks` · **`/activity`**）· 侧栏「索引任务」**与「操作记录」**都可点 · 未知 hash 回搜索页。✅ 真实导航由 **E2 + E6 + E11-a**（真窗口）覆盖，且 2026-10-13 人工核对过一轮 | ☑ 已完成 |
 | B-2-2 | **D8 多库注册表未持久化** | 只有「从配置派生单库」（`packages/engine/src/library.mjs`）；真正的多库注册表是 **P5**，**无任何持久化** | ☐ 未开工 |
-| B-2-3 | **四个契约方法未实现** | `ingest` / `mutate` / `indexStart` / `indexCancel` 由主进程**显式拒绝**（P4/P5 欠账）。契约形状已冻结 → `docs/spec/CONTRACT-engine-v1.md` §2.5–§2.10 | ☐ 未开工 |
-| B-2-4 | **P3c / P3d 两个页面** | 断点所在（见 `docs/plan/ROADMAP.md` §0「下一步」） | ☐ 未开工 |
+| B-2-3 | **未实现的契约方法** | 现在**只有一处清单**：`packages/engine/src/engine.mjs` 的 **`UNIMPLEMENTED_METHODS`** = `ingest` · `mutate` · `transactions` · `indexStart` · `indexCancel` · `indexResume`（主进程直接 import，统一返回「这个功能还没做好。」）。契约形状已冻结 → `docs/spec/CONTRACT-engine-v1.md` §2.0/§2.12。<br>⚠️ **注意方法数从"四个"变成了"六个"**：P3d 实现过程中补了 `transactions`（契约 §2.11）与 `indexResume` 的白名单登记 —— 它们**在此之前连"被拒绝"都算不上**（`indexResume` 会被当成"未登记的方法"）。 | ☐ 未开工（P4/P5） |
+| B-2-4 | ~~**P3c / P3d 两个页面**~~ | ✅ **已完成（2026-10-13）**：`pages/ItemPage.jsx`（P3c）· `pages/TasksPage.jsx` + `pages/ActivityPage.jsx`（P3d）。<br>**前置**：契约 §8 的**模拟模式**此前完全缺失 ⇒ P3c/P3d 的验收本不可复跑，同日补齐（`fixtures/sample-index.json` + `fake.mjs` + `GEMMA_FAKE=1`）。<br>**证据**：E2E **E8**(6) + **E9**(6) + **E10**(6) + **E11**(6)；单测 `item-actions`(10) · `task-store`(13) · 引擎 `fake`(22)。<br>⚠️ **如实标注两处未验**：① 「取消在边界生效」与「ETA 误差 <30%」是在**模拟模式**下验的，真实 `indexStart` 未接线；② 详情页的「重新编码这一条」「替换预览图」两个按钮**契约里没有对应方法** ⇒ 禁用并写明原因（不是坏掉）。 | ☑ 已完成 |
 | B-2-5 | **未接线的依赖** | `@tanstack/react-virtual`（浏览整库 3594 条时需要）· `lucide-react` 等 —— 见 B-1 的"依赖清账" | ☐ 随 `task-20` |
+| B-2-6 | **P3c/P3d 用到的三条新契约面**（2026-10-13 新增，**均已进契约文档**） | ① `itemPaths`（§2.2a，只读；P3c 的"两条绝对路径"）② `transactions`（§2.11，只读；操作记录的数据源，依据 `SPEC-transactions.md:229`）③ `mutate` 的 `uid` 对 `undo` 放宽为可选（§2.7）。<br>三条都是 **§9.1 口径的兼容改动**（新增 / 放宽）。⚠️ **真实模式实现仍未接线**（除 `itemPaths`：它已真实现）。 | ☐ 实现待 P4/P5 |
 
 ### B-3 未验证的能力（**不得声称可用**）
 
@@ -233,8 +330,33 @@
 | B-3-3 | **真实 `thumb://` 取图** | 守卫只在**假 `electron`** 下验证过逻辑；真实协议取图未测 |
 | B-3-4 | **真 Electron 窗口行为** | ⚠️ **部分已实测（2026-10-13，Playwright E2E）**：✅ `window.open` **真被 deny**（返回 null、无第二窗口 —— `window-security.spec.mjs` E3-a）· ✅ 外部导航**真被拦**（URL 不变 + 渲染层仍活 —— E3-b）· ✅ `process`/`require`/`module` 在真窗口里全 `undefined`（`smoke.spec.mjs` E0）· ✅ 出窗与界面渲染（E0/E1）。❌ **仍未实测**：iframe 内调 `invoke` 是否真被拒（E2E 里可造 iframe，尚未做）· 真实 `thumb://` 取图 |
 | B-3-5 | **受限沙箱内的 `npm run build`** | 在 agent 沙箱里是 `spawn EPERM`（esbuild 常驻服务）⇒ 需提权；**这是环境限制，不是配置问题** |
+| B-3-6 | **模拟模式的真实边界（2026-10-13 新增，务必别含糊）** | `GEMMA_FAKE=1` 下 E8–E11 证明的是「**接线通 + 界面能渲染全部状态**」，**不是**检索质量、**不是**编码正确性。假进度、假事务、假路径都来自 `fixtures/sample-index.json`。凡引用 E8–E11 的结论，都要同时说明这一点。 |
+| B-3-7 | **取消"边界生效"与 ETA 精度** | 在**模拟模式**下验过（E10-d：取消后 `done` 停在中途、`< 30`）；**真实 `indexStart` 未接线** ⇒ 真机上的取消延迟与 ETA 误差**仍未实测**（ROADMAP 写的是"误差 <30%"、"最多 2 s 收尾"）。 |
 
-### B-4 验证能力缺口（2026-10-13 移除 6 个守卫的后果 —— **同日已部分恢复**）
+### B-5 门禁自身的可靠性（2026-10-13 —— **已定位并修复，但教训要留**）
+
+> ⚠️ **为什么单独立一节**：这一节记的不是产品缺陷，而是**门禁自己曾经不可靠**。
+> 它必须显式记下来 —— 否则下一个人看到"56 passed"会以为它是确定性的，
+> 而看到一次红又会误判成产品回归。
+
+#### B-5-1 · `npm run e2e` 全套偶发单条失败 → **已定位：是断言写错，不是 flake**
+
+| 项 | 内容 |
+|---|---|
+| **现象** | 全套（2.4 分钟 / 约 60 次 Electron 起停）里 `tasks.spec.mjs` 的 **E10-f** 挂；**单独跑该文件、或单独跑那条用例都通过**。观察到的故障率约 **2/3**。 |
+| **真因**（终于拿到原始输出） | `Error: strict mode violation: getByText(/这个功能还没做好/) resolved to 2 elements`：<br>① 我写的**空态提示文案里抄了引擎那句原文**；② toast 出现后，同一句话在页面上有了**两个**元素。<br>⇒ 负载高时 toast 先挂上 ⇒ 匹配到 2 个 ⇒ **报错**；负载低时 toast 还没挂上 ⇒ 只匹配到那段提示 ⇒ **断言假绿**。<br>**所以这条断言从来没有真正验过 toast**，而它"偶发变红"其实是唯一一次说了实话。 |
+| **修复** | ① `pages/TasksPage.jsx`：空态文案**不再抄引擎原文**，也不再列"哪几个方法没实现"（那是会漂移的清单；界面靠"点一下看引擎怎么答"）；<br>② `e2e/tasks.spec.mjs`：靶子改成唯一的 **`#toast`**（`ui/Toast.jsx` 的 id，始终在 DOM 里）并用 `toContainText`（不依赖 `show` 类对应的 CSS）；<br>③ 加一条**回归断言**：空态提示**不许**包含那句原文。 |
+| **验证** | **双向**：把旧文案注回去 ⇒ E10-f **红**在回归断言上（`Expected substring: not "这个功能还没做好"`）；还原 ⇒ 通过。<br>**重复性**：全套**连跑两次 = 56 passed / 56 passed**（此前 2/3 会挂）。 |
+| **状态** | ☑ 已修 |
+
+#### B-5-2 · 通用教训（写给下一个人，也写给未来的我）
+
+| # | 教训 | 判据 |
+|---|---|---|
+| a | **断言的靶子必须唯一** | 用 `getByText(一段话)` 之前先问："这句话在页面上只可能出现在一处吗？" —— 否则不是 strict 报错、就是**匹配到别的东西而假绿**。优先用 `data-testid` / 稳定的 id / role。 |
+| b | **"界面文案"与"引擎文案"不许重复** | 界面里**硬编码**引擎会说的一句话，既造出第二个事实来源（P1，会漂移），又会让基于那句话的断言歧义。**让用户点一下看引擎怎么答**就够了。 |
+| c | **"偶发失败"先当 bug 查，别当噪音** | 这条故障被"单独跑能过"掩盖了三轮。**拿到完整的错误块**（而不是 grep 一行）才看见真因 —— `strict mode violation` 那几个字一直在输出里。 |
+| d | **不许用 `retries` 把它盖住** | 重试会让 flake 静默消失，与本仓库"断言必须能红"的口径直接冲突。 |
 
 > ⚠️ **先读这段**：下表是**移除当时**的缺口清单。**同一天又接入了 Playwright（`npm run e2e`，13 条）**，
 > 把**渲染层与真窗口那一层**补了回来（而且比原来强：原来 `verify_main_wiring` 用的是**假 `electron`**）。
@@ -273,6 +395,11 @@
 | C-4 | **F-04 · 取件白名单为空** —— `collect.dirs` 曾恒为 `{}` | 见 A-3（改硬编码时**别让它变空**） | 同上 12 条 |
 | C-5 | **R-3 · `band` 原型键** —— `bandOf` 曾用 `BANDS[mode]`，`mode='toString'` 会命中原型 | 动 `engine.mjs` 的 `bandOf` | 引擎单测（`Object.hasOwn`） |
 | C-6 | **`thumb://` 状态码映射** —— 曾把"形状错"也返回 404，§3 要求 **400** | 动 `thumb-url.mjs` 的 `thumbFailureStatus` | `apps/desktop/tests/permissions.test.mjs`「S6」 |
+| C-7 ⭐⭐ | **共享扫描器"模板插值之后整段失明"**（2026-10-13 修）—— `source-scan.mjs` 处理完模板串的 `${...}` 后 `continue` 回**主循环**、没回模板串，于是收尾反引号被当成新模板的起始，一路吞到文件尾。<br>**后果双向**：① **假阴**（危险方向）—— `SearchPage.jsx:55+` / `TasksPage.jsx:76+` 等区域被整段抹成空格，基于它的 **L1–L7 / T1–T6 断言在那些地方恒为真**（剧场）；② **假阳** —— 注释里的反引号内容会漏出来再匹配一次（L6 曾被自己的注释绊倒）。 | 动 `apps/desktop/tests/helpers/source-scan.mjs` 的 `scanCore`（**任何**注释/字符串/模板/正则的扫描逻辑） | `source-scan.test.mjs` 的 **S13/S14/S16**（三条一起，双向验证过：注回旧缺陷 ⇒ 三条同时红） |
+| C-8 ⭐ | **"哪些方法没实现"曾有两份清单** —— 主进程手写 `missing` 数组、引擎里逐段手抄 6 个方法（P1+P2） | 加/改未实现的契约方法时 | `packages/engine/src/engine.mjs` 的 **`UNIMPLEMENTED_METHODS`**（唯一来源，主进程 import）· `fake.test.mjs` **F17**（断言假套件里每个都接上了） |
+| C-9 ⭐ | **`mutate` 的 `uid` 曾对 `undo` 也必填** —— 而契约 §2.7 写明 undo 由 `params.txId` 定位 ⇒ 操作记录页的「回退」被 `BAD_REQUEST` 拦掉、状态不变（E11-d 抓到） | 动 `shared/ipc.ts` 的 `mutate` schema | `permissions.test.mjs` **S15**（**双向都断言**：undo 不该要 uid、其余 op 必须带。两个方向各注入一次都验过会红） |
+| C-10 ⭐ | **L6 的判据曾太松** —— 旧正则"同一行里有 `\|\|` 就算"，把 `show(r.ok ? \`…${OP_TEXT[tx.op] \|\| tx.op}\` : r.error.userMessage)` 误判成文案兜底。假阳性的代价是逼人不敢写注释、不敢同行用 `\|\|`，最后检查会被关掉 | 动 `layering.test.mjs` 的 `USERMSG_FALLBACK` | `layering.test.mjs` **L6b**（真兜底抓到 / 同行无关的 `\|\|` 放过 / 注释里的不算） |
+| C-11 ⭐ | **两个"剧场断言"（自证伪）** —— ① `T2`（`done` 单调不减）原先断的是**最终值**，而"最后一条事件胜出"本来就会给出那个值 ⇒ **拆掉守卫照样通过**；② 我第一版给 `mockComments` 写的 S13/S14 用的是 `colors()`（保留字符串内容）⇒ 失步在它眼里**看不见**。**两次都是"注入缺陷 → 没变红"才发现的。** | 写任何新断言时 | 已修正：`T2` 改断**中间态**；`S13/S14` 改断在 `maskNonCode` 上。**教训：新断言必须做一次"拆掉防线"的验证** |
 
 ---
 

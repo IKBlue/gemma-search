@@ -1,6 +1,6 @@
 // Button —— 按钮原语（shadcn/ui 的 `cva` 写法）
 //
-// ⚠️ 2026-10-13（T3 迁到 Tailwind；T4 改成 `cva` + `cn()`）。两点必须知道：
+// ⚠️ 2026-10-13（T3 迁到 Tailwind；T4 改成 `cva` + `cn()`；同日 `asChild` —— 见下）。三点必须知道：
 //
 // ① **类名里的数字不是"随便挑的"** —— Tailwind 的数值档与设计令牌**恒等**：
 //    `styles/tailwind.css` 里 `--spacing: var(--space-1)` ⇒ `N` 档 = `calc(var(--space-1) * N)` = 4px×N。
@@ -14,10 +14,17 @@
 //    （结果卡里的"定位"按钮）。用后代选择器表达"某容器里的按钮长这样"正是迁移要消灭的东西 ——
 //    它让按钮的样子取决于**它在哪**，而不是**它是什么**。
 //
-// ③ **`cva` 而不是手写三元**（2026-10-13 T4）：变体是**声明式**的，新增变体只改一处；
-//    而且 `cn()`（clsx + tailwind-merge）会**按冲突组消解**，所以 `className` 永远能覆盖默认样式 ——
-//    这点比手写拼接可靠（手写拼接时两个同组工具类会同时留下，谁赢取决于 CSS 顺序）。
+// ③ ⭐ **`asChild`：把按钮样式用在别的东西上（尤其 `<Link>`）—— 这是必须的，不是便利**
+//    没有它，想让一个链接长得像按钮就只能写成 `<Button><Link>…</Link></Button>`，
+//    而那会产出 **`<a>` 嵌在 `<button>` 里**：
+//      · **HTML 规范禁止**（交互内容不得嵌套交互内容）
+//      · 可访问性坏掉：变成两个可聚焦元素，读屏会念成"按钮里有个链接"
+//      · 视觉坏掉：图标按钮的内容不居中（T2 的 ItemPage/TasksPage 真出过这个问题，截图可见）
+//    `asChild` 用 Radix 的 `Slot` **把 props 与 className 合并到子元素上** ⇒ 最终只渲染一个
+//    `<a href="#/...">`，带着按钮的类名。语义正确、可聚焦元素只有一个、样式不走样。
+//    ⚠️ `Slot` 要求子元素**恰好一个**（且能接受 className/ref）。
 import { cva } from 'class-variance-authority'
+import { Slot } from '@radix-ui/react-slot'
 
 import { cn } from './cn.js'
 
@@ -46,13 +53,19 @@ export default function Button({
   className,
   type = 'button',
   block = false,
+  asChild = false,
   children,
   ...rest
 }) {
   // icon 变体自带尺寸，忽略 size（显式表达，别靠"后面的类覆盖前面的"）
   const resolvedSize = variant === 'icon' ? 'none' : size
+  const cls = cn(button({ variant, size: resolvedSize, block }), className)
+
+  if (asChild) {
+    return <Slot className={cls} {...rest}>{children}</Slot>
+  }
   return (
-    <button type={type} className={cn(button({ variant, size: resolvedSize, block }), className)} {...rest}>
+    <button type={type} className={cls} {...rest}>
       {children}
     </button>
   )

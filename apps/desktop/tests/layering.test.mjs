@@ -111,13 +111,46 @@ test('L5 Adapter 不 import React（纯传输层，这样才能被 node:test 直
 
 // ============================================================ 规则 6：没有第二份"文案兜底"
 
+/**
+ * "userMessage 的兜底"判据。**只抓紧邻的** `||` / `??`。
+ *
+ * ⚠️ **2026-10-13 收紧过一次，原因是它误报了我自己的代码**：
+ *   旧判据是 `/userMessage[^\n]*\|\||\|\|[^\n]*userMessage/` —— **同一行里只要出现过 `||` 就算**，
+ *   于是这行被误判：
+ *     `show(r.ok ? \`已重试 ${OP_TEXT[tx.op] || tx.op}\` : r.error.userMessage, …)`
+ *   那个 `||` 是**模板串里选个显示名**，跟文案兜底毫无关系。
+ *   假阳性的代价是真实的：它会逼人**不敢写注释、不敢在同一行用 `||`**，
+ *   最后这条检查会被人关掉。所以收紧成"运算符必须紧挨着 userMessage"。
+ *
+ * ✅ 两个方向都断言（见 L6b）：真的兜底要抓到，同行的无关 `||` 要放过。
+ */
+const USERMSG_FALLBACK = /userMessage\s*(\|\||\?\?)|(\|\||\?\?)\s*[\w.?[\]]*userMessage/g
+
 test('L6 ⭐ 用户文案兜底只允许在 Adapter 里出现一次（P2 的机械判据）', () => {
   const files = allFiles()
-  // `xxx.userMessage || 默认文案` / `|| xxx.userMessage` —— 这类兜底复制到第二个文件就是 P2
-  const bad = offenders(files, /userMessage[^\n]*\|\||\|\|[^\n]*userMessage/g)
+  const bad = offenders(files, USERMSG_FALLBACK)
     .filter((h) => !h.startsWith(ADAPTER_DIR + '/'))
   assert.deepEqual(bad, [],
-    `兜底文案（userMessage 的 \`||\` 兜底）只该在 adapter/api.js 里出现一次：\n    ${bad.join('\n    ')}`)
+    `兜底文案（userMessage 的 \`||\` / \`??\` 兜底）只该在 adapter/api.js 里出现一次：\n    ${bad.join('\n    ')}`)
+})
+
+test('L6b ⭐⭐ 判据本身要准：真兜底抓到、同行无关的 `||` 放过（否则会逼人不写注释）', () => {
+  const hits = (src) => findInCode(src, USERMSG_FALLBACK).length
+
+  // ① 真兜底（两种方向 + `??` 形态）—— 必须抓到
+  assert.equal(hits("const m = e.userMessage || '默认'\n"), 1, '`userMessage || 默认` 是典型兜底')
+  assert.equal(hits("const m = '默认' || e.userMessage\n"), 1, '反向写法同样是兜底')
+  assert.equal(hits("const m = e.userMessage ?? '默认'\n"), 1, '`??` 也是兜底')
+  assert.equal(hits("show(res.error.userMessage || res.error.message)\n"), 1, '链式取属性也要抓到')
+
+  // ② 同行但**无关**的 `||` —— 必须放过（旧判据在这里误报，实测踩过）
+  assert.equal(hits('show(r.ok ? `已重试 ${OP_TEXT[tx.op] || tx.op}` : r.error.userMessage, tone)\n'), 0,
+    '模板串里选显示名的 `||` 与文案兜底无关')
+  assert.equal(hits('const label = a || b; const msg = e.userMessage;\n'), 0,
+    '分开的两个表达式不该被算成兜底')
+
+  // ③ 注释里的不算（扫描器负责）
+  assert.equal(hits("// 别写 `userMessage || 默认`\nconst a = 1\n"), 0)
 })
 
 // ============================================================ 反向自证：检查必须能红

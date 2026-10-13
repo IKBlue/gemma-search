@@ -228,3 +228,29 @@ PREPARED ──→ STAGED ──→ VERIFIED ──→ COMMITTED ──→ CLEAN
   （用一条单测/静态检查守住这条：搜 `unlink`/`rename` 只允许出现在 `packages/engine/src/transactions/` 目录内 —— 该目录尚未创建。）
 - `mutate()` 返回事务 id；界面据 id 查询状态、显示进度、提供撤销入口。
 - 事务**永不**部分成功返回"成功"：返回值只有 `committed` / `aborted` / `recovery_needed`。
+
+### 9.1 界面查询状态的那条路：✅ 已补上（2026-10-13）
+
+上面第 2 条要求「界面**据 id 查询状态**」，但契约里此前**没有任何**列/查事务的方法
+⇒ 「操作记录」页（P3d）**没有数据源**。现已补一个只读方法：
+
+```jsonc
+// CONTRACT-engine-v1.md §2.11
+{ "libId": "L1", "txId": "tx-2f9c", "limit": 50 }   // 三者都可选
+// data
+{ "transactions": [ { "txId", "libId", "op", "state", "startedAt", "finishedAt",
+                      "canUndo", "canRollback", "summary", "changes": [...] } ],
+  "blocked": false }
+```
+
+- `state === 'recovery_needed'` 的行就是本文 §4 说的「待处理」，界面按
+  「**重试 / 回退 / 保持现状**」三条路走（`UI-REVIEW-and-migration.md:250`）；
+- `canUndo` / `canRollback` 决定「回退」可不可点 —— **不可回退时必须提示"手动处理"**，
+  不许给一个点了没用的按钮（本文 §7 的保留期判定就是它的来源）；
+- `blocked === true` 表示"有未收尾事务"，此时**任何写方法都会被 `RECOVERY_NEEDED` 挡住**（§5 场景 3）。
+
+**实现状态**：**真实模式未接线**（如实返回 `INTERNAL`，不返回空数组假装"没有事务"）；
+**模拟模式下可完整演示**（`fixtures/sample-index.json` 的 `transactions` + `GEMMA_FAKE=1`）。
+用例：`packages/engine/tests/fake.test.mjs` **F14–F17** · `apps/desktop/e2e/activity.spec.mjs` **E11-a…E11-f**。
+
+⚠️ 本文 §8 的**故障注入测试**是"实现该模块时的硬门禁"，**当前仍未执行** —— 因为模块本身还没实现。

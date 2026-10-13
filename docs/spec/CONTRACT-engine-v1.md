@@ -96,19 +96,25 @@
 > 下表 `req` / `data` 都是 JSON 形状。**zod schema 是唯一来源**（`apps/desktop/src/shared/ipc.ts`：方法白名单 + 逐方法 `.strict()` 校验 + 载荷上限）。
 > TS 类型是**计划中**的：当前 `tsconfig*.json` 的 `checkJs: false`，**没有 typecheck 门禁**。
 
-### 2.0 实现状态（2026-10-12 · 与契约的对齐说明）
+### 2.0 实现状态（2026-10-13 更新 · 与契约的对齐说明）
 
 契约**冻结形状**与实现**尚未接线**可以并存，但必须有一处写明现状 —— 就是本节。
 
 | 方法 | 契约 | 实现 |
 |---|---|---|
 | `search` · `item` · `thumbPath` · `scan` · `indexStatus` | 已冻结 | ✅ 已实现 |
+| `itemPaths`（§2.2a，**新**） | 已冻结 | ✅ 已实现 |
 | `reveal` | 已冻结（§2.4 含 `shell` 注入的现行要求） | ✅ **已接线**（F-01 已修，2026-10-12，见 §2.4） |
 | `collect` | 已冻结 | ⚠️ 库根配置缺口下默认必失败（见 §2.5） |
-| `ingest` · `mutate` · `indexStart` · `indexCancel` | **冻结形状**（先定形状，界面可并行开发） | ❌ 主进程**显式拒绝**：返回 `{ code: "INTERNAL", userMessage: "这个功能还没做好。", details: { method } }`，不是静默无反应 |
+| `transactions`（§2.11，**新**） | 已冻结 | ❌ 真实模式未接线 → 见 §2.12；**模拟模式下可完整演示** |
+| `ingest` · `mutate` · `indexStart` · `indexCancel` · `indexResume` | **冻结形状**（先定形状，界面可并行开发） | ❌ 真实模式未接线 → 见 §2.12 |
 
 > 这是**有意的诚实降级**：未实现的方法给出明确错误 + 明确文案，用户看得到「这个功能还没做好」。
-> 相关清单在 `apps/desktop/src/main/index.mjs`（`missing` 数组，与 §2.5–§2.10 对应）与 `apps/desktop/src/shared/ipc.ts`（方法白名单）。
+>
+> ⚠️ **2026-10-13 收敛**：这份"哪些没实现"的清单原先在**主进程手写一份**
+> （`missing` 数组）、引擎里再逐段写一遍 —— 两处会漂移（P1）。现在**只有一处**：
+> 引擎导出的 **`UNIMPLEMENTED_METHODS`**（§2.12），主进程直接 import 它。
+> ⇒ **本节表格若与那份清单不一致，以代码为准并回来改本表。**
 
 ### 2.1 `search`
 
@@ -155,6 +161,32 @@
   "archive": { "relPath": "…", "ext": ".rar", "size": 8911028, "mtime": 1760000000000 } | null,
   "exists": { "image": true, "archive": true } }
 ```
+
+### 2.2a `itemPaths`（**2026-10-13 新增**，只读）
+
+```jsonc
+// req
+{ "libId": "L1", "uid": "ab12cd34ef56" }
+// data —— 只要**绝对路径**（两条都可能为 null：文件不在了 / 本来就没有包）
+{ "libId": "L1", "uid": "…",
+  "imagePath": "Z:\\lib\\VR\\ID-x.jpg" | null,
+  "archivePath": "Z:\\lib\\VR\\ID-x.rar" | null,
+  "exists": { "image": true, "archive": true } }
+```
+
+**为什么要单独一个方法，而不是把两个字段加进 §2.2 的 `item`**（2026-10-13 所有者决定）：
+
+- `item` 的语义是「**索引元数据 + 磁盘实况**」，返回的是**相对**路径；界面的 99% 用途只需要这些。
+- 绝对路径是**另一种东西**：它把库的物理布局交出去。`engine.mjs` 里 `absPathFor` 原来的注释写着
+  「刻意不经 IPC 暴露」—— 而 P3c 的验收明确要求「元数据里显示**两条绝对路径**」，两者直接冲突。
+- 解法不是把字段塞进 `item`（那会让**每一次取元数据都顺带交出路径**），而是**一个语义明确的只读方法**：
+  谁要路径谁调它，暴露面收在明处、可审计。与 §2.3 `thumbPath` 同一条思路。
+
+**§9.1 兼容性**：**新增**方法 = 兼容（既有调用不受影响）。方法总数 13 → 15（+`itemPaths`，+`indexResume` 见 §2.10）。
+
+**用例**：`packages/engine/tests/fake.test.mjs` **F3/F12**（`item` **不含**绝对路径 + 两者字段集合）·
+`apps/desktop/e2e/item-detail.spec.mjs` **E9-a**（真窗口里断言两条绝对路径的具体值）·
+`apps/desktop/e2e/fake-mode.spec.mjs` **E8-e**。
 
 ### 2.3 `thumbPath`
 
@@ -240,6 +272,12 @@
   "params": { } }
 ```
 
+⚠️ **`uid` 对 `undo` 是「可选」的（2026-10-13 更正）**：下表写明 `undo` = 撤销**指定事务**，
+由 `params.txId` 定位 ⇒ `uid` 对它**没有意义**。此前 schema 把它写死成必填，调用方只能瞎塞一个，
+否则连"撤销"都发不出去（实测：操作记录页的「回退」被 `BAD_REQUEST` 拦掉、状态不变，E2E `E11-d` 抓到）。
+现在 `uid` 可省略，但**除 `undo` 外仍然必填**（`shared/ipc.ts` 的 `superRefine`）。
+这是**放宽**（原先合法的调用照旧合法）⇒ §9.1 口径的兼容改动；用例见 `permissions.test.mjs` **S15**（双向验证过）。
+
 | op | 语义 | 需重编码 | 可撤销 |
 |---|---|---|---|
 | `rename` | 改主干名（图与包同步） | 否（uid 不变，relPath 变） | ✅ |
@@ -283,6 +321,57 @@
 ```
 返回 `jobId` 后**进度经事件流推送**（§3），不轮询。
 `indexCancel { jobId }` → `{ "cancelled": true }`；`indexResume { jobId }` 复用已编码行（按 `compat` 判定）。
+
+⚠️ **2026-10-13 补记（实现与文档漂移）**：`indexResume` 在本文档里一直有，
+但 `shared/ipc.ts` 的 zod 白名单**漏了它** ⇒ 调用会被当成「未登记的方法」直接拒绝。
+P3d 要用它（续跑）时才发现，已补进白名单。**教训**：契约文档与白名单是两份东西，
+加方法时**两边都要动**（`AGENTS.md` §3「契约 / 新 IPC 方法」那一行写的就是这件事）。
+
+### 2.11 `transactions`（**2026-10-13 新增**，只读）
+
+```jsonc
+// req —— 三者都可选：默认"列最近 50 条"
+{ "libId": "L1", "txId": "tx-2f9c", "limit": 50 }   // limit ∈ [1,200]
+// data
+{ "transactions": [ {
+    "txId": "tx-2f9c", "libId": "L1", "op": "moveOutOfLibrary",
+    "state": "committed" | "undone" | "aborted" | "recovery_needed" | …,
+    "startedAt": 1760003000000, "finishedAt": null,
+    "canUndo": true, "canRollback": true,
+    "summary": "移出 1 件：跨卷复制未完成", "changes": [ { "uid": "…", "relPath": "…", "kind": "move" } ]
+  } ],
+  "blocked": false }   // ← true 表示"有未收尾事务"，此时**任何写方法都会被 RECOVERY_NEEDED 挡住**
+```
+
+**依据**：`docs/spec/SPEC-transactions.md:229`——「`mutate()` 返回事务 id；**界面据 id 查询状态**、
+显示进度、提供撤销入口」。而契约里此前**没有任何**列/查事务的方法 ⇒ 操作记录页没有数据源。
+补上这一个（与 §2.2a `itemPaths` 同口径：要什么就给一个语义明确的只读方法）。
+
+**界面怎么用**：
+- `state === 'recovery_needed'` 的行 = 「待处理」，按 §5 给「**重试 / 回退 / 保持现状**」三条路
+  （`UI-REVIEW-and-migration.md:250`）；
+- `canUndo` / `canRollback` 决定「回退」按钮可不可点——**不可回退的要提示"需要手动处理"**，
+  不许给一个点了没用的按钮（§5）；
+- `blocked` 用来把「待处理」提到显眼处（`SPEC-transactions.md:141`）。
+
+**为什么 `changes` 里带 `uid`**：回退（`mutate{op:'undo'}`）不需要 uid，但**重试**要用原 op 重放，
+界面得知道这条事务动了哪些素材。字段是**新增**⇒ §9.1 兼容。
+
+**用例**：`packages/engine/tests/fake.test.mjs` **F14/F15/F15b/F15c/F16/F17** ·
+`apps/desktop/e2e/activity.spec.mjs` **E11-a…E11-f** · `permissions.test.mjs` **S16**。
+
+### 2.12 未实现方法的**唯一清单**
+
+`packages/engine/src/engine.mjs` 导出 `UNIMPLEMENTED_METHODS`
+（当前 = `ingest` · `mutate` · `transactions` · `indexStart` · `indexCancel` · `indexResume`）。
+
+- **形状已冻结、真实实现未接线**：真实模式下这些方法如实返回 `INTERNAL`（**绝不假装成功**）；
+- **主进程也读这份清单**（`apps/desktop/src/main/index.mjs`），在进引擎前拒绝并给出
+  更明确的用户文案「这个功能还没做好。」；
+- **模拟模式**（§8）下不拒绝，由 `fake.mjs` 提供假实现。
+
+⚠️ 这份清单**全仓只有一处定义**（原先主进程手写一份、引擎里逐段写一遍，两处会漂移 —— P1）。
+`fake.test.mjs` 的 **F17** 断言"假套件里每一个都接上了"，两边一旦漂移就红。
 
 ---
 
@@ -408,6 +497,37 @@
 
 **P3 的验收依赖它**：界面在 `fake:true` 下必须能演示全部状态（空、加载、无结果、无索引、
 索引损坏、`RECOVERY_NEEDED`、`COMPAT_MISMATCH`、部分成功）。
+
+### 8.1 实现状态：✅ **已落地（2026-10-13）**
+
+⚠️ **在此之前本节一直是"文档声称"而代码里没有** —— 引擎里零 `fake`、`fixtures/` 目录不存在。
+后果是 P3c/P3d 的验收只能"人工对着真库看"，而真库要 ONNX 模型 + 已注册索引
+（本环境跑不了）⇒ 那两页的验收**实际上无法复跑**。补上之后它们才变成可执行断言。
+
+| 件 | 位置 | 怎么开 |
+|---|---|---|
+| 样例索引（3 库 / 30 条，覆盖全部分支） | `fixtures/sample-index.json`（**仓库根**，契约指定的路径） | — |
+| 假套件（零真实 FS） | `packages/engine/src/fake.mjs` | `createEngine({ fake: { fixture } })` |
+| 主进程开关 | `apps/desktop/src/main/index.mjs`（读 `ROOT/fixtures/…` 并**注入**引擎） | `GEMMA_FAKE=1` |
+
+**演示分支实测清单**（`packages/engine/tests/fake.test.mjs` **F10** 钉住）：
+空（`__empty__`）· 加载 · 无结果 · 无索引 · **索引损坏**（L3）· **`COMPAT_MISMATCH`**（L2）·
+**`RECOVERY_NEEDED`** · 部分成功（失败清单）· 待重编码 · 已从索引移除 · GPU 回退 · BMP 回退档。
+
+**⚠️ 两条必须记住的边界**：
+
+1. **模拟模式证明的是"接线通、界面能渲染状态"，不是检索质量。** 真实检索质量与缩略图内容
+   仍然**未验证**（`TODO.md` B-3）—— 这条不能含糊。
+2. **夹具在渲染层读不到**：引擎的 `import.meta.url` 在打包后位于 `out/main/index.js`，
+   上溯三层会解到仓库外（实测：主进程**崩在建窗之前**，症状是"窗口永不出现"）。
+   ⇒ **由主进程读文件、把对象注入引擎**（它本来就持有 `ROOT`），这同时保住了引擎
+   "传输无关、依赖全部注入"的设计原则。
+
+**"假的必须与真的同形"**（否则页面在模拟模式能跑、在真库上拿到 `undefined`）：
+`fake.test.mjs` 的 **F12**（`item`/`itemPaths` 字段集合逐字比对）与 **F13**
+（`indexStatus.compat` 必须是 `COMPAT_FIELDS` 的 8 段竖线串）就是为此立的。
+⚠️ 这两条各自抓到过一次真分歧：我第一版给 `item` 多加了个 `indexState` 字段、
+给 `compat` 返回了一个词 `'fake'`。
 
 ---
 

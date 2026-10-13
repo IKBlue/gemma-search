@@ -1,0 +1,104 @@
+{
+  "_readme": [
+    "契约 CONTRACT-engine-v1.md §8 要求的那份样例索引（「P3 不等真实库」）。",
+    "用途：createEngine({ fake: true }) 的数据源。界面在 fake 模式下必须能演示**全部状态**：",
+    "  空 · 加载 · 无结果 · 无索引 · 索引损坏 · RECOVERY_NEEDED · COMPAT_MISMATCH · 部分成功。",
+    "⚠️ 这里所有路径都是**合成值**，且 fake 模式**绝不触碰真实文件系统** —— 见 fake.mjs 头注释。",
+    "⚠️ 别把本文件里的 root 换成真机路径（AGENTS.md §7）。"
+  ],
+  "root": "Z:\\__fake_library__",
+  "libs": [
+    { "libId": "L1", "label": "示例库", "dim": 768, "state": "healthy" },
+    { "libId": "L2", "label": "兼容性不符的库", "dim": 512, "state": "compat-mismatch" },
+    { "libId": "L3", "label": "索引损坏的库", "dim": null, "state": "corrupt" }
+  ],
+  "items": [
+    { "libId": "L1", "uid": "a00000000001", "relPath": "VR\\VR-101.jpg", "folder": "VR", "stem": "VR-101", "imageExt": ".jpg", "imageSize": 41233, "imageMtime": 1760000000000, "vectorSource": "native", "archiveRelPath": "VR\\VR-101.rar", "archiveExt": ".rar", "archiveSize": 8911028, "archiveMtime": 1759900000000, "vectorRow": 0 },
+    { "libId": "L1", "uid": "a00000000002", "relPath": "VR\\VR-102.jpg", "folder": "VR", "stem": "VR-102", "imageExt": ".jpg", "imageSize": 38400, "imageMtime": 1760000100000, "vectorSource": "native", "archiveRelPath": "VR\\VR-102.zip", "archiveExt": ".zip", "archiveSize": 4500000, "archiveMtime": 1759900100000, "vectorRow": 1 },
+    { "libId": "L1", "uid": "a00000000003", "relPath": "CR\\CR-201.png", "folder": "CR", "stem": "CR-201", "imageExt": ".png", "imageSize": 90012, "imageMtime": 1760000200000, "vectorSource": "native", "archiveRelPath": null, "archiveExt": null, "archiveSize": null, "archiveMtime": null, "vectorRow": 2 },
+    { "libId": "L1", "uid": "a00000000004", "relPath": "CR+VR\\CRVR-301.bmp", "folder": "CR+VR", "stem": "CRVR-301", "imageExt": ".bmp", "imageSize": 120000, "imageMtime": 1760000300000, "vectorSource": "bmp-fallback", "archiveRelPath": "CR+VR\\CRVR-301.7z", "archiveExt": ".7z", "archiveSize": 12000000, "archiveMtime": 1759900200000, "vectorRow": 3 },
+    { "libId": "L1", "uid": "a00000000005", "relPath": "其他\\MISC-401.jpeg", "folder": "其他", "stem": "MISC-401", "imageExt": ".jpeg", "imageSize": 51200, "imageMtime": 1760000400000, "vectorSource": "native", "archiveRelPath": "其他\\MISC-401.rar", "archiveExt": ".rar", "archiveSize": 30000000, "archiveMtime": 1759900300000, "vectorRow": 4 },
+    { "libId": "L1", "uid": "a00000000006", "relPath": "未分类\\NY-501.jpg", "folder": "未分类", "stem": "NY-501", "imageExt": ".jpg", "imageSize": 22000, "imageMtime": 1760000500000, "vectorSource": "native", "archiveRelPath": null, "archiveExt": null, "archiveSize": null, "archiveMtime": null, "vectorRow": 5 },
+    { "libId": "L1", "uid": "a00000000007", "relPath": "VR\\VR-103.jpg", "folder": "VR", "stem": "VR-103", "imageExt": ".jpg", "imageSize": 33100, "imageMtime": 1760000600000, "vectorSource": "native", "archiveRelPath": "VR\\VR-103.rar", "archiveExt": ".rar", "archiveSize": 2100000, "archiveMtime": 1759900400000, "vectorRow": 6 },
+    { "libId": "L1", "uid": "a00000000008", "relPath": "VR\\VR-104.jpg", "folder": "VR", "stem": "VR-104", "imageExt": ".jpg", "imageSize": 29800, "imageMtime": 1760000700000, "vectorSource": "native", "archiveRelPath": "VR\\VR-104.rar", "archiveExt": ".rar", "archiveSize": 1800000, "archiveMtime": 1759900500000, "vectorRow": 7 },
+    { "libId": "L1", "uid": "a00000000009", "relPath": "CR\\CR-202.jpg", "folder": "CR", "stem": "CR-202", "imageExt": ".jpg", "imageSize": 41000, "imageMtime": 1760000800000, "vectorSource": "native", "archiveRelPath": "CR\\CR-202.rar", "archiveExt": ".rar", "archiveSize": 6700000, "archiveMtime": 1759900600000, "vectorRow": 8 },
+    { "libId": "L1", "uid": "a0000000000a", "relPath": "CR\\CR-203.jpg", "folder": "CR", "stem": "CR-203", "imageExt": ".jpg", "imageSize": 37000, "imageMtime": 1760000900000, "vectorSource": "native", "archiveRelPath": null, "archiveExt": null, "archiveSize": null, "archiveMtime": null, "vectorRow": 9 },
+    { "libId": "L1", "uid": "a0000000000b", "relPath": "VR\\VR-105.jpg", "folder": "VR", "stem": "VR-105", "imageExt": ".jpg", "imageSize": 46000, "imageMtime": 1760001000000, "vectorSource": "native", "archiveRelPath": "VR\\VR-105.rar", "archiveExt": ".rar", "archiveSize": 33000000, "archiveMtime": 1759900700000, "vectorRow": 10 },
+    { "libId": "L1", "uid": "a0000000000c", "relPath": "CR+VR\\CRVR-302.jpg", "folder": "CR+VR", "stem": "CRVR-302", "imageExt": ".jpg", "imageSize": 52000, "imageMtime": 1760001100000, "vectorSource": "native", "archiveRelPath": "CR+VR\\CRVR-302.rar", "archiveExt": ".rar", "archiveSize": 8800000, "archiveMtime": 1759900800000, "vectorRow": 11 },
+    { "libId": "L1", "uid": "a0000000000d", "relPath": "其他\\MISC-402.jpg", "folder": "其他", "stem": "MISC-402", "imageExt": ".jpg", "imageSize": 19000, "imageMtime": 1760001200000, "vectorSource": "native", "archiveRelPath": null, "archiveExt": null, "archiveSize": null, "archiveMtime": null, "vectorRow": 12 },
+    { "libId": "L1", "uid": "a0000000000e", "relPath": "VR\\VR-106.jpg", "folder": "VR", "stem": "VR-106", "imageExt": ".jpg", "imageSize": 35500, "imageMtime": 1760001300000, "vectorSource": "native", "archiveRelPath": "VR\\VR-106.zip", "archiveExt": ".zip", "archiveSize": 2900000, "archiveMtime": 1759900900000, "vectorRow": 13 },
+    { "libId": "L1", "uid": "a0000000000f", "relPath": "CR\\CR-204.jpg", "folder": "CR", "stem": "CR-204", "imageExt": ".jpg", "imageSize": 40100, "imageMtime": 1760001400000, "vectorSource": "bmp-fallback", "archiveRelPath": "CR\\CR-204.rar", "archiveExt": ".rar", "archiveSize": 5100000, "archiveMtime": 1759901000000, "vectorRow": 14 },
+    { "libId": "L1", "uid": "a00000000010", "relPath": "VR\\VR-107.jpg", "folder": "VR", "stem": "VR-107", "imageExt": ".jpg", "imageSize": 27000, "imageMtime": 1760001500000, "vectorSource": "native", "archiveRelPath": "VR\\VR-107.rar", "archiveExt": ".rar", "archiveSize": 990000, "archiveMtime": 1759901100000, "vectorRow": 15 },
+    { "libId": "L1", "uid": "a00000000011", "relPath": "CR+VR\\CRVR-303.jpg", "folder": "CR+VR", "stem": "CRVR-303", "imageExt": ".jpg", "imageSize": 61000, "imageMtime": 1760001600000, "vectorSource": "native", "archiveRelPath": "CR+VR\\CRVR-303.rar", "archiveExt": ".rar", "archiveSize": 14100000, "archiveMtime": 1759901200000, "vectorRow": 16 },
+    { "libId": "L1", "uid": "a00000000012", "relPath": "未分类\\NY-502.png", "folder": "未分类", "stem": "NY-502", "imageExt": ".png", "imageSize": 88000, "imageMtime": 1760001700000, "vectorSource": "native", "archiveRelPath": null, "archiveExt": null, "archiveSize": null, "archiveMtime": null, "vectorRow": 17 },
+    { "libId": "L1", "uid": "a00000000013", "relPath": "VR\\VR-108.jpg", "folder": "VR", "stem": "VR-108", "imageExt": ".jpg", "imageSize": 31500, "imageMtime": 1760001800000, "vectorSource": "native", "archiveRelPath": "VR\\VR-108.rar", "archiveExt": ".rar", "archiveSize": 4400000, "archiveMtime": 1759901300000, "vectorRow": 18 },
+    { "libId": "L1", "uid": "a00000000014", "relPath": "其他\\MISC-403.bmp", "folder": "其他", "stem": "MISC-403", "imageExt": ".bmp", "imageSize": 140000, "imageMtime": 1760001900000, "vectorSource": "bmp-fallback", "archiveRelPath": "其他\\MISC-403.rar", "archiveExt": ".rar", "archiveSize": 22000000, "archiveMtime": 1759901400000, "vectorRow": 19 },
+    { "libId": "L1", "uid": "a00000000015", "relPath": "CR\\CR-205.jpg", "folder": "CR", "stem": "CR-205", "imageExt": ".jpg", "imageSize": 39000, "imageMtime": 1760002000000, "vectorSource": "native", "archiveRelPath": "CR\\CR-205.rar", "archiveExt": ".rar", "archiveSize": 7700000, "archiveMtime": 1759901500000, "vectorRow": 20 },
+    { "libId": "L1", "uid": "a00000000016", "relPath": "VR\\VR-109.jpg", "folder": "VR", "stem": "VR-109", "imageExt": ".jpg", "imageSize": 28800, "imageMtime": 1760002100000, "vectorSource": "native", "archiveRelPath": null, "archiveExt": null, "archiveSize": null, "archiveMtime": null, "vectorRow": 21 },
+    { "libId": "L1", "uid": "a00000000017", "relPath": "VR\\VR-110.jpg", "folder": "VR", "stem": "VR-110", "imageExt": ".jpg", "imageSize": 42300, "imageMtime": 1760002200000, "vectorSource": "native", "archiveRelPath": "VR\\VR-110.rar", "archiveExt": ".rar", "archiveSize": 5500000, "archiveMtime": 1759901600000, "vectorRow": 22 },
+    { "libId": "L1", "uid": "a00000000018", "relPath": "CR+VR\\CRVR-304.jpg", "folder": "CR+VR", "stem": "CRVR-304", "imageExt": ".jpg", "imageSize": 57000, "imageMtime": 1760002300000, "vectorSource": "native", "archiveRelPath": "CR+VR\\CRVR-304.rar", "archiveExt": ".rar", "archiveSize": 10100000, "archiveMtime": 1759901700000, "vectorRow": 23 },
+    { "libId": "L1", "uid": "a00000000019", "relPath": "未分类\\NY-503.jpg", "folder": "未分类", "stem": "NY-503", "imageExt": ".jpg", "imageSize": 24000, "imageMtime": 1760002400000, "vectorSource": "native", "archiveRelPath": "未分类\\NY-503.zip", "archiveExt": ".zip", "archiveSize": 1200000, "archiveMtime": 1759901800000, "vectorRow": 24 },
+    { "libId": "L1", "uid": "a0000000001a", "relPath": "VR\\VR-111.jpg", "folder": "VR", "stem": "VR-111", "imageExt": ".jpg", "imageSize": 36200, "imageMtime": 1760002500000, "vectorSource": "native", "archiveRelPath": "VR\\VR-111.rar", "archiveExt": ".rar", "archiveSize": 6300000, "archiveMtime": 1759901900000, "vectorRow": 25 },
+    { "libId": "L1", "uid": "a0000000001b", "relPath": "CR\\CR-206.jpg", "folder": "CR", "stem": "CR-206", "imageExt": ".jpg", "imageSize": 44800, "imageMtime": 1760002600000, "vectorSource": "native", "archiveRelPath": "CR\\CR-206.rar", "archiveExt": ".rar", "archiveSize": 8100000, "archiveMtime": 1759902000000, "vectorRow": 26 },
+    { "libId": "L1", "uid": "a0000000001c", "relPath": "其他\\MISC-404.jpg", "folder": "其他", "stem": "MISC-404", "imageExt": ".jpg", "imageSize": 20500, "imageMtime": 1760002700000, "vectorSource": "native", "archiveRelPath": null, "archiveExt": null, "archiveSize": null, "archiveMtime": null, "vectorRow": 27 },
+    { "libId": "L1", "uid": "a0000000001d", "relPath": "VR\\VR-112.jpg", "folder": "VR", "stem": "VR-112", "imageExt": ".jpg", "imageSize": 30900, "imageMtime": 1760002800000, "vectorSource": "native", "archiveRelPath": "VR\\VR-112.rar", "archiveExt": ".rar", "archiveSize": 3900000, "archiveMtime": 1759902100000, "vectorRow": 28 },
+    { "libId": "L1", "uid": "a0000000001e", "relPath": "CR+VR\\CRVR-305.bmp", "folder": "CR+VR", "stem": "CRVR-305", "imageExt": ".bmp", "imageSize": 131000, "imageMtime": 1760002900000, "vectorSource": "bmp-fallback", "archiveRelPath": "CR+VR\\CRVR-305.rar", "archiveExt": ".rar", "archiveSize": 17500000, "archiveMtime": 1759902200000, "vectorRow": 29 }
+  ],
+  "scan": {
+    "L1": {
+      "added": [{ "uid": "a000000000ff", "relPath": "VR\\VR-999.jpg", "folder": "VR" }],
+      "changed": ["a00000000004", "a00000000014"],
+      "missing": ["a0000000001e"]
+    }
+  },
+  "encoding": {
+    "_comment": "索引里的编码口径 —— P3d 头部要显示「本次 model_revision / 权重精度 / 预处理版本 / seq」",
+    "modelRevision": "demo-rev-1",
+    "dtype": "q4f16",
+    "preprocessVersion": 2,
+    "seq": 140
+  },
+  "transactions": {
+    "_readme": [
+      "P3d「操作记录」的数据源（契约 §2.11 `transactions`；依据 SPEC-transactions.md:229",
+      "「mutate() 返回事务 id；界面据 id 查询状态、显示进度、提供撤销入口」）。",
+      "⚠️ 这里**不设** pendingTx ⇒ 写方法不会被 RECOVERY_NEEDED 挡住，",
+      "   否则索引任务（E10）一上来就被拒。**待处理**那条由 state:'recovery_needed' 表达，",
+      "   界面据 canUndo/canRollback 给「重试 / 回退 / 保持现状」三条路（SPEC-transactions §4）。"
+    ],
+    "items": [
+      {
+        "txId": "tx-2f9c", "libId": "L1", "op": "moveOutOfLibrary",
+        "state": "recovery_needed", "startedAt": 1760003000000, "finishedAt": null,
+        "canUndo": true, "canRollback": true,
+        "summary": "移出 1 件：跨卷复制未完成（源已移走、目标未落盘）",
+        "changes": [{ "uid": "a00000000002", "relPath": "VR\\VR-102.jpg", "kind": "move" }]
+      },
+      {
+        "txId": "tx-2f9b", "libId": "L1", "op": "rename",
+        "state": "committed", "startedAt": 1760002000000, "finishedAt": 1760002001200,
+        "canUndo": false, "canRollback": false, "undoExpiresAt": 1760002600000,
+        "summary": "改 ID：VR-103 → VR-103A",
+        "changes": [{ "uid": "a00000000007", "relPath": "VR\\VR-103.jpg", "kind": "rename" }]
+      },
+      {
+        "txId": "tx-2f9a", "libId": "L1", "op": "reattachArchive",
+        "state": "undone", "startedAt": 1760001000000, "finishedAt": 1760001000800,
+        "canUndo": false, "canRollback": false,
+        "summary": "重新配对压缩包（已撤销）",
+        "changes": [{ "uid": "a00000000009", "relPath": "CR\\CR-202.jpg", "kind": "pair" }]
+      }
+    ]
+  },
+  "jobs": {
+    "_comment": "fake indexStart 的驱动参数。默认约 10 s 走完（契约 §8）。⚠️ error.code 只能取 errors.mjs 里那 20 个之一 —— 造新码 = 改冻结的错误码表（契约 §9.2 属破坏性变更）。",
+    "total": 30,
+    "intervalMs": 400,
+    "phases": ["scan", "pair", "encode", "verify", "finalize"],
+    "failAt": [4, 11],
+    "failReasons": [
+      { "stage": "encode", "error": { "code": "INTERNAL", "message": "解码失败：文件不是有效图片" } },
+      { "stage": "pair", "error": { "code": "INTERNAL", "message": "同名压缩包有 2 个，无法确定配对" } }
+    ]
+  }
+}

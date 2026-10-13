@@ -28,6 +28,7 @@ test('R2：每条路由都能被 matchRoutes **真的解算**出来', () => {
     [PATHS.search]: '/',
     [PATHS.tasks]: '/tasks',
     [PATHS.item]: '/item/L1/0123456789ab',
+    [PATHS.activity]: '/activity',
   }
   for (const r of ROUTES) {
     const probe = samples[r.path]

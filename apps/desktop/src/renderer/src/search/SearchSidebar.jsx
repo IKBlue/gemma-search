@@ -14,7 +14,7 @@ const NAV = [
   { key: 'library', icon: '▦', label: '本地图库', phase: 'P3d' },
   { key: 'ingest', icon: '＋', label: '入库与增量', phase: 'P4' },
   { key: 'tasks', icon: '◴', label: '索引任务', to: '/tasks' },
-  { key: 'records', icon: '↺', label: '操作记录', phase: 'P3d' },
+  { key: 'records', icon: '↺', label: '操作记录', to: '/activity' },
   { key: 'settings', icon: '⚙', label: '设置', phase: 'P3d' },
 ]
 

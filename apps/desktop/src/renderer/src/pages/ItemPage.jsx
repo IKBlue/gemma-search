@@ -1,54 +1,296 @@
-// ItemPage —— 图片详情（P3c 的**占位页**，通往真实实现的路由已经通了）
+// ItemPage —— 流程 2「图片详情」（**P3c**）
 //
-// ⚠️ 这不是 P3c 的实现。它存在的理由有两个，都很具体：
-//   ① **路由骨架必须先立** —— P3c 是"从结果卡点进一张图的详情"，没有 `/item/:libId/:uid`
-//      这条路由，P3b 的结果卡就只能是个死链接。占位页让"卡 → 详情"这条路**现在就能走通**。
-//   ② **参数解析必须被真跑过** —— `:libId` / `:uid` 能不能正确取出、非法值怎么办，
-//      现在就能验证；等 P3c 铺开时不用同时调路由与业务。
+// ── 规格出处（照它做，别自己发挥）────────────────────────────────────────
+//   `docs/design/UI-REVIEW-and-migration.md:234-238`：
+//     · 左侧大图（可缩放/适应窗口）
+//     · 右侧元数据：ID/分类/库/**两条绝对路径**/尺寸/体积/日期/索引状态/向量行
+//     · 动作分区：**取件** / **维护（复用向量）** / **维护（需重编码，须提示）** / **危险区**
+//     · 关键：把"是否需要重编码"**直接标在按钮上**（改目录/改ID 不重编码；换图/外部变更 要重编码）
+//   `ROADMAP.md:221` 的验收：两条路径与索引状态正确显示；"需重编码"标注正确。
 //
-// 真做 P3c 时要补（见 `docs/plan/ROADMAP.md` §3 的 P3c 行）：
-//   大图 · 两条绝对路径（图 + 包）· 索引状态 · 按「是否需重编码」分区的动作 · 危险区。
-import { useParams, Link } from 'react-router'
+// ── 两条路径为什么能拿到 ────────────────────────────────────────────────
+//   `item` 只给相对路径（契约 §2.2）；绝对路径来自**新增的只读方法 `itemPaths`**（契约 §2.2a）。
+//   之所以不塞进 `item`：所有者 2026-10-13 决定 —— 那会让**每次取元数据都顺带交出库内路径**，
+//   而 `itemPaths` 的语义就是"要路径"，暴露面收在明处、可审计。（原来 `absPathFor` 的注释
+//   写着"刻意不经 IPC 暴露"，与 P3c 的需求直接冲突，那条注释已同步更正。）
+//
+// ── 分层 ──────────────────────────────────────────────────────────────
+//   本文件是 **UI 层**：只渲染与触发。两个领域判断都抽到了 Operation 层（纯函数，可进 `npm test`）：
+//     · `utils/index-state.js`  —— 索引状态四档怎么判
+//     · `utils/item-actions.js` —— 动作四分区、要不要重编码、为什么点不动
+//   破坏性动作的确认复用 **同一套** store 状态机 + `ui/ConfirmDialog`（不写第二份确认逻辑）。
+import { useCallback, useEffect, useState } from 'react'
+import { Link, useParams } from 'react-router'
 
 import AppShell from '../layout/AppShell.jsx'
 import Main from '../layout/Main.jsx'
 import PageHead from '../layout/PageHead.jsx'
 import Topbar from '../layout/Topbar.jsx'
 import Button from '../ui/Button.jsx'
+import ConfirmDialog from '../ui/ConfirmDialog.jsx'
+import Toast from '../ui/Toast.jsx'
 import SearchSidebar from '../search/SearchSidebar.jsx'
+import { LABELS } from '../router/paths.js'
+import { useDocumentTitle } from '../utils/useDocumentTitle.js'
+import { useEngine } from '../hooks/useEngine.js'
+import useToast from '../hooks/useToast.js'
+import { useSearchStore } from '../store/search.js'
+import { deriveIndexState, needsScanToDecide } from '../utils/index-state.js'
+import { buildItemActions, groupActions, reencodeBadge } from '../utils/item-actions.js'
+import { humanSize, humanTime } from '../utils/format.js'
+
+/** 元数据的一行（label + 值）。值一律 `break-all`：路径很长，不能撑破布局 */
+function MetaRow({ label, children, mono = false, title }) {
+  return (
+    <div className="flex gap-3 border-b border-line py-2 text-caption last:border-b-0" data-meta={label}>
+      <span className="w-20 shrink-0 text-ink-muted">{label}</span>
+      <span className={`min-w-0 flex-1 break-all text-ink${mono ? ' mono' : ''}`} title={title}>{children}</span>
+    </div>
+  )
+}
+
+/** 索引状态徽标 —— 文案与语气色都来自 `utils/index-state.js`，不在组件里重写 */
+function StateBadge({ state }) {
+  return (
+    <span className="tag" data-state={state.key} data-tone={state.tone} title={state.hint}>
+      {state.label}
+    </span>
+  )
+}
 
 export default function ItemPage() {
-  // 路由参数：形状合法性由契约层保证（LibId / Uid 的 zod 正则），这里只如实显示
+  useDocumentTitle(LABELS.item)
   const { libId, uid } = useParams()
+  const { invoke } = useEngine()
+  const { message, tone, show } = useToast()
+  // 破坏性动作的确认流（与搜索结果页共用同一套 store 状态机）
+  const { pendingCollect, requestCollect, cancelCollect, confirmCollect } = useSearchStore()
+
+  const [data, setData] = useState({ loading: true, item: null, paths: null, error: null })
+  const [scanDiff, setScanDiff] = useState(null)
+  const [scanning, setScanning] = useState(false)
+  const [fit, setFit] = useState(true)          // 适应窗口 / 原始大小
+  const [imgFailed, setImgFailed] = useState(false)
+  const [busy, setBusy] = useState(null)
+
+  const load = useCallback(async () => {
+    setData((d) => ({ ...d, loading: true, error: null }))
+    // 两个只读调用：元数据（契约 §2.2）与两条绝对路径（§2.2a）。
+    // Adapter 永不抛 ⇒ 不需要 try/catch，也就不需要第二套"调用异常"文案。
+    const [it, paths] = await Promise.all([
+      invoke('item', { libId, uid }),
+      invoke('itemPaths', { libId, uid }),
+    ])
+    if (!it.ok) {
+      setData({ loading: false, item: null, paths: null, error: it.error })
+      return
+    }
+    setData({ loading: false, item: it.data, paths: paths.ok ? paths.data : null, error: null })
+  }, [invoke, libId, uid])
+
+  useEffect(() => { load() }, [load])
+
+  /**
+   * 「检查变更」—— 跑一次差分扫描（`scan`，只读）。
+   * ⚠️ **刻意不自动跑**：全库 stat 一遍是重活，而用户没要求时不该发生
+   *    （`DESIGN-app-details.md:414` 对"变更"的态度就是不自动动它）。
+   */
+  const checkChanges = useCallback(async () => {
+    setScanning(true)
+    const r = await invoke('scan', { libId })
+    setScanning(false)
+    if (!r.ok) { show(r.error.userMessage, 'err'); return }
+    setScanDiff(r.data)
+    const n = (r.data.changed || []).length + (r.data.missing || []).length
+    show(n ? `发现 ${n} 处变更（新增 ${(r.data.added || []).length}）` : '没有发现变更')
+  }, [invoke, libId, show])
+
+  /** 动作分发。禁用的一律不进来（`disabled` 时按钮本身就不可点） */
+  const runAction = useCallback(async (action) => {
+    if (action.id === 'collect') { requestCollect(data.item); return }
+    if (!action.op || !action.op.startsWith('mutate:')) return
+    const op = action.op.slice('mutate:'.length)
+    setBusy(action.id)
+    const r = await invoke('mutate', { libId, uid, op, params: {} })
+    setBusy(null)
+    // 引擎的 `userMessage` 永远非空（Adapter 保证）⇒ 成功失败都能给一句人话
+    show(r.ok ? `已提交：${action.label}（事务 ${r.data.txId}）` : r.error.userMessage, r.ok ? 'info' : 'err')
+    if (r.ok) load()
+  }, [data.item, invoke, libId, uid, requestCollect, show, load])
+
+  const item = data.item
+  const indexState = deriveIndexState(item, scanDiff)
+  const groups = groupActions(buildItemActions({ item, indexState }))
 
   return (
-    <AppShell sidebar={<SearchSidebar lib={null} indexLoading={false} indexError={null} />}>
+    <>
+      <AppShell sidebar={<SearchSidebar lib={null} indexLoading={false} indexError={null} />}>
       <Main>
         <Topbar
-          crumb={<>工作区 <span className="crumb-sep">/</span> <strong>图片详情</strong></>}
-          actions={<Button variant="icon" aria-label="返回搜索" title="返回搜索"><Link to="/">←</Link></Button>}
+          crumb={<>工作区 <span className="crumb-sep">/</span> <Link to="/">语义搜索</Link> <span className="crumb-sep">/</span> <strong>图片详情</strong></>}
+          actions={<Button variant="icon" asChild><Link to="/" aria-label="返回搜索" title="返回搜索">←</Link></Button>}
         />
+
         <div className="content">
           <PageHead
             eyebrow="ITEM"
-            title="图片详情"
-            subtitle="这一页还没做（P3c）。下面是从路由里真实取到的参数 —— 它证明这条路已经通了。"
+            title={item ? (item.stem || item.relPath) : '图片详情'}
+            subtitle={item
+              ? `库 ${item.libId} · ${item.folder || '未分类'} · ${item.vectorSource === 'bmp-fallback' ? 'BMP 回退档' : '原生档'}`
+              : '读取这条素材的索引元数据与磁盘实况。'}
+            actions={
+              <div className="flex items-center gap-2">
+                <Button size="sm" onClick={checkChanges} disabled={scanning}>
+                  {scanning ? '正在扫描…' : '检查变更'}
+                </Button>
+                <Button size="sm" onClick={load} disabled={data.loading}>重新读取</Button>
+              </div>
+            }
           />
-          <div className="panel">
-            <dl className="mono small">
-              <dt>libId</dt>
-              <dd data-testid="route-libId">{libId ?? '(缺)'}</dd>
-              <dt>uid</dt>
-              <dd data-testid="route-uid">{uid ?? '(缺)'}</dd>
-            </dl>
-            <p className="muted small">
-              P3c 将在这里显示大图、两条绝对路径与索引状态，并把动作按「是否需重编码」分区。
-              见 <span className="mono">docs/plan/ROADMAP.md</span> §3。
-            </p>
-            <Button><Link to="/">← 回到搜索</Link></Button>
-          </div>
+
+          {data.loading ? (
+            <div className="panel"><p className="muted small">正在读取…</p></div>
+          ) : data.error ? (
+            <div className="panel" role="alert">
+              <p className="err" data-testid="item-error">{data.error.userMessage}</p>
+              <p className="muted small">
+                这条 uid 可能不属于当前库，或索引已重建（<span className="mono">{data.error.code}</span>）。
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col gap-4 lg:flex-row">
+                {/* ── 左：大图（适应窗口 / 原始大小）──────────────────────── */}
+                <div className="panel shrink-0 lg:w-1/2">
+                  <div className="flex min-h-60 items-center justify-center rounded-card bg-surface">
+                    {imgFailed ? (
+                      <div className="muted small" data-testid="image-fallback">
+                        无预览（缩略图取不到 —— 文件可能已不在盘上）
+                      </div>
+                    ) : (
+                      <img
+                        className={fit ? 'max-h-96 w-full object-contain' : 'max-w-none'}
+                        alt={`${item.stem || item.relPath} 预览图`}
+                        src={`thumb://${encodeURIComponent(item.libId)}/${item.uid}@512`}
+                        onError={() => setImgFailed(true)}
+                      />
+                    )}
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <Button size="sm" onClick={() => setFit((v) => !v)}>
+                      {fit ? '原始大小' : '适应窗口'}
+                    </Button>
+                    <span className="muted small">
+                      {item.exists.image ? `在盘上 · ${humanSize(item.imageSize)}` : '⚠️ 文件已不在盘上'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* ── 右：元数据 ────────────────────────────────────────── */}
+                <div className="panel min-w-0 flex-1">
+                  <div className="mb-2 flex items-center gap-2">
+                    <StateBadge state={indexState} />
+                    {needsScanToDecide(item) && !scanDiff ? (
+                      <span className="muted small">（是否被外部改过要一次「检查变更」才知道）</span>
+                    ) : null}
+                  </div>
+
+                  <MetaRow label="ID">{item.stem || '（无）'}</MetaRow>
+                  {/* uid 是**稳定身份**（`sha1(lib_id|rel_dir|stem)[:12]`，已冻结）——
+                      改名/换目录都不变，报障与脚本都靠它引用一条素材。所以放在明面上。
+                      （它同时让"路由参数真的被用上了"可被断言：uid 错一位就会报 UID_NOT_FOUND。） */}
+                  <MetaRow label="uid" mono>{item.uid}</MetaRow>
+                  <MetaRow label="分类">{item.folder || '未分类'}</MetaRow>
+                  <MetaRow label="库">{item.libId}</MetaRow>
+                  <MetaRow label="向量档">
+                    {item.vectorSource === 'bmp-fallback' ? 'bmp-fallback（BMP 回退解码）' : 'native'}
+                  </MetaRow>
+                  <MetaRow label="预览图">{humanSize(item.imageSize) || '—'}</MetaRow>
+                  <MetaRow label="修改时间">{humanTime(item.imageMtime) || '—'}</MetaRow>
+                  <MetaRow label="压缩包">
+                    {item.archive ? `${item.archive.ext} · ${humanSize(item.archive.size) || '—'}` : '（无同名压缩包）'}
+                  </MetaRow>
+
+                  {/* 两条**绝对路径**（契约 §2.2a）。取不到就如实写，不拼字符串假装有 */}
+                  <MetaRow label="图路径" mono title={data.paths?.imagePath || ''}>
+                    {data.paths?.imagePath || <span className="muted">（未提供）</span>}
+                  </MetaRow>
+                  <MetaRow label="包路径" mono title={data.paths?.archivePath || ''}>
+                    {data.paths?.archivePath || <span className="muted">（无）</span>}
+                  </MetaRow>
+                  <MetaRow label="相对路径" mono>{item.relPath}</MetaRow>
+
+                  <div className="mt-3 flex flex-wrap gap-3 text-caption">
+                    <span className={item.exists.image ? 'dot-ok' : 'dot-err'}>
+                      预览图{item.exists.image ? '在盘上' : '已丢失'}
+                    </span>
+                    {item.archive ? (
+                      <span className={item.exists.archive ? 'dot-ok' : 'dot-err'}>
+                        压缩包{item.exists.archive ? '在盘上' : '已丢失'}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── 动作四分区（规格 UI-REVIEW:236）───────────────────────
+                  分区**永远四个都在** —— 少一个会让人以为"这个应用没有那类操作"。
+                  每个按钮都带「需重编码 / 不重编码」角标（:237 明确要求标在按钮上）。 */}
+              <div className="mt-4 grid gap-4 md:grid-cols-2" data-testid="action-groups">
+                {groups.map((g) => (
+                  <div className="panel" key={g.key} data-group={g.key}>
+                    <div className="mb-1 font-semibold text-ink">{g.title}</div>
+                    <div className="mb-3 text-caption text-ink-muted">{g.note}</div>
+                    <div className="flex flex-wrap gap-2">
+                      {g.actions.length === 0 ? (
+                        <span className="muted small">（这一类当前没有可用动作）</span>
+                      ) : g.actions.map((a) => (
+                        <span key={a.id} className="inline-flex flex-col items-start gap-1">
+                          <Button
+                            size="sm"
+                            variant={g.key === 'danger' ? 'outline-accent' : 'default'}
+                            disabled={a.disabled || busy === a.id}
+                            title={a.reason || ''}
+                            onClick={() => runAction(a)}
+                            data-action={a.id}
+                          >
+                            {busy === a.id ? '处理中…' : a.label}
+                          </Button>
+                          <span
+                            className="text-caption"
+                            data-badge={a.needsReencode ? 'reencode' : 'reuse'}
+                            title={a.reason || ''}
+                          >
+                            <span className={a.needsReencode ? 'dot-warn' : 'dot-ok'}>{reencodeBadge(a)}</span>
+                            {a.disabled && a.reason ? <span className="muted"> · {a.reason}</span> : null}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </Main>
-    </AppShell>
+      </AppShell>
+
+      {/* ⚠️ Toast 与确认弹窗放在 `<AppShell>` **外面** —— 与搜索页保持同一结构
+          （`ConfirmDialog` 内部用 Portal，但这层结构一致更省心）。 */}
+      <Toast message={message} tone={tone} />
+
+      {/* 破坏性动作的确认（与搜索结果页共用同一套 store 状态机与同一个组件） */}
+      <ConfirmDialog
+        open={Boolean(pendingCollect)}
+        onOpenChange={(next) => { if (!next) cancelCollect() }}
+        title="把这套素材取件？"
+        description={pendingCollect
+          ? `会把「${pendingCollect.stem || pendingCollect.uid}」复制到取件目录。素材库本身不会被修改。`
+          : ''}
+        confirmText="取件"
+        onConfirm={() => confirmCollect(show)}
+      />
+    </>
   )
 }

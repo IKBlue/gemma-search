@@ -51,7 +51,7 @@ test('E5-b ⭐ 侧栏导航暴露 `aria-current="page"`，且跟着路由走', a
 
     // 切到任务页 ⇒ aria-current 跟着搬过去
     await tasks.click()
-    await expect(win.getByRole('heading', { name: '索引任务与操作记录' })).toBeVisible()
+    await expect(win.getByRole('heading', { name: '索引任务' })).toBeVisible()
     await expect(tasks).toHaveAttribute('aria-current', 'page')
     await expect(search).not.toHaveAttribute('aria-current', 'page')
   } finally {

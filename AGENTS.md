@@ -81,7 +81,7 @@ UI(组件) ──> Operation(store/composable/utils) ──> Adapter(唯一 invo
   `.js`/`.jsx`/`.mjs` 一律不参与检查。**不得声称"全局类型检查通过"** —— 实测打开 `checkJs` 后是
   渲染层 148 错 / 主进程侧 472 错（`docs/plan/ROADMAP.md` §10.1.1），那是 T3–T4 要还的债。
 - ✅ **T2 已完成（2026-10-13）**：**React Router 接管多页**（hash 路由 —— 打包态是 `file://`；
-  3 条路由 `/` · `/item/:libId/:uid` · `/tasks`）· **Zustand 接管检索状态**（`store/search.js`；
+  4 条路由 `/` · `/item/:libId/:uid` · `/tasks` · `/activity`）· **Zustand 接管检索状态**（`store/search.js`；
   `hooks/useSearch.js` **已删除**，不留两份实现）。
   ⚠️ **能自动验证到哪一步**：路由表用 react-router 自己的 `matchRoutes()` 真解算（`router.test.mjs` 5 条）·
   门禁判定抽成纯函数后进 `npm test`（`gate.test.mjs` 6 条）· store 状态切换与 IPC 参数拼装（`search-store.test.mjs` 12 条）。
@@ -109,7 +109,13 @@ UI(组件) ──> Operation(store/composable/utils) ──> Adapter(唯一 invo
      而它们是**动态**加载的（`bmp_decode.mjs:139` / `:55` 的 `await import(...)`）。删掉＝编码路径静默坏。
      现在 `deps.test.mjs` 的 **D-C** 专门钉"断言能看见动态 import"。
   ② **`tailwind-merge` 会把我们的自定义字号当颜色吃掉** —— 见 §3 的 `cn.js` 那条。
-  ⚠️ **人工核对仍是待办**：确认弹窗的 **ESC / 焦点落位** 要走到"有检索结果"，需 ONNX 模型（`TODO.md` B-3）。
+  ✅ **「ESC / 焦点落位」已实测（2026-10-13，E2E E7 系列 6 条）**：ESC 关闭且**零 IPC** · 焦点陷阱
+  （连按 6 次 Tab 不逃逸）· 焦点归还给触发按钮 · 取消不执行 · 确认恰好一次 · 连点只发一次。
+  **解锁方法**：在主进程 `ipcMain.handle('engine:invoke')` 打桩（`main/index.mjs:207`）—— 只换引擎，
+  渲染侧全真 ⇒ **结果区 UI 从此不依赖模型也能自动化**。零副作用：打桩只发生在测试进程里。
+  ⚠️ **两处别搞错**：① 焦点**落在「取消」**不是「确认」—— 破坏性操作的**安全默认**，别去"修"它；
+  ② 焦点归还**必须自己写**（受控 `open` 没有 `Trigger`），且采样要用 `onOpenAutoFocus`、
+  不能用 `useEffect([open])`（React effect **子先父后**，那时焦点已被 Radix 移走了）。
 
 ---
 
@@ -131,6 +137,7 @@ UI(组件) ──> Operation(store/composable/utils) ──> Adapter(唯一 invo
 | `packages/indexer/` | 索引构建（ONNX + WebGPU）与重采样兼容层、BMP 解码；唯一能建索引的地方 | ⚠️ 谨慎：动了要重建索引验证 | ✅ |
 | `packages/design-tokens/tokens.css` | **视觉令牌唯一来源**（生产依赖，被 `apps/desktop/src/renderer/src/main.jsx` 直接 import） | ✅ 只在这里加令牌，不要复制第二份。⚠️ **2026-10-13 所有者已确认降级**：Tailwind 接管后本文件成为**主题输入之一**（不再是"唯一来源"），见 `docs/plan/ROADMAP.md` §10；**落地前仍是唯一来源** | ✅ |
 | `docs/` | 全部正文文档：`spec/`（约束）· `design/`（设计）· `guide/`（上手/排障）· `plan/`（做什么、什么顺序）· `audit/`（审查产物）· `archive/`（**已失效的东西全放这里**）。⚠️ **行动清单不在这里**，在根目录 [`TODO.md`](TODO.md) | ✅ 见 §6 纪律 | ✅ |
+| `fixtures/` | **契约 §8 要求的样例索引**：`sample-index.json`（3 库 / 30 条，覆盖空 / 无结果 / 无索引 / 索引损坏 / `COMPAT_MISMATCH` / `RECOVERY_NEEDED` / 部分成功 / 待重编码 / 已移除 / GPU 回退 / BMP 回退档）。⚠️ **路径是契约指定的**（`fixtures/sample-index.json`），别挪。<br>由**主进程**读入并**注入**引擎（渲染层读不到 —— 打包后 `import.meta.url` 会解到仓库外，实测主进程崩在建窗之前）；用 `GEMMA_FAKE=1` 打开。加演示分支要同步 `fake.test.mjs` 的 **F10** | ✅ | ✅ |
 | `tools/` | **2 个只读守卫**（`verify_encoder_path` / `check_search`，本机都跑不动）+ `probe_electron_start/` | ✅ | ✅ |
 | `scripts/` | 启动辅助（`electron-vite.mjs`：摘 `ELECTRON_RUN_AS_NODE`、探测沙箱、必要时加 `--no-sandbox`） | ⚠️ 谨慎 | ✅ |
 | `reports/` | 门禁证据，命名 `G-<字母>-<日期>/`。**项目规则：无归档证据 = 门禁未通过** | ✅ 只能加新证据，不改历史证据 | ✅ md/json/csv；截图否（见 `.gitignore`） |
@@ -156,10 +163,18 @@ UI(组件) ──> Operation(store/composable/utils) ──> Adapter(唯一 invo
 | 界面页面 / 组件 | `apps/desktop/src/renderer/src/`（页面进 `pages/`，通用组件进 `ui/`，布局进 `layout/`，hooks 进 `hooks/`） | ✅ **2026-10-13（T3）起：新样式写 Tailwind 类**（生成层 = `styles/tailwind.css`）。
   ⚠️ **类名里的数字要走令牌阶梯**：`--spacing: var(--space-1)` ⇒ `N` 档 = 4px×N，所以 `px-3` = `--space-3`、`min-h-11` = 44px = `--touch-min`。**别用任意值**（`px-[11px]`）。
   ⚠️ **颜色不许写死**：用 `bg-surface` / `text-ink` / `border-line` 这类映射，**不要** `bg-[#0071e3]` —— 那会造出第二份色值（T1 断言会红）。
+  ⚠️⚠️ **要在 `<Link>` 上用按钮样式，必须 `<Button asChild><Link …></Link></Button>`** ——
+    写成 `<Button><Link>…</Link></Button>` 会渲染出 **`<a>` 嵌在 `<button>` 里**：HTML 规范禁止、
+    两个可聚焦元素（读屏念成"按钮里有个链接"）、图标不居中。**T2 真栽过 4 处**（截图可见）。
+    `asChild` 走 Radix `Slot`，最终只渲染一个 `<a>`。断言：`dom-validity.test.mjs` V1/V2 + E2E `routing.spec.mjs` E6-a/b。
+  ⚠️ **新页面必须设窗口标题**：调 `useDocumentTitle(LABELS.xxx)`（`LABELS` 在 `router/paths.js`，是页面名的唯一来源）。
+    不调的话任务栏标题不会变 —— 多页应用里这是很明显的观感缺口（T2 时真这样）。
   ⚠️ **修饰态写「互斥」不写「叠加」**：`cx(BASE, active ? ACTIVE : IDLE)`。叠加式（`cx(BASE, active && "bg-ink")`）看着更 DRY，但两个工具类**同优先级**，谁赢只取决于产出顺序 —— 迁移时真栽过（见 `ui/Chip.jsx` 头注释）。
   🔸 **`renderer.css` 仍在**（114 条未迁规则）：基础层与未迁移的组件样式留在这里，**逐族迁出**。进度记在 `renderer.css` 头部。
 <br>⚠️ **UI 层不得直接碰 `window.api`**（见 §0.1 三层架构） |
-| **Operation 层**（状态 / 编排 / 工具） | `renderer/src/store/**` · `renderer/src/hooks/**` · `renderer/src/utils/**` | 把 Adapter 的原始结果转成界面要的形状；**不放协议细节**（那归 Adapter）。✅ **三个目录都已存在**（`store/` 与 `utils/` 于 2026-10-13 T2 建立）：`store/search.js`（检索状态）· `hooks/useEngine.js` `useLibraryConfig.js` `useToast.js` · `utils/gate.js`（门禁判定，纯函数） |
+| **Operation 层**（状态 / 编排 / 工具） | `renderer/src/store/**` · `renderer/src/hooks/**` · `renderer/src/utils/**` | 把 Adapter 的原始结果转成界面要的形状；**不放协议细节**（那归 Adapter）。✅ 现有：`store/search.js`（检索状态）· **`store/tasks.js`（索引任务的事件归约，纯函数 `reduceEvent` —— P3d）** ·
+  `hooks/useEngine.js` `useLibraryConfig.js` `useToast.js` · `utils/gate.js`（门禁判定）· `utils/useDocumentTitle.js`（窗口标题）· **`utils/index-state.js`（索引状态四档）** · **`utils/item-actions.js`（动作四分区 + 是否需重编码 + 为什么点不动）** · **`utils/format.js`（`humanSize`/`humanTime`）**。
+  ⚠️ **领域判断别写进 `.jsx`** —— `.jsx` 在 `node:test` 里加载不了，塞进去就等于放弃自动化（P3c/P3d 的两块判断都是因此抽出来的）。 |
 | **E2E 测试** | `apps/desktop/e2e/**` | ⚠️ **不是守卫**，是 Playwright 套件（`npm run e2e`）。它**真启动 Electron**，所以能验证 `node:test` 碰不到的东西：真渲染、真导航、真 preload、真窗口安全行为。
   加用例：`e2e/*.spec.mjs`；启动/场景的公共逻辑在 `e2e/helpers/`（**不要**在 spec 里各写一遍启动参数 —— 那三个坑见 `helpers/launch.mjs` 头部注释）。产物 `test-results/` 已 gitignore |
 | **路由** | `renderer/src/router/**` | ⚠️ **路由路径的唯一来源是 `router/paths.js`**（纯数据、无 JSX —— 这样 `node:test` 能用 `matchRoutes()` 真解算）。
@@ -231,16 +246,16 @@ UI(组件) ──> Operation(store/composable/utils) ──> Adapter(唯一 invo
 
 ### 5.1 期望值（对不上就是没做完）
 
-> **两条独立的门禁，不要混**：`npm test`（`node:test`，纯逻辑，无 GUI，191 条）与
-> `npm run e2e`（Playwright，真启动 Electron，22 条）。前者快、随时能跑；后者慢、**需要能出窗的环境**。
+> **两条独立的门禁，不要混**：`npm test`（`node:test`，纯逻辑，无 GUI，**248 条**）与
+> `npm run e2e`（Playwright，真启动 Electron，**56 条**）。前者快、随时能跑；后者慢、**需要能出窗的环境**。
 > 绿了哪一条就只说哪一条 —— 别用"测试全绿"含糊过去。
 
 | 门禁 | 期望 |
 |---|---|
-| `npm test` | `tests 191 · pass 190 · fail 0 · skipped 1`（引擎 74；桌面 **117** = 库配置 14 + reveal 端口 4 + 权限 13 + 窗口安全 10 + Adapter 11 + 扫描器自检 12 + 分层检查 7 + 路由 5 + 门禁判定 6 + 检索 store 17 + 样式纪律 **10** + 依赖与无障碍 8） |
+| `npm test` | `tests 248 · pass 247 · fail 0 · skipped 1`（**2026-10-13 实测**。引擎 **96** = engine 33 + fake 22 + index 18 + security 16 + uid 7；桌面 **152** = library-config 14 + permissions 15 + search-store 17 + source-scan 17 + task-store 13 + adapter 11 + item-actions 10 + styles 10 + window-security 10 + deps 8 + layering 8 + gate 6 + router 5 + dom-validity 4 + ports 4） |
 | `npm run build` | 成功，且 `out/main` · `out/preload` · `out/renderer` 三端齐备（**已实测通过**；受限沙箱内需提权，见下） |
 | `npm run typecheck` | EXIT=0，**且注入类型错误时必须变红**（2026-10-13 T1 加回）。⚠️ **只覆盖 `.ts`** —— 当前仅 `ipc.ts` |
-| `npm run e2e` | **`22 passed`**（2026-10-13 接入 Playwright）。⚠️ **它真启动 Electron** ⇒ 在 agent 沙箱内需要 `--no-sandbox`（助手已带）**且要提权**；普通终端直接跑即可 |
+| `npm run e2e` | **`56 passed`**（**2026-10-13 实测**）。系列：E0 出窗与安全 · E1 首启向导 · E2 路由（含 `/item` 参数消费）· E3 窗口安全真行为 · E4 样式保真 · E5 无障碍 · E6 返回控件语义 · E7 确认弹窗（6 条，靠**主进程 IPC 打桩**摆脱模型依赖）· **E8 模拟模式（6 条）** · **E9 图片详情 P3c（6 条）** · **E10 索引任务 P3d（6 条）** · **E11 操作记录（6 条）**。<br>⚠️ **它真启动 Electron** ⇒ 在 agent 沙箱内需要 `--no-sandbox`（助手已带）**且要提权**；普通终端直接跑即可 |
 | 守卫 | 下表 EXIT=0（**2026-10-13 起只剩 2 个**；其余 6 个按所有者指令移除，见 §5.2 的说明） |
 | 证据 | 每条被声称通过的 G-* 门禁，在 `reports/` 里都有归档证据 |
 
@@ -317,7 +332,8 @@ error during build: Error: spawn EPERM
 | S11/S12 窗口安全**真行为** | 无 | ✅ **E2E E3** —— 比原来的假 electron 强 |
 | 路由真导航 | 无 | ✅ **E2E E2** |
 | 分层 / 文案收敛 / 路由表 / 门禁判定 | 无 | ✅ **`npm test`**（49 条，2026-10-13 新增） |
-| **检索 / 缩略图 / 档位（F-02）/ 定位失败文案（F-01）** | 无 | ❌ **仍无** —— 需要 ONNX 模型 + 已注册索引（`TODO.md` B-3） |
+| **结果区 UI**（结果卡 / 取件确认 / 档位渲染 / 定位失败文案） | 无 | ✅ **E2E E7**（2026-10-13）—— 靠**主进程 IPC 打桩**摆脱模型依赖，在真窗口里跑真组件 |
+| **真实检索质量 / 缩略图内容** | 无 | ❌ **仍无** —— 那要真模型 + 已注册索引（`TODO.md` B-3）；打桩测的是**接线与界面**，不是编码质量 |
 | **样式与令牌纪律** | 无 | ✅ **E2E E4 + `npm test` T1/T1c/T2/T2b**（2026-10-13 T3 接回）—— 色值唯一、@theme 只许 `var()`、F-02 阈值、以及**迁移保真度**（真窗口计算值 === 令牌值） |
 | **S13 iframe 来源校验** | 无 | ❌ **仍无**（E2E 里可以造 iframe，尚未做） |
 | **产物形状（ESM/CJS/CSP）** | 无 | ❌ **仍无**（原 `verify_app_build` 的职责） |
@@ -401,7 +417,7 @@ node -e "const s=require('fs').readFileSync('docs/design/DESIGN-tokens.md','utf8
 但 **T3 把这条断言接了回来**：`apps/desktop/tests/styles.test.mjs` 的 **T2**（渲染层不得出现 0.6~0.99 的阈值常量）
 与 **T2b**（`Score.jsx` 必须消费 `band`、且未知 band 拒绝定档）。**已双向验证**：往 `Score.jsx` 注入 `0.97` ⇒ `fail 1` 且报出 `Score.jsx → 0.97`。
 ⚠️ 能力边界不变：`band` 本身是不是"对的"仍取决于引擎（`TODO.md` C-2） |
-| 未实现的契约方法 / 多库注册表 / 两个页面 | **未完成项**，清单见 [`TODO.md`](TODO.md) B-2（本表只记"边界事实"，不记待办） |
+| 未实现的契约方法 / 多库注册表 | ⚠️ **未完成项**，清单见 [`TODO.md`](TODO.md) B-2（本表只记"边界事实"，不记待办）。<br>✅ **2026-10-13 起有唯一一处定义**：`packages/engine/src/engine.mjs` 的 **`UNIMPLEMENTED_METHODS`**（= ingest · mutate · transactions · indexStart · indexCancel · indexResume），主进程直接 import 它 ⇒ 真实模式统一返回「这个功能还没做好。」。<br>⚠️ **P3a–P3d 四个页面已全部实现**（`/` · `/item/:libId/:uid` · `/tasks` · `/activity`）—— 这一行原先写的"两个页面未做"已过期 |
 | 素材库只读 | 检索**不移动、不复制、不重命名、不删除**任何素材；结果是路径。 |
 | 20 个假 `.jpg` | 预览图里有 20 个文件名是 `.jpg`、实际内容是 BMP（集中在 `VR`）。解码路径会自动回退，**它们不是坏文件**。 |
 | 索引与库位置绑定 | 索引里存了素材的**绝对路径**；素材库再次移动会让索引失效，必须重建。 |
@@ -422,7 +438,7 @@ node -e "const s=require('fs').readFileSync('docs/design/DESIGN-tokens.md','utf8
 | **守卫 (guard)** | `tools/` 下**只读**校验脚本，跑完给 EXIT 码。⚠️ 2026-10-13 起**只剩 2 个**（见 §5.2） |
 | **主进程 / 渲染进程** | 主进程管窗口与磁盘；渲染进程就是那个网页界面。两者严格隔离 |
 | **preload / 安全桥** | 界面唯一能用的通道（只暴露 `invoke` / `onEvent` / `platform`），别的够不着 |
-| **IPC** | 主进程与渲染进程之间的受控通信（本项目 2 个通道、**13 个方法**白名单：原 11 个引擎方法 + 库配置的 `libraryConfig`/`libraryPickDir`/`libraryAdd`） |
+| **IPC** | 主进程与渲染进程之间的受控通信（本项目 2 个通道、**16 个方法**白名单：引擎 **13** = search · item · **itemPaths** · thumbPath · reveal · collect · ingest · mutate · **transactions** · scan · indexStatus · indexStart · indexCancel · indexResume 里的 13 个，+ 库配置的 `libraryConfig`/`libraryPickDir`/`libraryAdd` 3 个）。⚠️ 清单以 `shared/ipc.ts` 为准 |
 | **`thumb://`** | 缩略图自定义协议，形状**只允许** `thumb://<libId>/<uid>@<size>`——路径不由 URL 提供 |
 | **配对 (pairing)** | 靠文件名主干相同，把 `ID-123.jpg` 与 `ID-123.rar` 认成一套素材；索引里**显式存了两个绝对路径** |
 | **uid** | `sha1(lib_id\|rel_dir\|stem)[:12]`，12 位 hex，**已冻结** |

@@ -11,7 +11,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { maskNonCode, maskComments, findInCode } from './helpers/source-scan.mjs'
+import { maskNonCode, maskComments, findInCode, findOutsideComments } from './helpers/source-scan.mjs'
 
 const count = (src) => findInCode(src, /window\.api/g).length
 
@@ -99,4 +99,88 @@ test('S12：maskComments 与原串**等长同结构**（行号才不会错）', 
     assert.equal(m.length, src.length)
     assert.equal(m.split('\n').length, src.split('\n').length)
   }
+})
+
+// ============================================================ 模板插值（2026-10-13 修的真缺陷）
+//
+// ⚠️⚠️ **这四条是给一个"假阴 + 假阳双向"的真缺陷立的碑，别删。**
+//   旧版 `scan()` 处理完模板串的 `${...}` 之后 `continue` 回了**主循环**，从没回到模板串。
+//   后果：模板的**收尾反引号被当成新模板的起始反引号**，一路吞到下一个反引号（甚至文件尾）⇒
+//     · **假阴**：`SearchPage.jsx:55+`、`TasksPage.jsx:76+` 等区域被整段抹成空格，
+//       基于本扫描器的 L1–L7 / T1–T6 断言在那些地方**恒为真**（剧场）；
+//     · **假阳**：注释里的反引号内容会漏出来再匹配一次（L6 曾被自己的注释绊倒）。
+//   修法：插值递归扫到配对的 `}` 就返回，然后**留在模板串里继续**（`scanCore`）。
+//   判据是"**模板之后的东西还看得见**"—— 这条不成立，上面那些断言就都不算数。
+
+test('S13 ⭐⭐ maskNonCode：模板插值**之后**的代码仍被识别（旧版从此整段失明）', () => {
+  // ⚠️⚠️ 这条我写坏过一次，教训值得留：第一版用 `colors()`（= `maskComments`）断言，
+  //    而 `maskComments` **保留字符串内容** —— 失步的表现恰好是"后面被当成字符串"，
+  //    于是在那个视图下**完全看不见**，注入旧缺陷后照样通过。
+  //    ⇒ 必须断在 `maskNonCode`（= `maskStrings:true`）上：它抹非代码文本，
+  //      代码骨架还在不在，一眼可判。L1–L7 / L6 用的也正是它。
+  const src = 'const s = `a${x}b`\nconst c = "#ff0000"\n'
+  const m = maskNonCode(src)
+  assert.match(m, /const c =/, '模板之后的**代码骨架**必须保留 —— 丢了就说明扫描器失步了')
+  assert.match(m, /\$\{x\}/, '插值里的代码要保留（它是代码，不是字符串内容）')
+  assert.equal(m.includes('#ff0000'), false, '第二行的色值在字符串里，该被抹掉')
+
+  // 真实形态：两个插值 + 插值里有除法（SearchPage 原样）
+  const real = 'show(`模型就绪 · ${evt.device} · ${(evt.loadMs / 1000).toFixed(1)}s`)\nconst after = 3\n'
+  const rm = maskNonCode(real)
+  assert.match(rm, /const after = 3/, '两个插值 + 除法之后也要看得见代码')
+  assert.match(rm, /evt\.device/, '插值里的标识符要保留')
+})
+
+test('S14 ⭐⭐ maskNonCode：注释里的**反引号**不得漏出来（旧版会漏 ⇒ 假阳性）', () => {
+  const src = '// 说明 `#ff0000` 是危险写法\nconst a = 1\n'
+  assert.equal(findInCode(src, /#ff0000/g).length, 0,
+    'maskNonCode 不该把注释里的内容漏出来 —— 那会让"解释规则的注释"自己踩中规则')
+  assert.match(maskNonCode(src), /const a = 1/, '注释之后仍是代码，不能被吞')
+
+  // 同一行里既有注释又有真违例：只该报真的那个
+  const mixed = "const a = '#ff0000' // `#00ff00` 只是说明\n"
+  assert.equal(findOutsideComments(mixed, /#ff0000/g).length, 1, '真违例要报')
+  assert.equal(findOutsideComments(mixed, /#00ff00/g).length, 0, '注释里的不报')
+
+  // ⚠️ 上面那两条**在旧缺陷下也通过**（输入里没有模板 ⇒ 触不到失步）。
+  //    要真正钉住"注释里的内容漏出来"这条路径，前面必须有一个带插值的模板 ——
+  //    旧版在那里失步，之后的一切（含这行注释）都被当成模板串的延续。
+  const withTemplate = 'const s = `a${x}b`\n// 说明 `#ff0000` 是危险写法\nconst a = 1\n'
+  assert.equal(findInCode(withTemplate, /#ff0000/g).length, 0,
+    '模板之后那行注释里的内容同样不许漏出来')
+  assert.match(maskNonCode(withTemplate), /const a = 1/, '模板+注释之后的代码仍要可见')
+})
+
+test('S15 插值里的**字符串**按 maskStrings 走：maskNonCode 抹、maskComments 保留', () => {
+  const src = 'const s = `x${fn("SECRET")}y`\n'
+  assert.equal(maskNonCode(src).includes('SECRET'), false, 'maskNonCode 连字符串内容一起抹')
+  assert.equal(maskComments(src).includes('SECRET'), true, 'maskComments 保留字符串内容')
+  // 插值里的**代码**两边都要保留（否则"有没有调用 fn"会漏报）
+  assert.match(maskNonCode(src), /fn\s*\(/)
+  assert.match(maskComments(src), /fn\s*\(/)
+})
+
+test('S16 插值里含嵌套花括号/字符串/切片时，配平仍然正确', () => {
+  // `${ {k: "}"} }` —— 朴素括号计数会在字符串里的 `"}"` 上错位
+  const src = 'const s = `a${ {k: "}"} }b`\nconst c = 1\n'
+  assert.match(maskNonCode(src), /const c = 1/, '插值里的 "}" 不该提前结束插值，后面的代码仍要可见')
+  assert.match(maskNonCode(src), /k:/, '插值里的对象字面量是代码，要保留')
+
+  // 模板里再套模板。⚠️ 内层模板的**文本**（这里的 b/d）本来就该被抹 —— 那是字符串内容；
+  //    要保留的是它里面的**插值**。第一版我断言 `b` 还在，那是错的。
+  const nested = 'const s = `a${`b${c}d`}e`\nconst d = 1\n'
+  assert.match(maskNonCode(nested), /const d = 1/, '嵌套模板之后仍要看得见代码')
+  assert.match(maskNonCode(nested), /\$\{\s*c\s*\}/, '内层模板的**插值**按代码保留')
+
+  // 插值里带箭头函数与索引（真实模板串里常见）
+  const fn = 'const s = `x${arr[i].map((v) => v + 1)}y`\nconst e = 1\n'
+  assert.match(maskNonCode(fn), /const e = 1/, '复杂插值之后也要看得见代码')
+  assert.match(maskNonCode(fn), /arr\[i\]\.map/, '插值里的成员访问要保留')
+})
+
+test('S16b 未闭合的模板不会把文件"吞掉"到越界（健壮性）', () => {
+  const src = 'const s = `没闭合\nconst c = "#ff0000"\n'
+  const m = maskNonCode(src)
+  assert.equal(m.length, src.length, '等长不变，行号才准')
+  assert.equal(m.split('\n').length, src.split('\n').length)
 })

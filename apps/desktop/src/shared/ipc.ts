@@ -41,6 +41,18 @@ export const Methods = {
 
   item: z.object({ libId: LibId, uid: Uid }).strict(),
 
+  /**
+   * `itemPaths` —— 两条**绝对路径**（2026-10-13 新增，契约 §2.2a）。
+   *
+   * ⚠️ **为什么单独一个方法，而不是往 `item` 里加字段**（所有者决定）：
+   *   把绝对路径混进 `item`，等于**每一次取元数据都顺带把库内路径交出去**；
+   *   而 P3c（图片详情）确实要显示它们（`ROADMAP.md:221` / `UI-REVIEW-and-migration.md:235`）。
+   *   ⇒ 给它一个**语义就是"要路径"**的只读方法，暴露面收在明处、可审计。
+   *   引擎侧仍走完整的库根包含校验与符号链接校验。
+   * 契约 §9.1：冻结后**新增**方法/字段 = 兼容。
+   */
+  itemPaths: z.object({ libId: LibId, uid: Uid }).strict(),
+
   indexStatus: z.object({}).strict(),
 
   scan: z.object({ libId: LibId }).strict(),
@@ -62,10 +74,25 @@ export const Methods = {
   }).strict(),
 
   mutate: z.object({
-    libId: LibId, uid: Uid,
+    libId: LibId,
+    /**
+     * ⚠️ **`uid` 对 `undo` 是可选的**（2026-10-13 更正）。
+     *
+     * 契约 §2.7 的表里写得很清楚：`undo` 的语义是「**撤销指定事务**」—— 由 `params.txId` 定位，
+     * `uid` 对这件事**没有意义**。而 schema 原先把它写死成必填 ⇒ 调用方只能瞎塞一个 uid，
+     * 否则连"撤销"都发不出去（实测：操作记录页的回退被 `BAD_REQUEST` 拦掉，状态没变）。
+     * 折中：`uid` 改为可选 + `superRefine` 保证**除 undo 外仍然必填**。
+     * 这属于**放宽**（原先合法的调用照旧合法）⇒ 契约 §9.1 口径的兼容改动。
+     */
+    uid: Uid.optional(),
     op: z.enum(['rename', 'moveFolder', 'reattachArchive', 'moveOutOfLibrary', 'undo']),
     params: z.record(z.string(), z.unknown()).optional(),
-  }).strict(),
+  }).strict()
+    .superRefine((v, ctx) => {
+      if (v.op !== 'undo' && typeof v.uid !== 'string') {
+        ctx.addIssue({ code: 'custom', message: '除 undo 外，mutate 必须带 uid（undo 由 params.txId 定位）' });
+      }
+    }),
 
   indexStart: z.object({
     libId: LibId,
@@ -75,6 +102,29 @@ export const Methods = {
   }).strict(),
 
   indexCancel: z.object({ jobId: z.string().max(64) }).strict(),
+
+  /**
+   * `indexResume` —— 续跑（2026-10-13 补登记）。
+   *
+   * ⚠️ **契约 §2.10 早就写了这个方法**（"`indexResume { jobId }` 复用已编码行，按 `compat` 判定"），
+   *   但**这张白名单里一直漏了它** ⇒ 它此前会被当成"引擎无此方法"拒掉（`BAD_REQUEST`）。
+   *   是"契约正文"与"契约 schema"之间的漂移。P3d 的「续跑」要用它，故补登记。
+   */
+  indexResume: z.object({ jobId: z.string().max(64) }).strict(),
+
+  /**
+   * `transactions` —— 事务台账（2026-10-13 新增，契约 §2.11）。
+   *
+   * 依据 `docs/spec/SPEC-transactions.md:229`：「界面据 id 查询状态、提供撤销入口」。
+   * 一个方法同时支持"列最近 N 条"与"查某一条"（`txId` 可选）。
+   * ⚠️ 与 `itemPaths` 同一条规矩：**单独一个只读方法**，而不是把事务塞进别的方法的返回里 ——
+   *    暴露面收在明处、可审计。
+   */
+  transactions: z.object({
+    libId: LibId.optional(),
+    txId: z.string().max(64).optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  }).strict(),
 
   // ---- 库配置（D2 修复：首启向导需要读/写"库从哪来"）----
   // 只读：返回解析结果 + 诊断 + 警告（库来自环境变量/注册表/config/索引自举 四条路哪一条）

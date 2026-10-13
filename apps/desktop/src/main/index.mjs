@@ -22,7 +22,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { ROOT, log } from './log.mjs';   // ← 必须最先导入：导入即初始化日志
-import { createEngine } from '../../../../packages/engine/src/engine.mjs';
+import { createEngine, UNIMPLEMENTED_METHODS } from '../../../../packages/engine/src/engine.mjs';
 import { CH_INVOKE, CH_EVENT, validateCall, METHOD_NAMES } from '../shared/ipc.ts';
 import { resolveLibraries, loadRegistry, saveRegistry, normalizeLibraries, registryPath } from './library-config.mjs';
 import { createRevealPort } from './ports.mjs';
@@ -40,6 +40,39 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /** dev 态页面地址（由 electron-vite dev 注入；打包/预览态为空） */
 const DEV_RENDERER_URL = process.env.ELECTRON_RENDERER_URL || '';
+
+/**
+ * 模拟模式（契约 `CONTRACT-engine-v1.md` §8「UI 用的测试数据与模拟接口」）。
+ *
+ * ⚠️ **只由显式环境变量打开**，绝不因为"检测到没有库"之类的条件自动生效 ——
+ * 那会让"以为在看真库、其实在看样例"成为可能，而本项目最危险的失败模式就是**静默**。
+ * 打开时 `buildEngine()` 会**大声记日志**（见那里的三条 log）。
+ * 用法：`GEMMA_FAKE=1 npm run dev`（P3c/P3d 的界面开发与 E2E 靠它摆脱 ONNX 模型）。
+ */
+const FAKE_MODE = process.env.GEMMA_FAKE === '1';
+
+/** 模拟模式的库根：与 `fixtures/sample-index.json` 的 `root` 一致，且本机不存在（见 fake.test.mjs 的 F1） */
+const FAKE_LIB_ROOT = 'Z:\\__fake_library__';
+
+/**
+ * 读模拟模式的样例索引（契约 §8 的 `fixtures/sample-index.json`）。
+ *
+ * 路径**从 `ROOT` 算**（主进程本来就知道仓库根），不用 `import.meta.url` —— 后者在打包后
+ * 指向 `out/main/index.js`，上溯会落到仓库外（实测把主进程崩在建窗之前）。
+ * ⚠️ 读不到就**抛**：模拟模式读不到数据却继续跑，只会让人以为"样例就是这样"，比崩更坏。
+ */
+function loadFakeFixture() {
+  const p = path.join(ROOT, 'fixtures', 'sample-index.json');
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch (e) {
+    throw new Error(
+      `GEMMA_FAKE=1 但读不到样例索引：${p}\n` +
+      `（原样错误：${e.message}）\n` +
+      '模拟模式需要仓库里的 fixtures/sample-index.json —— 打包态不含它，所以模拟模式只用于开发与 E2E。',
+    );
+  }
+}
 
 // ---------------------------------------------------------------- 运行环境自愈（§9 排障）
 //
@@ -160,7 +193,21 @@ function buildEngine() {
     // 引擎不 import electron，所以"在资源管理器里定位"这个能力只能由外壳这样交进去。
     // 端口本身只负责调用；成功/失败的判定在引擎里（见 ports.mjs 的注释）。
     shell: createRevealPort(shell),
+    // 模拟模式（契约 §8）：`GEMMA_FAKE=1` ⇒ 无模型、无真实库，界面可演示全部状态。
+    // ⚠️ 只由**显式环境变量**打开，且启动时**大声记日志**（见下面的 log）—— 绝不静默生效。
+    //
+    // ⚠️ **fixture 由主进程读、再注入引擎**，不在引擎里按 `import.meta.url` 找文件。
+    //    实测踩过：引擎源码里 `../../../fixtures/…` 在**打包后**会解成 `D:\fixtures\…`
+    //    （`import.meta.url` 变成了 `out/main/index.js`）⇒ `readFileSync` 抛 ⇒ **主进程崩在建窗之前**
+    //    ⇒ 症状是"窗口永远不出现"，跟"没有库"完全不像，很费时间。
+    //    由主进程注入还顺带保住了引擎自己的设计原则：**传输无关、依赖全部注入**。
+    fake: FAKE_MODE ? { fixture: loadFakeFixture() } : false,
   });
+  if (FAKE_MODE) {
+    log('⚠️⚠️ 模拟模式已开启（GEMMA_FAKE=1）：**没有真实素材库、没有模型、不读任何素材文件**。');
+    log('        catalog 来自 fixtures/sample-index.json；ingest/mutate 只在内存里改，进程退出即消失。');
+    log('        这只用于界面开发与 E2E —— 看到这条日志就说明当前**不能**用来判断检索质量。');
+  }
   log('引擎就绪 · 库', r.libraries.map((l) => `${l.libId}=${l.root}[${l.source}]`).join(', ') || '(无)');
   // 诊断与警告写进日志：出问题时第一手材料就是 data/_app.log
   for (const d of r.diagnostics) log('[cfg]', d);
@@ -226,9 +273,13 @@ function registerIpc() {
       return res;
     }
 
-    // 引擎里还没实现的方法在这里显式拒绝，避免"静默什么都不做"
-    const missing = ['ingest', 'mutate', 'indexStart', 'indexCancel'];
-    if (missing.includes(v.method)) {
+    // 引擎里还没实现的方法在这里显式拒绝，避免"静默什么都不做"。
+    // 模拟模式下**不拒绝** —— 由 `fake.mjs` 提供假实现，这是契约 §8 让「P3 不等真实库」的那条路。
+    // （真实模式仍然拒绝：不许假装成功，见引擎侧的 `INTERNAL`。）
+    //
+    // ⚠️ 清单来自**引擎导出的唯一一份**（`UNIMPLEMENTED_METHODS`）—— 原先是这里手写一份、
+    //    引擎里再逐段写一遍，两处会漂移（P1）。现在"哪些没做"全仓只有一处定义。
+    if (!FAKE_MODE && UNIMPLEMENTED_METHODS.includes(v.method)) {
       return { ok: false, error: { code: 'INTERNAL', message: `方法尚未实现：${v.method}`,
                                    userMessage: '这个功能还没做好。', details: { method: v.method } } };
     }
@@ -256,6 +307,20 @@ function registerIpc() {
 // —— 渲染层本来就拿不到 `dialog`，这个方法是它唯一的、需用户亲自点击的间接通道。
 async function handleLibraryMethod(method, params) {
   if (method === 'libraryConfig') {
+    // 模拟模式：给一个**自洽的假世界**。少了这一步会出现很别扭的错配 ——
+    // 引擎侧 `indexStatus` 报着 3 个样例库，而门禁（`decideGate` 判的是**本方法**的 `libraries.length`）
+    // 因为一条真实库来源都没配而判成 `wizard` ⇒ **显示首启向导、检索界面根本不挂载**。
+    // 实测踩过：E8-a/E8-b 卡在"找不到 #query"，看起来像选择器问题，其实是"没有库"。
+    if (FAKE_MODE) {
+      return { ok: true, data: {
+        libraries: [{ libId: 'L1', label: '示例库（模拟）', root: FAKE_LIB_ROOT, source: 'fake' }],
+        collect: { dirs: {}, default: '' },
+        chosen: 'fake（GEMMA_FAKE=1，没有真实素材库）',
+        diagnostics: ['模拟模式：库列表来自 fixtures/sample-index.json，不是真实配置'],
+        warnings: ['⚠️ 当前是模拟模式，检索结果与真实素材库无关'],
+        registryPath: null,
+      } };
+    }
     const r = librariesResolved();
     return { ok: true, data: {
       libraries: r.libraries.map(({ libId, root, label, source }) => ({ libId, root, label, source })),
