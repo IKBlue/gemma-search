@@ -37,7 +37,7 @@
 // ⚠️ 任意值说明：`max-w-dialog` = `--layout-dialog-width`（已在 tokens.css 登记来源）；
 //    小屏用 `calc(100vw - var(--space-12))` 兜底 —— 仍然走令牌，没写死像素。
 //    `z-40/50` 是**本图层内部**的层叠序（遮罩 < 内容），不跨层比较，故未上令牌。
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import * as AlertDialog from '@radix-ui/react-alert-dialog'
 
 import Button from './Button.jsx'
@@ -54,6 +54,39 @@ export default function ConfirmDialog({
 }) {
   /** 打开弹窗前，焦点在谁身上（就是那个「取件」按钮）—— 关闭时还回去 */
   const restoreRef = useRef(null)
+  /**
+   * 最后一次**实际拿到焦点**的元素（全局跟踪）。
+   *
+   * ⚠️ 为什么需要这个兜底（2026-10-13 实测到的**偶发**，不是理论问题）：
+   *   `onOpenAutoFocus` 里读 `document.activeElement` 是**对某一瞬间的一次采样**。
+   *   全量 E2E（62 条、比之前重）跑起来后，E7-d 会**间歇**失败：那一刻 `activeElement`
+   *   是 `BODY` ⇒ 什么都没存 ⇒ 关闭后焦点落回 body。单独跑该用例 3/3 全过 ⇒
+   *   根因是**负载下 `mousedown`（聚焦按钮）与弹窗打开之间发生了重渲染**，把按钮换掉了。
+   *   ⇒ 跟踪 `focusin` 相当于"记住用户上一次真的把焦点放在哪"，比单点采样稳，
+   *     而且这是**真的无障碍改进**：键盘/读屏用户不该因为一次重渲染就丢失位置。
+   */
+  const lastFocusedRef = useRef(null)
+  useEffect(() => {
+    const onFocusIn = (e) => { lastFocusedRef.current = e.target }
+    document.addEventListener('focusin', onFocusIn)
+    return () => document.removeEventListener('focusin', onFocusIn)
+  }, [])
+
+  /**
+   * 挑出"焦点该还到哪" —— **候选链**，逐个要求**仍然连着 DOM**。
+   *
+   * ⚠️ 顺序不能反：`restoreRef`（打开那一瞬真的聚焦着的元素）优先于
+   *   `lastFocusedRef`（全局最后聚焦的元素）。后者**会被 Radix 自己覆盖** ——
+   *   焦点移进弹窗时又触发一次 `focusin`，于是它记的是弹窗里那个「取消」按钮；
+   *   等关闭时那个按钮**已经卸载** ⇒ 必须由 `isConnected` 把它筛掉。
+   *   这正是 2026-10-13 全量 E2E 下 E7-d 间歇失败（落回 `BODY`）的原因：
+   *   只有一个候选、且没查 `isConnected`，链一断就没有备选。
+   *
+   * ⚠️ 它必须在**组件体**里，不能写在下面 JSX 的属性列表中 ——
+   *   那里是属性位置，放 `const` 是语法错误（2026-10-13 实测：构建当场失败）。
+   */
+  const pickRestoreTarget = () => [restoreRef.current, lastFocusedRef.current]
+    .find((c) => c && c !== document.body && c.isConnected && typeof c.focus === 'function')
 
   return (
     <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -70,17 +103,23 @@ export default function ConfirmDialog({
           //   ⚠️ 这里**不** `preventDefault()`：我们**要** Radix 把焦点落进弹窗（落在「取消」上，见文件头）。
           onOpenAutoFocus={() => {
             const el = document.activeElement
-            if (el && el !== document.body && typeof el.focus === 'function') restoreRef.current = el
+            if (el && el !== document.body && typeof el.focus === 'function') { restoreRef.current = el; return }
+            const last = pickRestoreTarget()
+            if (last) restoreRef.current = last
           }}
           // 关闭时把焦点还给来源元素。
           // `preventDefault()` 是**必须的** —— 不阻止的话 Radix 会自己决定落点（本例落回 body）。
-          // `isConnected` 判断是为了不还到一个已经被卸载的元素上（那样焦点会丢失）。
           onCloseAutoFocus={(event) => {
-            const el = restoreRef.current
-            if (el && el.isConnected) {
-              event.preventDefault()
-              el.focus()
-            }
+            const el = pickRestoreTarget()
+            if (!el) return
+            event.preventDefault()
+            el.focus()
+            // ⚠️ **下一帧复核一次**。负载下聚焦之后可能立刻被紧随其后的重渲染/Radix 收尾打断，
+            //    焦点又回到 body（E7-d 实测到的间歇失败）。复核只做一件事：如果那时焦点不在目标上
+            //    **且目标还活着**，再聚一次。这不是"重试到成功"，只在**一帧**后确认。
+            requestAnimationFrame(() => {
+              if (el.isConnected && document.activeElement !== el) el.focus()
+            })
           }}
           className={cn(
             'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',

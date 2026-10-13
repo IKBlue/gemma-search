@@ -2,10 +2,19 @@
 //
 // 缩略图走 thumb://（主进程只按 libId+uid 反查，渲染进程传不进路径）。
 // 「定位」在**既无包也无图路径**时必须 disabled（防误操作）——渲染层守卫会断言这条。
+//
+// ⚠️ 2026-10-13 加标题链接（Apple Style 审查 **V-28，Critical**）：
+//   详情页 `/item/:libId/:uid` 早就实现了，但**从界面根本走不到** ——
+//   全仓 `PATHS.item` 只出现在路由表定义里，**没有任何链接指向它** ⇒ 用户只能手打 hash。
+//   这里把**标题**做成真链接（最自然的"打开详情"入口，键盘也能 Tab 到），
+//   而不是把整张卡包成链接 —— 卡里还有「定位」「取件」两个按钮，
+//   链接套按钮会变成嵌套交互元素（HTML 规范禁止、读屏也会念乱）。
 import { useState } from 'react'
+import { Link } from 'react-router'
 import Button from '../ui/Button.jsx'
 import Score from '../ui/Score.jsx'
 import Tag from '../ui/Tag.jsx'
+import { itemPath } from '../router/paths.js'
 
 export default function PhotoCard({ item, onLocate, onCollect }) {
   const [failed, setFailed] = useState(false)
@@ -35,7 +44,12 @@ export default function PhotoCard({ item, onLocate, onCollect }) {
         </span>
       </div>
       <div className="card-info">
-        <div className="card-title" title={item.relPath || ''}>{title}</div>
+        <Link
+          className="card-title"
+          to={itemPath(item.libId, item.uid)}
+          title={item.relPath || ''}
+          data-testid="card-detail-link"
+        >{title}</Link>
         <div className="card-meta">
           <span><Tag folder={item.folder} /></span>
           {/* band 由**引擎**给（按模态分的档位）。界面不自己算阈值 —— 见 Score.jsx 顶部注释 */}

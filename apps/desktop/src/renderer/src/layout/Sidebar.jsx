@@ -42,7 +42,18 @@ export function NavItem({ icon, children, active = false, disabled = false, titl
         // `aria-current="page"` 由 **NavLink 自己**加（react-router 的既有行为）——
         // 这正是"当前在哪一页"的正确语义（不是 `aria-pressed`，那是切换按钮）。
         // 它由 E2E 的 `a11y.spec.mjs` 在真窗口里断言，别在这里手写一个。
-        className={({ isActive }) => cn(active || isActive, false) || undefined}
+        // ⚠️ 2026-10-13 修（Apple Style 审查 V-01）：**原式**是 cn(active || isActive, false) || undefined。
+        //    `cn(true, false)` === `''`（clsx 对布尔参数的处理）⇒ 整式**恒为 `undefined`**
+        //    ⇒ NavLink 拿不到任何 class ⇒ **侧栏当前页在视觉上完全不可见**（真窗口实测 3 条路由一致：
+        //    `navActiveClass = null`、`backgroundColor = rgba(0,0,0,0)`）。
+        //    现在写"**互斥**"形态（`AGENTS.md` §3：修饰态写互斥不写叠加），并把 `active` 作为**对象键**传，
+        //    这样"要不要这个类"由 clsx 决定，不再靠 `||` 和布尔参数打架。
+        //
+        // ⚠️⚠️ **注意这一行与上面注释里的写法**：注入器/脚本类工具改这里时**必须先用
+        //    `helpers/source-scan.mjs` 的 `maskComments` 剥掉注释再匹配**。实测教训（2026-10-13）：
+        //    我用裸字符串替换做双向验证，结果**改到的是注释里那句、代码原封不动** ——
+        //    于是"注入后测试变红"与"还原后测试变绿"都成了假象，白白多花了几轮。
+        className={({ isActive }) => cn({ active: active || isActive }) || undefined}
         title={title}
       >
         <span className="ico" aria-hidden="true">{icon}</span>

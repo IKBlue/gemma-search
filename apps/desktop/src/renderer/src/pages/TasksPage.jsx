@@ -51,7 +51,7 @@ function PhaseBar({ current }) {
         const state = idx < 0 ? 'todo' : i < idx ? 'done' : i === idx ? 'now' : 'todo'
         return (
           <li key={p.key} className="flex items-center gap-2" data-phase={p.key} data-phase-state={state}>
-            <span className={state === 'done' ? 'dot-ok' : state === 'now' ? 'dot-warn' : 'muted'}>
+            <span className={state === 'done' ? 'tone-ok' : state === 'now' ? 'tone-warn' : 'muted'}>
               {state === 'done' ? '✓ ' : state === 'now' ? '● ' : '○ '}{p.label}
             </span>
             {i < PHASES.length - 1 ? <span className="muted">→</span> : null}
@@ -81,7 +81,7 @@ function FailedList({ failed }) {
         ))}
       </ul>
       <p className="muted small mt-2">
-        「能否跳过」由引擎决定：这些条目**不影响其余条目**编码，但本次任务的 `ok` 会是 `false`。
+        「能否跳过」由引擎决定：这些条目不影响其余条目编码，但本次任务的 `ok` 会是 `false`。
       </p>
     </details>
   )
@@ -200,7 +200,7 @@ export default function TasksPage() {
                 </Button>
                 {/* 规格明确要求把这个承诺写在按钮旁边 */}
                 <span className="muted small" data-testid="cancel-note">
-                  取消：**将在当前批次结束后停止**（最多 2 秒内收尾，已编码的行保留，可续跑）
+                  取消：将在当前批次结束后停止（最多 2 秒内收尾，已编码的行保留，可续跑）
                 </span>
               </div>
             </div>
@@ -274,7 +274,7 @@ export default function TasksPage() {
                        同样的字 ⇒ Playwright 匹配到 2 个元素（strict mode 报错）；更糟的是 toast 还没挂上时
                        它只匹配到这一段 ⇒ **断言假绿**（2026-10-13 实测：全套挂 2/3 次、单独跑却"通过"）。 */}
                 <p className="muted small">
-                  还没有跑过任务。点「开始索引」；真实模式下若这个功能还没接线，引擎会**如实拒绝**而不是假装在跑
+                  还没有跑过任务。点「开始索引」；真实模式下若这个功能还没接线，引擎会如实拒绝而不是假装在跑
                   —— 点一下就知道当前是什么状态。想在本地看完整流程（阶段条 / 进度 / 失败项 / 取消 / GPU 回退），
                   用模拟模式：<span className="mono">GEMMA_FAKE=1 npm run dev</span>。
                 </p>

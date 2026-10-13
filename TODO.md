@@ -383,6 +383,64 @@
 
 ---
 
+### B-6 UI/UX 治理（Apple Style 审查，2026-10-13）—— **第一段已做，标注处未完成**
+
+> 审查产物：仓库根 [`违规的UI.md`](违规的UI.md)（**违规唯一详表**，42 条）·
+> [`docs/audit/UIUX-APPLE-STYLE-AUDIT.md`](docs/audit/UIUX-APPLE-STYLE-AUDIT.md)（论证与优先级）·
+> [`docs/design/UI-KIT.md`](docs/design/UI-KIT.md)（Apple HIG 基线对差）。
+> ⚠️ 这三份 + `docs/design/ui-kit/`（生成器与数据）**目前仍未提交** —— 见下表"未完成"第 2 条。
+
+**已修（本轮实测，带断言）**
+
+| 编号 | 内容 | 落点 |
+|---|---|---|
+| **V-28**（Critical） | 详情页原先**界面不可达** ⇒ 结果卡标题变真链接；新增 `itemPath()` 作为路由形状的唯一来源 | `search/PhotoCard.jsx` · `router/paths.js` |
+| **V-01** | 侧栏当前页类名恒 `undefined` ⇒ 修为互斥形态；并补 `.nav a[aria-current="page"]` **兜底**（防御纵深） | `layout/Sidebar.jsx` · `renderer.css` |
+| **V-02** | `.dot-*` 被当"文字语气类"用在 **6 处文字 span** ⇒ 新增 `.tone-*`（着色在 `color`）；真圆点（`SearchSidebar.jsx` 的 `dot dot-ok`）**保留** | `renderer.css` + 6 处调用点 |
+| **V-03** | 分数档位色当正文只有 2.22/2.06 ⇒ 新增 `--color-success-text`/`--color-warning-text`，`--score-same/like` 改指它们 | `packages/design-tokens/tokens.css` |
+| **V-15** | 错误文案无独立规则（只有 `.toast.err` 复合选择器）⇒ 补独立 `.err` | `renderer.css` |
+| **V-16** | 错误 toast 恒 `role="status"` + 2.6s 自动消失 ⇒ 改 `alert`/`assertive`，且**不自动消失** | `ui/Toast.jsx` · `hooks/useToast.js` |
+| V-17 | `text-err` 不是合法 Tailwind 类（静默失效）⇒ 改 `text-critical-text` | `pages/ActivityPage.jsx` |
+| V-05/V-06/V-07 | 4 个分类标签前景 3.96–4.29 · 深色 CR+VR **3.47** · 浅色误用深色档橙 ⇒ 按同色系压暗阶梯重取值（≥4.5） | `tokens.css` 两套块 |
+| V-40（High） | 用户可见文案里 **9 处** `**加粗**` 会按字面显示 ⇒ 去掉星号 | ActivityPage · TasksPage · `utils/item-actions.js` |
+| V-42 | toast 显示 **undefined** ⇒ 真机制是 `setMessage(String(msg))`（`String(undefined)==='undefined'`）⇒ 新增 `normalizeMessage` | `hooks/useToast.js` |
+| **V-43**（**本轮新发现**） | 错误 toast 白字压 `--color-critical` 只有 **3.55:1** ⇒ 新增 `--toast-err-bg`（白字 5.26） | `tokens.css` · `renderer.css` |
+| **V-44**（**本轮新发现**） | 状态圆点是 **8px 非文字图形**，用 `--color-success` 只有 **2.22:1**（SC 1.4.11 要 3:1）⇒ 改用可读变体 | `renderer.css` `.dot-*` |
+
+**新建的四类防线（按根因，不逐条打补丁）**
+
+| 类 | 文件 | 双向验证 |
+|---|---|---|
+| **A** 类名/属性 ↔ 样式层契约 | `apps/desktop/tests/style-contract.test.mjs`（SC-0…SC-3） | ✅ 拆 `.err` 规则 ⇒ SC-2 红；`text-critical-text`→`text-err` ⇒ SC-1 红 |
+| **B** 侧栏当前页（真窗口） | `apps/desktop/e2e/uiux-p0.spec.mjs`（E12-a…f） | ✅ 改回旧表达式 ⇒ E12-c/e 红；**两条路都拆** ⇒ E12-d 也红（证明非空断言） |
+| **C** WCAG AA 对比度（由令牌计算） | `apps/desktop/tests/contrast.test.mjs`（CT-0…CT-3） | ✅ 注入旧前景 + 制造深色块键漂移 ⇒ CT-1/CT-2/CT-3 红 |
+| **D** 用户可见文案 | `apps/desktop/tests/copy.test.mjs`（CP-0…CP-4） | ✅ 退回 `String(msg)` ⇒ CP-0 红；注入 `**跑过**` ⇒ CP-2 红 |
+
+**门禁（本轮末实测）**：`npm test` **313 · 312 · 0 · 1** · `npm run e2e` **62 passed**（连跑 2 次。
+
+**未完成 / 待办**
+
+| # | 项 | 说明 |
+|---|---|---|
+| B-6-1 | ⛔ **独立 Agent 复核（宪章 §0 硬要求）** | **未做** —— 本轮发起后被取消。复核者必须**自己跑命令、回原文件核对**，不得只读结论；结论要归档 |
+| B-6-2 | ✅ **审查产物与改动已入库** | 4 个审查产物（`违规的UI.md` · `docs/audit/UIUX-APPLE-STYLE-AUDIT.md` · `docs/design/UI-KIT.md` · `docs/design/ui-kit/{build.mjs,kit-data.json}`）与全部改动**已随本次提交入库并推送**（见 `git log`）。⚠️ `docs/design/ui-kit/index.html`（1.2 MB 派生物）**按设计不入库** —— `.gitignore` 有理由，且已实测可由 `node docs/design/ui-kit/build.mjs` 逐字节重建 |
+| B-6-3 | **V-04 未核对** | `data-tone` 是否在界面输出、CSS 是否有对应规则 —— 🔸 **本轮没查**，别当成已修 |
+| B-6-4 | **审计 P1/P2 的其余条目** | V-09 · V-10 · V-11 · V-12 · V-13 · V-14 · V-18–V-27 · V-29–V-39 · **V-41** —— 逐条见仓库根台账与报告 §13 |
+| B-6-5 | **V-41 刻意不做成断言** | 审计把它归 P2 且写明"多为**登记决定**"；做成断言只会逼出"关掉"或"堆白名单"（本仓库反复栽过）。这是**决定**，不是漏了 |
+| B-6-6 | **审计 §14 的未覆盖项** | 打包态与冷启动 · 真实检索质量与缩略图内容 · **读屏实机**（结论基于 `aria-*` 存在性，**不是**读屏实测）· 系统级偏好真窗口 · 高 DPI —— **均未验证，不得声称已验** |
+
+**本轮留下的三条教训（改相邻代码时看这里）**
+
+1. **注入/改写工具必须先剥注释**：本仓库注释里大量引用代码片段（`setMessage(String(msg))`、旧 `cn(...)`），
+   裸字符串替换会**命中注释而不是代码** ⇒ 会得出**完全相反**的结论。已有现成的 `helpers/source-scan.mjs` 的 `maskComments`。
+   **两次踩过**：一次是把注入打到注释上、一次是断言被"注释里的旧代码"误判成违规。
+2. **构建不能用管道吞退出码**：`npm run build 2>&1 | Out-Null` 会把失败吞掉，而 e2e 跑的是**旧产物** ⇒ 出现"测试全绿但代码是坏的"。
+   判断成败要看**产物**（`out/renderer/assets/*` 的时间戳与内容），不是退出码。
+3. **断言不能只匹配函数名**：`/normalizeMessage\(msg\)/` 会被**函数定义**满足 ⇒ 把调用点改回 `String(msg)` 也照样绿。
+   必须断言**确切的调用表达式**。这条是**双向验证当场抓出来的**。
+
+---
+
 ## C. 已修但**别改回去**（防回归清单）
 
 > 这些不是 TODO，是**改相邻代码时的地雷**。完整边界说明见 `AGENTS.md` §7。

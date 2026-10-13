@@ -24,7 +24,7 @@ import { INDEX_STATES } from './index-state.js';
 /** 四个分区（顺序即界面上的顺序；文案只在这里写一份） */
 export const ACTION_GROUPS = Object.freeze([
   Object.freeze({ key: 'take', title: '取件', note: '复制到取件目录；不移动、不删除库内文件' }),
-  Object.freeze({ key: 'reuse', title: '维护（复用向量）', note: '只改路径与配对，**不重新编码**' }),
+  Object.freeze({ key: 'reuse', title: '维护（复用向量）', note: '只改路径与配对，不重新编码' }),
   Object.freeze({ key: 'reencode', title: '维护（需重编码，须提示）', note: '会重新编码这一条的向量 —— 慢' }),
   Object.freeze({ key: 'danger', title: '危险区', note: '把素材移出素材库（进事务日志，可撤销）' }),
 ]);

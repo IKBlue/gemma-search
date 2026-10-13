@@ -126,7 +126,7 @@ export default function ActivityPage() {
               <div className="panel" role="alert">
                 <p className="err" data-testid="activity-error">{data.error.userMessage}</p>
                 <p className="muted small">
-                  真实模式下事务日志**还没实现**（<span className="mono">{data.error.code}</span>）——
+                  真实模式下事务日志还没实现（<span className="mono">{data.error.code}</span>）——
                   `TODO.md` B-2-3 记着这件事。用 <span className="mono">GEMMA_FAKE=1 npm run dev</span> 可以看完整流程。
                 </p>
               </div>
@@ -135,13 +135,15 @@ export default function ActivityPage() {
                 {/* ── 待处理（RECOVERY_NEEDED 三条路，SPEC-transactions §4 / UI-REVIEW:250）── */}
                 {data.blocked ? (
                   <p className="err mb-3" role="alert" data-testid="blocked-note">
-                    ⚠️ 有未收尾的事务 —— 在此之前，**所有写操作都会被拒绝**（`RECOVERY_NEEDED`）。
+                    ⚠️ 有未收尾的事务 —— 在此之前，所有写操作都会被拒绝（`RECOVERY_NEEDED`）。
                   </p>
                 ) : null}
 
                 {pending.length > 0 ? (
                   <div className="panel mb-4" data-testid="pending-panel">
-                    <div className="mb-2 font-semibold text-err">待处理操作 {pending.length} 项</div>
+                    {/* ⚠️ 原为 `text-err` —— `@theme` 里**没有** `--color-err`，Tailwind 不会生成这个类
+                        ⇒ 颜色**静默失效**（审查 V-17）。改用 `--color-critical-text`（浅底 5.38:1，过 AA）。 */}
+                    <div className="mb-2 font-semibold text-critical-text">待处理操作 {pending.length} 项</div>
                     {pending.map((tx) => (
                       <div className="border-t border-line py-3 first:border-t-0" key={tx.txId} data-pending={tx.txId}>
                         <div className="text-caption text-ink">
@@ -150,7 +152,7 @@ export default function ActivityPage() {
                           {tx.summary || '（无说明）'}
                         </div>
                         <p className="muted small mt-1">
-                          契约 §5：**不可回退**的操作只能手动处理 —— 这里据 <span className="mono">canUndo</span>/<span className="mono">canRollback</span>
+                          契约 §5：不可回退的操作只能手动处理 —— 这里据 <span className="mono">canUndo</span>/<span className="mono">canRollback</span>
                           决定按钮是否可点，不给你一个点了没用的按钮。
                         </p>
                         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -167,12 +169,12 @@ export default function ActivityPage() {
                             {busy === `${tx.txId}:rollback` ? '处理中…' : '回退'}
                           </Button>
                           <Button size="sm" data-action={`leave:${tx.txId}`}
-                                  title="只把这条从待处理里隐去，**不会改动任何文件**"
+                                  title="只把这条从待处理里隐去，不会改动任何文件"
                                   onClick={() => setDismissed((s) => new Set(s).add(tx.txId))}>
                             保持现状
                           </Button>
                           <span className="muted small">
-                            「保持现状」只关闭提示，**不动磁盘** —— 文件仍是现在的样子
+                            「保持现状」只关闭提示，不动磁盘 —— 文件仍是现在的样子
                           </span>
                         </div>
                       </div>
@@ -205,14 +207,14 @@ export default function ActivityPage() {
                               <td className="py-2 pr-3 mono">{tx.txId}</td>
                               <td className="py-2 pr-3">{OP_TEXT[tx.op] || tx.op}</td>
                               <td className="py-2 pr-3" data-tx-state={tx.state}>
-                                <span className={st.tone === 'err' ? 'dot-err' : st.tone === 'ok' ? 'dot-ok' : st.tone === 'warn' ? 'dot-warn' : 'muted'}>
+                                <span className={st.tone === 'err' ? 'tone-err' : st.tone === 'ok' ? 'tone-ok' : st.tone === 'warn' ? 'tone-warn' : 'muted'}>
                                   {st.label}
                                 </span>
                               </td>
                               <td className="py-2 pr-3 muted">{humanTime(tx.startedAt) || '—'}</td>
                               <td className="py-2 pr-3" data-tx-undo={tx.canUndo ? 'yes' : 'no'}>
                                 {tx.canUndo || tx.canRollback
-                                  ? <span className="dot-ok">可以</span>
+                                  ? <span className="tone-ok">可以</span>
                                   : <span className="muted">不可以</span>}
                               </td>
                               <td className="py-2 break-all">{tx.summary || '—'}</td>

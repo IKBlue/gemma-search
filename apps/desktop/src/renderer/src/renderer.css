@@ -94,7 +94,14 @@ body {
   min-height: var(--touch-min);
 }
 .nav a:hover { background: var(--sidebar-hover); color: var(--sidebar-fg); }
-.nav a.active { background: var(--sidebar-selected); color: var(--sidebar-fg); box-shadow: inset 3px 0 var(--color-accent); }
+/* ⚠️ 两个选择器**都要留着**（Apple Style 审查 V-01 的修法，2026-10-13）：
+ *   · `.active` —— 由 `NavItem` 显式加上；
+ *   · `[aria-current="page"]` —— **兜底**：NavLink 一定会带这个属性（react-router 的既有行为），
+ *     所以**即便 `className` 的那个表达式又被写错**（V-01 就是这么坏的：`cn(x, false) || undefined`
+ *     恒为 undefined），当前页也不会退回到"完全看不出在哪"。
+ *   这是**防御纵深**，不是重复：语义属性来自框架，视觉类来自我们，两条独立的路。 */
+.nav a.active,
+.nav a[aria-current="page"] { background: var(--sidebar-selected); color: var(--sidebar-fg); box-shadow: inset 3px 0 var(--color-accent); }
 .nav a.disabled { opacity: .45; cursor: default; }
 .nav a.disabled:hover { background: transparent; color: var(--sidebar-muted); }
 .ico { width: var(--control-icon-size); text-align: center; font-size: var(--type-callout); }
@@ -114,10 +121,26 @@ body {
 .side-note .side-state { margin-top: var(--space-2); }
 .side-note .side-pct { margin-top: var(--space-2); }
 
+/* ── 几何圆点（**只用来做圆点**）────────────────────────────────────────────
+ * ⚠️ V-02（Apple Style 审查）的成因就是**把这三个修饰类当"文字语气"用**：
+ *    它们只设 `background`，挂到文字 span 上 ⇒ 文字背后出现一整块绿/黄/红色块，
+ *    "点"这个视觉隐喻没了。6 处误用已改为下面的 `.tone-*`。
+ * ⚠️ 底色从 `--color-*` 换成 `--color-*-text`（**可读变体**）——
+ *    8px 圆点是**非文字图形**，要过 WCAG SC 1.4.11 的 **3:1**；实测 `--color-success` #34c759
+ *    压在浅色侧栏底上只有 **2.22:1**（不到 3:1）。换成 #23873d 后达标。 */
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: var(--radius-circle); background: var(--sidebar-muted); }
-.dot-ok { background: var(--color-success); }
-.dot-warn { background: var(--color-warning); }
-.dot-err { background: var(--color-critical); }
+.dot-ok { background: var(--color-success-text); }
+.dot-warn { background: var(--color-warning-text); }
+.dot-err { background: var(--color-critical-text); }
+
+/* ── 语义语气类（**给文字着色**）────────────────────────────────────────────
+ * 与上面的圆点类**刻意分开**：这两件事（一个几何标记、一个文字语气）在 V-02 里被混成了
+ * 同一个类名，于是一处改错就同时坏掉两种用法。分开之后各自的断言也清楚：
+ *   · `.dot-*`  → 背景色（非文字，SC 1.4.11 3:1）
+ *   · `.tone-*` → 前景色（文字，SC 1.4.3 4.5:1，取可读变体） */
+.tone-ok { color: var(--color-success-text); }
+.tone-warn { color: var(--color-warning-text); }
+.tone-err { color: var(--color-critical-text); }
 
 .progress { display: block; height: 6px; margin-top: var(--space-2); border-radius: var(--radius-pill); background: var(--color-selection); overflow: hidden; }
 .progress > span { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--color-accent); }
@@ -234,7 +257,16 @@ body {
 }
 .photo-card:hover .card-acts, .photo-card:focus-within .card-acts { opacity: 1; }
 .card-info { padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); }
-.card-title { font-size: var(--type-caption); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* ⚠️ 2026-10-13（V-28）起 `.card-title` 是 **`<a>`**（详情页入口）而不是 `<div>`。
+ * 本文件**没有全局 `a {}` 规则** ⇒ 不显式声明的话它会用浏览器默认的**蓝字 + 下划线**。
+ * `color: inherit` 保持它在卡片里原有的墨色层级；悬停给一个可发现的反馈（否则没人知道它能点）。
+ * ⚠️ 装饰性下划线是**悬停/键盘聚焦**时才出现，不是常态 —— 常态加下划线会把卡片信息层级打乱。 */
+.card-title {
+  font-size: var(--type-caption); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: inherit; text-decoration: none;
+}
+.card-title:hover { color: var(--color-accent); text-decoration: underline; }
+.card-title:focus-visible { color: var(--color-accent); text-decoration: underline; }
 .card-meta { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); color: var(--color-text-secondary); font-size: var(--type-micro); }
 .tag {
   display: inline-block; padding: 2px var(--space-2);
@@ -274,7 +306,14 @@ body {
   max-width: 70vw;
 }
 .toast.show { opacity: 1; transform: translateY(0); }
-.toast.err { background: var(--color-critical); color: var(--color-on-accent); }
+.toast.err { background: var(--toast-err-bg); color: var(--color-on-accent); }   /* V-43：原 --color-critical 白字只有 3.55:1 */
+
+/* 错误语义类（审查 V-15）。
+ * ⚠️ 原先界面用的是**裸 `className="err"`**，而全文件只有上面那条 `.toast.err` —— 复合选择器 ⇒
+ *    错误文案在 `.toast` 之外**完全没有规则**，与正文同色（"出错了"看起来和普通说明一样）。
+ * 颜色用 `--color-critical-text`（浅 5.38:1 / 深 4.94:1，均过 WCAG AA 正文 4.5:1），
+ * **不是** `--color-critical` —— 后者当浅底文字只有 3.55:1（复算见该令牌的注释）。 */
+.err { color: var(--color-critical-text); }
 
 /* §8 动效：尊重 reduced-motion */
 @media (prefers-reduced-motion: reduce) {

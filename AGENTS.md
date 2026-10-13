@@ -136,7 +136,7 @@ UI(组件) ──> Operation(store/composable/utils) ──> Adapter(唯一 invo
 | `packages/engine/` | 搜索引擎本体：`src/*.mjs`（**零第三方依赖**、传输无关）+ `tests/*.test.mjs` | ✅ 改完必须过 `npm test` | ✅ |
 | `packages/indexer/` | 索引构建（ONNX + WebGPU）与重采样兼容层、BMP 解码；唯一能建索引的地方 | ⚠️ 谨慎：动了要重建索引验证 | ✅ |
 | `packages/design-tokens/tokens.css` | **视觉令牌唯一来源**（生产依赖，被 `apps/desktop/src/renderer/src/main.jsx` 直接 import） | ✅ 只在这里加令牌，不要复制第二份。⚠️ **2026-10-13 所有者已确认降级**：Tailwind 接管后本文件成为**主题输入之一**（不再是"唯一来源"），见 `docs/plan/ROADMAP.md` §10；**落地前仍是唯一来源** | ✅ |
-| `docs/` | 全部正文文档：`spec/`（约束）· `design/`（设计）· `guide/`（上手/排障）· `plan/`（做什么、什么顺序）· `audit/`（审查产物）· `archive/`（**已失效的东西全放这里**）。⚠️ **行动清单不在这里**，在根目录 [`TODO.md`](TODO.md) | ✅ 见 §6 纪律 | ✅ |
+| `docs/` | 全部正文文档：`spec/`（约束）· `design/`（设计）· `guide/`（上手/排障）· `plan/`（做什么、什么顺序）· `audit/`（审查产物）· `archive/`（**已失效的东西全放这里**）。⚠️ **行动清单不在这里**，在根目录 [`TODO.md`](TODO.md)<br>✅ **2026-10-13 新增 `docs/design/ui-kit/`**（Apple macOS UI Kit 参照物，配合 `docs/design/UI-KIT.md`）：**入库** `build.mjs`（生成器）+ `kit-data.json`（抽取结果 527 KB）；**不入库** `index.html`（1.2 MB 派生物，`.gitignore` 有理由）。重建：`node docs/design/ui-kit/build.mjs`（**不需要外部 Sketch 套件** —— 它只用已入库的 kit-data.json；已实测产物逐字节相同）。⚠️ 它是**参照物不是应用 UI**：不消费 `tokens.css`，也不受"渲染层零色值字面量"那条断言约束（那条只扫 `apps/desktop/src/renderer`） | ✅ 见 §6 纪律 | ✅ |
 | `fixtures/` | **契约 §8 要求的样例索引**：`sample-index.json`（3 库 / 30 条，覆盖空 / 无结果 / 无索引 / 索引损坏 / `COMPAT_MISMATCH` / `RECOVERY_NEEDED` / 部分成功 / 待重编码 / 已移除 / GPU 回退 / BMP 回退档）。⚠️ **路径是契约指定的**（`fixtures/sample-index.json`），别挪。<br>由**主进程**读入并**注入**引擎（渲染层读不到 —— 打包后 `import.meta.url` 会解到仓库外，实测主进程崩在建窗之前）；用 `GEMMA_FAKE=1` 打开。加演示分支要同步 `fake.test.mjs` 的 **F10**<br>✅ **2026-10-13 新增 `lib-a/`**：P4 写操作/故障注入的**夹具库**（32 文件 / 6 目录，覆盖配对全分支含"只有包"与两个**歧义**分支；内容是**确定性合成的 ASCII 字节，不是真图** —— 事务只看字节与扩展名）。`manifest.json` 记每份 sha1；复现配方写在它自己的 `README.md` 里。**事务类测试只对它做写操作，且都写副本** | ✅ | ✅ |
 | `tools/` | **2 个只读守卫**（`verify_encoder_path` / `check_search`，本机都跑不动）+ `probe_electron_start/` | ✅ | ✅ |
 | `scripts/` | 启动辅助（`electron-vite.mjs`：摘 `ELECTRON_RUN_AS_NODE`、探测沙箱、必要时加 `--no-sandbox`） | ⚠️ 谨慎 | ✅ |
@@ -152,6 +152,7 @@ UI(组件) ──> Operation(store/composable/utils) ──> Adapter(唯一 invo
 
 **约定**：仓库根**只放** `AGENTS.md` · `README.md` · `TODO.md` 三份 `.md`。
 ⚠️ **2026-10-13：原先强制它的 `verify-doc-refs.mjs` 已移除** ⇒ 这条现在**没有自动化**，只能靠人看（见 §5.2）。
+⚠️ **已登记的例外（1 个，别再加）**：`违规的UI.md` —— **所有者 2026-10-13 明确指示**放在仓库根（那是 Apple Style 审查的**违规唯一详表**，报告只引用 `V-nn` 编号、不复制该表）。例外本身也写在该文件的头部，避免后来者以为是纪律漏洞。**要挪走它必须先问所有者**（引用它的地方：`docs/audit/UIUX-APPLE-STYLE-AUDIT.md` 与 `docs/design/UI-KIT.md`）。
 本轮审查的三份汇总报告在 `docs/audit/`（`AUDIT-FINAL.md` · `STACK-AUDIT.md` · `UIUX-AUDIT.md`）。
 
 ---
@@ -232,6 +233,9 @@ UI(组件) ──> Operation(store/composable/utils) ──> Adapter(唯一 invo
 | **验收阈值 / 性能口径 / 门禁**（阈值唯一出处） | [`docs/spec/SPEC-acceptance.md`](docs/spec/SPEC-acceptance.md) |
 | 传输层与外壳安全（IPC / `thumb://` / 渲染进程姿态 / 权限用例） | [`docs/spec/SPEC-security.md`](docs/spec/SPEC-security.md) |
 | UI / UX | [`docs/design/UI-REVIEW-and-migration.md`](docs/design/UI-REVIEW-and-migration.md)（摘要见 `DESIGN-app-details.md` §一） |
+| **UI/UX 违规台账**（**唯一详表**，报告只引用 `V-nn`） | [`违规的UI.md`](违规的UI.md)（仓库根 —— **已登记的例外**，见 §2 约定） |
+| **Apple HIG 基线数值 / 应用对差**（**参照物，不是令牌来源**） | [`docs/design/UI-KIT.md`](docs/design/UI-KIT.md)（可执行参照站由 `docs/design/ui-kit/build.mjs` 生成） |
+| **本轮 Apple Style 审查报告**（结论 / 优先级 / 可复现命令） | [`docs/audit/UIUX-APPLE-STYLE-AUDIT.md`](docs/audit/UIUX-APPLE-STYLE-AUDIT.md) |
 | 视觉令牌 | [`docs/design/DESIGN-tokens.md`](docs/design/DESIGN-tokens.md)（可执行版 = `packages/design-tokens/tokens.css`） |
 | **现在还有什么没做完 / 什么坏了**（行动清单，唯一） | [`TODO.md`](TODO.md) |
 | 历史欠账台账（逐条已清/未清，含陈旧记录） | [`docs/DEBT-CLEANUP.md`](docs/DEBT-CLEANUP.md) |

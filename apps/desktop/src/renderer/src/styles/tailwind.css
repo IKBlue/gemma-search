@@ -53,6 +53,9 @@
   --color-selection: var(--color-selection);
   --color-glass: var(--color-glass);
   --color-critical: var(--color-critical);
+  /* 正文可读的红（与上面那个**角色不同**：那个当底色配白字，这个当浅底上的文字）。
+   * 出处与对比度复算见 `tokens.css` 里 `--color-critical-text` 的注释（V-15）。 */
+  --color-critical-text: var(--color-critical-text);
   --color-warning: var(--color-warning);
   --color-success: var(--color-success);
   /* 遮罩（弹窗用）—— T4 加确认弹窗时才需要，仍指向令牌、不写字面值 */

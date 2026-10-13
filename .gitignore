@@ -96,6 +96,15 @@ release/
 # 注意：`build/` **不是**产物目录，而是 electron-builder 的 buildResources
 # （图标 / entitlements.mac.plist）—— 必须入库。
 
+# ---------- Apple UI Kit 参照站（2026-10-13 追加）----------
+# docs/design/ui-kit/ 是"官方 macOS UI Kit 基线 vs 应用现值"的参照物（见 docs/design/UI-KIT.md）。
+# **入库的是源**：`build.mjs`（生成器）· `kit-data.json`（抽取结果，527 KB）。
+# **不入库的是派生物**：`index.html`（1.2 MB，单文件参照站）——
+#   `build.mjs` 的头注释写明：不带 `--kit` 时**只用已入库的 kit-data.json 重新生成**，
+#   所以它是可重建的派生物，与 `out/` 同一条理由（源码入库、派生物不入库）。
+#   要本地看参照站：`node docs/design/ui-kit/build.mjs`。
+docs/design/ui-kit/index.html
+
 # ---------- Playwright（E2E）产物 ----------
 # 每次 `npm run e2e` 重建：失败快照、trace、HTML 报告。⚠ 不带前导斜杠 ⇒ 也覆盖
 # `apps/desktop/test-results/`（那是当前实际落点 —— 配置文件在 apps/desktop/e2e/，

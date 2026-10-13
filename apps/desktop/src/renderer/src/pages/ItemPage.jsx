@@ -221,11 +221,11 @@ export default function ItemPage() {
                   <MetaRow label="相对路径" mono>{item.relPath}</MetaRow>
 
                   <div className="mt-3 flex flex-wrap gap-3 text-caption">
-                    <span className={item.exists.image ? 'dot-ok' : 'dot-err'}>
+                    <span className={item.exists.image ? 'tone-ok' : 'tone-err'}>
                       预览图{item.exists.image ? '在盘上' : '已丢失'}
                     </span>
                     {item.archive ? (
-                      <span className={item.exists.archive ? 'dot-ok' : 'dot-err'}>
+                      <span className={item.exists.archive ? 'tone-ok' : 'tone-err'}>
                         压缩包{item.exists.archive ? '在盘上' : '已丢失'}
                       </span>
                     ) : null}
@@ -261,7 +261,7 @@ export default function ItemPage() {
                             data-badge={a.needsReencode ? 'reencode' : 'reuse'}
                             title={a.reason || ''}
                           >
-                            <span className={a.needsReencode ? 'dot-warn' : 'dot-ok'}>{reencodeBadge(a)}</span>
+                            <span className={a.needsReencode ? 'tone-warn' : 'tone-ok'}>{reencodeBadge(a)}</span>
                             {a.disabled && a.reason ? <span className="muted"> · {a.reason}</span> : null}
                           </span>
                         </span>

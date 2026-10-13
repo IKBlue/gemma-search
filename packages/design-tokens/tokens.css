@@ -38,8 +38,26 @@
   --color-accent: #0071e3;
   --color-selection: #e4e4ea;
   --color-critical: #ff3b30;
+  /* ⚠️ **正文可读的红** —— 与 `--color-critical` **不是重复**（P1 检查已过），是**两种角色**：
+   *    `--color-critical` 当**填充底色**（配 `--color-on-accent` 白字）；
+   *     它自己当**浅底上的正文**只有 **3.55:1**（实测复算），**不过 WCAG AA 正文 4.5:1**。
+   *   2026-10-13 Apple Style 审查 V-15 就是这条：错误文案与正文同色 / 用色不可读。
+   *   取 Apple 深色档红 #d70015：on #ffffff = **5.38:1** ✔（`data/_pick-red.mjs` 复算，含候选表）。 */
+  --color-critical-text: #d70015;
   --color-warning: #ff9f0a;
   --color-success: #34c759;
+  /* ⚠️ **可读的绿与橙** —— 与上面两个**不是重复**（P1 检查已过），是**两种角色**：
+   *    `--color-success` / `--color-warning` 当**填充**（圆点、半透明底色的 color-mix 输入）；
+   *      `#34c759` 自己当**浅底上的文字**只有 **2.22:1**、`#ff9f0a` 只有 **2.06:1**（脚本复算）
+   *      ⇒ 远低于 WCAG AA 正文 4.5:1。**Apple Style 审查 V-03** 正是这条：
+   *        结果区主信号（分数档位）恰恰把这两个色用在了文字上。
+   *    取值由"同色系压暗阶梯"算出来（不在文档里发明）：`#23873d` = 4.54 ✔ · `#a36606` = 4.71 ✔。 */
+  --color-success-text: #23873d;
+  --color-warning-text: #a36606;
+  /* V-43（本轮新发现，不在原 42 条里）：错误 toast 是**白字压红底**，
+   * 而 `--color-critical`（#ff3b30）承载白字只有 **3.55:1**。它需要"深到能压白字"的红
+   * ⇒ 单独一个令牌；白字压 #c7362b = **5.26:1** ✔。 */
+  --toast-err-bg: #c7362b;
   --color-glass: rgba(255, 255, 255, .72);
 
   /* type */
@@ -80,17 +98,23 @@
   /* 渲染器分类徽标：本库的业务维度（VR / CR / CR+VR / 其他 / 未分类）。
      令牌表未定义，作为**本项目新增令牌**登记；色相取自用途而非装饰：
      VR 偏蓝、CR 偏紫、CR+VR 用成功色、其他中性、未分类用警告色。 */
-  --cat-vr-bg: #e8effe;      --cat-vr-fg: #2f6feb;
-  --cat-cr-bg: #f1e9fd;      --cat-cr-fg: #8250df;
+  /* ⚠️ 下面 4 个前景是 2026-10-13 按 WCAG AA **算出来压暗**的（Apple Style 审查 V-05）：
+   *    原值 VR #2f6feb 3.96 · CR #8250df 4.28 · 其他 #69707d 4.29 · 未分类 #a56a12 4.00
+   *    全部低于 11px 正文要求的 4.5:1。压暗后依次 4.55 / 4.57 / 4.58 / 4.59（仍同色系）。
+   *    ⚠️ 未分类同时是 **V-07**：原值属于 Apple **深色档**橙系，浅色档不该用它。 */
+  --cat-vr-bg: #e8effe;      --cat-vr-fg: #2b66d8;
+  --cat-cr-bg: #f1e9fd;      --cat-cr-fg: #7d4dd6;
   --cat-crvr-bg: color-mix(in srgb, var(--color-success) 14%, transparent);
   --cat-crvr-fg: #1a7f37;
-  --cat-other-bg: #eceef2;   --cat-other-fg: #69707d;
+  --cat-other-bg: #eceef2;   --cat-other-fg: #656c78;
   --cat-uncat-bg: color-mix(in srgb, var(--color-warning) 16%, transparent);
-  --cat-uncat-fg: #a56a12;
+  --cat-uncat-fg: #986211;
 
-  /* 分数区间（同款 / 很接近 / 较弱）—— 与类别色无关，独立登记 */
-  --score-same: var(--color-success);
-  --score-like: var(--color-warning);
+  /* 分数区间（同款 / 很接近 / 较弱）—— 与类别色无关，独立登记。
+   * ⚠️ V-03：档位色**落在文字上** ⇒ 必须取**可读变体**，不能取填充色
+   *    （填充色当文字只有 2.22 / 2.06，远低于 4.5）⇒ 改指 `--color-*-text`。 */
+  --score-same: var(--color-success-text);
+  --score-like: var(--color-warning-text);
   --score-weak: var(--color-text-secondary);
 
   /* 原型专用：缩略图未内嵌时的占位底（真实缩略图接入后不再需要） */
@@ -177,11 +201,23 @@
     --color-accent: #2997ff;
     --color-selection: #2c2c2e;
     --color-critical: #ff453a;
+    /* 深色档下它自己就够：on `--color-bg-elevated` #1d1d1f = **4.94:1** ✔（实测复算）。
+     * 值与 `--color-critical` 相同是**巧合而非重复** —— 角色不同（底色 vs 正文），
+     * 将来底色若要更亮，正文这个不必跟着变。 */
+    --color-critical-text: #ff453a;
     --color-success: #30d158;
+    /* 深色档下这两个填充色**本身**就够亮（on #000：success-text 10.39 · warning-text 10.22）⇒ 与填充同值。
+     * 同值是**巧合而非重复**（角色不同：填充 vs 文字），浅色档两者差别很大。 */
+    --color-success-text: #30d158;
+    --color-warning-text: #ff9f0a;
+    --toast-err-bg: #c7362b;
     --color-glass: rgba(22, 22, 23, .72);
 
     --cat-vr-bg: #16233a;   --cat-vr-fg: #9ec2ff;
     --cat-cr-bg: #241a33;   --cat-cr-fg: #d0b4ff;
+    /* V-06：本块原先**没有**覆盖 CR+VR 的底色/前景 ⇒ 前景仍用浅色档的 #1a7f37，
+     * 压在深绿底上只有 **3.47:1**（脚本复算）。按本块其余分类的同一路子显式给出。 */
+    --cat-crvr-bg: #0f2e18;  --cat-crvr-fg: #7fd6a0;
     --cat-other-bg: #232329; --cat-other-fg: #c3c9d1;
     --cat-uncat-fg: #f0cf8a;
     --thumb-fallback: linear-gradient(150deg, #232329, #1a1a1f);
@@ -200,10 +236,18 @@
   --color-selection: #2c2c2e;
   --color-critical: #ff453a;
   --color-success: #30d158;
+  /* ⚠️ 本块（`[data-theme="dark"]`）与上面的 `@media (prefers-color-scheme: dark)` 块**必须同键同值** ——
+   *   两套块漂移过一次（`--cat-crvr-*` 只在 media 里补了，这里漏了 ⇒ 固定深色主题下 V-06 依旧）。
+   *   对比度断言 CT-2 会**逐个检查两套块**，就是为了钉住这件事。 */
+  --color-critical-text: #ff453a;
+  --color-success-text: #30d158;
+  --color-warning-text: #ff9f0a;
+  --toast-err-bg: #c7362b;
   --color-glass: rgba(22, 22, 23, .72);
 
   --cat-vr-bg: #16233a;   --cat-vr-fg: #9ec2ff;
   --cat-cr-bg: #241a33;   --cat-cr-fg: #d0b4ff;
+  --cat-crvr-bg: #0f2e18;  --cat-crvr-fg: #7fd6a0;
   --cat-other-bg: #232329; --cat-other-fg: #c3c9d1;
   --cat-uncat-fg: #f0cf8a;
   --thumb-fallback: linear-gradient(150deg, #232329, #1a1a1f);

@@ -32,72 +32,10 @@ import { test, expect } from '@playwright/test'
 
 import { launchWithLibrary } from './helpers/app.mjs'
 import { firstWindow } from './helpers/launch.mjs'
-
-/** 一条假的素材结果（字段与 `search/PhotoCard.jsx` 实际读的一致） */
-const FAKE_ITEM = {
-  libId: 'L1', uid: 'aaa111aaa111', stem: 'VR-101', relPath: 'VR/VR-101.jpg',
-  folder: 'VR', score: 0.81, band: 'mid', imagePath: 'X:\\fake\\VR-101.jpg',
-  archive: { name: 'VR-101.rar', ext: '.rar', size: 12345678 },
-}
-
-/**
- * 桩：把**引擎**换掉（不是把桥换掉）。
- * 必须覆盖启动期方法，否则门禁会把界面判成"没有库"（见文件头 ①）。
- */
-async function stubEngine(app) {
-  await app.evaluate(({ ipcMain }, item) => {
-    const CH = 'engine:invoke'
-    const stub = { calls: [] }
-    globalThis.__engineStub = stub
-    ipcMain.removeHandler(CH)
-    ipcMain.handle(CH, async (_event, payload) => {
-      const method = payload && payload.method
-      const params = payload && payload.params
-      stub.calls.push({ method, params })
-      const ok = (data) => ({ ok: true, warnings: [], data })
-
-      switch (method) {
-        // ── 启动期：这两个决定"显示向导还是应用"
-        case 'libraryConfig':
-          return ok({ libraries: [{ libId: 'L1', root: 'X:\\fake' }], chosen: 'env', warnings: [], diagnostics: [] })
-        case 'indexStatus':
-          return ok({ libs: [{ libId: 'L1', root: 'X:\\fake', dim: 768, indexed: 2, encoded: 2, healthy: true }] })
-
-        // ── 被测的两件事
-        case 'search':
-          return ok({
-            tookMs: 12, libsUsed: ['L1'], libsSkipped: [],
-            results: [
-              item,
-              { ...item, uid: 'bbb222bbb222', stem: 'CR-202', relPath: 'CR/CR-202.jpg', folder: 'CR', score: 0.77, archive: null },
-            ],
-          })
-        case 'collect':
-          return ok({ succeeded: params.uids, skipped: [], failed: [], targetDir: 'E:\\素材待用' })
-
-        default:
-          return ok({})
-      }
-    })
-  }, FAKE_ITEM)
-}
-
-const stubCalls = (app) => app.evaluate(() => globalThis.__engineStub.calls)
-const callsOf = (calls, method) => calls.filter((c) => c.method === method)
-
-/** 把界面推到"有结果"状态：装桩 → reload（消除竞态）→ 等真界面 → 输入 → 回车 */
-async function searchOnce(app, win) {
-  await stubEngine(app)
-  await win.reload()
-  // 等到"真界面"起来（有库 ⇒ 搜索页；Chip 是搜索页独有的）
-  await expect(win.getByRole('button', { name: 'VR', exact: true })).toBeVisible({ timeout: 20_000 })
-
-  const input = win.locator('#query')
-  await input.fill('吊灯')
-  await input.press('Enter')
-
-  await expect(win.getByRole('button', { name: '取件' }).first()).toBeVisible({ timeout: 20_000 })
-}
+// ⚠️ 2026-10-13（P2）：桩与 `searchOnce` 原先写在本文件内部，现提取到 helper ——
+//    新的 UI/UX 治理 spec 也要"有结果"的界面，照抄一份就是同一段逻辑两处存在。
+//    两条踩过的坑（启动期方法形状、装桩后必须 reload）也一并搬到 helper 头部注释里。
+import { FAKE_ITEM, stubEngine, stubCalls, callsOf, searchOnce } from './helpers/engine-stub.mjs'
 
 const dialog = (win) => win.getByRole('alertdialog')
 
@@ -193,12 +131,19 @@ test('E7-d ⭐ 点「取消」同样不执行；且焦点**归还**给触发它�
     expect(callsOf(await stubCalls(app), 'collect')).toEqual([])
 
     // 焦点归还（无障碍：关掉弹窗后不该把焦点丢在 document.body 上）
-    const restored = await win.evaluate(() => {
+    //
+    // ⚠️⚠️ **必须轮询"稳定后"的状态，不能同步读一次**（2026-10-13 双向/全量实测的教训）：
+    //   组件侧的归还用了 `requestAnimationFrame` **下一帧复核**（负载下聚焦会被紧随其后的
+    //   重渲染打断，见 `ui/ConfirmDialog.jsx` 的注释）。而这个断言原先是在弹窗消失后
+    //   **同步**读 `document.activeElement` —— 它和组件自己的 rAF **在赛跑**：
+    //   全量（62 条、比单跑重）时 rAF 还没跑就断言了 ⇒ 读到 `BODY` ⇒ 间歇失败。
+    //   ⇒ 这不是"应用行为不对"，是**断言时机不对**：应当观察**收敛后**的焦点。
+    //   `expect.poll` 会在超时内反复取，正好对应"下一帧复核"这个语义。
+    await expect.poll(async () => win.evaluate(() => {
       const el = document.activeElement
       return { tag: el ? el.tagName : null, text: (el && (el.textContent || '').trim()) || '' }
-    })
-    console.log('  [E7-d] 关闭后焦点归还给:', restored.tag, JSON.stringify(restored.text))
-    expect(restored.text).toBe('取件')
+    }), { timeout: 5_000, message: '关掉弹窗后焦点应归还给触发它的那个「取件」按钮' })
+      .toMatchObject({ tag: 'BUTTON', text: '取件' })
   } finally {
     await app.close()
     cleanup()

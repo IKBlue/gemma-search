@@ -17,6 +17,19 @@ export const PATHS = Object.freeze({
 })
 
 /**
+ * 由 `libId + uid` 拼出**详情页的真实路径**。
+ *
+ * 为什么要有这个函数（而不是在调用点手拼 `/item/${libId}/${uid}`）：
+ *   路由形状的唯一来源是上面的 `PATHS.item`（模式串）。调用点手拼就等于**又有一处知道路由长什么样**，
+ *   将来改路由就会漏改。这里由模式派生不出解，所以至少把"拼接"收成一处。
+ * ⚠️ 这两个参数按契约是 `[A-Za-z0-9_-]{1,32}` 与 `[0-9a-f]{12}`（`shared/ipc.ts`），
+ *   本不需要转义；`encodeURIComponent` 只作为**防御**（非法字符不会拼出一个畸形 URL）。
+ */
+export function itemPath(libId, uid) {
+  return `/item/${encodeURIComponent(libId)}/${encodeURIComponent(uid)}`
+}
+
+/**
  * 页面名字的**唯一来源**。
  *
  * 它同时喂两处，所以必须只有一份（P1）：
