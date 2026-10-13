@@ -182,7 +182,7 @@
 
 | 增补 | 为什么需要 | **实际状态** |
 |---|---|---|
-| **`zod` + 共享契约** | "**IPC 参数白名单校验**"。在入口**运行时校验**，一份 schema 给出方法白名单与参数约束 | ✅ **已采纳**（`apps/desktop/src/shared/ipc.mjs`）。注意：契约文件是 `.mjs`，**不导出 TS 类型** |
+| **`zod` + 共享契约** | "**IPC 参数白名单校验**"。在入口**运行时校验**，一份 schema 给出方法白名单与参数约束 | ✅ **已采纳**（`apps/desktop/src/shared/ipc.ts`）。注意：契约文件是 `.mjs`，**不导出 TS 类型** |
 | **`electron-vite`**（Vite + Electron 集成） | 主进程/预加载/渲染进程三端 HMR 与构建一体；产物可直接喂给 electron-builder | ✅ **已采纳**（`electron.vite.config.mjs`） |
 | **`@tanstack/react-virtual`** | 搜索结果（Top-K ≤ 100）**不需要**虚拟列表；但**浏览整库 3594 条**时必须要 | ❌ **装了零 import**。该页面尚未实现 → 未接线 |
 | **`vitest`** | 引擎与事务状态机需要快速单测 | ❌ **否决**。引擎用 `node:test`（零依赖是引擎特性）；`vitest` 装了但**一行用例都没有** |
@@ -289,12 +289,13 @@
 | **危险色** | `#cf222e` | **`color.status.critical` `#ff3b30`**（深色 `#ff453a`） | 渲染层已统一到令牌 |
 | **动效** | 悬停有位移/阴影 | **不做进入动画与悬停位移**，尊重 `prefers-reduced-motion` | ✅ `tokens.css` 已兜底 |
 | **焦点环** | 各处不一 | **`2px solid color-accent`，偏移 3px** | ✅ `tokens.css` 已统一 |
-| **写死颜色** | 72 种 / 112 处 | 目标 **0 处**（全部收敛到令牌） | ⚠️ **未达成**：渲染层 ✅ 0 处（`renderer.css` 只消费 `var(--*)`）；**归档原型页里仍有硬编码十六进制**（实测 `#8b91ff` / `#858aff` / `#a56a12` / `#c4c7d0` / `#454b58` 等，见 `docs/audit/UIUX-AUDIT.md` D12）。守卫换成现行的 `node tools/verify_renderer_styles.mjs`，且**它只扫渲染层、不扫原型目录** |
+| **写死颜色** | 72 种 / 112 处 | 目标 **0 处**（全部收敛到令牌） | ⚠️ **未达成**：渲染层 ✅ 0 处（`renderer.css` 只消费 `var(--*)`）；**归档原型页里仍有硬编码十六进制**（实测 `#8b91ff` / `#858aff` / `#a56a12` / `#c4c7d0` / `#454b58` 等，见 `docs/audit/UIUX-AUDIT.md` D12）。检查改由 **`npm test` 断言**承担（⚠️ **该守卫已于 2026-10-13 按所有者指令移除**），且**只扫渲染层、不扫原型目录** |
 
-> **守卫的更替**：本节原写的 `tools/verify_tokens.py`（以及文档侧那个 `tools/verify_docs.py`）都
-> **随 Python 档退役被删**。现行为 **7 个 Node 守卫**（见 `AGENTS.md` §5.2）：
-> `verify_app_build` · `verify_renderer_dom` · `verify_renderer_styles` · `verify_encoder_path` ·
-> `verify-doc-refs` · `smoke_app` · `check_search`。**"改样式后必跑"= `node tools/verify_renderer_styles.mjs`。**
+> **守卫的更替（2026-10-13 二次更替）**：本节原写的 `tools/verify_tokens.py`（以及文档侧那个
+> `tools/verify_docs.py`）都**随 Python 档退役被删**；随后的 7 个 Node 守卫里有 5 个（含
+> `verify_renderer_styles`）**已于 2026-10-13 按所有者指令移除**。
+> **现存只有 2 个**：`verify_encoder_path` · `check_search`（见 `AGENTS.md` §5.2），且本机都跑不动。
+> **"改样式后必跑" = `npm test`**（样式纪律已做成其中的断言，见 `task-19`）。
 
 ### 8.2 一处需要你定的冲突：侧栏深浅
 

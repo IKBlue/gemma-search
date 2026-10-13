@@ -12,17 +12,18 @@
 
 ## 1. 四层验证体系
 
-| 层 | 工具 | 需要什么 | 能证明 | **不能证明** |
-|---|---|---|---|---|
-| **L1 引擎单测** | `node:test` | 只要 Node | 引擎逻辑、安全不变量、索引格式、compat、uid | 传输层、界面、真实模型 |
-| **L2 构建守卫** | `tools/verify_app_build.mjs` | 先 `npm run build` | 产物形状（ESM/CJS/external/相对路径/原生模块未内联） | 运行时行为 |
-| **L3 渲染层守卫** | `tools/verify_renderer_dom.mjs`（jsdom）+ `verify_renderer_styles.mjs` | 先 build | React 真跑（启动/搜索/交互/事件）+ 令牌纪律 | **CSS 真的生效、`thumb://` 真能取图、真实 IPC、真实窗口** |
-| **L4 应用实跑** | `tools/smoke_app.mjs` + `reports/G-D-p2-electron/` | Electron 二进制、可出窗环境 | 真窗口 + 真渲染 + WebGPU 编码器载入 | 打包后行为、干净机器行为 |
+| 层 | 工具 | 需要什么 | 能证明 | **不能证明** | 现状 |
+|---|---|---|---|---|---|
+| **L1 引擎/桌面单测** | `node:test` | 只要 Node | 引擎逻辑、安全不变量、索引格式、compat、uid、IPC 参数校验、窗口判定**决策** | 传输层接线、界面渲染、真实模型 | ✅ **唯一可跑的门禁**（113 条） |
+| ~~L2 构建守卫~~ | ~~`tools/verify_app_build.mjs`~~ | 先 `npm run build` | 产物形状（ESM/CJS/external/相对路径/原生模块未内联） | 运行时行为 | ❌ **2026-10-13 移除** |
+| ~~L3 渲染层守卫~~ | ~~`tools/verify_renderer_dom.mjs`（jsdom）+ `verify_renderer_styles.mjs`~~ | 先 build | React 真跑（启动/搜索/交互/事件）+ 令牌纪律 | **CSS 真的生效、`thumb://` 真能取图、真实 IPC、真实窗口** | ❌ **2026-10-13 移除** |
+| ~~L4 应用实跑~~ | ~~`tools/smoke_app.mjs` + `reports/G-D-p2-electron/`~~ | Electron 二进制、可出窗环境 | 真窗口 + 真渲染 + WebGPU 编码器载入 | 打包后行为、干净机器行为 | ❌ **2026-10-13 移除** |
 
-**关键纪律（写在 `verify_renderer_dom.mjs:12-13` 原文）**：
+**关键纪律（原写在 `verify_renderer_dom.mjs:12-13`，该守卫已于 2026-10-13 移除，纪律本身仍成立）**：
 > ⚠️ 它**不能**证明：CSS 真的生效、`thumb://` 真能取到图、真实 IPC、真实窗口。
 
-这条自限是本项目测试体系最值得肯定的地方——但**也是最大的结构问题**（见 §6）。
+这条自限是本项目测试体系最值得肯定的地方——但**也是最大的结构问题**（见 §6），
+而且**移除守卫把这个问题放大了**：现在连"它能证明的那部分"也没了。
 
 ---
 
@@ -99,15 +100,15 @@
 |---|---|---|---|
 | `npm test` | — | §2 清单 | 见 §2.4 |
 | `npm run build` | — | 三端能构建 | 构建产物能跑 |
-| `node tools/verify_app_build.mjs` | build | 产物形状合规 | 运行时行为 |
-| `node tools/verify_renderer_dom.mjs` | build | React 在 jsdom 真跑：启动/搜索/以图搜图/结果卡/事件 | CSS 生效、真实 IPC、真实窗口 |
-| `node tools/verify_renderer_styles.mjs` | — | 令牌纪律（渲染层无写死颜色 / 间距与字号只用令牌）**且只扫渲染层**（`apps/desktop/src/renderer/src`），**不覆盖归档原型**；**只查 `used → defined` 一个方向** | 视觉是否符合 Apple 规范（→ 宪章②）；"定义了却没人用"的令牌 |
+| ~~`node tools/verify_app_build.mjs`~~ | ~~build~~ | ❌ **2026-10-13 移除**：产物形状合规 | 运行时行为 |
+| ~~`node tools/verify_renderer_dom.mjs`~~ | ~~build~~ | ❌ **2026-10-13 移除**：React 在 jsdom 真跑 | CSS 生效、真实 IPC、真实窗口 |
+| ~~`node tools/verify_renderer_styles.mjs`~~ | ~~—~~ | ❌ **2026-10-13 移除**：令牌纪律。取代它的是 `npm test` 里的样式断言（`apps/desktop/tests/styles.test.mjs`，2026-10-13 T3 已落地） | 视觉是否符合 Apple 规范（→ 宪章②）；"定义了却没人用"的令牌 |
 | `node tools/verify_encoder_path.mjs --model <dir>` | 模型目录 | 真实推理路径一致性 | 全量索引质量 |
-| `node tools/verify-doc-refs.mjs` | — | 全仓引用解算 + 根目录越界 | 文档内容是否正确 |
-| `node tools/smoke_app.mjs` | build + Electron | 真启动构建产物并给判定（退出码 0/1/2/3/4 分级） | 打包后行为 |
+| ~~`node tools/verify-doc-refs.mjs`~~ | ~~—~~ | ❌ **2026-10-13 移除**：全仓引用解算 + 根目录越界 | 文档内容是否正确 |
+| ~~`node tools/smoke_app.mjs`~~ | ~~build + Electron~~ | ❌ **2026-10-13 移除**：真启动构建产物并给判定（退出码 0/1/2/3/4 分级） | 打包后行为 |
 | `node tools/check_search.mjs` | 已有查询向量 | 检索端到端自查 | 索引质量 |
 
-### 3.1 `verify_renderer_dom.mjs` 的五组断言（原文 §1-§5）
+### 3.1 ⚠️ 历史存档：原 `verify_renderer_dom.mjs` 的五组断言（**该守卫已于 2026-10-13 移除**）
 
 1. **启动**：`indexStatus` 被调用；侧栏读到库根；指标卡显示真实条数与精度/设备
 2. **文字检索**：参数正确（含「全部 = 四个目录」与单选某一类）
@@ -117,7 +118,7 @@
 
 > 第 4 条「缩略图走 `thumb://`」只断言**字符串形态**，不断言真能取到图 —— 与文件顶部自限一致。
 
-### 3.2 `smoke_app.mjs` 的退出码分级
+### 3.2 ⚠️ 历史存档：原 `smoke_app.mjs` 的退出码分级（**该工具已于 2026-10-13 移除**）
 
 | 退出码 | 含义 |
 |---|---|

@@ -15,7 +15,9 @@ apps/desktop/src/renderer/src/renderer.css     渲染层样式（只消费 var(-
 - **原型套件已归档**到 `docs/archive/prototype/`，仅供对照设计意图，**不再是依据**；
   它的三张样式表（`style.css` / `tokens.css` / `app.css`）**不再被应用加载**。
 - **不要写第二套视觉，也不要写死颜色** —— 一律 `var(--token)`，令牌只在上面那一个文件里加。
-  （纪律**原先**由 `tools/verify_renderer_styles.mjs` 守卫 —— ⚠️ 该守卫已于 2026-10-13 移除，现在只能靠 code review。）
+  （纪律原先由 `tools/verify_renderer_styles.mjs` 守卫 —— 该守卫已于 2026-10-13 移除。
+  ✅ 同日由 `npm test` 的断言接回：`apps/desktop/tests/styles.test.mjs` 查「渲染层零色值字面量」
+  「Tailwind @theme 只允许 var()」「旧类名不得复活」；**不再只能靠 code review**。）
 
 ## 组件分层
 

@@ -150,7 +150,7 @@
 
 ---
 
-## 4. `apps/desktop/src/shared/ipc.mjs`（75 行）—— 契约唯一来源
+## 4. `apps/desktop/src/shared/ipc.ts`（75 行）—— 契约唯一来源
 
 一份 zod schema **同时**给出两件事：
 

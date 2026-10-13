@@ -339,7 +339,7 @@
 | 权重精度 vs 向量精度 | SPEC-identity §6 |
 | 索引格式版本/长度/校验和/完成标记/损坏恢复 | SPEC-identity §7 |
 | 跨库迁移前置条件 | SPEC-identity §8 |
-| **Electron IPC 参数白名单校验 / 禁止任意绝对路径 / 调用来源校验** | **已成文**：`docs/spec/SPEC-security.md`（含 16 条权限用例；实现见 `apps/desktop/src/shared/ipc.mjs` 与 `apps/desktop/src/main/index.mjs`） |
+| **Electron IPC 参数白名单校验 / 禁止任意绝对路径 / 调用来源校验** | **已成文**：`docs/spec/SPEC-security.md`（含 16 条权限用例；实现见 `apps/desktop/src/shared/ipc.ts` 与 `apps/desktop/src/main/index.mjs`） |
 | **`thumb://` 路径穿越、符号链接越界、库外读取** | 同上（只经可信索引把 uid 解析为路径；解析后校验仍在库根内且非符号链接） |
 
 > 审核另强调的两点已写入文档并在界面上呈现：

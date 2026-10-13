@@ -23,7 +23,7 @@ apps/desktop/src/
 │   ├── src/App.jsx     检索页入口（当前只有 `<SearchPage />`）
 │   ├── src/pages/      页面 · src/search/ 检索相关组件 · src/layout/ 外壳 · src/hooks/ 状态
 │   └── src/ui/         10 个自研通用组件
-└── shared/ipc.mjs    IPC 契约唯一来源（zod 白名单 + 方法名）—— 主进程与渲染进程共用
+└── shared/ipc.ts    IPC 契约唯一来源（zod 白名单 + 方法名）—— 主进程与渲染进程共用
 ```
 
 **不在这个目录里的两个关键件**（别到这里找）：

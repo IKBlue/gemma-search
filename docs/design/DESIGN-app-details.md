@@ -106,7 +106,7 @@
   `apps/desktop/src/preload/index.js` 白名单暴露（只 3 个成员：`invoke` / `onEvent` / `platform`）
 - **不需要 HTTP 服务、不需要端口**：主进程用**两个 IPC 通道**提供全部能力 ——
   `engine:invoke`（渲染→主，方法名在参数里：`search` / `item` / `indexStatus` / `scan` / `reveal` / `collect` …）
-  与 `engine:event`（主→渲染的事件流）。通道与参数形状以 `apps/desktop/src/shared/ipc.mjs` 为唯一来源
+  与 `engine:event`（主→渲染的事件流）。通道与参数形状以 `apps/desktop/src/shared/ipc.ts` 为唯一来源
 - **图片经自定义协议** `thumb://<libId>/<uid>@<size>`（`protocol.handle`）由主进程从库根读并回写缓存头；
   渲染进程**不接触文件系统**，也**不能传路径**（路径由注册表 + 索引反查）
 - 大图与网格用同一协议，只是 `size` 参数不同（`128` / `256` / `512`）
@@ -620,7 +620,7 @@ packages/engine/src/engine.mjs        ← 纯逻辑：无 Electron 依赖、无 
   }
 
 transports/                    ← 概念位置；本期只有 ipc 一条，落在
-  ipc.mjs                        apps/desktop/src/shared/ipc.mjs（契约）+ 主进程分发
+  ipc.ts                         apps/desktop/src/shared/ipc.ts（契约）+ 主进程分发
   http.mjs   ← 将来可选：本地 REST 适配层（薄薄一层）
   mcp.mjs    ← 将来可选：DSH 的 MCP stdio 适配层
 ```

@@ -15,7 +15,7 @@
 | **可执行令牌（唯一来源）** | **`packages/design-tokens/tokens.css`** | **已从原型目录提升为正式生产资产。** 被 `apps/desktop/src/renderer/src/main.jsx` 直接 import（跨 root 引用，刻意不复制第二份） |
 | 本文档（`docs/design/DESIGN-tokens.md`） | 令牌的**定义与理由** | 改令牌时两处都要动：先在本文件登记，再改 `tokens.css` |
 | 原型套件（历史） | **`docs/archive/prototype/prototype/`**（6 页 + `style.css` / `app.css` / `app.js`；入口 `index.html`）· 更早的 mockup 在 `docs/archive/prototype/_archive/` | **已归档，不再是依据。** 归档时 `tokens.css` 被移出该目录，所以那些原型页的 `<link href="tokens.css">` 已失效——**原型只作历史留档，不再保证可渲染** |
-| 守卫 | `node tools/verify_renderer_styles.mjs` | 断言「渲染层用到的令牌都有定义」。**注意它的方向性**：只查 `used → defined`，**不查 `defined → used`**（实测 35 个令牌定义了从未被消费） |
+| 检查 | ~~`node tools/verify_renderer_styles.mjs`~~ ⚠️ **该守卫已于 2026-10-13 按所有者指令移除**（原件备份在 `data/_removed-guards-backup/`）。它原先断言「渲染层用到的令牌都有定义」，**只查 `used → defined`**（实测 35 个令牌定义了从未被消费）。⇒ ✅ **2026-10-13（T3）已接回**：`apps/desktop/tests/styles.test.mjs` 的 T1（渲染层零色值字面量）/ T1c（Tailwind `@theme` 只许 `var()`）。**双向验证过**。另：Tailwind 已成为**样式生成层**（`renderer/src/styles/tailwind.css`，`@theme inline` 映射本文件），但**色值仍只在本文件定义一次** |
 
 > **视觉令牌仍然是唯一来源，这一条不变。** 变的只是文件位置：它不再住在原型目录里，
 > 因此生产代码不再依赖一个已归档的目录。
@@ -302,6 +302,6 @@
 - 新增值之前先找最近的现有令牌，找不到再加，并标注来源。
 - **改令牌只改两处**：本文件（定义与理由）+ `packages/design-tokens/tokens.css`（可执行值）。
   两者不一致时以 `tokens.css` 为准。**不要在组件里写死十六进制。**
-- 改完跑 `node tools/verify_renderer_styles.mjs`（断言渲染层用到的令牌都有定义）。
-  **它只查一个方向**：查不出"定义了却没人用"的令牌（§0 表已注明）。
+- 改完跑 **`npm test`**（其中包含"色值只有一处定义"的断言；⚠️ **该守卫已于 2026-10-13 按所有者指令移除**）。
+  注意**只查一个方向**：查不出"定义了却没人用"的令牌（§0 表已注明）。
 - 本文件与 `docs/design/UI-REVIEW-and-migration.md` 的关系：UI 评审说“做什么界面”，本文件说“长什么样”。二者冲突时以评审文档的信息架构为准、以本文件的视觉值为准。

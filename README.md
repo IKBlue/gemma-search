@@ -85,17 +85,20 @@ npm run start:restricted    # 跑构建产物（file://）
 ## 2. 验证（全部只读）
 
 ```powershell
-npm test                                  # 引擎单测（node:test，不经传输层）
+npm test                                  # 单测（node:test，纯逻辑，不需要 GUI）
+npm run e2e                               # E2E（Playwright，**真启动 Electron** —— 需要能出窗的环境）
 npm run build                             # 三端构建
 
 node tools\verify_encoder_path.mjs --model <ONNX 模型目录>   # 编码路径一致性（跑真实推理）
 node tools\check_search.mjs               # 检索端到端自查（向量模式，需已有查询向量）
 ```
 
-> 已按所有者指令移除**（原件备份在 `data/_removed-guards-backup/`）。上面只列现存的两个 —— 这两个都需要
-> 模型目录与已注册索引，**在 agent 沙箱里跑不动**；移除的代价见 [`AGENTS.md`](../AGENTS.md) §5.2。
-
-- 前 6 条与 `npm run build` 的期望值、前置条件、以及「守卫证明不了什么」，见 [`AGENTS.md`](AGENTS.md) §5。
+- **两条独立门禁，不要混**：`npm test`（164 条，快、随时能跑）与 `npm run e2e`（13 条，**真启动 Electron**）。
+  ⚠️ 在 agent 沙箱内 `npm run e2e` **需要提权**（Chromium 进程沙箱起不来 ⇒ 启动助手已带 `--no-sandbox`）；普通终端直接跑。
+- 现存守卫**只剩上面 2 个**（其余 6 个已按所有者指令移除，原件备份在 `data/_removed-guards-backup/`）——
+  这两个都需要模型目录与已注册索引，**在 agent 沙箱里跑不动**；
+  「移除后失去了什么 / 2026-10-13 又补回了哪一部分」见 [`AGENTS.md`](AGENTS.md) §5.2 的对照表。
+- 期望值、前置条件、以及「守卫证明不了什么」，见 [`AGENTS.md`](AGENTS.md) §5。
 - 若「Electron 起不来」需要定性：`tools\probe_electron_start\`（最小 Electron 探针 + 判读表）。
 - **无归档证据 = 门禁未通过**：结论要落到 `reports/G-<字母>-<日期>/`，协议见 [`reports/README.md`](reports/README.md)。
 

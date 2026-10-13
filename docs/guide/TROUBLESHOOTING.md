@@ -17,12 +17,12 @@
 
 | 症状 | 原因 | 动作 |
 |---|---|---|
-| 敲 `npm run dev` / `npm start` 后**什么都不发生**，日志一行都没有 | Chromium 进程沙箱在本环境起不来（受限沙箱 / 容器 / 部分企业策略），Electron **秒退**；或主进程压根没跑到 JS | ① 用 `npm run dev:restricted` / `npm run start:restricted`（只为这次启动加 `--no-sandbox`）；② 还要定性就用 `node tools\smoke_app.mjs` |
+| 敲 `npm run dev` / `npm start` 后**什么都不发生**，日志一行都没有 | Chromium 进程沙箱在本环境起不来（受限沙箱 / 容器 / 部分企业策略），Electron **秒退**；或主进程压根没跑到 JS | ① 用 `npm run dev:restricted` / `npm run start:restricted`（只为这次启动加 `--no-sandbox`）；② 还要定性：⚠️ 判定工具 `smoke_app.mjs` **已于 2026-10-13 移除** ⇒ 改看 `tools/probe_electron_start/` 的判读表 |
 | 报错信息像"在跑 Node 而不是 Electron"（如 `require`/`electron` 未定义、行为像纯 Node） | 环境里有 `ELECTRON_RUN_AS_NODE`，它会让 Electron 以**纯 Node** 运行 | `npm run dev` / `npm start` 已经经 `scripts/electron-vite.mjs` 摘掉这个变量；**别绕过脚本直接敲 electron** |
 | `npm install` 报 `fetch failed`，且 `%LOCALAPPDATA%\electron\Cache` 为空 | npm 包装上了，但 Electron 的平台二进制没下下来 | 用镜像显式取一次：`$env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'` 然后 `node node_modules/electron/install.js` |
-| 窗口出来了但界面空白 | 渲染层资源没被打进去 / 产物是旧的 | `npm run build` 后重试；再不行跑 `node tools\verify_app_build.mjs`（产物形状）与 `node tools\verify_renderer_dom.mjs`（渲染层真跑） |
+| 窗口出来了但界面空白 | 渲染层资源没被打进去 / 产物是旧的 | `npm run build` 后重试。⚠️ 原先还能跑 `verify_app_build`（产物形状）与 `verify_renderer_dom`（渲染层真跑），**两者已于 2026-10-13 移除** ⇒ 现在只能人工 `npm run dev` 看 |
 
-**"窗口没出来"和"主进程没启动"在终端上长得一模一样** —— 这正是 `tools/smoke_app.mjs` 存在的理由：它直接跑构建产物、把日志指到独立文件、并把子进程的输出接回来，最后按退出码分档（`1` 产物缺失 / `2` 没跑到 JS / `3` 跑到 JS 但没出窗 / `4` 起来了但有报错）。
+**"窗口没出来"和"主进程没启动"在终端上长得一模一样** —— 这曾是 `tools/smoke_app.mjs` 存在的理由（直接跑构建产物、把日志指到独立文件、按退出码分档 `1`/`2`/`3`/`4`）。⚠️ **该工具已于 2026-10-13 移除** ⇒ 现在只能靠 `data\_app.log` 与 `tools/probe_electron_start/` 人工判读。
 
 ---
 
@@ -31,10 +31,9 @@
 | 症状 | 原因 | 动作 |
 |---|---|---|
 | 守卫抛 `找不到项目根（向上找不到 packages/engine/src/engine.mjs）` | 守卫靠**向上找标记文件**定位仓库根（这是刻意设计：搬目录也不会失效）。标记文件被改名/移动了 | 确认 `packages/engine/src/engine.mjs` 存在；否则说明目录结构被动过，先修结构 |
-| `verify-doc-refs.mjs` 报 `xxx` 为死引用 | 守卫只做「形如 `.md` 的引用解算」。**误报有两类**：① **外部 URL 的末段**（镜像文件名，如 `color.md` / `typography.md`，见 `docs/audit/uiux-evidence.md:624-627`）；② **中文散文里裸写的文档名**（不在 URL、也不在行内代码里，如 `docs/audit/REVIEW-UIUX-AUDIT.md:432` 的 `materials.md`） | 这两类**不计入你的账**；但别新增。真正要清的是**仓库内**的死引用。**先分类再归因** —— 别一律写成"URL 误报" |
-| `verify-doc-refs.mjs` 报「N 份不该留在根目录」 | 根目录纪律：只允许 `AGENTS.md` + `README.md` | 把正文文档移到 `docs/`；见 [`AGENTS.md`](AGENTS.md) §6 |
-| `verify_renderer_dom.mjs` 说找不到 `out/renderer` | 它跑的是**构建产物**，不是源码 | 先 `npm run build` |
-| `verify_renderer_styles.mjs` **通过**，但界面里明明有写死的颜色 | 这个守卫**只查一个方向**：它校验「用到的令牌都已定义」，**不查「定义了但没人用」**，也不扫 `docs/archive/prototype/` | 守门不等于没问题；写死颜色要人工看 |
+| ~~`verify-doc-refs.mjs` 报死引用 / 根目录越界~~ | ⚠️ **该守卫已于 2026-10-13 按所有者指令移除** | 根目录纪律**现在没有自动化**（只允许 `AGENTS.md` + `README.md` + `TODO.md`），只能靠人看；见 [`AGENTS.md`](AGENTS.md) §6 |
+| ~~`verify_renderer_dom.mjs` 说找不到 `out/renderer`~~ | ⚠️ **该守卫已于 2026-10-13 按所有者指令移除** | 先 `npm run build`，再人工 `npm run dev` 看界面 |
+| ~~`verify_renderer_styles.mjs` 通过但有写死颜色~~ | ⚠️ **该守卫已于 2026-10-13 按所有者指令移除** | 现在由 `npm test` 里的"色值只有一处定义"断言承担；它**仍只查一个方向**，写死颜色仍要人工看 |
 | `verify_encoder_path.mjs` 报缺参数 | 它要跑真实推理 | `node tools\verify_encoder_path.mjs --model <ONNX 模型目录>` |
 | `check_search.mjs` 报读不到查询向量 / 库找不到 | 它是一次性端到端自查，需要**已注册的索引 + 真实查询向量** | 先用索引构建器建/确认索引，再准备查询向量文件 |
 

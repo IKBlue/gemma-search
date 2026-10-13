@@ -63,7 +63,7 @@
 | 长列表 | **暂无虚拟化**（P3 只做到搜索页） | `@tanstack/react-virtual` 已装但零 import；需要时再接 |
 | 路由 | **单页**（`LibraryGate → SearchPage`） | **2026-10-13 已决定接 React Router**（ROADMAP §10.3 第 3 步）；P3c/P3d 的多页本来就缺它 |
 | 工程化 | **electron-vite**（三端一体构建） | 产物显式落 `<仓库根>/out/{main,preload,renderer}` |
-| 契约校验 | **zod**（`apps/desktop/src/shared/ipc.mjs`） | 方法白名单 + 逐方法 `.strict()` + 载荷上限；**TS 类型是计划中**，当前不导出 |
+| 契约校验 | **zod**（`apps/desktop/src/shared/ipc.ts`） | 方法白名单 + 逐方法 `.strict()` + 载荷上限；**TS 类型是计划中**，当前不导出 |
 | 单测 | **`node:test`**（`npm test`） | 引擎与事务状态机；`vitest` 已装但零使用 |
 | 字体 | **系统字体栈** | 离线要求下**不得**回退到联网 CDN |
 
@@ -155,7 +155,7 @@ gemma-search/
 │       ├── src/main/              主进程：载引擎、编码器端口、thumb:// 协议、IPC 分发、日志
 │       ├── src/preload/           安全桥（**产物必须 CJS**，sandbox 要求）
 │       ├── src/renderer/          index.html + React 19 界面（普通 JS/JSX + 手写 CSS）
-│       └── src/shared/ipc.mjs     ★ IPC 契约唯一来源（方法白名单 + zod 校验）
+│       └── src/shared/ipc.ts     ★ IPC 契约唯一来源（方法白名单 + zod 校验）
 ├── packages/
 │   ├── engine/                    ★ 引擎：传输无关、**零第三方依赖**
 │   │   ├── src/{engine,index,library,fingerprint,compat,errors}.mjs
@@ -180,7 +180,7 @@ gemma-search/
 - **主进程 / 渲染进程**：**普通 JS / JSX**（迁移期的既定形态；TS 迁移是计划，见 §3）。
   渲染进程 `nodeIntegration:false` / `contextIsolation:true` / `sandbox:true`，
   只能经 preload 暴露的白名单 API 访问能力
-- **IPC 契约**：zod schema 定义一次（`apps/desktop/src/shared/ipc.mjs`）；**当前不导出 TS 类型**（P3a 迁 TS 时再补）
+- **IPC 契约**：zod schema 定义一次（`apps/desktop/src/shared/ipc.ts`）；**当前不导出 TS 类型**（P3a 迁 TS 时再补）
 - **日志**：主进程与渲染进程的诊断都写日志文件（`data\_app.log`）。**不要依赖 stdout** ——
   Windows 上 Electron 是 GUI 子系统程序，stdout 不连终端
 - **离线**：不得引用任何 CDN；字体用系统字体栈

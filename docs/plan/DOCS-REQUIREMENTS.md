@@ -123,7 +123,7 @@
 | 索引状态 | `engine.indexStatus` | ✅ | — |
 | 差分扫描 | `engine.doScan` | ✅ | — |
 | 入库 / CRUD | ❌ 无 | ❌ | ❌ |
-| IPC 白名单 | `apps/desktop/src/shared/ipc.mjs` | ✅ `packages/engine/tests/security.test.mjs` | — |
+| IPC 白名单 | `apps/desktop/src/shared/ipc.ts` | ✅ `packages/engine/tests/security.test.mjs` | — |
 | 库注册表 | `packages/engine/src/library.mjs` | ✅ | — |
 | 库指纹 | `packages/engine/src/fingerprint.mjs` | ✅ | ⚠️ 跨语言一致性测试**跳过**（缺 `baseline-v1.json`） |
 

@@ -31,7 +31,7 @@
 │ apps/desktop/src/preload/index.js  沙箱化 · 产出必须是 CJS         │
 │ invoke / onEvent / platform ——「不暴露 ipcRenderer 本体」          │
 ├ 契约 ────────────────────────────────────────────────────────────┤
-│ apps/desktop/src/shared/ipc.mjs    唯一来源：方法白名单 + zod       │
+│ apps/desktop/src/shared/ipc.ts    唯一来源：方法白名单 + zod       │
 │ 2 个通道 · 13 个方法 · 1 MiB 载荷上限                              │
 ├ 主进程 ──────────────────────────────────────────────────────────┤
 │ apps/desktop/src/main/index.mjs    窗口 / IPC 分发 / thumb://      │
@@ -209,7 +209,7 @@
 | 唯一来源 | `packages/design-tokens/tokens.css`（`docs/design/DESIGN-tokens.md` §10 的可执行版） |
 | 消费方式 | `apps/desktop/src/renderer/src/renderer.css` **只消费 `var(--*)`**：不写死颜色、间距只用 `--space-*`、字号只用 `--type-*` |
 | 跨界引用 | `apps/desktop/src/renderer/src/main.jsx` 直接 import 跨出 renderer root 的 `tokens.css`——**不复制第二份**，避免两份漂移 |
-| 守卫 | `tools/verify_renderer_styles.mjs` + `tools/verify_renderer_dom.mjs` |
+| 检查 | ~~`tools/verify_renderer_styles.mjs` + `tools/verify_renderer_dom.mjs`~~ ⚠️ **该守卫已于 2026-10-13 按所有者指令移除** ⇒ 改由 **`npm test` 断言**承担（见 `task-19`）；现存守卫只剩 `verify_encoder_path` / `check_search`（见 `AGENTS.md` §5.2） |
 | 令牌清单 | 颜色（Apple 语义色系）· 字号阶梯（`--type-*`）· 8pt 间距（`--space-*`）· 圆角 · 阴影 · `--touch-min:44px` |
 
 > **Apple 风格符合度的逐项对差**不在本文——见 [`../audit/UIUX-AUDIT.md`](../audit/UIUX-AUDIT.md)（宪章②产出物）。
