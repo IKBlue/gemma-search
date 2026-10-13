@@ -34,10 +34,17 @@ import path from 'node:path';
 export const REGISTRY_VERSION = 1;
 export const REGISTRY_FILE = 'library-registry.json';
 
-/** libId 形状：与 `apps/desktop/src/shared/ipc.mjs` 的 `LibId` 保持一致 */
+/** libId 形状：与 `apps/desktop/src/shared/ipc.ts` 的 `LibId` 保持一致 */
 const LIB_ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
 
-/** 取件目录默认值（来自 SPEC-app §9 与 SPEC-transactions §7，不是本项目现编的） */
+/**
+ * 取件目录的**规格兜底值**（来自 SPEC-app §9 与 SPEC-transactions §7，不是本项目现编的）。
+ *
+ * ⚠️ P3（2026-10-13）：这是**兜底**，不再是"唯一值"。解析顺序见 `resolveLibraries`：
+ * **`GEMMA_COLLECT_DIRS` 环境变量 > 注册表 > `config.json` > 本兜底**。
+ * 本常量之所以仍是绝对路径，是因为 SPEC 就是这么规定的 —— 改它要走 `docs/spec` 的变更控制，
+ * 不在 T5 范围。**非 `E:` 盘的机器应当显式设 `GEMMA_COLLECT_DIRS`**（见 `parseCollectDirsEnv`）。
+ */
 export const DEFAULT_COLLECT = Object.freeze({
   dirs: Object.freeze({
     素材待用: 'E:\\素材待用',
@@ -45,6 +52,39 @@ export const DEFAULT_COLLECT = Object.freeze({
   }),
   default: '素材待用',
 });
+
+/**
+ * 解析 `GEMMA_COLLECT_DIRS`（P3：给取件目录一个配置入口，与库根的 `GEMMA_LIB_ROOT` 同惯例）。
+ *
+ * 语法：`名称=路径` 多条用 `;` 分隔，例如
+ *   `GEMMA_COLLECT_DIRS=素材待用=D:\收件;移出素材=D:\移出`
+ * 路径里可以含 `=`，所以**只按第一个 `=` 切**。
+ *
+ * **保证不返回空**：解析不出任何条目就返回 `null`（调用方继续走下一优先级），
+ * 绝不返回 `{dirs:{}}` —— 空的白名单会让任何 `collect` 都变成 `COLLECT_DIR_NOT_ALLOWED`
+ * （那是缺陷 F-04，已修，不能再回来）。
+ *
+ * @param {unknown} raw
+ * @returns {{dirs:Record<string,string>, default:string}|null}
+ */
+export function parseCollectDirsEnv(raw) {
+  const s = typeof raw === 'string' ? raw.trim() : '';
+  if (!s) return null;
+  const dirs = {};
+  for (const part of s.split(';')) {
+    const seg = part.trim();
+    if (!seg) continue;
+    const eq = seg.indexOf('=');
+    if (eq <= 0) continue;                     // 没有 `=` 或名字为空 ⇒ 跳过这一条
+    const name = seg.slice(0, eq).trim();
+    const dir = seg.slice(eq + 1).trim();
+    if (!name || !dir) continue;
+    dirs[name] = dir;
+  }
+  const names = Object.keys(dirs);
+  if (!names.length) return null;              // **空 ⇒ null**，不是空对象（见上）
+  return { dirs, default: names[0] };
+}
 
 export function registryPath(userDataDir) {
   return path.join(userDataDir, REGISTRY_FILE);
@@ -147,7 +187,7 @@ export function discoverLibrariesFromIndex(dataDir) {
  * @param {string} [o.envLibRoot]   `process.env.GEMMA_LIB_ROOT`
  * @returns {{libraries:Array, collect:object, diagnostics:Array<string>, warnings:Array<string>}}
  */
-export function resolveLibraries({ dataDir, userDataDir, config = {}, configPath = null, envLibRoot = '' } = {}) {
+export function resolveLibraries({ dataDir, userDataDir, config = {}, configPath = null, envLibRoot = '', envCollectDirs = '' } = {}) {
   const diagnostics = [];
   const warnings = [];
   let libraries = [];
@@ -211,17 +251,21 @@ export function resolveLibraries({ dataDir, userDataDir, config = {}, configPath
     diagnostics.push('未找到任何库：环境变量 / 注册表 / config.json / 已有索引 四条路都没有结果');
   }
 
-  // 取件白名单：注册表 > config > 默认值（默认值来自规格，见文件头）
+  // 取件白名单：环境变量 > 注册表 > config > SPEC 兜底（P3：2026-10-13 补上环境变量这条入口）
+  const envDirs = parseCollectDirsEnv(envCollectDirs);
   const regDirs = (() => {
     const reg = loadRegistry(userDataDir);
     return reg && reg.data && reg.data.collect && typeof reg.data.collect === 'object' ? reg.data.collect : null;
   })();
   const collect = (() => {
-    for (const src of [regDirs, config.collect]) {
+    for (const [src, from] of [[envDirs, '环境变量 GEMMA_COLLECT_DIRS'], [regDirs, '注册表'], [config.collect, 'config.json']]) {
       if (src && src.dirs && Object.keys(src.dirs).length) {
+        diagnostics.push(`取件白名单来自${from}（${Object.keys(src.dirs).length} 个目录）`);
         return { dirs: { ...src.dirs }, default: src.default || Object.keys(src.dirs)[0] };
       }
     }
+    // 走到这里说明三条路都没给 ⇒ 用规格兜底。**必须非空**（F-04 回归防线）。
+    diagnostics.push('取件白名单来自规格兜底值（`docs/spec/SPEC-app.md` §9）；想换目录请设 `GEMMA_COLLECT_DIRS`');
     return { dirs: { ...DEFAULT_COLLECT.dirs }, default: DEFAULT_COLLECT.default };
   })();
 

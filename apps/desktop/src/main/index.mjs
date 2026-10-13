@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 
 import { ROOT, log } from './log.mjs';   // ← 必须最先导入：导入即初始化日志
 import { createEngine } from '../../../../packages/engine/src/engine.mjs';
-import { CH_INVOKE, CH_EVENT, validateCall, METHOD_NAMES } from '../shared/ipc.mjs';
+import { CH_INVOKE, CH_EVENT, validateCall, METHOD_NAMES } from '../shared/ipc.ts';
 import { resolveLibraries, loadRegistry, saveRegistry, normalizeLibraries, registryPath } from './library-config.mjs';
 import { createRevealPort } from './ports.mjs';
 import { parseThumbUrl, createLibIdResolver, thumbFailureStatus } from './thumb-url.mjs';
@@ -112,6 +112,9 @@ function librariesResolved() {
       config,
       configPath: CONFIG_PATH,
       envLibRoot: process.env.GEMMA_LIB_ROOT || '',
+      // P3（2026-10-13）：取件目录也有了配置入口，与库根同惯例。
+      // 不设它就用 SPEC 兜底值（`E:\素材待用` / `E:\移出素材`）—— 非 E: 盘的机器应显式设这个。
+      envCollectDirs: process.env.GEMMA_COLLECT_DIRS || '',
     });
   }
   return RESOLVED;

@@ -14,7 +14,7 @@ import path from 'node:path';
 
 import {
   resolveLibraries, saveRegistry, loadRegistry, normalizeLibraries,
-  discoverLibrariesFromIndex, DEFAULT_COLLECT, registryPath,
+  discoverLibrariesFromIndex, DEFAULT_COLLECT, registryPath, parseCollectDirsEnv,
 } from '../src/main/library-config.mjs';
 
 /** 造一个临时"应用数据目录"，里面按需放 libraries/<id>/meta.json */
@@ -114,7 +114,7 @@ test('⑦ F-04：取件白名单不再为空，且默认值来自规格', () => 
   assert.equal(r.collect.default, '素材待用');
 });
 
-test('⑧ 取件白名单：注册表 > config > 默认', () => {
+test('⑧ 取件白名单：环境变量 > 注册表 > config > 规格兜底', () => {
   const dataDir = tmpData();
   const userDataDir = tmpUserData();
   // config 有值时用它
@@ -124,6 +124,36 @@ test('⑧ 取件白名单：注册表 > config > 默认', () => {
   saveRegistry(userDataDir, { libraries: [], collect: { dirs: { 乙: 'D:\\乙' } } });
   r = resolveLibraries({ dataDir, userDataDir, config: { collect: { dirs: { 甲: 'D:\\甲' } } } });
   assert.deepEqual(r.collect.dirs, { 乙: 'D:\\乙' });
+  // ⭐ 环境变量压过注册表与 config（P3 新增的入口）
+  r = resolveLibraries({
+    dataDir, userDataDir,
+    config: { collect: { dirs: { 甲: 'D:\\甲' } } },
+    envCollectDirs: '丙=D:\\丙;丁=D:\\丁',
+  });
+  assert.deepEqual(r.collect.dirs, { 丙: 'D:\\丙', 丁: 'D:\\丁' });
+  assert.equal(r.collect.default, '丙', '默认项取第一条');
+  assert.ok(r.diagnostics.some((d) => d.includes('GEMMA_COLLECT_DIRS')), '要能看出配置来自哪条路');
+});
+
+test('⑧b ⭐ parseCollectDirsEnv 解析不出东西时返回 null，**绝不返回空对象**', () => {
+  // 空/垃圾输入一律 null —— 返回 {dirs:{}} 会让任何 collect 都 COLLECT_DIR_NOT_ALLOWED（F-04 复发）
+  for (const junk of ['', '   ', null, undefined, 42, {}, '没有等号', '=没有名字', '名字=', ';;;']) {
+    assert.equal(parseCollectDirsEnv(junk), null, `${JSON.stringify(junk)} 必须解析成 null`);
+  }
+  // 正常形态
+  assert.deepEqual(parseCollectDirsEnv('A=C:\\a;B=C:\\b'), { dirs: { A: 'C:\\a', B: 'C:\\b' }, default: 'A' });
+  // 路径里含 `=` ⇒ 只按**第一个** = 切（否则 Windows 上的怪路径会被切坏）
+  assert.deepEqual(parseCollectDirsEnv('A=C:\\x=1=y'), { dirs: { A: 'C:\\x=1=y' }, default: 'A' });
+  // 混入坏条目：好的留下，坏的不影响
+  assert.deepEqual(parseCollectDirsEnv('A=C:\\a;坏条目;B=C:\\b'), { dirs: { A: 'C:\\a', B: 'C:\\b' }, default: 'A' });
+});
+
+test('⑧c ⭐ 垃圾环境变量**不能**把白名单弄空（F-04 回归防线）', () => {
+  const dataDir = tmpData();
+  const r = resolveLibraries({ dataDir, userDataDir: tmpUserData(), envCollectDirs: '完全不是格式' });
+  assert.ok(Object.keys(r.collect.dirs).length > 0, '解析失败必须退到兜底，而不是留一个空白名单');
+  assert.deepEqual(r.collect.dirs, { ...DEFAULT_COLLECT.dirs });
+  assert.ok(r.diagnostics.some((d) => d.includes('规格兜底')), '要如实说明用的是兜底值');
 });
 
 test('⑨ 库根不存在 → 如实报 warning，但仍把库交出去（不在这里判失败）', () => {
