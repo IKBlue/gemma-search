@@ -27,8 +27,11 @@ export default function PhotoCard({ item, onLocate, onCollect }) {
           />
         )}
         <span className="card-acts">
-          <Button className="pri" disabled={!canLocate} onClick={() => onLocate(item)}>定位</Button>
-          <Button onClick={() => onCollect(item)}>取件</Button>
+          {/* 原先是上下文覆盖 `.card-acts .btn` + `.card-acts .btn.pri`（后代选择器）。
+              2026-10-13（T3）改为**由组件自己表达**：size="sm" 拿小尺寸、variant="outline-accent"
+              拿"只描边不填色"。按钮的样子现在取决于它**是什么**，而不是它在哪个容器里。 */}
+          <Button size="sm" variant="outline-accent" disabled={!canLocate} onClick={() => onLocate(item)}>定位</Button>
+          <Button size="sm" onClick={() => onCollect(item)}>取件</Button>
         </span>
       </div>
       <div className="card-info">

@@ -1,4 +1,8 @@
-// SearchPage —— 检索页：hooks（状态）× 组件（渲染）× 令牌（视觉）
+// SearchPage —— 检索页：store（状态）× 组件（渲染）× 令牌（视觉）
+//
+// 状态自 2026-10-13（T2）起由 **Zustand store** 持有（`store/search.js`），不再挂在组件里：
+// 这样"从结果卡进详情页再返回，筛选与结果还在"才有实现基础（P3c 需要）。
+// 本页只订阅 + 渲染；协议与编排都在 Operation 层。
 import { useCallback, useMemo, useRef, useState } from 'react'
 import AppShell from '../layout/AppShell.jsx'
 import Main from '../layout/Main.jsx'
@@ -6,9 +10,10 @@ import PageHead from '../layout/PageHead.jsx'
 import Topbar from '../layout/Topbar.jsx'
 import Button from '../ui/Button.jsx'
 import Toast from '../ui/Toast.jsx'
+import ConfirmDialog from '../ui/ConfirmDialog.jsx'
 import useToast from '../hooks/useToast.js'
 import { useEngine, useEngineEvents, useIndexStatus } from '../hooks/useEngine.js'
-import useSearch from '../hooks/useSearch.js'
+import { useSearchStore, sortResults } from '../store/search.js'
 import Gallery from '../search/Gallery.jsx'
 import MetricsRow from '../search/MetricsRow.jsx'
 import SearchPanel from '../search/SearchPanel.jsx'
@@ -18,7 +23,20 @@ export default function SearchPage() {
   const { invoke } = useEngine()
   const { message, tone, show } = useToast()
   const { lib, loading: indexLoading, error: indexError } = useIndexStatus()
-  const search = useSearch({ invoke, onToast: show })
+
+  // 检索状态来自 store。整块订阅是刻意的：它是本页的根状态，拆成十几个 selector
+  // 只增加噪音，不会减少重渲染（任意一项变了这一页都要重画）。
+  const {
+    mode, query, folder, sort, busy, rawResults, error,
+    setMode, setQuery, setFolder, setSort, setQueryImagePath,
+    clear, run, reveal, collect,
+    // 取件是**破坏性操作**（写文件）⇒ 走"请求 → 确认"两步，状态在 store 里（T4）
+    pendingCollect, requestCollect, cancelCollect, confirmCollect,
+  } = useSearchStore()
+
+  // 排序是**派生**的（纯函数），不进 store —— 否则 rawResults / sort / results 三者
+  // 要手工保持同步，那是典型的"同一份事实两处存"。
+  const results = useMemo(() => sortResults(rawResults, sort), [rawResults, sort])
 
   const [device, setDevice] = useState('')
   const [imageName, setImageName] = useState('')
@@ -45,10 +63,10 @@ export default function SearchPage() {
   const onFileChange = useCallback((event) => {
     const f = event.target.files && event.target.files[0]
     if (!f) return
-    search.setQueryImagePath(f.path || null)
+    setQueryImagePath(f.path || null)
     setImageName(f.name || '')
     show(f.path ? `已选：${f.name}` : '无法取得真实路径', f.path ? 'info' : 'err')
-  }, [search, show])
+  }, [setQueryImagePath, show])
 
   const refreshStatus = useCallback(async () => {
     const r = await invoke('indexStatus', {})
@@ -59,12 +77,12 @@ export default function SearchPage() {
   const notImplemented = useCallback((label) => show(`「${label}」还没实现`, 'info'), [show])
 
   const placeholder = useMemo(() => (
-    search.mode === 'text'
+    mode === 'text'
       ? '试试：玻璃球多头吊灯 / 中古风木质吸顶灯 / 花卉图案装饰画'
       : (imageName ? `已选参考图：${imageName}` : '点「以图搜图」选一张参考图后搜索')
-  ), [search.mode, imageName])
+  ), [mode, imageName])
 
-  const showHint = search.results === null && !search.error && !search.busy
+  const showHint = results === null && !error && !busy
 
   return (
     <>
@@ -104,17 +122,17 @@ export default function SearchPage() {
 
             <SearchPanel
               inputRef={inputRef}
-              query={search.query}
-              onQueryChange={(v) => { search.setQuery(v); if (v && search.mode === 'image') search.setMode('text') }}
-              onSubmit={search.run}
-              busy={search.busy}
+              query={query}
+              onQueryChange={(v) => { setQuery(v); if (v && mode === 'image') setMode('text') }}
+              onSubmit={() => run(show)}
+              busy={busy}
               placeholder={placeholder}
-              folder={search.folder}
-              onFolderChange={search.setFolder}
-              sort={search.sort}
-              onSortChange={(v) => { search.setSort(v); if (v === 'recent') show('「最近添加」需要索引提供 mtime，P3b 再补') }}
-              mode={search.mode}
-              onPickImage={() => { search.setMode('image'); pickImage() }}
+              folder={folder}
+              onFolderChange={setFolder}
+              sort={sort}
+              onSortChange={(v) => { setSort(v); if (v === 'recent') show('「最近添加」需要索引提供 mtime，P3b 再补') }}
+              mode={mode}
+              onPickImage={() => { setMode('image'); pickImage() }}
               imageName={imageName}
             />
 
@@ -128,12 +146,13 @@ export default function SearchPage() {
             ) : null}
 
             <Gallery
-              results={search.results}
-              error={search.error}
-              loading={search.busy}
-              onLocate={search.reveal}
-              onCollect={search.collect}
-              onClear={search.clear}
+              results={results}
+              error={error}
+              loading={busy}
+              onLocate={(item) => reveal(item, show)}
+              // ⚠️ 不再直接 `collect` —— 取件会**写文件**，先经"请求 → 确认"（T4）
+              onCollect={requestCollect}
+              onClear={clear}
             />
 
             <p className="muted small mt-4">
@@ -153,6 +172,19 @@ export default function SearchPage() {
         </Main>
       </AppShell>
       <Toast message={message} tone={tone} />
+
+      {/* 破坏性操作的确认（T4）。`onOpenChange(false)` 覆盖"ESC / 取消钮 / 点外面"三条路径 ——
+          AlertDialog 的语义是必须有明确回应，所以点遮罩不会关，但 ESC 会，两者都走这里 ⇒ 一律丢弃请求。 */}
+      <ConfirmDialog
+        open={Boolean(pendingCollect)}
+        onOpenChange={(next) => { if (!next) cancelCollect() }}
+        title="把这套素材取件？"
+        description={pendingCollect
+          ? `会把「${pendingCollect.stem || pendingCollect.uid}」复制到取件目录。素材库本身不会被修改。`
+          : ''}
+        confirmText="取件"
+        onConfirm={() => confirmCollect(show)}
+      />
     </>
   )
 }
