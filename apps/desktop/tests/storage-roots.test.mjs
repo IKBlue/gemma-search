@@ -16,7 +16,13 @@ import path from 'node:path';
 import {
   resolveModels, resolveStorageRoots, resolveLibraryStorage, probeWritable, describeStorageRoots,
   GS_INDEX_NAME, GS_DB_NAME, GS_JOURNAL_NAME, MODELS_DIRNAME, MODEL_MARKER_REL,
+  MODEL_SEARCH_ORDER, modelSearchOrderText,
 } from '../src/main/storage-roots.ts';
+
+/** 期望的搜索顺序（SPEC §2，2026-10-14 所有者授权：显式覆盖优先）。
+ *  ⚠️ 所有者看过界面后**可能改回**旧顺序 —— 那时候只需要改 storage-roots.ts 里的
+ *     MODEL_SEARCH_ORDER 一行 + 下面这一行期望值，其它用例（都是按"谁赢"写的，不写死次序）不用动。 */
+const EXPECTED_ORDER = ['user', 'app', 'userData'];
 
 // 用固定的假路径（不碰真机）；Windows 形态，因为本项目只在 Windows 上跑。
 const APP = 'C:\\gs\\app';
@@ -87,13 +93,14 @@ test('M2 程序目录**不可写** ⇒ 改用 userData（落点与 installDir �
   assert.equal(r.searched[1].writable, true);
 });
 
-test('M3 用户指定目录命中（SPEC §2 的第三位）', () => {
+test('M3 用户指定目录命中 —— **新顺序里它排第一位**（旧顺序里是最后一位）', () => {
   const userDir = 'E:\\my-models';
   const f = memFs({ dirs: [APP, UD, userDir], files: [modelMarker(userDir)] });
   const r = resolveModels({ appDir: APP, userDataDir: UD, userModelDir: userDir, fs: f });
 
   assert.equal(r.found, userDir);
   assert.equal(r.source, 'user');
+  assert.equal(r.searched[0].source, 'user', '用户指定必须**第一个**被找');
   assert.equal(r.searched.length, 3);
   assert.deepEqual(r.searched.map((c) => c.order), [1, 2, 3]);
 });
@@ -110,6 +117,57 @@ test('M4 三位都没有 ⇒ found=null、指引非空且**列出找过的每条
     assert.ok(r.guidance.includes(p), '指引里必须出现找过的路径：' + p);
   }
   assert.match(r.guidance, /不会显示任何检索结果/, '要写明"不显示假结果"');
+  // 指引里的顺序串是从常量派生的 ⇒ 顺序一改，文案自动跟着改（不许两处各写一半）
+  assert.ok(r.guidance.includes(modelSearchOrderText()), '指引里的顺序必须与常量一致');
+  assert.ok(r.guidance.includes('用户指定 → 程序目录 models/ → userData models/'), '缺模型时要说清新的优先级');
+});
+
+// ============================================================ ①b 优先级（SPEC §2：显式覆盖优先）
+
+test('M6 ⭐ 用户指定**赢过**程序目录（两边都有模型 ⇒ 用户那份说了算）', () => {
+  const appModels = path.join(APP, MODELS_DIRNAME);
+  const userDir = 'E:\\my-models';
+  const f = memFs({ dirs: [APP, appModels, UD, userDir], files: [modelMarker(appModels), modelMarker(userDir)] });
+  const r = resolveModels({ appDir: APP, userDataDir: UD, userModelDir: userDir, fs: f });
+
+  assert.equal(r.found, userDir, '显式指定的目录必须压过程序目录自带的那份');
+  assert.equal(r.source, 'user');
+  assert.equal(r.searched[1].source, 'app');
+  assert.equal(r.searched[1].valid, true, '程序目录那份仍然要被找过并记为命中（不是没看见）');
+});
+
+test('M7 ⭐ 程序目录**赢过** userData（没给用户指定时）', () => {
+  const appModels = path.join(APP, MODELS_DIRNAME);
+  const udModels = path.join(UD, MODELS_DIRNAME);
+  const f = memFs({ dirs: [APP, appModels, UD, udModels], files: [modelMarker(appModels), modelMarker(udModels)] });
+  const r = resolveModels({ appDir: APP, userDataDir: UD, fs: f });
+
+  assert.equal(r.found, appModels);
+  assert.equal(r.source, 'app');
+  assert.deepEqual(r.searched.map((c) => c.source), ['app', 'userData']);
+});
+
+test('M8 用户指定目录**存在但里面没有模型** ⇒ 不停下，继续往后找（app 命中）', () => {
+  const appModels = path.join(APP, MODELS_DIRNAME);
+  const userDir = 'E:\\my-models';
+  const f = memFs({ dirs: [APP, appModels, UD, userDir], files: [modelMarker(appModels)] });
+  const r = resolveModels({ appDir: APP, userDataDir: UD, userModelDir: userDir, fs: f });
+
+  assert.equal(r.found, appModels, '无效的显式目录不该把后面的候选挡住');
+  assert.equal(r.source, 'app');
+  assert.equal(r.searched[0].source, 'user');
+  assert.equal(r.searched[0].valid, false);
+  assert.equal(r.searched[0].dir, userDir);
+});
+
+test('M9 ⭐ 顺序**只有一处常量**：候选次序、日志文案、指引文案都从 MODEL_SEARCH_ORDER 派生', () => {
+  assert.deepEqual([...MODEL_SEARCH_ORDER], EXPECTED_ORDER, '改顺序只该改 storage-roots.ts 的那一行 + 这里的期望值');
+  assert.equal(modelSearchOrderText(), '用户指定 → 程序目录 models/ → userData models/');
+
+  const userDir = 'E:\\my-models';
+  const f = memFs({ dirs: [APP, UD, userDir] });
+  const r = resolveModels({ appDir: APP, userDataDir: UD, userModelDir: userDir, fs: f });
+  assert.deepEqual(r.searched.map((c) => c.source), [...MODEL_SEARCH_ORDER], '实际搜索次序必须等于常量');
 });
 
 test('M5 目录存在但没有 onnx/model.onnx ⇒ **不算命中**', () => {
@@ -267,6 +325,8 @@ test('D1 describeStorageRoots 把"落在哪 + 为什么"渲染成可读行（启
   assert.ok(text.includes('程序目录 = ' + APP));
   assert.ok(text.includes('userData = ' + UD));
   assert.ok(text.includes('模型搜索顺序'));
+  // 顺序串必须与常量一致（顺序一改，日志自动跟着改；这条防的是"日志还印着旧顺序"）
+  assert.ok(text.includes('模型搜索顺序 = ' + modelSearchOrderText()), '日志里的顺序必须来自 MODEL_SEARCH_ORDER');
   assert.ok(text.includes('未找到'), '没有模型时必须明说未找到');
   assert.ok(text.includes('库 L1：落点 = ' + path.join(UD, 'libraries', 'L1')));
   assert.ok(text.includes('回退 userData'));

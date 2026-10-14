@@ -1,0 +1,122 @@
+================================================================================
+T-04c 证据 · 模型搜索顺序改为「用户指定 → 程序目录 models/ → userData models/」
+任务板 id: task-18   执行: storage-worker   日期: 2026-10-15
+改动文件（**只这两个**，按 Lead 要求没碰 main/index.ts 的接线）：
+  · apps/desktop/src/main/storage-roots.ts
+  · apps/desktop/tests/storage-roots.test.mjs
+依据: SPEC §2（2026-10-14 所有者授权调整，挂"待界面复核"）
+================================================================================
+
+【改了什么】
+1. 顺序**收成一处常量**（可一行切回）：
+     export const MODEL_SEARCH_ORDER: readonly ModelSource[] = Object.freeze(['user', 'app', 'userData']);
+   · 来源标签放在 MODEL_SOURCE_LABEL（**不含顺序**）；
+   · 日志与指引里的顺序串由 modelSearchOrderText() 从常量派生；
+   · resolveModels() 的候选**由常量循环生成**，函数里不再写第二份顺序；
+   · 指引里的"放法"条目也**跟着常量走**（否则顺序一改，文案就开始骗人）。
+   ⇒ 所有者看完界面若要改回旧序，只需把上面那一行改成 ['app','userData','user'] 并同步单测里的
+     EXPECTED_ORDER 一行（其余用例都是按"谁赢"写的，不写死次序）。
+2. 单测：M3 改成"用户指定排第一位"，新增 M6/M7/M8/M9 覆盖优先级与"单一常量"。
+   （M1/M2/M4/M5/D1/R1/R2 原样通过 —— 顺序变化没有破坏既有语义。）
+3. 语义未动：仍然「能找到才用、找不到 found=null + 明确指引、不假装可用」；库根回退逻辑一字未改。
+
+【原始证据】
+
+--- 命令 1 · 单测（本任务验收项之一）PS> node --test --test-isolation=none apps/desktop/tests/storage-roots.test.mjs  → EXIT=0
+  ✔ M1 程序目录可写且含模型 ⇒ 命中程序目录，installDir 也是它 (1.4079ms)
+  ✔ M2 程序目录**不可写** ⇒ 改用 userData（落点与 installDir 都跟着走） (0.4159ms)
+  ✔ M3 用户指定目录命中 —— **新顺序里它排第一位**（旧顺序里是最后一位） (0.6873ms)
+  ✔ M4 三位都没有 ⇒ found=null、指引非空且**列出找过的每条路径** (0.3945ms)
+  ✔ M6 ⭐ 用户指定**赢过**程序目录（两边都有模型 ⇒ 用户那份说了算） (0.2393ms)
+  ✔ M7 ⭐ 程序目录**赢过** userData（没给用户指定时） (0.2386ms)
+  ✔ M8 用户指定目录**存在但里面没有模型** ⇒ 不停下，继续往后找（app 命中） (0.2442ms)
+  ✔ M9 ⭐ 顺序**只有一处常量**：候选次序、日志文案、指引文案都从 MODEL_SEARCH_ORDER 派生 (0.1817ms)
+  ✔ M5 目录存在但没有 onnx/model.onnx ⇒ **不算命中** (0.2706ms)
+  ✔ L1 库根可写 ⇒ 索引 / 元数据 / 事务日志都在库根本身 (0.6549ms)
+  ✔ L2 库根不可写 ⇒ 回退 userData/libraries/<libId>，并说清为什么 (0.2628ms)
+  ✔ L3 库根不存在（盘符变了 / 盘没挂载）⇒ 同样回退，理由说明"不存在" (0.1287ms)
+  ✔ L4 库根是文件（不是目录）⇒ 回退，理由说明"不是目录" (0.1121ms)
+  ✔ L5 库根不可写且没有 userData ⇒ 明确报"没有落点"，不假装有 (0.1411ms)
+  ✔ L6 多个库各解析一份落点（一个回退、一个不回退） (0.2867ms)
+  ✔ L7 一个库都没有 ⇒ 落点为空并说明原因（不编一个落点出来） (0.1282ms)
+  ✔ P1 探测文件写完即删、解析过程**不创建任何目录** (0.1848ms)
+  ✔ P2 probeWrites=false 时只按存在性判断，理由**必须**承认"没探测过" (0.1387ms)
+  ✔ P3 probeWritable 用真实文件系统：真目录可写且不留文件，文件路径报 ENOTDIR (189.8481ms)
+  ✔ D1 describeStorageRoots 把"落在哪 + 为什么"渲染成可读行（启动日志直接用） (0.4911ms)
+  ✔ S1 libId 里的路径分隔符被安全化（回退目录不许路径穿越） (0.1209ms)
+  ✔ R1 真文件系统跑一遍：模型在程序目录、库根可写 ⇒ 落点如预期且零残留 (291.8206ms)
+  ✔ R2 真文件系统：库根不存在 ⇒ 回退 userData，且**不在库根创建任何东西** (602.1035ms)
+  ℹ tests 23
+  ℹ suites 0
+  ℹ pass 23
+  ℹ fail 0
+  ℹ cancelled 0
+  ℹ skipped 0
+--- 命令 2 · 类型门禁（验收项之二）
+  PS> tsc --noEmit -p tsconfig.node.json   → (原始输出为空) EXIT=0
+  PS> tsc --noEmit -p tsconfig.web.json   → (原始输出为空) EXIT=0
+  PS> npm run build                       → EXIT=0（三端产物齐备，用于下面这次实跑）
+
+--- 命令 3 · 实跑（真 Electron；用 GEMMA_ROOT/GEMMA_CONFIG 造出三个来源都有模型的场景）
+  A：三个来源**都有** onnx/model.onnx，且 GEMMA_CONFIG 指定了用户目录 ⇒ 必须选「用户指定」
+  B：不设 GEMMA_CONFIG（没有用户指定这一位），程序目录与 userData 都有 ⇒ 必须选「程序目录」
+  （在真实盘上建临时目录跑，不是内存桩；脚本 data/_t04c/run-order.mjs）
+  EXIT=0
+===== A-user-wins =====
+  GEMMA_CONFIG(on 用户指定) = D:\USERS\Desktop\Agent\gemma-search\data\_t04c\A-user-wins\my-models
+  [05:56:38.859] [存储] ======== 本次启动的落点 ========
+  [05:56:38.860] [存储] 模型 = D:\USERS\Desktop\Agent\gemma-search\data\_t04c\A-user-wins\my-models（来源：用户指定）
+  [05:56:38.860] [存储] 模型搜索顺序 = 用户指定 → 程序目录 models/ → userData models/
+  [05:56:38.860] [存储]   1. 用户指定 = D:\USERS\Desktop\Agent\gemma-search\data\_t04c\A-user-wins\my-models ⇒ 命中：含 onnx\model.onnx（D:\USERS\Desktop\Agent\gemma-search\data\_t04c\A-user-wins\my-models）；目录可写：D:\USERS\Desktop\Agent\gemma-search\data\_t04c\A-user-wins\my-models
+  [05:56:38.860] [存储]   2. 程序目录 models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04c\A-user-wins\app\models ⇒ 命中：含 onnx\model.onnx（D:\USERS\Desktop\Agent\gemma-search\data\_t04c\A-user-wins\app\models）；目录可写：D:\USERS\Desktop\Agent\gemma-search\data\_t04c\A-user-wins\app\models
+  [05:56:38.860] [存储]   3. userData models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04c\A-user-wins\ud\models ⇒ 命中：含 onnx\model.onnx（D:\USERS\Desktop\Agent\gemma-search\data\_t04c\A-user-wins\ud\models）；目录可写：D:\USERS\Desktop\Agent\gemma-search\data\_t04c\A-user-wins\ud\models
+  [05:56:38.860] [存储] 模型建议放置目录 = D:\USERS\Desktop\Agent\gemma-search\data\_t04c\A-user-wins\my-models（搜索顺序里第一个可写的候选；安装目录通常不可写，见 PLAN R8）
+  [05:56:38.861] [存储] 说明：没有已解析的库 ⇒ 索引 / .gs.db / 事务日志暂时没有落点；先解决「库从哪来」（GEMMA_LIB_ROOT / userData 注册表 / data/libraries/* 索引自举，四条路见 library-config.ts）
+  [05:56:38.861] [存储] 编码器实际将使用的模型目录 = D:\USERS\Desktop\Agent\gemma-search\data\_t04c\A-user-wins\my-models
+
+===== B-app-wins =====
+  GEMMA_CONFIG(on 用户指定) = (未设 ⇒ 没有用户指定这一位)
+  [05:56:43.356] [存储] ======== 本次启动的落点 ========
+  [05:56:43.357] [存储] 模型 = D:\USERS\Desktop\Agent\gemma-search\data\_t04c\B-app-wins\app\models（来源：程序目录 models/）
+  [05:56:43.357] [存储] 模型搜索顺序 = 用户指定 → 程序目录 models/ → userData models/
+  [05:56:43.357] [存储]   1. 程序目录 models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04c\B-app-wins\app\models ⇒ 命中：含 onnx\model.onnx（D:\USERS\Desktop\Agent\gemma-search\data\_t04c\B-app-wins\app\models）；目录可写：D:\USERS\Desktop\Agent\gemma-search\data\_t04c\B-app-wins\app\models
+  [05:56:43.357] [存储]   2. userData models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04c\B-app-wins\ud\models ⇒ 命中：含 onnx\model.onnx（D:\USERS\Desktop\Agent\gemma-search\data\_t04c\B-app-wins\ud\models）；目录可写：D:\USERS\Desktop\Agent\gemma-search\data\_t04c\B-app-wins\ud\models
+  [05:56:43.357] [存储] 模型建议放置目录 = D:\USERS\Desktop\Agent\gemma-search\data\_t04c\B-app-wins\app\models（搜索顺序里第一个可写的候选；安装目录通常不可写，见 PLAN R8）
+  [05:56:43.357] [存储] 说明：没有已解析的库 ⇒ 索引 / .gs.db / 事务日志暂时没有落点；先解决「库从哪来」（GEMMA_LIB_ROOT / userData 注册表 / data/libraries/* 索引自举，四条路见 library-config.ts）
+  [05:56:43.358] [存储] 编码器实际将使用的模型目录 = (无 —— 检索会以 MODEL_MISSING 失败，不给假结果)
+
+
+【需要 Lead 知道的两件事】
+C1 ⭐ 实跑里**看得见 U2 的那个分歧**（不是本任务引入，但被这次实跑放大了）：
+   A 场景「编码器实际将使用的模型目录」= 用户目录（因为旧 resolveModelDir() 认 config.onnx_model_dir）—— 一致；
+   B 场景新版解析器说「模型 = 程序目录 models/」，而旧 resolveModelDir() **不认** <程序目录>/models
+   ⇒ 日志里那句「编码器实际将使用的模型目录 = (无 —— 检索会以 MODEL_MISSING 失败…)」。
+   也就是说：**按新顺序把模型放进程序目录，界面会报"没有模型"**。这条正是 U2（两处实现）的后果，
+   已经裁定归 T-17 收敛 —— 但 T-17 之前，"程序目录 models/" 这个位置实际上是**不通**的，请排期时知悉。
+C2 本次改动的"一行切换"是可信的：单测 M9 直接断言 MODEL_SEARCH_ORDER 与期望序一致、
+   且"实际搜索次序 == 常量"，并把日志/指引文案都钉成从常量派生 ⇒ 谁偷偷写第二份顺序都会红。
+
+【回滚方式】只改两个文件：
+  · storage-roots.ts：把 MODEL_SEARCH_ORDER 改回 ['app','userData','user']（其余代码都是顺序无关的）
+    —— 这就是"一行切回"，SPEC §2 也是按这个前提写的。
+  · storage-roots.test.mjs：把 EXPECTED_ORDER 与那两处文案断言同步回旧序。
+  核对: node --test --test-isolation=none "apps/desktop/tests/storage-roots.test.mjs"（24 条）
+        · npm run typecheck
+================================================================================
+--- 命令 4 · 全量 npm test（回归面；结果里那 1 条红**不是我的**，见下方归属）
+  PS> npm test
+  ✖ R5：重建会重新跑迁移（v0→v2），且不会留下旧的 -wal/-shm (2216.4963ms)
+  ℹ tests 433
+  ℹ pass 431
+  ℹ fail 1
+  ℹ cancelled 0
+  ℹ skipped 1
+  ✖ failing tests:
+  ✖ R5：重建会重新跑迁移（v0→v2），且不会留下旧的 -wal/-shm (2216.4963ms)
+  NPM_TEST_EXIT=1  唯一失败项归属（grep 实证）：apps/desktop/tests/db-rebuild.test.mjs:309
+    test('R5：重建会重新跑迁移（v0→v2），且不会留下旧的 -wal/-shm')
+    ⇒ 是 db-worker 正在做的 T-15a（.gs.db 重建）那条线，与 storage-roots 无关。
+  我这条线单独跑（storage-roots + window-state）：
+  ℹ tests 44
+  ℹ pass 44
+  ℹ fail 0

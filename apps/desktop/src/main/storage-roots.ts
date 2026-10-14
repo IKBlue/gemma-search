@@ -7,7 +7,7 @@
 //   并产出**可读的落点说明**（describeStorageRoots），启动时由 index.ts 打进日志。
 //
 // 三类落点（SPEC §2「存储布局（唯一权威）」）：
-//   ① 模型（用户自备）：程序目录 models/ → userData models/ → 用户指定（**顺序照抄 SPEC §2**）
+//   ① 模型（用户自备）：用户指定 → 程序目录 models/ → userData models/（**顺序只写在 MODEL_SEARCH_ORDER 一行里**）
 //   ② 向量索引 .gs-index.bin + 元数据 .gs.db：**库根**
 //   ③ 事务日志 .gs-journal/ + 暂存 .gs-staging/<txnId>/：**库根**（staging 见下面的说明）
 //
@@ -165,7 +165,7 @@ export type ModelSource = 'app' | 'userData' | 'user';
 
 /** 一个模型搜索候选（**每个都留痕**，"找过哪些路径"就是靠它报出来的） */
 export interface ModelCandidate {
-  /** 1 = 程序目录，2 = userData，3 = 用户指定（SPEC §2 的顺序） */
+  /** 在**实际搜索次序**里的位置（1 起）；次序由 MODEL_SEARCH_ORDER 决定，不在这里写死 */
   order: number;
   source: ModelSource;
   /** 人读标签（日志里直接用） */
@@ -205,48 +205,77 @@ export interface ResolveModelsOptions {
   fs?: StorageFs;
 }
 
-/** SPEC §2 原文的顺序，作为单一来源导出去（避免调用方各写一份） */
-export const MODEL_SEARCH_ORDER: readonly string[] = Object.freeze([
-  '程序目录 models/',
-  'userData models/',
-  '用户指定',
-]);
+/** 每种模型来源的人读标签（**顺序不在这里** —— 顺序只看 MODEL_SEARCH_ORDER） */
+const MODEL_SOURCE_LABEL: Record<ModelSource, string> = {
+  user: '用户指定',
+  app: '程序目录 models/',
+  userData: 'userData models/',
+};
+
+/**
+ * ⭐ **模型搜索顺序的唯一来源**（SPEC §2）。
+ *
+ * ⚠️ 改顺序 = **只改这一行**。所有者看过界面后可能把它改回 ['app', 'userData', 'user']，
+ *    那时候应当是一行的事（外加 storage-roots.test.mjs 里那条"顺序常量"断言）——
+ *    别在任何别处再写第二份顺序（P1）。
+ *
+ * 2026-10-14 所有者授权调整（SPEC §2，挂"待界面复核"）：**显式覆盖优先**
+ * ⇒ 用户在设置里指定的路径 → 程序目录 models/ → userData models/。
+ */
+export const MODEL_SEARCH_ORDER: readonly ModelSource[] = Object.freeze(['user', 'app', 'userData']);
+
+/** 顺序的人读串（日志与指引都用它；**从 MODEL_SEARCH_ORDER 派生**，不另写一份） */
+export function modelSearchOrderText(): string {
+  return MODEL_SEARCH_ORDER.map((s) => MODEL_SOURCE_LABEL[s]).join(' → ');
+}
 
 /** 缺模型时的明确指引（T-17 的输入：能报出找过哪些路径 + 不假装可用） */
 function buildModelGuidance(appDir: string, userDataDir: string | null, searched: ModelCandidate[]): string {
   const lines: string[] = [];
-  lines.push(`未找到 ONNX 模型（搜索顺序取自 SPEC §2：${MODEL_SEARCH_ORDER.join(' → ')}）。`);
+  lines.push(`未找到 ONNX 模型（搜索顺序取自 SPEC §2：${modelSearchOrderText()}）。`);
   lines.push('已经找过：');
   for (const c of searched) lines.push(`  ${c.order}. ${c.label} = ${c.dir} ⇒ ${c.reason}`);
-  lines.push(`放法（任选其一，目录里必须有 ${MODEL_MARKER_REL}）：`);
-  lines.push(`  · ${path.join(appDir, MODELS_DIRNAME, MODEL_MARKER_REL)}`);
-  if (userDataDir) lines.push(`  · ${path.join(userDataDir, MODELS_DIRNAME, MODEL_MARKER_REL)}`);
-  lines.push('  · 在设置里指定模型目录（config.json 的 onnx_model_dir），或放到既有 model-cache 布局下');
+  lines.push(`放法（**任选其一，靠前的优先**；目录里必须有 ${MODEL_MARKER_REL}）：`);
+  // ⚠️ 这里的列法顺序**跟着 MODEL_SEARCH_ORDER 走**，不另写一份 ——
+  //    否则顺序一改，这段指引就开始骗人（"照抄的文案会漂移"是本仓库栽过的坑）。
+  for (const source of MODEL_SEARCH_ORDER) {
+    if (source === 'user') {
+      lines.push('  · 在设置里指定模型目录（config.json 的 onnx_model_dir）—— 显式指定，**优先级最高**');
+    } else if (source === 'app') {
+      lines.push(`  · ${path.join(appDir, MODELS_DIRNAME, MODEL_MARKER_REL)}`);
+    } else if (userDataDir) {
+      lines.push(`  · ${path.join(userDataDir, MODELS_DIRNAME, MODEL_MARKER_REL)}`);
+    }
+  }
   lines.push('放好后重启应用即可重试。');
   lines.push('⚠️ 在找到模型之前**不会显示任何检索结果** —— 不假装可用（SPEC §2「都找不到 ⇒ 显示明确指引」）。');
   return lines.join('\n');
 }
 
 /**
- * 解析模型落点：程序目录 models/ → userData models/ → 用户指定。
+ * 解析模型落点。顺序**只读 `MODEL_SEARCH_ORDER`**（SPEC §2：用户指定 → 程序目录 → userData）。
  *
- * ⚠️ 顺序**照抄 SPEC §2**，包括"用户指定排在最后"这一条 —— 不按"显式配置优先"的直觉改。
- *    若用户指定的目录存在但被前面的候选压住，候选条目里会留痕（reason/writeReason），
- *    不做静默。
+ * ⚠️ 这里**不许再写一遍顺序**：候选由常量生成，所以改顺序只需要改常量那一行。
+ *    某一位不可用（没给用户目录 / 没有 userData）就**跳过**—— 跳过不是改顺序，
+ *    所以"已经找过"里的序号仍然是真实的搜索次序。
  */
 export function resolveModels(opts: ResolveModelsOptions): ModelResolution {
   const fsImpl = opts.fs ?? NODE_FS;
   const userDataDir = opts.userDataDir ?? null;
   const userModelDir = (opts.userModelDir ?? '').trim();
 
-  const plan: Array<{ order: number; source: ModelSource; label: string; dir: string }> = [
-    { order: 1, source: 'app', label: '程序目录 models/', dir: path.join(opts.appDir, MODELS_DIRNAME) },
-  ];
-  if (userDataDir) {
-    plan.push({ order: 2, source: 'userData', label: 'userData models/', dir: path.join(userDataDir, MODELS_DIRNAME) });
-  }
-  if (userModelDir) {
-    plan.push({ order: 3, source: 'user', label: '用户指定的模型目录', dir: path.resolve(userModelDir) });
+  // 候选 = 顺序常量 × 当前可用的来源。order 是它在**实际搜索次序**里的位置（1 起）。
+  const plan: Array<{ order: number; source: ModelSource; label: string; dir: string }> = [];
+  for (const source of MODEL_SEARCH_ORDER) {
+    if (source === 'app') {
+      plan.push({ order: plan.length + 1, source, label: MODEL_SOURCE_LABEL[source], dir: path.join(opts.appDir, MODELS_DIRNAME) });
+    } else if (source === 'userData') {
+      if (userDataDir) {
+        plan.push({ order: plan.length + 1, source, label: MODEL_SOURCE_LABEL[source], dir: path.join(userDataDir, MODELS_DIRNAME) });
+      }
+    } else if (userModelDir) {
+      plan.push({ order: plan.length + 1, source, label: MODEL_SOURCE_LABEL[source], dir: path.resolve(userModelDir) });
+    }
   }
 
   const searched: ModelCandidate[] = plan.map((c) => {
@@ -496,7 +525,7 @@ export function describeStorageRoots(r: StorageRootsResult): string[] {
 
   if (r.models.found) out.push(`模型 = ${r.models.found}（来源：${srcLabel(r.models.source)}）`);
   else out.push('模型 = **未找到**（在找到模型之前不会显示任何检索结果 —— 不假装可用）');
-  out.push(`模型搜索顺序 = ${MODEL_SEARCH_ORDER.join(' → ')}`);
+  out.push(`模型搜索顺序 = ${modelSearchOrderText()}`);
   for (const c of r.models.searched) out.push(`  ${c.order}. ${c.label} = ${c.dir} ⇒ ${c.reason}；${c.writeReason}`);
   if (r.models.installDir) {
     out.push(`模型建议放置目录 = ${r.models.installDir}（搜索顺序里第一个可写的候选；安装目录通常不可写，见 PLAN R8）`);
