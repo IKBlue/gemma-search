@@ -1,0 +1,184 @@
+================================================================================
+T-11a 证据 · .gs.db 表结构与迁移机制（纯模块 · 可注入）
+任务板 id: task-14   执行: db-worker   日期: 2026-10-15（本轮采样时刻 2026-10-14 12:58 +08，与任务书日期口径一致）
+依赖: T-03（node:sqlite spike 已实测可用）· T-04（storage-roots.ts 给落点）
+写入范围: apps/desktop/src/main/db/** · apps/desktop/tests/db-schema.test.mjs
+===============================================================================
+
+【结论】
+· 6 个新模块 + 1 个单测文件，全部新增，**未改动任何既有文件**（git 未跑，见"回滚方式"）。
+· node --test apps/desktop/tests/db-schema.test.mjs ⇒ 12 tests / pass 12 / fail 0 / skipped 0 / EXIT=0
+· npx tsc --noEmit -p tsconfig.node.json ⇒ EXIT=0（改动前后都是 0：先跑基线，再跑一次复验）
+· 单测覆盖四个验收点：建表(B1) · 幂等重跑(B2) · 版本推进(B3) · 删除后重建(B4)，
+  另加 3 条不变式/错误路径(B1b/B5/B6/B7) 与 2 条机械自检(A1/A2) + 1 条真实数据对齐(B9)。
+
+【改了哪些文件】（全部为 create，行数为 wc -l 口径）
+  apps/desktop/src/main/db/errors.ts            60 行  GsDbError + 9 个错误码（联合字面量）
+  apps/desktop/src/main/db/sqlite-adapter.ts   154 行  ★ 全仓库唯一 import 'node:sqlite' 的地方
+  apps/desktop/src/main/db/migrations.ts       371 行  DDL（v1 core / v2 docs-and-health）+ 迁移执行器
+  apps/desktop/src/main/db/row-types.ts        102 行  items.json 18 字段 ↔ SQLite 18 列的**唯一来源**
+  apps/desktop/src/main/db/open.ts             185 行  openGsDb（建父目录/WAL/迁移）+ removeGsDbFiles
+  apps/desktop/src/main/db/index.ts             53 行  barrel（公开出口；不 import node:sqlite / electron）
+  apps/desktop/tests/db-schema.test.mjs        526 行  12 条用例
+
+【实现要点（为什么这么写）】
+1) 实验性 API 隔离：只有 sqlite-adapter.ts 出现 'node:sqlite'。它把 DatabaseSync/StatementSync 收窄成
+   SqlDatabase/SqlStatement/SqlValue（不含 undefined、不含普通对象——传错是编译期错误）。
+   行值读取处做了 narrowValue：只认 null/number/bigint/string/Uint8Array，**认不出就抛**，不静默变 null。
+   A1 用例机械扫 src/main/db/**，除 sqlite-adapter.ts 外出现 'node:sqlite' 或任何文件 import 'electron' 即失败。
+2) schema_version 元表（单行 id=1，CHECK 约束钉在库里）+ 两条迁移：
+   v1 core = library + items；v2 docs-and-health = doc_dirs + documents + doc_chunks + health_runs + health_ledger。
+   拆分 v1/v2 是为了让"按序推进"**可测**（B3：先只跑 v1、再跑全量），也给了只碰文档表的改动一个落点。
+3) 幂等：没有 version > current 时不执行任何 DDL、不报错；DDL 全带 IF NOT EXISTS（双保险）。
+   版本只有 schema_version 一处真相来源，**不**同步 PRAGMA user_version（两个来源迟早对不上）。
+4) 每条迁移一个事务（BEGIN IMMEDIATE…COMMIT）：SQLite 的 DDL 是事务性的 ⇒ 失败整条回滚，
+   schema_version 停在上一条，不留"半张表 + 已记账"（B6 用一条故意写坏的 v3 证明 probe_partial 被回滚）。
+5) 库版本高于程序所知 ⇒ SCHEMA_TOO_NEW（不降级瞎改，B5 实测）+ 迁移清单断代 ⇒ SCHEMA_GAP。
+6) items 与 data/libraries/L1/items.json 的 18 字段对齐：字段↔列配对只在 row-types.ts 定义一次
+   （ITEM_FIELD_COLUMNS），ITEM_FIELDS / ITEM_COLUMNS / itemRecordToSqlValues / ITEM_INSERT_SQL 全由它派生，
+   不可能错位。可空性：archive* 六个 + vector_row + vector_source 可空（缺包是 SPEC §1.1 的合法状态），其余 10 个 NOT NULL。
+7) 纯模块、可注入：db 层不 import electron、不读 app.getPath()/process.env 全局单例；
+   dbPath 由调用方（T-04 storage-roots.resolveLibraryStorage().db）传入；驱动/迁移清单/时钟都可注入。
+   唯一一处"顺手创建"是 dbPath 的父目录 recursive mkdir（T-04 已裁定"回退目录首次写入时按需创建"），
+   只读打开时不建目录。**可写性判断与回退告警不在这层**（要求 ⑤）。
+8) removeGsDbFiles 连 -wal/-shm/-journal 一起删。只删主文件不够：WAL 里可能有未 checkpoint 的事务，
+   留着边车会让新库接着旧日志 —— 那是"删了但没真删"的静默错误（SPEC §2.1 的"删掉重建"靠它）。
+
+【原始证据】
+
+--- ① 改动前的类型门禁基线（确认后面的 0 不是"本来就红/本来就绿"的错觉）
+$ npx tsc --noEmit -p tsconfig.node.json
+EXIT=0
+
+--- ② 单测（命令 + 输出尾部；node 取自 PATH，见下方环境说明）
+$ node --test apps/desktop/tests/db-schema.test.mjs
+(node:22236) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use 'node --trace-warnings ...' to show where the warning was created)
+✔ A1：db 层只有 sqlite-adapter.ts 碰 node:sqlite，且不 import electron (6.3169ms)
+✔ A2：db 层源码里没有 any / @ts-ignore / @ts-expect-error (2.2988ms)
+✔ A3：迁移清单本身合法，且版本是连续的 1..TARGET（顺序推进的前提） (0.171ms)
+✔ B1 ⭐ 全新库：建出全部表/索引，items 恰好 18 列且列序 = ITEM_COLUMNS (1185.2921ms)
+✔ B1b：缺包的条目（archive* 全 null + 无向量行）能原样存进去 (1396.8556ms)
+✔ B2 ⭐ 幂等重跑：不执行 DDL、不清数据、不报错 (1134.6619ms)
+✔ B3 ⭐ 版本按序推进：先 v1 再 v2，核心表与数据都不动 (1475.339ms)
+✔ B4 ⭐ 删除 .gs.db 后重建：表结构与版本与首次完全一致 (2028.9371ms)
+✔ B5 ⭐ schema_version 只允许一行；未来版本 ⇒ SCHEMA_TOO_NEW (1075.3717ms)
+✔ B6 ⭐ 迁移中途失败 ⇒ 整条回滚，版本停在上一条，不留半张表 (559.7452ms)
+✔ B7：只读打开不迁移；坏输入按 code 报错（不是裸 SqliteError） (349.9893ms)
+✔ B9 ⭐ 与 data/libraries/L1/items.json 的 18 字段对齐，并把一条真记录存进去再读回来 (999.2707ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 10321.9455
+EXIT=0
+（B9 的 skipped=0 ⇒ 它**真的读了**仓库里的 items.json 并按 3594 条逐条核对了字段集与类型，不是跳过）
+
+--- ③ 与另一个既有测试同进程跑（--test-isolation=none，防"单跑绿、合跑红"）
+$ node --test --test-isolation=none "apps/desktop/tests/db-schema.test.mjs" "apps/desktop/tests/storage-roots.test.mjs"
+ℹ tests 31
+ℹ pass 31
+ℹ fail 0
+ℹ skipped 0
+ℹ duration_ms 7930.8374
+EXIT=0
+
+--- ④ 改动后的类型门禁
+$ npx tsc --noEmit -p tsconfig.node.json
+EXIT=0
+
+--- ⑤ 结构实况 dump（临时脚本 data/_t11/evidence-dump.mjs，跑完已删；库落在仓库内 data/_t11/evidence/.gs.db）
+$ node data/_t11/evidence-dump.mjs
+openGsDb: {
+ "created": true,
+ "dbPath": "D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_t11\\evidence\\.gs.db",
+ "journalMode": "wal",
+ "walNote": "",
+ "migration": { "fromVersion": 0, "toVersion": 2, "targetVersion": 2,
+   "applied": [ { "version": 1, "name": "core" }, { "version": 2, "name": "docs-and-health" } ], "upToDate": false },
+ "target": 2, "versions": [ "1:core", "2:docs-and-health" ] }
+tables: doc_chunks, doc_dirs, documents, health_ledger, health_runs, items, library, schema_version
+indexes: idx_doc_chunks_vector_row, idx_doc_dirs_lib, idx_documents_dir, idx_documents_lib, idx_documents_sha1, idx_health_ledger_run, idx_health_ledger_uid, idx_health_runs_lib, idx_items_archive_name, idx_items_lib_folder, idx_items_lib_vector_row, idx_items_stem
+items columns (18):
+   0  uid               TEXT     notnull=1 pk=1
+   1  lib_id            TEXT     notnull=1 pk=0
+   2  folder            TEXT     notnull=1 pk=0
+   3  stem              TEXT     notnull=1 pk=0
+   4  name              TEXT     notnull=1 pk=0
+   5  rel_path          TEXT     notnull=1 pk=0
+   6  abs_path          TEXT     notnull=1 pk=0
+   7  image_ext         TEXT     notnull=1 pk=0
+   8  image_size        INTEGER  notnull=1 pk=0
+   9  image_mtime       INTEGER  notnull=1 pk=0
+  10  archive_name      TEXT     notnull=0 pk=0
+  11  archive_rel_path  TEXT     notnull=0 pk=0
+  12  archive_abs_path  TEXT     notnull=0 pk=0
+  13  archive_ext       TEXT     notnull=0 pk=0
+  14  archive_size      INTEGER  notnull=0 pk=0
+  15  archive_mtime     INTEGER  notnull=0 pk=0
+  16  vector_row        INTEGER  notnull=0 pk=0
+  17  vector_source     TEXT     notnull=0 pk=0
+doc_chunks columns: chunk_id, doc_id, seq, text, char_start, char_end, page, vector_row, embed_state, created_at
+health_ledger columns: entry_id, run_id, check_id, severity, target_uid, target_path, detail, detail_json, created_at
+schema_version rows: [{"id":1,"version":2,"updated_at":1791954330556}]
+foreign_keys: {"foreign_keys":1}
+user_version(未使用，应为0): {"user_version":0}
+reopen(applied): [] upToDate=true version=2
+removed: [".gs.db"]
+rebuild: {"created":true,"from":0,"to":2}
+node: v24.14.0
+EXIT=0
+（stderr 只有那条 ExperimentalWarning —— 见环境说明，它**不致命**但确实每进程一条）
+
+--- ⑥ items.json 的真实形状（本轮核对口径，非引用旧结论）
+读 data/libraries/L1/items.json：3594 条 × 18 字段；字段一个不多不少；本轮实测
+  vectorSource 取值 = native | bmp-fallback；imageExt = .jpg | .jpeg | .png；archiveExt = .rar | .zip | .7z；
+  folder 目录 4 个；当前数据里 archive*/vectorRow/vectorSource **都非 null**（但 SPEC §1.1 明确"缺包时全部为空"，
+  B1b 用合成记录证明 NULL 能存进去 ⇒ 列按可空建，不是按"当前数据恰好非空"建）。
+  18 字段 ↔ 18 列的映射正确性由 B9 往返断言：每条 record 的 18 个值逐个存进库再读回来 deepEqual。
+
+--- ⑦ node:sqlite 实验性告警（薄适配层要隔离的就是它）
+(node:22236) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use 'node --trace-warnings ...' to show where the warning was created)
+T-03 spike 已判"可接受"（reports/2026-10-14-sqlite-spike/）—— 本条为**引用既有证据**，本轮只复核了告警仍在。
+
+【环境说明（哪些是环境、哪些是产品）】
+· 本会话沙箱把 electron.exe 的写限制在仓库工作目录内，G:\\model 与 AppData 一律 EPERM（TASKS §5）。
+  所以本轮的库根**故意**取仓库内 data/_t11/**，单测的临时库取 data/_t11/db-schema-test-<pid>/**，
+  跑完由测试的 after() 钩子整目录删除。这是**环境限制**，不是产品落点；
+  产品落点由 T-04 的 storage-roots.ts 解析后传入（回退落点是 <userData>/libraries/<libId>）。
+· 两个 node：run_code 进程内是 v24.18.1，pwsh/PATH 里是 v24.14.0（证据 ⑤ 末尾）。
+  单测与 tsc 都走 PATH 的 v24.14.0（npm 脚本同）。两者都支持 node:sqlite 与 .ts 类型剥离。
+· journal_mode 实测 = wal（本机仓库盘 NTFS），walNote 为空。B1 的断言是**可移植**写法：
+  取值必须在 {wal,delete,truncate,persist,memory} 内，且若 ≠ wal 则 walNote 必须非空（不静默降级）。
+· 未跑全量 npm test / npm run build / npm run e2e：TASKS §3.6 规定"同一时刻只允许一个人跑 npm test"
+  （事务套件用共享 data/_txn-test，并行会 ENOTEMPTY）。本轮只跑了自己的文件 + 一次同进程合跑(证据③)。
+  三道总门禁留给 lead 在任务板安静时统一跑。
+
+【未决 / 阻塞】
+1) ⚠️ **给 T-11b 的接口约定**：items.lib_id 有外键 → library(lib_id) ON DELETE CASCADE，且驱动默认
+   enableForeignKeyConstraints=true。导入 3594 条之前**必须先 upsert library 行**，否则第一条就
+   FOREIGN KEY constraint failed（B1b 有意留了这条反例断言）。已在此明说，避免下游踩坑。
+   导出入参：prepare(ITEM_INSERT_SQL).run(...itemRecordToSqlValues(record))，两条都从同一份配对派生。
+2) doc_chunks / health_ledger 按任务要求"先建表"，本轮**没有任何写入路径**，索引也未被查询验证过 ——
+   P7（文档检索）与 T-32/33（体检）开工时若发现列不够，应**追加一条 v3 迁移**，不许改 v1/v2 的既有条目
+   （migrate 会以 SCHEMA_GAP/重复版本拒绝，且已经建过库的机器不会重跑历史）。
+3) 未决：库根不可写时"回退 userData + 告警"的**端到端**验证不在本任务范围（本层只收路径）。
+   真实 ACL 拒绝场景下的回退告警归 T-04/T-15；本轮只保证 db 层拿到不可写路径时报 MKDIR_FAILED/DB_OPEN_FAILED。
+4) 未决：openGsDb 目前会在库根不存在时 recursive mkdir（含声明的库根）。若所有者认为"声明库根不存在"
+   应当报 LIB_ROOT_MISSING 而不是静默创建，需要调用方在传 dbPath 前拦住 —— 本层不加业务判断（要求 ⑤）。
+
+【回滚方式】
+· 本轮全部是新增文件，且**没有跑过 git 命令**（AGENTS P7）。
+· 完整回滚 = 删除这 7 个文件 + 本证据文件：
+    apps/desktop/src/main/db/（整个目录，6 个 .ts）
+    apps/desktop/tests/db-schema.test.mjs
+    reports/2026-10-15-wave3/11a.txt
+  删除后仓库回到改动前状态；没有任何既有文件被改，也没有依赖/脚本被改，因此不需要恢复其它文件。
+· 局部回滚（只退回迁移机制）：删掉 db/ 目录即可，没有调用方（T-11b 尚未开工）。
+· 副作用清理：单测自建 data/_t11/db-schema-test-<pid>/ 并在 after() 里删除；证据 ⑤ 的临时脚本
+  data/_t11/evidence-dump.mjs 与 data/_t11/evidence/ 已删除。data/_* 是 gitignore 的临时物。
+===============================================================================
