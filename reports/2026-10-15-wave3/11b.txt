@@ -1,0 +1,153 @@
+================================================================================
+T-11b 证据 · 从 items.json 导入 3594 条（幂等）
+任务板 id: task-15   执行: db-worker   日期: 2026-10-15
+依赖: task-14（T-11a 建表与迁移，Lead 已复核 fa95271）
+写入范围: apps/desktop/src/main/db/** · apps/desktop/tests/db-import.test.mjs
+===============================================================================
+
+【结论】
+· 真实库实跑：data/libraries/L1/items.json 的 **3594 条全部导入**，SQL COUNT(*)=3594、COUNT(DISTINCT uid)=3594；
+  index.bin 的 header.count = 3594、meta.json 的 count = 3594 —— 三者一致（期望计数 [3594, 3594]）。
+· 幂等：第 2、3 次导入都是 inserted=0 / deleted=0 / updated=3594 / dbCount=3594（收敛，不重复建行）。
+· 单测：node --test apps/desktop/tests/db-import.test.mjs ⇒ 17 tests / pass 17 / fail 0 / skipped 0 / EXIT=0
+· 与 T-11a 的单测同进程合跑：29 tests / pass 29 / fail 0 / EXIT=0
+· npx tsc --noEmit -p tsconfig.node.json ⇒ EXIT=0
+· ⚠️ 全量门禁（npm test / build / e2e）**由 Lead 在任务板安静时统一跑**（TASKS §3.6：同一时刻只允许一个人跑
+  npm test，共享 data/_txn-test）。本轮只跑了上面两条**单文件**命令，未跑全量。
+
+【改了哪些文件】
+新增：
+  apps/desktop/src/main/db/import.ts            331 行  importItemsFromJson / readIndexItemCount + ImportItemsReport
+  apps/desktop/tests/db-import.test.mjs         537 行  17 条用例
+修改（都是 T-11a 我自己那批文件的同一模块内扩展）：
+  apps/desktop/src/main/db/row-types.ts         +153 行  加 ITEM_NULLABLE_FIELDS / ITEM_UPSERT_SQL / parseItemRecord
+  apps/desktop/src/main/db/errors.ts             +17 行  加 7 个导入错误码（IMPORT_*）
+  apps/desktop/src/main/db/index.ts               +6 行  导出 import.ts 与新符号
+  apps/desktop/tests/db-schema.test.mjs           +4 行  ⚠️ 见下方"跨范围说明"
+未改：open.ts / migrations.ts / sqlite-adapter.ts（Lead 的 U6 裁定要求本层不变，确实没动）
+
+【实现要点（为什么这么写）】
+1) **镜像语义**（写死在 import.ts 文件头，避免下一个人猜）：
+   导入后，items 表里属于该库的行集 == items.json 的 uid 集：
+   源有库无 ⇒ insert；源有库有 ⇒ **整行覆盖**（含 NULL，不留旧值）；源无库有 ⇒ **删除**（deleted）。
+   ⇒ 只接受全量 items.json，不要拿它导增量/片段。镜像让"导入后行数 == 文件行数"成为可断言的等式。
+2) **先全验完再写**：缺字段 / 类型不对 / 重复 uid / libId 不匹配 / 期望计数不符 —— 全部在 BEGIN **之前**查完，
+   坏源文件因此一行都不写（I4/I7/I8 都断言 items 与 library 计数仍为 0）。BEGIN 之后只剩 SQLite 约束
+   与入库后的计数复核，两者都整条回滚。
+3) **FK 前置条件**（T-11a 交接的那条）：同一事务内先 upsert library 行，再写 items。
+   library 的插入与更新拆成两条语句 —— fallback 是 NOT NULL，没法用 null 表达"本次没提供"；
+   其余可选列用 COALESCE(新值, 旧值) 保留旧值（I12 第二次不带 compat/dim/seq 时断言它们没被清空）。
+4) **不实现第二份解析器**（AGENTS P1）：
+   · items.json 的读取用**引擎**的 readItems（格式归引擎）
+   · .gs-index.bin 的 count 用**引擎**的 readIndexBin（顺带跑完五道校验），本层只把它包成 IMPORT_INDEX_UNREADABLE
+   · 注意引擎的 readItems 会**静默丢掉非对象行** —— 本条由期望计数比对变成响亮的 IMPORT_COUNT_MISMATCH，
+     不会变成"少导了几条没人知道"
+5) 严格字段校验（row-types.ts 的 parseItemRecord）：18 个字段一个都不能少（缺字段 ≠ 值为 null）；
+   类型逐字段核对；多出来的键不报错但进 unknownFields（契约会演进，但不能静默丢）。
+   ITEM_NULLABLE_FIELDS 是"哪些字段可写 null"的**单一来源**，由 I11 机械核对 ↔ PRAGMA table_info(items).notnull，
+   由 I5 逐字段实测 null 的取舍。
+6) 重复 uid 直接报错（IMPORT_DUPLICATE_UID）：重复 uid 会让"读入 3594 / 入库 3593"成立却没人发现。
+
+【原始证据】
+
+--- ① 单测（命令 + 输出尾部）
+$ node --test apps/desktop/tests/db-import.test.mjs
+✔ I1 ⭐ 首次导入：3 条全部落库、字段往返一致、library 行先建好 (796.4098ms)
+✔ I1b：未知字段不致命，但必须出现在 unknownFields 里（不静默丢字段） (893.2526ms)
+✔ I2 ⭐ 重复导入幂等：不产生重复行，第二次全是 update (894.2084ms)
+✔ I2b：源文件里的新值会整行覆盖（不是"保留旧值"） (872.6361ms)
+✔ I3 ⭐ 镜像语义：源里没有的行会被删掉，计数跟着收敛 (950.3876ms)
+✔ I4 ⭐ 一条记录缺字段 ⇒ 报错且**一行都没写**（不留导了一半的现场） (983.4235ms)
+✔ I5 ⭐ 可空集合与行为一致：nullable 字段收 null，其余字段收 null 一律报错 (0.5224ms)
+✔ I5b：任何一个字段缺失都报错（缺字段 ≠ 值是 null） (0.3334ms)
+✔ I5c：类型不对必须报错（字符串/数字搞反） (0.3522ms)
+✔ I7 ⭐ 期望计数不符 ⇒ 报错且不导入（不许静默少导） (859.1328ms)
+✔ I7b：index.bin 损坏 ⇒ IMPORT_INDEX_UNREADABLE（不拿坏索引当计数来源） (727.4855ms)
+✔ I8 ⭐ 源文件有重复 uid ⇒ 报错（否则"读入 3594 / 入库 3593"没人发现） (959.9277ms)
+✔ I9：源文件不存在 / 不是数组 / 是空数组 ⇒ IMPORT_SOURCE_INVALID (771.1716ms)
+✔ I10：条目声明的 libId 与目标库不一致 ⇒ 报错（不许把别的库导进来） (739.63ms)
+✔ I10b：入参不合法（libId 空 / 路径空 / 连接没开）⇒ IMPORT_INPUT_INVALID (1445.5846ms)
+✔ I11 ⭐ ITEM_NULLABLE_FIELDS 与 items 表的 notnull 逐列一致（防校验/DDL 漂移） (769.9907ms)
+✔ I12 ⭐ 真实库：data/libraries/L1 的 3594 条导入 + 重复导入仍然 3594 (1424.0126ms)
+ℹ tests 17 / pass 17 / fail 0 / skipped 0 / duration_ms 13227.6269   EXIT=0
+（skipped=0 ⇒ I12 **真的跑了**真实库，不是跳过）
+
+--- ② 与 T-11a 单测同进程合跑（--test-isolation=none，防"单跑绿、合跑红"）
+$ node --test --test-isolation=none "apps/desktop/tests/db-schema.test.mjs" "apps/desktop/tests/db-import.test.mjs"
+ℹ tests 29 / pass 29 / fail 0 / cancelled 0 / skipped 0 / duration_ms 20907.1351   TEST_EXIT=0
+
+--- ③ 类型门禁
+$ npx tsc --noEmit -p tsconfig.node.json
+TSC_EXIT=0
+
+--- ④ 真实库导入实况（临时脚本 data/_t11/import-evidence.mjs，跑完已删；库落在仓库内 data/_t11/import-evidence/.gs.db）
+$ node data/_t11/import-evidence.mjs
+schema version = 2 · journalMode = wal · created = true
+index.bin count (engine readIndexBin) = 3594
+meta.json count = 3594 · lib_id = L1 · lib_root = "G:\\model"   ← 本机数据里的库根（SPEC §2 示例路径；非本程序构造）
+FIRST  import: {"read":3594,"uniqueUids":3594,"inserted":3594,"updated":0,"deleted":0,"dbCount":3594,"indexCount":3594,"expectedCounts":[3594,3594],"unknownFields":[],"libraryCreated":true,"mode":"mirror"}
+SECOND import: {"read":3594,"uniqueUids":3594,"inserted":0,"updated":3594,"deleted":0,"dbCount":3594,"indexCount":3594,"expectedCounts":[3594,3594],"unknownFields":[],"libraryCreated":false}
+THIRD  import: {"inserted":0,"updated":3594,"deleted":0,"dbCount":3594}
+SQL COUNT(*) items = {"n":3594}
+SQL COUNT(DISTINCT uid) = {"n":3594}
+SQL library row = {"lib_id":"L1","root":"G:\\model","fallback":0,"dim":768,"seq":140,"item_count":3594,"has_compat":1}
+SQL by folder = [{"folder":"VR","n":2809},{"folder":"CR","n":630},{"folder":"CR+VR","n":78},{"folder":"其他","n":77}]
+SQL archive missing (archive_name IS NULL) = {"n":0}
+SQL vector_source 取值 = [{"vector_source":"bmp-fallback","n":20},{"vector_source":"native","n":3574}]
+SQL 外键强制 = {"foreign_keys":1}
+node = v24.14.0
+EXIT=0
+（交叉核对：4 个 folder 合计 2809+630+78+77 = 3594，与 SPEC §1.1 的一级分类吻合；
+  vector_source 里 bmp-fallback 正好 20 条，与 SPEC §1.1「名为 .jpg 实为 BMP 的那 20 张走回退」吻合 ——
+  说明落库的不是"某个能凑出 3594 的数字"，而是真实的那份条目表）
+
+--- ⑤ 错误路径的 code（都是机器可读的 GsDbError.code，不靠 match 文案）
+IMPORT_INPUT_INVALID（libId/路径为空、expectedCount 非正整数、连接已关）
+IMPORT_SOURCE_INVALID（items.json 不存在 / 不是数组 / 是空数组 —— 引擎的错误在 cause 里）
+IMPORT_INDEX_UNREADABLE（index.bin 缺失或损坏；引擎五道校验的错误在 cause 里）
+IMPORT_RECORD_INVALID（缺字段 / 类型不对 / 条目 libId 与目标库不一致）
+IMPORT_DUPLICATE_UID（源里重复 uid）
+IMPORT_COUNT_MISMATCH（期望值 / 文件行数 / 入库行数 三者对不上；入库后复核失败也走它并回滚）
+IMPORT_FAILED（写入阶段意外失败，已整条回滚）
+
+【跨范围说明（如实上报，不越界）】
+· apps/desktop/tests/db-schema.test.mjs 我只改了 4 行：A1 的**精确文件清单**加了 'import.ts'。
+  那条断言本来就是"新增 db 层文件必须显式登记，否则扫描面会静默漏掉新文件"，加 import.ts 是它的正常用法；
+  该文件是我在 task-14 建的、同一模块的配套单测。**没有碰任何别人的文件**。
+· 未改 apps/desktop/src/main/** 下 db/ 以外的任何文件（含 Lead 提到的 U6 所涉的 open.ts 行为）。
+
+【环境说明（哪些是环境、哪些是产品）】
+· 本会话沙箱把 electron.exe 的写限制在仓库工作目录内，G:\\model 与 AppData 一律 EPERM（TASKS §5）。
+  本轮临时库**故意**落在仓库内 data/_t11/db-import-test-<pid>/，跑完由 after() 钩子整目录删除；
+  真实库的 items.json / index.bin / meta.json 都是**仓库内**的副本（data/libraries/L1/），只读。
+  这是环境限制，不是产品落点；产品落点由 T-04 的 storage-roots.ts 解析后传给 openGsDb。
+· 两个 node：run_code 进程内 v24.18.1，pwsh/PATH 里 v24.14.0（证据 ④ 末尾）。单测与 tsc 都走 PATH 的 v24.14.0。
+· 每进程一条 "(node:PID) ExperimentalWarning: SQLite is an experimental feature" —— 引用 T-03 的既有结论
+  （reports/2026-10-14-sqlite-spike/）：可接受，且被 sqlite-adapter.ts 这一处 import 隔离。
+
+【未决 / 交接】
+1) **给 T-11c（task-16，删库重建对账）**：本函数已是幂等镜像，删库后重导应得到完全相同的 items 行集；
+   对账建议直接用 ImportItemsReport 的 dbCount / indexCount / expectedCounts 三个数。
+2) library 的 compat / dim / seq / meta_json 由调用方传（I12 的用法：从 meta.json 取）。
+   本函数不读 meta.json —— 读不读、从哪读由调用方决定（本层只收路径）。T-14 多库注册表接手这几个字段。
+3) 读 .gs-index.bin 的 count 会走引擎 readIndexBin，**读整块 11 MB 并算 sha1**。
+   只要计数、不想整块读时改用 expectedCount（例如 meta.json 的 count）—— 已写进 readIndexItemCount 的注释。
+4) 空 items.json 按 IMPORT_SOURCE_INVALID 处理（引擎口径），也就是"导空文件 ≠ 允许清空一个库"。
+   若将来真需要"清空"，应是显式操作，不该由一次空导入触发。
+5) 未跑全量门禁 / build / e2e —— 按 Lead 的门禁分工，留给 Lead 在任务板安静时统一跑。
+
+【回滚方式】
+· 新增文件（删掉即可）：
+    apps/desktop/src/main/db/import.ts
+    apps/desktop/tests/db-import.test.mjs
+    reports/2026-10-15-wave3/11b.txt
+· 修改文件（需要回退到 T-11a 交付状态）：
+    row-types.ts 去掉 ITEM_NULLABLE_FIELDS / ITEM_UPSERT_SQL / parseItemRecord 与 ParsedItem，恢复 101 行版本
+    errors.ts     去掉 7 个 IMPORT_* 错误码
+    index.ts      去掉 import.ts 与新符号的导出
+    db-schema.test.mjs  A1 清单里去掉 'import.ts'
+· 未跑 git（AGENTS P7）；没有任何文件被 git 操作动过。临时库 data/_t11/db-import-test-* 已清空；
+  证据 ④ 的临时脚本已删除。
+· 顶层回滚到 T-11a 完成点 = 删 import.ts + db-import.test.mjs，并回退上面四个文件；
+  Lead 的提交 fa95271 是 T-11a 的状态，本轮改动尚未提交（由 Lead 决定提交时机）。
+===============================================================================

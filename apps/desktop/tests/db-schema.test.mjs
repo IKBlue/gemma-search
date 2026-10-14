@@ -164,8 +164,12 @@ test('A1：db 层只有 sqlite-adapter.ts 碰 node:sqlite，且不 import electr
   const dir = path.join(ROOT, 'apps', 'desktop', 'src', 'main', 'db');
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.ts'));
   assert.ok(files.length >= 5, '扫不到 db 层文件 ⇒ 路径写错了，本断言会空转');
+  // ⚠️ 这是一份**精确清单**（不是 >= 判断）：新增文件必须显式加进来，否则下面的扫描面会
+  //    "看起来还活着"却漏掉新文件 —— 那正是 A1/A2 变成空气断言的方式。
+  //    T-11b 新增 import.ts 时同步加了这一行（同属 db 层，见 reports/2026-10-15-wave3/11b.txt）。
   assert.deepEqual(files.sort(), [
     'errors.ts',
+    'import.ts',
     'index.ts',
     'migrations.ts',
     'open.ts',

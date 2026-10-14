@@ -1,0 +1,130 @@
+================================================================================
+T-10b 证据 · 窗口尺寸 / 位置记忆 + 越界回落
+任务板 id: task-13   执行: storage-worker   日期: 2026-10-15
+改动文件:
+  · 新增 apps/desktop/src/main/window-state.ts（纯逻辑 + 读写，194 行）
+  · 改   apps/desktop/src/main/index.ts（createWindow 前恢复 + resize/move/close 落盘）
+依赖: task-12（T-10a 单实例锁）
+验收: ① 实跑两次对比窗口 bounds ② 越界情形至少实测一次
+================================================================================
+
+【实现】
+· window-state.ts 是**纯逻辑 + 可注入**：decideWindowBounds() 不 import electron、不读全局单例，
+  输入是"存下来的不可信 JSON + 屏幕工作区列表"，所以能喂假数据直接测（真机没法干净地拔显示器）。
+  判定顺序（每一步失败都回落默认值，并给出人读理由）：
+    ① JSON 形状/版本能不能用（**任一字段不合法就整条不用**，不部分采用）
+    ② 尺寸是否 ≥ 最小尺寸（1040x680）
+    ③ 有没有屏幕工作区信息
+    ④ 旧位置是否还在某块屏幕的可用区里露出 ≥64×64px（看见 + 抓得着标题栏）
+    ⑤ 尺寸超过所在屏幕 ⇒ **夹到屏幕可用区**（"分辨率调小了"能适配就别整个丢掉）
+· 恢复发生在**建窗之前**（先建再挪会看到窗口跳一下）。
+· 落盘用 win.getNormalBounds()：最大化/全屏时 getBounds() 给的是占满屏的矩形，
+  存下来下次就丢掉用户原本的窗口大小。最大化/最小化/全屏状态下不写。
+· 写入时机：resize/move 后 500ms 防抖 + close 时补一次（"开了没动就关"也记得住）。
+· 存到 **userData**（window-state.json），不往素材库写（SPEC §2.1 库内写入不变式）。
+
+【原始证据】
+
+--- 四个情形实跑（data/_t10b/run-window-state.mjs；userData = data/_t10b/ud；本机工作区 2560x1400）EXIT=0
+=== A 首次启动（没有任何 window-state.json）===
+  A 工作区 = [{"id":3235215840,"wa":{"x":0,"y":0,"width":2560,"height":1400},"size":{"width":2560,"height":1440}}]
+  A 实际 bounds = {"x":560,"y":240,"width":1440,"height":920}
+  A 启动后是否存在状态文件 = true
+=== B 手动把窗口挪到 (180,140) 1180x760，然后重开看是否恢复 ===
+  B 设置后的 bounds = {"x":180,"y":140,"width":1180,"height":760}
+  B 落盘的状态文件内容 = {"version":1,"x":180,"y":140,"width":1180,"height":760}
+  B 重开后的 bounds（应≈180,140,1180,760） = {"x":180,"y":140,"width":1180,"height":760}
+=== C 状态文件写着屏幕外的坐标（x=99999,y=99999）===
+  C 实际 bounds（应回落默认 1440x920 且在可见区内） = {"x":560,"y":240,"width":1440,"height":920}
+  C 工作区 = [{"id":3235215840,"wa":{"x":0,"y":0,"width":2560,"height":1400},"size":{"width":2560,"height":1440}}]
+=== D 状态文件的尺寸比当前屏幕还大（9000x9000）===
+  D 实际 bounds（宽度应被夹到屏幕可用区） = {"x":0,"y":0,"width":2560,"height":1400}
+  D 工作区 = [{"id":3235215840,"wa":{"x":0,"y":0,"width":2560,"height":1400},"size":{"width":2560,"height":1440}}]
+--- 结果写入 data/_t10b/summary.json ---
+
+--- 主进程日志里的「为什么」（每个情形一行，直接进 data/_t10b/<tag>.log）
+  [A-fresh] [05:10:16.423] [窗口] 不恢复上次位置（没有存过窗口位置）⇒ 用默认尺寸并居中 · 屏幕数 = 1 · 状态文件 = D:\USERS\Desktop\Agent\gemma-search\data\_t10b\ud\window-state.json  [B-set] [05:10:18.682] [窗口] 恢复上次位置 560,240 1440x920（可见 920px，屏幕 2560x1400） · 屏幕数 = 1 · 状态文件 = D:\USERS\Desktop\Agent\gemma-search\data\_t10b\ud\window-state.json  [B-restore] [05:10:21.945] [窗口] 恢复上次位置 180,140 1180x760（可见 760px，屏幕 2560x1400） · 屏幕数 = 1 · 状态文件 = D:\USERS\Desktop\Agent\gemma-search\data\_t10b\ud\window-state.json  [C-offscreen] [05:10:24.213] [窗口] 上次的位置 99999,99999（1180x760）已经露不出 64px（最多 0px）—— 显示器变了或窗口在屏幕外 ⇒ 用默认尺寸并居中 · 屏幕数 = 1 · 状态文件 = D:\USERS\Desktop\Agent\gemma-search\data\_t10b\ud\window-state.json  [D-toobig] [05:10:26.467] [窗口] 恢复上次位置 0,0 2560x1400（可见 1400px，屏幕 2560x1400）；尺寸超过当前屏幕 ⇒ 已夹到屏幕可用区 · 屏幕数 = 1 · 状态文件 = D:\USERS\Desktop\Agent\gemma-search\data\_t10b\ud\window-state.json
+--- 落盘文件的长相（B 之后）
+  {"version":1,"x":180,"y":140,"width":1180,"height":760}
+
+--- 类型门禁 / 构建 / e2e / 全量单测（在当前构建上重跑）
+PS> node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json
+  (原始输出为空) EXIT=0
+PS> node node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json
+  (原始输出为空) EXIT=0
+PS> npm run build
+  EXIT=0 （out/main · out/preload · out/renderer 齐备）
+PS> npm run e2e -- smoke.spec.mjs routing.spec.mjs
+  EXIT=0
+  Running 10 tests using 1 worker
+    ok  1 apps\desktop\e2e\routing.spec.mjs:15:1 › E2-a 默认落在搜索页（hash 为空即 `/`） (2.6s)
+    ok  2 apps\desktop\e2e\routing.spec.mjs:29:1 › E2-b ⭐ 侧栏点「索引任务」⇒ 真的导航，hash 与界面都变 (2.0s)
+    ok  3 apps\desktop\e2e\routing.spec.mjs:47:1 › E2-c ⭐ `/item/:libId/:uid` 的参数**在真界面里**取到了（P3c 靠它拿两条路径） (1.8s)
+    ok  4 apps\desktop\e2e\routing.spec.mjs:70:1 › E2-c2 `/item` 用错的 uid ⇒ 如实报错（参数**真的**被送到了引擎，不是被忽略） (1.8s)
+    ok  5 apps\desktop\e2e\routing.spec.mjs:83:1 › E2-d 未知 hash ⇒ 回搜索页（不白屏） (1.8s)
+    ok  6 apps\desktop\e2e\routing.spec.mjs:99:1 › E2-e 返回搜索页（从任务页导航回去） (2.8s)
+    ok  7 apps\desktop\e2e\routing.spec.mjs:124:1 › E6-a ⭐ 真窗口 DOM 里没有 `<a>` 嵌在 `<button>` 里（T2 修的那 4 处） (1.6s)
+    ok  8 apps\desktop\e2e\routing.spec.mjs:145:1 › E6-b ⭐ 返回控件是**链接**（语义正确 + 只有一个可聚焦元素） (2.6s)
+    ok  9 apps\desktop\e2e\routing.spec.mjs:165:1 › E6-c ⭐ 窗口标题随路由变（修前：三条路由共用一个标题） (1.8s)
+    10 passed (26.0s)PS> npm test
+  EXIT=1
+  ℹ tests 346
+  ℹ pass 344
+  ℹ fail 1
+  ℹ skipped 1
+【结论 / 需要 Lead 知道的事】
+C1 记忆与恢复：把窗口挪到 (180,140) 1180x760 ⇒ 落盘 {"version":1,"x":180,"y":140,"width":1180,"height":760}
+   ⇒ 重开后 getBounds() **逐字段一致**（180,140,1180,760）。
+C2 越界回落（实测）：状态文件写 x=99999,y=99999 ⇒ 启动后窗口回到默认 1440x920 @ (560,240)，
+   日志写明「已经露不出 64px（最多 0px）—— 显示器变了或窗口在屏幕外 ⇒ 用默认尺寸并居中」。
+C3 屏幕变小（实测）：状态文件写 9000x9000 ⇒ 启动后夹到当前工作区 2560x1400，日志写明
+   「尺寸超过当前屏幕 ⇒ 已夹到屏幕可用区」。
+C4 window-state.ts 是**按可单测写的**（纯函数、无 electron），但**没有加单测文件** ——
+   我这个任务的写入范围只有 apps/desktop/src/main/**，新增 apps/desktop/tests/window-state.test.mjs
+   超出范围。请 Lead 裁定：要我补一条（19 条那样的用例），还是保留"实跑即证据"。
+C5 一处有意的行为：**关闭时也会写一次**状态（哪怕用户没挪过窗口）。理由见 index.ts 注释 ——
+   否则"开了没动就关"永远留不下任何记录，而那是最常见的一次运行。
+C6 未做（明确不在此任务范围）：记忆最大化/全屏状态；多显示器之间"显示器没了就把窗口挪到主屏"
+   （当前策略是回落默认并居中，符合验收要求）。
+
+【回滚方式】本任务只动两个文件：
+  · 删掉 apps/desktop/src/main/window-state.ts
+  · index.ts：删掉 import 两行、createWindow 里的 restored IIFE 与 saveBounds/saveBoundsSoon 三个块，
+    并把 BrowserWindow 的 width/height/x/y 恢复成原来的 1440/920（去掉 spread）
+  核对: npm run typecheck · npm test · npm run e2e -- smoke.spec.mjs routing.spec.mjs
+================================================================================
+================================================================================
+【勘误 · 上面「npm test EXIT=1」那一次到底是谁红的（必须说清，否则会被读成我的回归）】
+================================================================================
+· 上面那次（证据生成期间）结果：tests 346 · pass 344 · fail 1 · skipped 1 · EXIT=1。
+· 唯一失败项：apps/desktop/tests/db-schema.test.mjs › 「A1：db 层只有 sqlite-adapter.ts 碰 node:sqlite，
+  且不 import electron」—— 这是**另一个 worker 当时正在写的 T-11（.gs.db 层）新测试文件**
+  （文件 mtime 13:04:43，13:16:23 被其作者改过）。它的扫描面是 apps/desktop/src/main/db/**，
+  与我的 window-state.ts / index.ts 无关（我的改动一个新目录都没加）。
+· 该文件修好后单独跑：12/12 通过（原始输出见下）。
+· 修好后重跑全量 npm test：tests 363 · pass 362 · fail 0 · skipped 1 · EXIT=0（原始输出见下）。
+· 另：这轮全量 npm test 一度超过 120s（其它 worker 同时在跑各自的测试 + 我在测试期间被中断过一次），
+  所以我改用后台作业跑并回收输出；同时杀掉了我自己那次被中断后残留的 npm test 进程
+  （它会占着 TASKS §3.6 说的共享目录 data/_txn-test，属于会干扰别人的那种残留）。
+
+--- 单独跑 db-schema.test.mjs（别人那个文件，修好后）---
+PS> node --test --test-isolation=none "apps/desktop/tests/db-schema.test.mjs"EXIT=0
+  ✔ A1：db 层只有 sqlite-adapter.ts 碰 node:sqlite，且不 import electron (7.568ms)
+  ℹ tests 12
+  ℹ pass 12
+  ℹ fail 0
+--- 我自己的模块单测（始终绿）---
+PS> node --test --test-isolation=none "apps/desktop/tests/storage-roots.test.mjs"
+EXIT=0
+  ℹ tests 19
+  ℹ pass 19
+  ℹ fail 0
+--- 全量 npm test（后台作业回收的原始输出尾部）---
+PS> npm test
+  ℹ tests 363
+  ℹ pass 362
+  ℹ fail 0
+  ℹ cancelled 0
+  ℹ skipped 1
+  ℹ duration_ms 31717.5052
+  NPM_TEST_EXIT=0

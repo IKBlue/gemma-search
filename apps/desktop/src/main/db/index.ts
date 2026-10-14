@@ -44,9 +44,15 @@ export {
   ITEM_FIELD_COLUMNS,
   ITEM_FIELDS,
   ITEM_INSERT_SQL,
+  ITEM_NULLABLE_FIELDS,
+  ITEM_UPSERT_SQL,
   itemRecordToSqlValues,
+  parseItemRecord,
 } from './row-types.ts';
-export type { ItemColumn, ItemField, ItemRecord } from './row-types.ts';
+export type { ItemColumn, ItemField, ItemRecord, ParsedItem } from './row-types.ts';
 
 export { openGsDb, removeGsDbFiles } from './open.ts';
 export type { OpenGsDbOptions, OpenGsDbResult } from './open.ts';
+
+export { importItemsFromJson, readIndexItemCount } from './import.ts';
+export type { ImportItemsOptions, ImportItemsReport, ImportLibraryRef } from './import.ts';

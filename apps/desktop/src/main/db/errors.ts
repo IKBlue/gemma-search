@@ -29,7 +29,23 @@ export type GsDbErrorCode =
   /** 迁移清单出现断代（v_n 之后直接是 v_{n+2}）—— 历史只能追加，不许挖洞 */
   | 'SCHEMA_GAP'
   /** 从 SQLite 读回来的值不是本层认识的类型（理论上到不了；到了也**不许静默**） */
-  | 'UNEXPECTED_SQL_VALUE';
+  | 'UNEXPECTED_SQL_VALUE'
+  // ---- T-11b 导入（import.ts）。为什么单独一组：导入的失败要能区分"源文件坏了 / 某条记录坏了 /
+  //      计数对不上" —— 三种处置完全不同（重导 / 修数据 / 查索引），混成一个码就只能看文案猜。
+  /** 调用方参数不合法（libId / 路径为空，expectedCount 不是正整数） */
+  | 'IMPORT_INPUT_INVALID'
+  /** items.json 读不了 / 不是非空数组（引擎的错误作为 cause 保留） */
+  | 'IMPORT_SOURCE_INVALID'
+  /** .gs-index.bin 读不了或损坏（引擎的五道校验错误作为 cause 保留） */
+  | 'IMPORT_INDEX_UNREADABLE'
+  /** 某条记录缺字段或字段类型不对（**先全验完再写**，不产生部分导入） */
+  | 'IMPORT_RECORD_INVALID'
+  /** 源文件里出现重复 uid（会让"读入行数 == 入库行数"不成立，必须报错而不是少导） */
+  | 'IMPORT_DUPLICATE_UID'
+  /** 计数不符：期望值 / 文件行数 / 入库行数 三者对不上 */
+  | 'IMPORT_COUNT_MISMATCH'
+  /** 写入阶段意外失败（非上面几种；已整条回滚，库里不留半份导入） */
+  | 'IMPORT_FAILED';
 
 /**
  * .gs.db 层的统一错误类型。

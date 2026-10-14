@@ -31,7 +31,9 @@ import { CH_INVOKE, CH_EVENT, validateCall, METHOD_NAMES } from '../shared/ipc.t
 import type { Envelope, MethodName, Req } from '../shared/ipc.ts';
 import { resolveLibraries, loadRegistry, saveRegistry, normalizeLibraries, registryPath } from './library-config.ts';
 import type { MainConfig, ResolveLibrariesResult } from './library-config.ts';
-import { resolveStorageRoots, describeStorageRoots } from './storage-roots.ts';
+import { resolveStorageRoots, describeStorageRoots, probeWritable } from './storage-roots.ts';
+import { decideWindowBounds, readSavedBounds, persistBounds } from './window-state.ts';
+import type { BoundsDecision } from './window-state.ts';
 import { createRevealPort } from './ports.ts';
 import { parseThumbUrl, createLibIdResolver, thumbFailureStatus } from './thumb-url.ts';
 import {
@@ -45,7 +47,7 @@ import type { SampleIndex } from '../../../../packages/engine/src/fake.ts';
 
 import electron from 'electron';
 import type { OpenDialogOptions } from 'electron';
-const { app, BrowserWindow, ipcMain, protocol, nativeImage, dialog, shell } = electron;
+const { app, BrowserWindow, ipcMain, protocol, nativeImage, dialog, shell, screen } = electron;
 /** 本文件所在目录：dev/预览态是 `<根>/out/main`，打包态在 asar 内 */
 const HERE: string = path.dirname(fileURLToPath(import.meta.url));
 
@@ -591,9 +593,38 @@ async function handleThumb(request: Request): Promise<Response> {
 }
 
 // ---------------------------------------------------------------- 窗口（§5）
+/** 窗口默认尺寸（回落值；不给 x/y 让 Electron 居中）与最小尺寸 */
+const WIN_DEFAULT_WIDTH = 1440;
+const WIN_DEFAULT_HEIGHT = 920;
+const WIN_MIN_WIDTH = 1040;
+const WIN_MIN_HEIGHT = 680;
+/** 至少要露出这么多像素才算"用户看得见、抓得着"（标题栏量级） */
+const WIN_MIN_VISIBLE = 64;
+
 function createWindow(): electron.BrowserWindow {
+  // T-10b：先按"上次的位置"算这次的开窗矩形。算不出来（第一次启动 / 文件坏了 / 屏幕变了 /
+  // 旧坐标在屏幕外）就用默认尺寸并居中 —— 判定逻辑与理由全在 window-state.ts（纯函数）。
+  // ⚠️ 恢复必须发生在**建窗之前**：先建再挪会看到窗口跳一下。
+  const restored: BoundsDecision = (() => {
+    if (!USER_DATA_DIR) return { bounds: null, source: 'default', reason: 'userData 未就绪 ⇒ 用默认尺寸并居中' };
+    const saved = readSavedBounds(USER_DATA_DIR);
+    if (saved.error) log('[窗口] 窗口状态读取失败（按"没存过"处理）:', saved.error);
+    const areas = screen.getAllDisplays().map((d) => ({
+      x: d.workArea.x, y: d.workArea.y, width: d.workArea.width, height: d.workArea.height,
+    }));
+    const d = decideWindowBounds({
+      saved: saved.raw, workAreas: areas,
+      minWidth: WIN_MIN_WIDTH, minHeight: WIN_MIN_HEIGHT, minVisible: WIN_MIN_VISIBLE,
+    });
+    log('[窗口]', d.reason, '· 屏幕数 =', areas.length, '· 状态文件 =', saved.path);
+    return d;
+  })();
+
   const win = new BrowserWindow({
-    width: 1440, height: 920, minWidth: 1040, minHeight: 680,
+    width: restored.bounds ? restored.bounds.width : WIN_DEFAULT_WIDTH,
+    height: restored.bounds ? restored.bounds.height : WIN_DEFAULT_HEIGHT,
+    ...(restored.bounds ? { x: restored.bounds.x, y: restored.bounds.y } : {}),
+    minWidth: WIN_MIN_WIDTH, minHeight: WIN_MIN_HEIGHT,
     backgroundColor: '#f5f5f7',
     title: 'gemma-search · 素材库语义检索',
     show: false,
@@ -612,6 +643,29 @@ function createWindow(): electron.BrowserWindow {
     },
   });
   winRef.win = win;
+
+  // T-10b：把窗口矩形记进 userData。**启动路径不写盘**；只在用户动过窗口或窗口关闭时写
+  // （关闭时也写一次，是故意的：否则"开了没动就关"永远记不住，而这正是最常见的一次运行）。
+  // ⚠️ 用 getNormalBounds()：最大化 / 全屏时 getBounds() 给的是"占满整屏"的矩形，
+  //    存下来下次就丢掉了用户原本的窗口大小（恢复出来永远是全屏尺寸）。
+  // 拖动窗口时 resize/move 会连发 ⇒ 500ms 防抖，最后再在 close 时补一次。
+  let boundsTimer: ReturnType<typeof setTimeout> | null = null;
+  const saveBounds = (): void => {
+    if (!USER_DATA_DIR) return;
+    if (win.isDestroyed() || win.isMinimized() || win.isMaximized() || win.isFullScreen()) return;
+    const saved = persistBounds(USER_DATA_DIR, win.getNormalBounds());
+    if (!saved.ok) log('[窗口] 窗口状态保存失败（不影响使用）:', saved.error);
+  };
+  const saveBoundsSoon = (): void => {
+    if (boundsTimer) clearTimeout(boundsTimer);
+    boundsTimer = setTimeout(saveBounds, 500);
+  };
+  win.on('resize', saveBoundsSoon);
+  win.on('move', saveBoundsSoon);
+  win.on('close', () => {
+    if (boundsTimer) { clearTimeout(boundsTimer); boundsTimer = null; }
+    saveBounds();
+  });
 
   win.once('ready-to-show', () => win.show());           // 冷启动不闪白
   // 决策在 window-security.ts（可单测），这里只接线
@@ -691,7 +745,63 @@ function createWindow(): electron.BrowserWindow {
 // ---------------------------------------------------------------- 生命周期
 app.setAppUserModelId('com.gemmasearch.app');
 
-app.whenReady().then(async () => {
+// ---------------------------------------------------------------- 单实例锁（T-10a）
+//
+// 为什么必须有：第二次启动如果照样建窗，就会出现**两个窗口指向同一份 userData 与库索引**，
+// 写类操作（取件 / 入库）会互相打架，而用户看上去只是"又打开了一个应用"，
+// 完全不知道自己其实跑着两份。规范做法 = 单实例锁 + 把第二次启动转成"恢复并聚焦已有窗口"。
+//
+// ⚠️ 顺序是契约：**先抢锁，再建窗**。抢不到锁的那一次进程里**一个窗口都不许建** ——
+//    否则界面照样出现两份，锁只挡住了一半。所以本文件把启动流程收进 startApp()，
+//    只有拿到锁的那一次才把它注册给 app.whenReady()。
+// ⚠️⚠️ requestSingleInstanceLock() 返回 false **有两种完全不同的含义**，必须分开处理：
+//   ① 真的已有实例在跑（正常语义）；
+//   ② **userData 不可写** ⇒ Chromium 建不出 lockfile（原始报错：
+//      `process_singleton_win.cc:318 Lock file can not be created: 拒绝访问 (0x5)`）。
+//   把 ② 当成 ① 的后果是**应用永远起不来**，而真实原因是"环境写不进去" —— 那正是本项目最怕的误判
+//   （2026-10-14 实测踩到：本会话沙箱下 e2e 的临时 userData 不可写 ⇒ 10 条 e2e 全线变红，
+//    看起来像"单实例锁把测试挡住了"，其实是把"建不出锁文件"误读成了"已有实例"）。
+//   ⇒ 只有在**确认 userData 可写**时，false 才等于"已有实例"。
+//   探测复用 storage-roots.ts 的 probeWritable（同一份实现，不新写第二份）。
+let SINGLE_INSTANCE: boolean = app.requestSingleInstanceLock();
+if (!SINGLE_INSTANCE) {
+  const udProbe = probeWritable(app.getPath('userData'));
+  if (!udProbe.writable) {
+    SINGLE_INSTANCE = true;      // 环境不支持锁 ⇒ 放行，照常启动（下面会大声写明）
+    log('⚠️ 单实例锁不可用：userData 不可写 ⇒ Chromium 建不出 lockfile，本次**按单实例放行**并照常启动。');
+    log('   userData =', app.getPath('userData'));
+    log('   探测结果 =', udProbe.reason);
+    log('   影响：本次不做单实例互斥（再启一个不会聚焦本窗口）；修好 userData 写权限后自动恢复。');
+  } else {
+    log('已有实例在运行（单实例锁没拿到，且 userData 可写 ⇒ 确实是第二个实例）⇒ 本次**不建窗口**后退出');
+    app.quit();
+  }
+}
+
+if (SINGLE_INSTANCE) {
+  // 第二次启动时，Electron 会在**已有实例**上触发本事件 —— 这里只有恢复 + 聚焦，绝不新开窗口。
+  app.on('second-instance', (_event: unknown, argv: string[], workingDirectory: string) => {
+    log('第二次启动被单实例锁拦下 ⇒ 恢复并聚焦已有窗口 · argv =', JSON.stringify(argv), '· cwd =', workingDirectory);
+    const w = winRef.win;
+    if (!w || w.isDestroyed()) {
+      // 窗口已经没了（正常路径是"关窗即退出"，走不到这里）—— 补建一个，别让第二次启动石沉大海。
+      log('second-instance：已有窗口不可用 ⇒ 重新建窗');
+      createWindow();
+      return;
+    }
+    if (w.isMinimized()) w.restore();      // 最小化过就还原（否则焦点给了也看不见）
+    w.show();
+    w.focus();
+    // 如实记录结果：Windows 的前台窗口规则可能不给焦点，日志要能看出"到没到位"，不能假装成功。
+    log('second-instance：已恢复并聚焦 · isMinimized =', w.isMinimized(), '· isFocused =', w.isFocused());
+  });
+}
+
+/**
+ * 启动流程本体。**只有拿到单实例锁的那一次**才会被注册给 app.whenReady()
+ * （抽成命名函数只是为了把"抢锁"与"启动"分开读清楚，内容与原先逐字一致）。
+ */
+async function startApp(): Promise<void> {
   log('app ready');
   // userData 只能在这之后取；库解析（含注册表）也就从这里才真正开始
   try {
@@ -719,7 +829,10 @@ app.whenReady().then(async () => {
   setTimeout(() => { ensureEncoder().catch((e: unknown) => log('预热失败', messageText(e))); }, 1500);
 
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
-});
+}
+
+// ⚠️ 抢不到锁的那一次**不注册** ready 回调 ⇒ 一个窗口都不建（已在上面的分支里 app.quit()）。
+if (SINGLE_INSTANCE) app.whenReady().then(startApp);
 
 app.on('window-all-closed', () => { app.quit(); });        // 关窗即退出（不做托盘）
 process.on('uncaughtException', (e) => log('未捕获异常', stackText(e)));

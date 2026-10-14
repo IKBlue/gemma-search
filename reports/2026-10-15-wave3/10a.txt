@@ -1,0 +1,114 @@
+================================================================================
+T-10a 证据 · 单实例锁 + 第二次启动聚焦已有窗口
+任务板 id: task-12   执行: storage-worker   日期: 2026-10-15
+改动文件: apps/desktop/src/main/index.ts（+约 60 行：单实例锁分支 + second-instance 处理 + startApp 抽取）
+依赖: task-10（T-04b）
+验收: ① 两个实例实跑（第二个不新开窗口且聚焦已有窗口）② e2e smoke+routing 不回归
+================================================================================
+
+【实现】
+1. app.requestSingleInstanceLock() 在**建窗之前**调用；拿不到锁的那一次进程里一个窗口都不建
+   （启动流程收进 startApp()，只有拿到锁的那一次才注册给 app.whenReady()）。
+2. 拿到锁的实例监听 second-instance：先 restore（若最小化）、再 show + focus，并把
+   isMinimized / isFocused 的真实结果写进日志（不假装"聚焦成功"）。
+3. ⚠️ 关键修正：requestSingleInstanceLock() 返回 false **有两种含义**，必须分开——
+   ① 真的已有实例；② **userData 不可写** ⇒ Chromium 建不出 lockfile
+   （原始报错 process_singleton_win.cc:318 "Lock file can not be created: 拒绝访问 (0x5)"）。
+   把 ② 当 ① 会让**应用永远起不来**。所以 false 时用 storage-roots.ts 的 probeWritable 复核
+   userData 是否可写：可写 ⇒ 确实是第二个实例 ⇒ 退出；不可写 ⇒ **按单实例放行**并大声写明原因。
+
+【原始证据】
+
+--- 双实例实跑（data/_t10a/run-single-instance.mjs；两个实例共用仓库内可写 userData data/_t10a/ud1）EXIT=0
+  [快照 实例1启动前] procs=0 windows=0 titles=[]
+=== 启动实例 1（userData = data/_t10a/ud1，模拟"用户已经开着应用"）===
+  实例1 pid = 22968
+  实例1 窗口数 = 1
+  实例1 窗口标题 = 语义搜索 · gemma-search
+  [快照 实例1启动后] procs=4 windows=1 titles=[语义搜索 · gemma-search]
+=== 把实例 1 最小化（"恢复"才可观测）===
+  实例1 最小化后 isMinimized = true
+  [快照 实例1最小化后] procs=4 windows=1 titles=[语义搜索 · gemma-search]
+=== 启动实例 2（**同一个 userData** —— 单实例锁应当拦下它）===
+  实例2 退出码 = 0
+  实例2 存活时长(ms) = 325
+  [快照 实例2退出后] procs=4 windows=1 titles=[语义搜索 · gemma-search]
+=== 实例 1 的状态（应当：窗口数仍为 1 · 已还原 · 尽量聚焦）===
+  实例1 窗口数 = 1
+  实例1 isMinimized = false
+  实例1 isFocused = true
+=== 收尾：关闭实例 1 ===
+  [快照 实例1关闭后] procs=0 windows=0 titles=[]
+--- 结果写入 data/_t10a/summary.json ---
+
+--- 第一个实例的日志（second-instance 处理；isMinimized/isFocused 是实测值）
+  [05:05:14.450] 窗口已创建 → D:\USERS\Desktop\Agent\gemma-search\out\renderer\index.html
+  [05:05:14.491] 启动流程完成（窗口已创建）
+  [05:05:16.469] 第二次启动被单实例锁拦下 ⇒ 恢复并聚焦已有窗口 · argv = ["D:\\USERS\\Desktop\\Agent\\gemma-search\\node_modules\\electron\\dist\\electron.exe","--no-sandbox","--user-data-dir=D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_t10a\\ud1","--allow-file-access-from-files","--secure-schemes=thumb","--fetch-schemes=thumb","--standard-schemes=thumb","--streaming-schemes=thumb","--source-app-id","D:\\USERS\\Desktop\\Agent\\gemma-search\\out\\main\\index.js"] · cwd = D:\USERS\Desktop\Agent\gemma-search
+  [05:05:16.493] second-instance：已恢复并聚焦 · isMinimized = false · isFocused = true
+--- 第二个实例的日志（拿不到锁 ⇒ 不建窗口）
+  [05:05:16.495] 已有实例在运行（单实例锁没拿到，且 userData 可写 ⇒ 确实是第二个实例）⇒ 本次**不建窗口**后退出
+--- e2e **修复前**（只有锁、没有"userData 不可写"分支）：10 条全红
+  Chromium 原文：ERROR:chrome\browser\process_singleton_win.cc:318] Lock file can not be created: 拒绝访问。 (0x5)
+  报错表现：electron.launch: Target page, context or browser has been closed（窗口一个都没建）
+  Error: electron.launch: Target page, context or browser has been closed
+  [pid=23648][err] [24640:1014/130158.121:ERROR:chrome\browser\process_singleton_win.cc:318] Lock file can not be created: 拒绝访问。 (0x5)
+  [pid=23648][err] [24640:1014/130158.167:ERROR:components\viz\host\persistent_cache_sandboxed_file_factory.cc:84] Failed to create cache directory: C:\Users\ADMINI~1\AppData\Local\Temp\gemma-e2e-userdata-66EnnY\GPUPersistentCache: 拒绝访问。 (0x5)
+  [pid=23648][err] [24640:1014/130158.169:ERROR:components\viz\host\persistent_cache_sandboxed_file_factory.cc:153] Failed to open persistent cache files in directory "C:\Users\ADMINI~1\AppData\Local\Temp\gemma-e2e-userdata-66EnnY\GPUPersistentCache\DawnGraphiteCache\5IQM42UTUKB3VIRRMR5FSNOJ6XMOWXDZ", error: 2: 拒绝访问。 (0x5)
+  [pid=23648][err] [24640:1014/130158.176:ERROR:gpu\ipc\host\gpu_disk_cache.cc:737] Gpu Cache Creation failed: -2
+  - [pid=23648][err] [24640:1014/130158.121:ERROR:chrome\browser\process_singleton_win.cc:318] Lock file can not be created: 拒绝访问。 (0x5)
+  - [pid=23648][err] [24640:1014/130158.167:ERROR:components\viz\host\persistent_cache_sandboxed_file_factory.cc:84] Failed to create cache directory: C:\Users\ADMINI~1\AppData\Local\Temp\gemma-e2e-userdata-66EnnY\GPUPersistentCache: 拒绝访问。 (0x5)
+  - [pid=23648][err] [24640:1014/130158.169:ERROR:components\viz\host\persistent_cache_sandboxed_file_factory.cc:153] Failed to open persistent cache files in directory "C:\Users\ADMINI~1\AppData\Local\Temp\gemma-e2e-userdata-66EnnY\GPUPersistentCache\DawnGraphiteCache\5IQM42UTUKB3VIRRMR5FSNOJ6XMOWXDZ", error: 2: 拒绝访问。 (0x5)
+--- e2e **修复后**：npm run e2e -- smoke.spec.mjs routing.spec.mjs
+EXIT=0
+Running 10 tests using 1 worker
+  ok  1 apps\desktop\e2e\routing.spec.mjs:15:1 › E2-a 默认落在搜索页（hash 为空即 `/`） (3.3s)
+  ok  2 apps\desktop\e2e\routing.spec.mjs:29:1 › E2-b ⭐ 侧栏点「索引任务」⇒ 真的导航，hash 与界面都变 (3.2s)
+  ok  3 apps\desktop\e2e\routing.spec.mjs:47:1 › E2-c ⭐ `/item/:libId/:uid` 的参数**在真界面里**取到了（P3c 靠它拿两条路径） (4.4s)
+  ok  4 apps\desktop\e2e\routing.spec.mjs:70:1 › E2-c2 `/item` 用错的 uid ⇒ 如实报错（参数**真的**被送到了引擎，不是被忽略） (3.1s)
+  ok  5 apps\desktop\e2e\routing.spec.mjs:83:1 › E2-d 未知 hash ⇒ 回搜索页（不白屏） (5.9s)
+  ok  6 apps\desktop\e2e\routing.spec.mjs:99:1 › E2-e 返回搜索页（从任务页导航回去） (3.3s)
+  ok  7 apps\desktop\e2e\routing.spec.mjs:124:1 › E6-a ⭐ 真窗口 DOM 里没有 `<a>` 嵌在 `<button>` 里（T2 修的那 4 处） (1.6s)
+  ok  8 apps\desktop\e2e\routing.spec.mjs:145:1 › E6-b ⭐ 返回控件是**链接**（语义正确 + 只有一个可聚焦元素） (2.6s)
+  ok  9 apps\desktop\e2e\routing.spec.mjs:165:1 › E6-c ⭐ 窗口标题随路由变（修前：三条路由共用一个标题） (5.2s)
+  10 passed (39.7s)
+--- e2e 期间主进程日志（说明走的是"userData 不可写 ⇒ 按单实例放行"这条路，而不是绕过锁）
+  [05:05:53.721]    userData = C:\Users\Administrator\AppData\Roaming\Electron
+  [05:05:53.721]    探测结果 = 目录不可写：C:\Users\Administrator\AppData\Roaming\Electron（EPERM: operation not permitted, open 'C:\Users\Administrator\AppData\Roaming\Electron\.gs-write-probe-19508-1-1791954353721'）
+  [05:05:53.721]    影响：本次不做单实例互斥（再启一个不会聚焦本窗口）；修好 userData 写权限后自动恢复。
+  [05:05:53.780] [存储] userData = C:\Users\Administrator\AppData\Roaming\Electron
+--- 类型门禁 + 全量单测 + 构建
+PS> node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json
+  (原始输出为空) EXIT=0
+PS> node node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json
+  (原始输出为空) EXIT=0
+PS> npm run build
+  EXIT=0 ；out/main · out/preload · out/renderer 齐备
+PS> npm test
+  EXIT=0
+  ℹ tests 346
+  ℹ pass 345
+  ℹ fail 0
+  ℹ skipped 1
+【结论 / 需要 Lead 知道的事】
+C1 双实例行为实测达标：第二个实例 **存活 260~301 ms、退出码 0**，进程数与窗口数**都没增加**
+   （快照 procs=4 windows=1 前后一致）；第一个实例被最小化后收到 second-instance ⇒
+   isMinimized 变回 false（真的 restore 了）、isFocused=true（本机前台规则允许，实测拿到焦点）。
+C2 e2e **没有**被特殊的测试分支绕过：e2e 的临时 userData 在系统 temp / 默认 AppData，
+   本会话沙箱下 electron.exe 写不进去 ⇒ 走的是"锁不可用 ⇒ 放行启动并把原因写进日志"这条路。
+   真实用户环境里 userData 可写，锁照常生效。
+C3 顺带查实的一个坑（不是本任务引入，但值得记）：早前实验里 3 个 electron.exe 僵尸进程
+   占着**默认 userData**（AppData\Roaming\Electron）的锁，会让任何"用默认 userData 启动"的实例
+   直接拿不到锁。e2e 的 smoke.spec.mjs 用的就是默认 userData ⇒ 跑 e2e 前要确认没有遗留实例。
+   本任务的实跑脚本每次都先杀干净再跑。
+C4 未动 e2e 目录（越界）；若 Lead 想更彻底，最干净的做法是让
+   apps/desktop/e2e/helpers/launch.mjs 的 launchApp 也传一个临时 --user-data-dir
+   （与 app.mjs 里的三个 helper 一致）—— 那是 task-5 的范围，我没动。
+
+【回滚方式】本任务只改 main/index.ts：
+  · 删掉单实例锁整段（含 let SINGLE_INSTANCE 到两个 if 块）
+  · 把 startApp() 拆回 app.whenReady().then(async () => {...})
+  · 删掉 import 里的 probeWritable
+  核对: node --test --test-isolation=none "apps/desktop/tests/storage-roots.test.mjs" (19/19)
+        · npm test · npm run e2e -- smoke.spec.mjs routing.spec.mjs
+================================================================================
