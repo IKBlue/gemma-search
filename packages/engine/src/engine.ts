@@ -14,7 +14,9 @@ import { compatComplete, compatEqual, compatKey, compatReason } from './compat.t
 import { LibraryRegistry, resolveInLibrary, resolveQueryImage } from './library.ts';
 import { fingerprintV1 } from './fingerprint.ts';
 import { createFakeKit } from './fake.ts';
-import type { EngineEntry, IndexItem } from './index.ts';
+import { isReservedLibraryName } from './gs-names.ts';
+import type { EngineEntry, IndexBin, IndexItem } from './index.ts';
+import type { StoragePorts } from './storage-ports.ts';
 import type { RegistryConfig } from './library.ts';
 import type { FakeKit, FakeModeOptions, SampleIndex } from './fake.ts';
 
@@ -173,6 +175,12 @@ export interface EngineOptions {
   shell?: ShellPort | null;
   /** ⭐ 契约 §8 的模拟模式：无模型、无真实库。见 fake.ts 头注释 */
   fake?: boolean | FakeModeOptions;
+  /**
+   * 存储端口（T-16a）：**不传就完全走旧布局**
+   * （`<dataDir>/libraries/<libId>/{index.bin,items.json,meta.json}`）。
+   * 传了哪一项，哪一路就改走端口；三项互相独立。
+   */
+  storage?: StoragePorts | null;
 }
 
 /**
@@ -224,6 +232,7 @@ export function createEngine({
   now = () => Date.now(),
   shell = null,                   // { reveal(absPath) } —— P2 注入（Electron shell.showItemInFolder）
   fake = false,                   // ⭐ 契约 §8 的模拟模式：无模型、无真实库。见 fake.ts 头注释
+  storage = null,                 // 存储端口（T-16a）：不传 ⇒ 旧布局，行为与改造前逐字一致
 }: EngineOptions = {}) {
   // ── 模拟模式（契约 §8）────────────────────────────────────────────────
   // `fake: true` ⇒ 用 fixtures/sample-index.json 造一个**零真实文件系统**的库；
@@ -240,7 +249,18 @@ export function createEngine({
       })
     : null;
 
-  const registry: EngineRegistry = fakeKit ? fakeKit.registry : new LibraryRegistry(config);
+  // ── 存储端口（T-16a）──────────────────────────────────────────────────
+  // 传了哪一项，哪一路就改走端口；三项互相独立；都不传 ⇒ 与改造前**逐字一致**（旧布局）。
+  const itemStore = storage?.items ?? null;
+  const indexPort = storage?.index ?? null;
+  const resolver = storage?.libraries ?? null;
+  /**
+   * 旧布局从 `meta.json` 读"失败项台账"；新布局里它**不在这三个端口里**（属 T-16b/T-33）。
+   * ⇒ 端口接管后该字段报 `null`（**未知**），不许用 0 假装"没有失败项"（那正是假绿）。
+   */
+  const metaFromFile = itemStore === null && indexPort === null;
+
+  const registry: EngineRegistry = fakeKit ? fakeKit.registry : (resolver ?? new LibraryRegistry(config));
   const idxRoot = indexDir || path.join(config.data_dir || path.join(process.cwd(), 'data'), 'libraries');
   const cache = new Map<string, EngineEntry>();   // libId -> { header, items, vectors, meta, byUid, rowToRel }
   const jobs = new Map<string, JobState>();       // jobId -> { kind, libId, cancelled }
@@ -256,13 +276,15 @@ export function createEngine({
     const cached = cache.get(libId);
     if (!reload && cached) return cached;
     registry.requireExistingRoot(libId);
-    const d = dirOf(libId);
-    const bin = path.join(d, 'index.bin');
-    const itemsP = path.join(d, 'items.json');
-    const metaP = path.join(d, 'meta.json');
-    const { header, vectors, count, dim } = readIndexBin(bin);
-    const items = readItems(itemsP);
-    const meta = readMeta(metaP);
+    const legacyDir = dirOf(libId);                                // 旧布局：索引/条目/meta 都在这里
+    const layout = resolver ? resolver.storageOf(libId) : null;    // 新布局：`.gs-*` 在**库根**
+    // ② 向量索引：端口优先（`<库根>/.gs-index.bin`，实现里走引擎五道校验）；否则旧布局 index.bin
+    const bin: IndexBin = indexPort ? indexPort.readIndex(libId) : readIndexBin(path.join(legacyDir, 'index.bin'));
+    // ① 条目：端口优先（T-11 的 `.gs.db`）；否则旧布局 items.json
+    const items: IndexItem[] = itemStore ? itemStore.listItems(libId) : readItems(path.join(legacyDir, 'items.json'));
+    // meta：旧布局读 meta.json；新布局里元数据在 `.gs.db`（不在这三个端口里）⇒ 空对象、上层报"未知"
+    const meta = metaFromFile ? readMeta(path.join(legacyDir, 'meta.json')) : {};
+    const { header, vectors, count, dim } = bin;
     const byUid = new Map<string, IndexItem>();
     const rowToRel = new Map<number, unknown>();
     for (const it of items) {
@@ -272,9 +294,22 @@ export function createEngine({
       byUid.set(it.uid ?? '', it);
       if (it.vectorRow != null) rowToRel.set(it.vectorRow, rel);
     }
-    const entry: EngineEntry = { libId, dir: d, header, vectors, count, dim, items, meta, byUid, rowToRel };
+    // `dir`：新布局下就是**库根**（`.gs-*` 与素材同处）；旧布局下是索引目录（保持原语义）
+    const entry: EngineEntry = { libId, dir: layout ? layout.root : legacyDir, header, vectors, count, dim, items, meta, byUid, rowToRel };
     cache.set(libId, entry);
     return entry;
+  }
+
+  /**
+   * 取一条条目（api.item / itemPaths / reveal / collect / search(image) 共用）。
+   *
+   * **先 load() 再查**：这样「索引缺失/损坏 ⇒ INDEX_*」的既有语义在**两条路**上都成立（行为等价）。
+   * 注入条目端口时以**端口**为准 —— T-11 的 `.gs.db` 才是条目真相来源。
+   */
+  function itemOf(libId: string, uid: string): IndexItem | null {
+    const e = load(libId);
+    if (itemStore) return itemStore.getItem(libId, uid) ?? null;
+    return e.byUid.get(uid) ?? null;
   }
 
   /** 兼容性基准：以第一个请求的库为准；其余不等的库进 skipped 并附结构化原因。 */
@@ -329,8 +364,7 @@ export function createEngine({
       } else if (ref && ref.libId && ref.uid) {
         const libId = ref.libId;
         const uid = ref.uid;
-        const e = load(libId);
-        const it = e.byUid.get(uid);
+        const it = itemOf(libId, uid);
         if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`);
         abs = resolveInLibrary(registry.get(libId).root, relOf(it));
       } else if (req.vector) {
@@ -422,6 +456,10 @@ export function createEngine({
       let e: EngineEntry | null = null;
       const problems: Array<{ code: string | undefined; message: string }> = [];
       try { e = load(l.libId); } catch (err) { problems.push({ code: codeOf(err), message: messageOf(err) }); }
+      // 新布局：把 `.gs-*` 的**真实落点与存在性**如实报出来（"索引在不在库根下"是排障第一眼要看的东西）。
+      // ⚠️ 它**不参与 healthy 判定**：数据可用性以端口为准 —— 端口读得到就是可用，
+      //    读不到会在 problems 里给出带 code 的明确理由（不许假绿）。
+      const layout = resolver ? resolver.storageOf(l.libId) : null;
       libs.push({
         libId: l.libId,
         label: l.label,
@@ -432,9 +470,23 @@ export function createEngine({
         dim: e ? e.dim : null,
         compat: e && compatComplete(e.header) ? compatKey(e.header) : null,
         builtAt: e ? (e.header.built_at || null) : null,
-        failed: e && e.meta && Array.isArray(e.meta.failed) ? e.meta.failed.length : 0,
+        // ⚠️ 旧布局从 meta.json 读失败项台账；新布局里那份台账**不在这三个端口里** ⇒ 报 null（**未知**），
+        //    不用 0 假装"没有失败项" —— 那正是我们要防的假绿。
+        failed: e && e.meta && Array.isArray(e.meta.failed) ? e.meta.failed.length : (metaFromFile ? 0 : null),
         healthy: rootOk && e !== null && problems.length === 0 && (e.items.length === e.count),
         problems,
+        // storage 块**只在库解析端口存在时出现** ⇒ 旧布局的返回形状逐字不变（既有 fixtures/e2e 不受影响）
+        ...(layout ? {
+          storage: {
+            layout: 'library-root',
+            root: layout.root,
+            indexPath: layout.indexPath,
+            dbPath: layout.dbPath,
+            journalPath: layout.journalPath ?? null,
+            indexExists: fs.existsSync(layout.indexPath),
+            dbExists: fs.existsSync(layout.dbPath),
+          },
+        } : {}),
       });
     }
     return ok({ libs });
@@ -452,6 +504,11 @@ export function createEngine({
     const disk = new Map<string, { size: number; mtimeMs: number }>();   // relPath -> { size, mtimeMs }
     const walk = (dir: string): void => {
       for (const de of fs.readdirSync(dir, { withFileTypes: true })) {
+        // ⚠️ 新布局把 `.gs-index.bin` / `.gs.db` / `.gs-staging/` 放在**库根**里 ——
+        //    不跳过就会把它们报成"新增素材"（假发现），而且**不报错**。判据用唯一实现（U11）。
+        //    隐藏项一并跳过（SPEC §1：所有条目扫描必须跳过 `.gs-*` 与隐藏项）。
+        if (isReservedLibraryName(de.name)) continue;
+        if (de.name.startsWith('.')) continue;
         const full = path.join(dir, de.name);
         if (de.isDirectory()) { walk(full); continue; }
         if (!de.isFile()) continue;
@@ -494,7 +551,8 @@ export function createEngine({
   function doCollect({ libId, uids, targetDirName, target = 'auto' }: CollectRequest = {}) {
     const id = libId ?? '';
     registry.requireExistingRoot(id);
-    const e = load(id);
+    // 旧语义：**先**校验索引可读（缺索引/损坏 ⇒ 在这里就抛，而不是等到 uid 循环里）
+    load(id);
     const root = registry.get(id).root;
     const list = Array.isArray(uids) ? uids : [];
     if (!list.length) throw fail(ERR.BAD_REQUEST, 'uids 为空');
@@ -509,7 +567,7 @@ export function createEngine({
     const skipped: Array<{ uid: string; reason: string; path: string }> = [];
     let totalBytes = 0;
     for (const uid of list) {
-      const it = e.byUid.get(uid);
+      const it = itemOf(id, uid);
       if (!it) { failed.push({ uid, error: { code: ERR.UID_NOT_FOUND, message: 'uid 不在索引中' } }); continue; }
       let src: { rel: string | null; kind: string };
       try {
@@ -580,8 +638,7 @@ export function createEngine({
      * 仍走完整的包含校验与符号链接校验。
      */
     absPathFor(libId: string, uid: string) {
-      const e = load(libId);
-      const it = e.byUid.get(uid);
+      const it = itemOf(libId, uid);
       if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
       return resolveInLibrary(registry.get(libId).root, relOf(it));
     },
@@ -593,8 +650,7 @@ export function createEngine({
       // 模拟模式：索引在内存里，**不 requireExistingRoot、不读盘** —— 所以 exists 也走样例数据
       if (fakeKit) return fakeKit.doItem({ libId, uid });
       const id = libId ?? '';
-      const e = load(id);
-      const it = e.byUid.get(uid ?? '');
+      const it = itemOf(id, uid ?? '');
       if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
       const rel = relOf(it);
       const abs = resolveInLibrary(registry.get(id).root, rel);
@@ -625,8 +681,7 @@ export function createEngine({
       // 模拟模式：路径由样例数据拼出，**不读盘**（fake.ts 头注释 ①）
       if (fakeKit) return fakeKit.doItemPaths({ libId, uid });
       const id = libId ?? '';
-      const e = load(id);
-      const it = e.byUid.get(uid ?? '');
+      const it = itemOf(id, uid ?? '');
       if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
       const root = registry.get(id).root;
       const imagePath = resolveInLibrary(root, relOf(it));
@@ -677,8 +732,7 @@ export function createEngine({
     ])),
     reveal: ({ libId, uid, target = 'archive' }: RevealRequest = {}) => envelope(async () => {
       const id = libId ?? '';
-      const e = load(id);
-      const it = e.byUid.get(uid ?? '');
+      const it = itemOf(id, uid ?? '');
       if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
       const rel = target === 'archive' ? (it.archiveRelPath || relOf(it)) : relOf(it);
       const abs = resolveInLibrary(registry.get(id).root, rel);

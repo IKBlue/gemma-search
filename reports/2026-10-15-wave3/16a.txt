@@ -1,0 +1,188 @@
+gemma-search · T-16a 引擎接新存储（引擎侧：存储端口 + 入口适配）· 证据
+日期：2026-10-15 · 执行者：core-migrator · 任务板 task-25 · 写入范围 packages/engine/**
+协议：每条结论 = 命令 + 原始输出（本轮实测，未转述）。本文件由工具直接写入（UTF-8）。
+
+新增：
+  packages/engine/src/storage-ports.ts        存储端口（① 条目读取 ② 向量索引读取 ③ 库解析）——**纯类型 + 接口**
+  packages/engine/tests/storage-ports.test.mjs 8 条用例：注入 / 不注入两条分支 + 等价性 + 不假绿
+  packages/engine/tests/helpers/lib-fixture.mjs 「同一份库 + 最小合法索引」的**唯一**夹具构造器
+改动：
+  packages/engine/src/engine.ts              EngineOptions.storage · load() 按端口分支 · itemOf() 统一按 uid 取条目
+                                             · doScan 跳过库内产物/隐藏项 · indexStatus 增 storage 块 + failed 可为 null
+  packages/engine/tests/engine.test.mjs      本地夹具改为 import helpers/lib-fixture.mjs（P1：夹具只留一份）
+
+设计要点（三条纪律，写在 storage-ports.ts 文件头）：
+  ① 端口**全部同步**（node:sqlite 与 fs 读本来就同步；异步化是另一个显式决定）
+  ② 端口只 import 引擎自己的类型：不许出现 sqlite/electron/任何第三方类型（AGENTS §1）
+  ③ **传了哪个端口就走哪条路**，没传的回落到旧布局 ⇒ 不注入时行为与改造前逐字一致
+
+
+===== 0. 引擎单独类型门禁（18 个 src 文件）EXIT 必须 0 =====
+engine-only files = 18
+engine-only exit=0
+
+
+===== 1. 项目类型门禁 tsconfig.node.json =====
+total error TS = 0
+packages/engine = 0
+
+
+===== 2. 引擎全量单测（含新增 8 条）——不注入端口的老用例必须一条不改地全绿 =====
+ℹ tests 166
+ℹ suites 0
+ℹ pass 165
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 13113.5624
+
+
+===== 3. 存储端口用例（8 条：注入/不注入/等价/不假绿） =====
+✔ T16-P1 ⭐ 不注入端口 ⇒ 走旧布局：正常出结果，且**返回形状里没有 storage 块**（改造前逐字一致） (19.2275ms)
+✔ T16-P2 ⭐⭐ 注入端口 ⇒ 真的走端口（spies 证明），且检索/条目/扫描结果与旧路径**逐字等价** (23.5586ms)
+✔ T16-P3 ⭐⭐ 新布局如实反映：storage 块给出库根落点与存在性；failed 报 null（未知）而不是 0 (11.3757ms)
+✔ T16-P4 ⭐⭐ 索引缺失 ⇒ problems 里带 INDEX_MISSING 与具体路径理由，绝不假绿 (10.833ms)
+✔ T16-P5 条目端口抛错 ⇒ 同样给明确理由（不吞、不假成功） (10.6196ms)
+✔ T16-P6 未知 uid ⇒ UID_NOT_FOUND 信封（端口返回 null 时引擎自己转码） (11.0394ms)
+✔ T16-P7 ⭐⭐ 新布局下 scan 不得把库内产物（.gs-index.bin / .gs.db 家族 / staging）当成新素材 (13.7378ms)
+✔ T16-P8 库解析端口也管「有哪些库」：未注册的 libId ⇒ 明确错误码 (10.1304ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 189.8939
+
+
+===== 4. 全仓 npm test =====
+npm-exit=0
+ℹ tests 445
+ℹ pass 444
+ℹ fail 0
+ℹ skipped 1
+--- 失败用例（若有）---
+(none)
+
+
+===== 5. 零依赖纪律：engine/src 的 import 只有 node: 内置与相对 .ts；无 sqlite/electron 代码 =====
+--- engine/src 的 import（应只有 node: 与相对 .ts）---
+} from './steps.ts';
+import {
+import { canTransition } from './states.ts';
+import { cleanStaging, verifyStaged, commitRenames, applyIndex, cleanupSources, STAGING_DIRNAME } from './steps.ts';
+import { compatComplete, compatEqual, compatKey, compatReason } from './compat.ts';
+import { createFakeKit } from './fake.ts';
+import { detectImageFormat, readImageHead, extMatchesFormat } from './magic.ts';
+import { ensureJournalDir, makeTxnId, txnPath, writeTxn, persistState } from './journal.ts';
+import { ERR, fail, messageOf } from './errors.ts';
+import { ERR, fail, ok } from './errors.ts';
+import { ERR, fail, ok, envelope, messageOf } from './errors.ts';
+import { fileURLToPath } from 'node:url';
+import { fingerprintV1 } from './fingerprint.ts';
+import { IMG_EXT, ARCHIVE_EXT } from './fingerprint.ts';
+import { isAmbiguous } from './states.ts';
+import { isReservedLibraryName } from './gs-names.ts';
+import { LibraryRegistry, resolveInLibrary, resolveQueryImage } from './library.ts';
+import { listTxns, persistState, archiveTxn, writeTxn } from './journal.ts';
+import { messageOf } from '../errors.ts';
+import { messageOf } from './errors.ts';
+import { normRelDir, uidOf } from './uid.ts';
+import { readIndexBin, readItems, readMeta, relOf } from './index.ts';
+import { relOf } from './index.ts';
+import { S, ACTION, recoveryActionOf } from './states.ts';
+import { S, canCancel } from './states.ts';
+import { sha1File } from './hash.ts';
+import { STAGING_DIRNAME } from './transactions/steps.ts';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import type { AmbiguityDetail, IndexPort } from './steps.ts';
+import type { EngineEntry, IndexBin, IndexItem } from './index.ts';
+import type { EngineEntry, IndexItem } from './index.ts';
+import type { EngineRegistry } from './engine.ts';
+import type { ErrorDetails } from './errors.ts';
+import type { FakeKit, FakeModeOptions, SampleIndex } from './fake.ts';
+import type { ImageFormat } from './magic.ts';
+import type { IndexBin, IndexItem } from './index.ts';
+import type { IndexItem } from './index.ts';
+import type { IndexPort } from './steps.ts';
+import type { OkEnvelope } from './errors.ts';
+import type { RecoveryAction } from './states.ts';
+import type { RegistryConfig } from './library.ts';
+import type { StoragePorts } from './storage-ports.ts';
+import type { TxnRecord } from './journal.ts';
+import type { TxnRecord, BrokenTxn } from './journal.ts';
+import type { TxnRecord, TxnFileEntry } from './journal.ts';
+--- engine/src 里有没有 sqlite / electron 字样（代码行）---
+1
+dependencies = {}
+
+
+===== 6. 范围内文件清单 / 残留 .mjs/.js =====
+packages\engine\src\compat.ts
+packages\engine\src\engine.ts
+packages\engine\src\errors.ts
+packages\engine\src\fake.ts
+packages\engine\src\fingerprint.ts
+packages\engine\src\gs-names.ts
+packages\engine\src\index.ts
+packages\engine\src\library.ts
+packages\engine\src\magic.ts
+packages\engine\src\scanner.ts
+packages\engine\src\storage-ports.ts
+packages\engine\src\transactions\executor.ts
+packages\engine\src\transactions\hash.ts
+packages\engine\src\transactions\journal.ts
+packages\engine\src\transactions\recovery.ts
+packages\engine\src\transactions\states.ts
+packages\engine\src\transactions\steps.ts
+packages\engine\src\uid.ts
+residual .mjs/.js = 0
+
+
+===== 7. 结论 =====
+① 端口纯类型、实现在 main：`StoragePorts = { items?, index?, libraries? }`，三项互相独立、都可选。
+   · ① 条目：`getItem(libId, uid)` / `listItems(libId)`
+   · ② 向量索引：`readIndex(libId)` → `<库根>/.gs-index.bin`（实现应复用引擎 readIndexBin ⇒ 五道校验只有一份）
+   · ③ 库解析：`LibraryResolverPort = EngineRegistry + storageOf(libId)`（复用既有概念，不另造一套「库从哪来」）
+② 不注入 ⇒ 与改造前**逐字一致**：既有 158 条引擎用例一条没改就全绿，且 T16-P1 断言返回行里
+   `hasOwnProperty('storage') === false`、`failed` 仍是数字。
+③ 注入 ⇒ 走端口且**行为等价**：T16-P2 用同一份库、同一批请求对两条路做 deepEqual
+   （results / libsUsed / libsSkipped / item / itemPaths / scan 全部逐字相同），并用 spies 证明
+   readIndex / listItems / getItem **真的被走到**。
+④ 不假绿：索引读不到 ⇒ `problems[0].code === 'INDEX_MISSING'` 且理由里带具体落点，`healthy=false`；
+   条目端口抛错同理；新布局的 `failed` 报 **null（未知）** 而不是 0。
+⑤ 门禁：引擎单独 tsc EXIT=0 · 项目 tsc 0 条 · 引擎单测 166/165/0/1 · 全仓 npm test 445/444/0/1（EXIT=0）
+
+===== 8. 本轮发现 =====
+A. ⭐ **T16-P7 抓到一个真 bug（新布局下才会暴露）**：`doScan` 的 walk **不跳过库内产物**，
+   而新布局把 `.gs-index.bin` / `.gs.db` / `.gs-staging/` 放在**库根** ⇒ 它们会被报成「新增素材」。
+   这是**假发现且不报错**（正是最难查的一类）。已修：walk 里用 U11 的唯一判据 `isReservedLibraryName`
+   跳过库内产物，另按 SPEC §1 跳过隐藏项。
+   原始失败输出（修之前）见下方第 9 节。
+B. ⚠️ **既有行为（不在 T-16a 范围，如实上报）**：`scan` 的 `new` 里**一直包含压缩包**
+   （`CR/c.zip` / `CR/d.7z` / `VR/a.rar`）—— 因为 items 只登记图。改造前就如此，
+   T16-P2 的等价性用例（两条路 deepEqual）可证。T16-P7 已把这条**钉住**（免得被误当成 T-16a 的产物）；
+   要不要把「压缩包不算新素材」改成体检口径，属 T-33。我没有顺手改 —— 那会改掉旧布局的可观测行为。
+C. ⚠️ **端口抛错的契约**（实测后写进 storage-ports.ts 文档 + 用例钉住）：
+   · `indexStatus` 用 `codeOf()` 读**任何**对象的 `code` ⇒ 抛带 code 的普通 Error 也能如实报出；
+   · 但走**信封**的方法（search/scan/item）只在错误是引擎 `EngineError` 时保 code，其余归 `INTERNAL`。
+   ⇒ 端口实现**应当**抛引擎错误（`fail(ERR.INDEX_MISSING, …)`）；main 复用 readIndexBin 时天然如此。
+   初版测试用普通 Error，T16-P4/P8 当场红（`INTERNAL` vs `INDEX_MISSING`/`LIB_NOT_FOUND`）—— 这条差异因此被写成了明文契约。
+D. `failed: null`（新布局）vs `0`（旧布局）：新布局里「失败项台账」不在这三个端口里（属 T-16b/T-33）。
+   用 0 会被读成「没有失败项」= 假绿 ⇒ 报 null（未知）。旧布局形状不变。
+E. `storage` 块（库根 / indexPath / dbPath / journalPath / indexExists / dbExists）**只在库解析端口存在时**出现。
+   它**不参与 healthy 判定**：数据可用性以端口为准（端口读得到就是可用，读不到会在 problems 给理由）。
+F. 夹具抽取：engine.test.mjs 与 storage-ports.test.mjs 共用 `tests/helpers/lib-fixture.mjs`
+   （P1：同一份库的构造只留一份，否则「两种接线等价」的前提就不成立）。`MAGIC` 从 `src/index.ts` import，不另抄常量。
+G. 未做（留给 T-16b）：main 侧端口组装、`.gs.db` 真正接上、M0 端到端；引擎侧**不接线**是本任务的边界。
+
+===== 9. 修 bug 之前的原始失败输出（T16-P7 第一次运行）=====
+AssertionError [ERR_ASSERTION]: 库根里的 .gs-* 不是素材；实得 
+  [".gs-index.bin",".gs-staging/txnX/ID-1.jpg",".gs.db","CR/c.zip","CR/d.7z","VR/a.rar"]
+  at TestContext.<anonymous> (storage-ports.test.mjs:200:10)
+（修法：doScan 的 walk 用 isReservedLibraryName 跳过库内产物 + 跳过隐藏项；修后同一条用例 pass，且
+  第 2 节的 158 条既有用例仍全绿 ⇒ 旧布局可观测行为未变。）
