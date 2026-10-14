@@ -33,7 +33,8 @@
 | ☑ **T-01**（**完成 2026-10-14**） | **spike · router 8**：装 `react-router@8.4.0` → `RouterProvider` 改从 `react-router/dom` 引入 → 跑四道门禁 | 全绿 ⇒ 锁定 8.4.0 并同步文档；**不通过 ⇒ 退回 7.18.4 并记录原因**（退回成本 = 改一行版本号）。✅ **实测通过且一行代码都不用改** —— `npm test` 313/312/0/1 · `typecheck` EXIT=0 · `build` EXIT=0 · 导航 E2E **10 passed**；证据 `reports/2026-10-14-router8-spike/` | — | `package.json` · `router/` |
 | ☑ **T-02**（**完成 2026-10-14**） | **spike · radix-ui 统一包**：用它替换 `@radix-ui/react-alert-dialog` / `@radix-ui/react-slot`，删分散包 | 确认框与按钮行为不变（焦点 / ESC / 焦点归还仍达标）；依赖数下降。✅ **实测**：`npm test` 313/312/0/1 · `build` EXIT=0（chunk −12.7 KB）· E2E 15 passed；**过程中抓到并修掉 `<Slot>`→`<Slot.Root>` 的 React #130 白屏**，证据 `reports/2026-10-14-radix-ui-spike/` | — | `package.json` · `ui/` |
 | ☑ **T-03**（**完成 2026-10-14**） | **spike · node:sqlite**：在**真 Electron 主进程**内建表 / 写入 / 删除重建；确认实验性告警可接受。✅ **真主进程实测 PASS**（`process.type=browser` · `node:sqlite` 可用 · WAL · 删除重建 OK），证据 `reports/2026-10-14-sqlite-spike/` | 三件事都成功；落点符合 SPEC §3 | — | `src/main/` |
-| **T-04** | 存储根解析：程序目录 `models/` · 库根 `.gs-*` · 不可写时回退 userData 并**打印当前落点** | 三种情形各跑一次，落点正确且日志可读 | T-03 | `src/main/` |
+| ☑ **T-04**（**完成 2026-10-14**） | 存储根解析：程序目录 `models/` · 库根 `.gs-*` · 不可写时回退 userData 并**打印当前落点** | 三种情形各跑一次，落点正确且日志可读。✅ 五种情形真跑（A 可写 / B 程序目录不可写→userData / C 库根不可写→回退 / D 无模型→列出找过的路径且不显示假结果 / E 无覆盖跑真应用）；证据 `reports/2026-10-15-wave3/04b.txt` | T-03 | `src/main/` |
+| ☐ **T-04c**（**待界面复核**） | **模型搜索顺序改为「用户指定 → 程序目录 → userData」**（所有者 2026-10-14 授权先按新顺序实现；**等界面出来后再复核**） | 顺序在 `storage-roots.ts` 里只有一处常量可调；单测覆盖三种来源的优先级；改回同样只动这一处 | T-04 | `src/main/` |
 | ☑ **T-05**（**完成 2026-10-14**） | 全量 TypeScript：tsconfig 严格、渲染 `.tsx`、`npm run typecheck` 必绿 | 注入一个类型错误 ⇒ **门禁变红**；还原 ⇒ 绿。✅ 全仓已转：engine 13 · indexer 12 · main/preload 8 · renderer 45（29 `.tsx` + 16 `.ts`），`src` 下 `.mjs/.js` 残留 **0**；四道门禁全绿（`npm test` **314/0/1** · 两个 tsc 工程 EXIT=0 · `build` EXIT=0 · **全量 e2e 62 passed / 7.3 min**）；**类型门禁能红已实测**：注入 `const x: number = 's'` ⇒ `TS2322` + EXIT=1，还原 ⇒ EXIT=0。过程中抓到并修掉一条**真回归**（encoder 漏 `await model.forward`，见证据 `README-encoder-regression.md`）。证据 `reports/2026-10-14-ts-wave1/` | T-01 | 全仓 |
 | **T-06** | Tailwind + shadcn/ui 接入（按需 `npx shadcn@latest add`）；令牌仍只在 `tokens.css`；`cn()` 唯一 | 生成类可用；渲染层零写死色值；**不预装未用到的原语** | T-05 | `renderer/` |
 | **T-07** | 分层断言（Adapter 唯一入口 / UI 零 `window.api` / 文案兜底一份）移植到 TS | 三个断言各自**注入违例能变红** | T-05 | `apps/desktop/tests/` |
@@ -149,7 +150,7 @@
 
 | # | 事项 | 现状 |
 |---|---|---|
-| **U1（待裁定）** | **模型搜索顺序里「用户指定」排在最后**（程序目录 → userData → 用户指定）—— 这是 SPEC §2 的原文，T-04 照抄未改。UX 上反直觉：用户**显式指定**的模型理应**优先于**程序目录自带的那份 | 已按 SPEC 实现并如实上报；**改顺序 = 改需求 ⇒ 等所有者点头** |
+| **U1（已裁定 · 临时）** | 模型搜索顺序：**改为「用户指定 → 程序目录 → userData」** | 所有者 2026-10-14：**先按此实现**，并挂 P0 待办（T-04c）；**待所有者看过界面后复核** |
 | U2（已裁定） | 模型搜索**两处实现**（`storage-roots.ts` 与旧 `resolveModelDir()`）= P1 债 | 归 **T-17** 收敛为一份（`main/encoder.*`）；已写进 T-17 验收 |
 | U3（已裁定） | 库根不可写时的回退落点 | 定为 `<userData>/libraries/<libId>`；**必须告警**「索引不再随库带走」，已写进 T-11 |
 | U5（已裁定） | 库根可写性探测会写一个 `.gs-write-probe-*` 临时文件再删（Windows 上 `fs.access(W_OK)` 对 ACL 拒绝的目录会假报可写，实测） | 保留该做法：名字符合 P4 的 `.gs-*` 例外；删不掉时**必须在理由里留痕**（已实现 `storage-roots.ts:140-146`） |
