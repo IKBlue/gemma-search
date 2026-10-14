@@ -9,8 +9,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createEngine, bandOf, BANDS, indexPathFor } from '../src/engine.mjs';
-import { ERR, USER_MESSAGE } from '../src/errors.mjs';
+import { createEngine, bandOf, BANDS, indexPathFor } from '../src/engine.ts';
+import { ERR, USER_MESSAGE } from '../src/errors.ts';
 
 const MAGIC = Buffer.from('4753494458000001', 'hex');
 

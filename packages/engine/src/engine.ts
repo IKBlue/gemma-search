@@ -1,6 +1,6 @@
-// packages/engine/src/engine.mjs —— 引擎主体：传输无关、依赖注入
+// packages/engine/src/engine.ts —— 引擎主体：传输无关、依赖注入
 //
-// 设计要点（都是为了"可测 + 可换）：
+// 设计要点（都是为了"可测 + 可换"）：
 //   · **依赖全部注入**：库注册表、编码器、时钟、事件回调。本包因此零依赖，
 //     测试里注入假编码器即可跑全部逻辑，不需要模型、不需要 GPU。
 //   · **不 import electron / http**（契约 §0 的可执行判据）。
@@ -8,12 +8,15 @@
 //   · 所有方法返回契约 §1.1 的信封，**永不抛异常给调用方**。
 import fs from 'node:fs';
 import path from 'node:path';
-import { ERR, fail, ok, envelope } from './errors.mjs';
-import { readIndexBin, readItems, readMeta, relOf } from './index.mjs';
-import { compatComplete, compatEqual, compatKey, compatReason } from './compat.mjs';
-import { LibraryRegistry, resolveInLibrary, resolveQueryImage } from './library.mjs';
-import { fingerprintV1 } from './fingerprint.mjs';
-import { createFakeKit } from './fake.mjs';
+import { ERR, fail, ok, envelope, messageOf } from './errors.ts';
+import { readIndexBin, readItems, readMeta, relOf } from './index.ts';
+import { compatComplete, compatEqual, compatKey, compatReason } from './compat.ts';
+import { LibraryRegistry, resolveInLibrary, resolveQueryImage } from './library.ts';
+import { fingerprintV1 } from './fingerprint.ts';
+import { createFakeKit } from './fake.ts';
+import type { EngineEntry, IndexItem } from './index.ts';
+import type { RegistryConfig } from './library.ts';
+import type { FakeKit, FakeModeOptions, SampleIndex } from './fake.ts';
 
 /**
  * 分数区间：**按模态分别定义**。
@@ -22,24 +25,15 @@ import { createFakeKit } from './fake.mjs';
  *
  * ⚠️ 这些阈值是**暂定**的（依据 spike 实测：图像自检索 ~1.0、文本→图像 top-1 0.74–0.80），
  *    需要按 SPEC-acceptance 的流程在真实查询集上复核后再冻结。
+ *
+ * 类型写成 `Record<string, …>` 是因为 `mode` 是**运行期字符串**：真正的存在性检查是
+ * `Object.hasOwn`（见 `bandOf` 的注释 —— 原型键会骗过 `if (!b)`）。
  */
-export const BANDS = Object.freeze({
+export const BANDS: Readonly<Record<string, { high: number; mid: number }>> = Object.freeze({
   text: { high: 0.72, mid: 0.65 },
   image: { high: 0.90, mid: 0.80 },
 });
 
-/**
- * 按模态取档位。
- *
- * ⚠️ **未知模态不再静默回退到 text 阈值**（2026-10-12 独立复核实测的 R-3）。
- * 原来的写法是 `BANDS[mode] || BANDS.text` —— 于是 `bandOf(0.85, 'vector')` 会返回 `'high'`，
- * 而 `vector` 根本不该用文本阈值（图像查询的分数区间完全不同）。
- * 这与 F-02 是**同一根因**：一个不懂模态的东西擅自替分数下结论。
- *
- * 现在的行为：不认识的模态 ⇒ 返回 `'unknown'`，**不下档位判断**。
- * 调用的界面（`ui/Score.jsx`）对未知档位**只显示分数、不显示档位文案** —— 诚实降级。
- * `'unknown'` 是**新增**的返回值，契约 §1.3 的"新增=兼容"同样适用于此。
- */
 /**
  * **尚未实现的方法（全仓唯一一份定义，2026-10-13 新增）。**
  *
@@ -49,7 +43,7 @@ export const BANDS = Object.freeze({
  *   ② 主进程（`apps/desktop/src/main/index.mjs`）：在进引擎**之前**就拒绝，
  *      以便给出更明确的用户文案「这个功能还没做好。」。
  *
- * 模拟模式（契约 §8）下这些方法由 `fake.mjs` 提供假实现 —— 那时主进程**不**拒绝。
+ * 模拟模式（契约 §8）下这些方法由 `fake.ts` 提供假实现 —— 那时主进程**不**拒绝。
  * 假套件返回对象的键**与这份清单一一对应**（`fake.test.mjs` 的 **F17** 会断言），
  * 所以引擎侧只要 `fakeKit[name]`，不需要另维护映射表。
  */
@@ -58,12 +52,28 @@ export const UNIMPLEMENTED_METHODS = Object.freeze([
   'indexStart', 'indexCancel', 'indexResume',
 ]);
 
+/** 从捕获到的异常里取 `code`（引擎抛的 EngineError 与 node 的 fs 错误都带它） */
+function codeOf(e: unknown): string | undefined {
+  if (typeof e !== 'object' || e === null || !('code' in e)) return undefined;
+  const c = (e as { code: unknown }).code;
+  return typeof c === 'string' ? c : undefined;
+}
+
+/**
+ * 运行期确认"这是假套件里的一个方法"。
+ * 需要它是因为 `fakeKit[name]` 走的是**动态方法名** ⇒ 索引签名只能给出 unknown，
+ * 而类型断言会把"套件里少接了一个方法"这种真问题藏起来（契约 §8 的演示能力会缺一块）。
+ */
+function isFakeMethod(v: unknown): v is (req: unknown) => unknown {
+  return typeof v === 'function';
+}
+
 /**
  * 把一个分数映射到档位。
  *
  * ⚠️ **界面绝不能用自己算的阈值** —— 档位必须来自这里（见 `BANDS` 头注释与 F-02）。
  */
-export function bandOf(score, mode) {
+export function bandOf(score: number, mode: string): string {
   // ⚠️ 必须用 `Object.hasOwn`，**不能**写 `const b = BANDS[mode]; if (!b)`。
   // 后者会让**原型键**蒙混过关：`BANDS['toString']` 取到的是 `Object.prototype.toString`（真值！），
   // 于是 `bandOf(0.85,'toString')` ⇒ `b.high` 为 undefined ⇒ 返回 `'low'` ——
@@ -77,7 +87,7 @@ export function bandOf(score, mode) {
 }
 
 /** L2 归一化。索引里的行已是 L2（SPEC-identity §6.2 `normalization:"l2"`），点积即余弦。 */
-export function l2norm(v) {
+export function l2norm(v: Float32Array): Float32Array {
   let n = 0;
   for (let i = 0; i < v.length; i++) n += v[i] * v[i];
   n = Math.sqrt(n);
@@ -88,8 +98,15 @@ export function l2norm(v) {
 }
 
 /** 索引在应用数据目录下的位置：<dataDir>/libraries/<libId>/ */
-export function indexPathFor(dataDir, libId) {
+export function indexPathFor(dataDir: string, libId: string): string {
   return path.join(dataDir, 'libraries', libId);
+}
+
+/** 取件配置（config.collect）：**按名字**给目录，不按路径（见 resolveCollectDir 注释） */
+export interface CollectConfig {
+  dirs?: Record<string, string>;
+  default?: string;
+  [key: string]: unknown;
 }
 
 /**
@@ -99,11 +116,16 @@ export function indexPathFor(dataDir, libId) {
  * 这样白名单是**结构性**的 —— 渲染进程连"传一个白名单外的路径"都做不到，
  * 只能传一个已配置的名字。比"传路径再校验"更不容易出错。
  */
-export function resolveCollectDir(targetDirName, collectCfg) {
-  const dirs = (collectCfg && collectCfg.dirs) || {};
+export function resolveCollectDir(
+  targetDirName: string | null | undefined,
+  collectCfg: CollectConfig | null | undefined,
+): { name: string; dir: string } {
+  const dirs: Record<string, string> = (collectCfg && collectCfg.dirs) || {};
   const name = targetDirName || (collectCfg && collectCfg.default) || Object.keys(dirs)[0];
   const dir = name ? dirs[name] : undefined;
-  if (!dir) {
+  // `!name` 是 `!dir` 的蕴含条件（name 为空 ⇒ dirs[name] 必为空）—— 写出来只是为了让 TS 收窄，
+  // 不改变任何运行期分支：两者都走同一个 throw。
+  if (!name || !dir) {
     throw fail(ERR.COLLECT_DIR_NOT_ALLOWED,
       `取件目标不在允许列表：${targetDirName || '(未指定)'}`,
       { name: targetDirName || null, allowed: Object.keys(dirs) });
@@ -112,7 +134,7 @@ export function resolveCollectDir(targetDirName, collectCfg) {
 }
 
 /** 取件时复制哪一份：有包取包，无包取图（契约 §2.5 的 auto 语义）。 */
-export function pickCollectSource(item, target = 'auto') {
+export function pickCollectSource(item: IndexItem, target = 'auto'): { rel: string | null; kind: string } {
   const rel = relOf(item);
   const arc = item.archiveRelPath || null;
   if (target === 'archive') {
@@ -123,6 +145,77 @@ export function pickCollectSource(item, target = 'auto') {
   return arc ? { rel: arc, kind: 'archive' } : { rel, kind: 'image' };
 }
 
+/** 编码器端口（注入）：引擎只声明形状，不 import 任何 ONNX/transformers 实现 */
+export interface EncoderPort {
+  encodeText(text: string): Float32Array | Promise<Float32Array>;
+  encodeImage(absPath: string): Float32Array | Promise<Float32Array>;
+}
+
+/** 外壳端口（P2 注入）：Electron 的 shell.showItemInFolder */
+export interface ShellPort {
+  reveal(absPath: string): void;
+}
+
+/** config.json 与引擎有关的部分（**外部 JSON**：字段可能缺失） */
+export interface EngineConfig extends RegistryConfig {
+  data_dir?: string;
+  collect?: CollectConfig;
+}
+
+/** createEngine() 的入参 */
+export interface EngineOptions {
+  config?: EngineConfig;
+  encoder?: EncoderPort | null;
+  /** 索引根；缺省 <config.data_dir>/libraries */
+  indexDir?: string | null;
+  onEvent?: (ev: unknown) => void;
+  now?: () => number;
+  shell?: ShellPort | null;
+  /** ⭐ 契约 §8 的模拟模式：无模型、无真实库。见 fake.ts 头注释 */
+  fake?: boolean | FakeModeOptions;
+}
+
+/**
+ * 引擎用到的注册表形状。**结构性**的：
+ * `LibraryRegistry`（真实）与 `fake.ts` 的最小实现都满足它 ⇒ 引擎不必为模拟模式开第二条代码路径。
+ */
+export interface EngineRegistry {
+  list(): Array<{ libId: string; label?: string; root: string }>;
+  has(libId: string): boolean;
+  get(libId: string): { libId: string; label?: string; root: string };
+  requireExistingRoot(libId: string): void;
+}
+
+/** 长任务登记的形状（`api._jobs`；真实编码在 indexStart 实现） */
+export interface JobState {
+  kind: string;
+  libId: string;
+  cancelled: boolean;
+}
+
+/** 检索请求（契约 §2.1） */
+export interface ImageRef { libId?: string; uid?: string }
+export interface SearchFilters { folders?: string[]; exts?: string[] }
+export interface SearchRequest {
+  mode?: string;
+  topK?: number;
+  text?: string;
+  queryImagePath?: string;
+  imageRef?: ImageRef;
+  vector?: ArrayLike<number>;
+  libIds?: string[];
+  filters?: SearchFilters;
+}
+
+/** 单条 / 两条路径的请求 */
+export interface ItemRequest { libId?: string; uid?: string }
+/** 扫描请求 */
+export interface ScanRequest { libId?: string }
+/** 取件请求 */
+export interface CollectRequest { libId?: string; uids?: string[]; targetDirName?: string; target?: string }
+/** reveal 请求 */
+export interface RevealRequest { libId?: string; uid?: string; target?: string }
+
 export function createEngine({
   config = {},
   encoder = null,                 // { encodeText(text) -> Float32Array, encodeImage(absPath) -> Float32Array }
@@ -130,36 +223,38 @@ export function createEngine({
   onEvent = () => {},
   now = () => Date.now(),
   shell = null,                   // { reveal(absPath) } —— P2 注入（Electron shell.showItemInFolder）
-  fake = false,                   // ⭐ 契约 §8 的模拟模式：无模型、无真实库。见 fake.mjs 头注释
-} = {}) {
+  fake = false,                   // ⭐ 契约 §8 的模拟模式：无模型、无真实库。见 fake.ts 头注释
+}: EngineOptions = {}) {
   // ── 模拟模式（契约 §8）────────────────────────────────────────────────
   // `fake: true` ⇒ 用 fixtures/sample-index.json 造一个**零真实文件系统**的库；
   // `fake: { fixture }` ⇒ 直接注入样例对象（测试用，不依赖路径解析）。
   // ⚠️ 真实模式（默认 `false`）**一行都不走这里**。
-  const fakeKit = fake
+  const fakeObj: FakeModeOptions | null = fake && typeof fake === 'object' ? fake : null;
+  const fakeKit: FakeKit | null = fake
     ? createFakeKit({
-        fixture: fake && typeof fake === 'object' ? fake.fixture : null,
-        onEvent, now, bandOf,                       // ⚠️ bandOf 注入 —— 不在这里重算档位阈值（见 fake.mjs 头注释 ③）
-        intervalMs: fake && typeof fake === 'object' ? fake.intervalMs : null,
-        setTimer: fake && typeof fake === 'object' ? fake.setTimer : undefined,
-        clearTimer: fake && typeof fake === 'object' ? fake.clearTimer : undefined,
+        fixture: (fakeObj?.fixture ?? null) as SampleIndex | null,
+        onEvent, now, bandOf,                       // ⚠️ bandOf 注入 —— 不在这里重算档位阈值（见 fake.ts 头注释 ③）
+        intervalMs: fakeObj ? (fakeObj.intervalMs ?? null) : null,
+        setTimer: fakeObj?.setTimer,
+        clearTimer: fakeObj?.clearTimer,
       })
     : null;
 
-  const registry = fakeKit ? fakeKit.registry : new LibraryRegistry(config);
+  const registry: EngineRegistry = fakeKit ? fakeKit.registry : new LibraryRegistry(config);
   const idxRoot = indexDir || path.join(config.data_dir || path.join(process.cwd(), 'data'), 'libraries');
-  const cache = new Map();        // libId -> { header, items, vectors, meta, byUid, rowToRel }
-  const jobs = new Map();         // jobId -> { kind, libId, cancelled }
+  const cache = new Map<string, EngineEntry>();   // libId -> { header, items, vectors, meta, byUid, rowToRel }
+  const jobs = new Map<string, JobState>();       // jobId -> { kind, libId, cancelled }
 
-  function dirOf(libId) {
+  function dirOf(libId: string): string {
     return path.join(idxRoot, libId);
   }
 
   /** 懒加载并缓存某库索引；任何损坏都抛 INDEX_*（由 envelope 转信封）。 */
-  function load(libId, { reload = false } = {}) {
-    // 模拟模式：索引来自内存，**不 requireExistingRoot、不读任何文件**（见 fake.mjs 头注释 ①）
+  function load(libId: string, { reload = false }: { reload?: boolean } = {}): EngineEntry {
+    // 模拟模式：索引来自内存，**不 requireExistingRoot、不读任何文件**（见 fake.ts 头注释 ①）
     if (fakeKit) return fakeKit.load(libId);
-    if (!reload && cache.has(libId)) return cache.get(libId);
+    const cached = cache.get(libId);
+    if (!reload && cached) return cached;
     registry.requireExistingRoot(libId);
     const d = dirOf(libId);
     const bin = path.join(d, 'index.bin');
@@ -168,31 +263,37 @@ export function createEngine({
     const { header, vectors, count, dim } = readIndexBin(bin);
     const items = readItems(itemsP);
     const meta = readMeta(metaP);
-    const byUid = new Map();
-    const rowToRel = new Map();
+    const byUid = new Map<string, IndexItem>();
+    const rowToRel = new Map<number, unknown>();
     for (const it of items) {
       const rel = relOf(it);
-      byUid.set(it.uid, it);
+      // 条目缺 uid 本不该发生（uid 是索引主键，SPEC-identity §2）；原 JS 会把 undefined 当键塞进去，
+      // 这里落成空串 —— 两种都**取不到**任何真实 uid，语义等价。
+      byUid.set(it.uid ?? '', it);
       if (it.vectorRow != null) rowToRel.set(it.vectorRow, rel);
     }
-    const entry = { libId, dir: d, header, vectors, count, dim, items, meta, byUid, rowToRel };
+    const entry: EngineEntry = { libId, dir: d, header, vectors, count, dim, items, meta, byUid, rowToRel };
     cache.set(libId, entry);
     return entry;
   }
 
   /** 兼容性基准：以第一个请求的库为准；其余不等的库进 skipped 并附结构化原因。 */
-  function pickCompatible(libIds) {
+  function pickCompatible(libIds?: string[]): {
+    loaded: EngineEntry[];
+    skipped: Array<{ libId: string; reason: unknown }>;
+    base: EngineEntry | null;
+  } {
     const ids = libIds && libIds.length ? libIds : registry.list().map((l) => l.libId);
-    const loaded = [];
-    const skipped = [];
-    let base = null;
+    const loaded: EngineEntry[] = [];
+    const skipped: Array<{ libId: string; reason: unknown }> = [];
+    let base: EngineEntry | null = null;
     for (const id of ids) {
-      let e;
+      let e: EngineEntry;
       try {
         e = load(id);
       } catch (err) {
-        skipped.push({ libId: id, reason: { kind: 'unavailable', code: err.code,
-                                           userMessage: undefined, detail: err.message } });
+        skipped.push({ libId: id, reason: { kind: 'unavailable', code: codeOf(err),
+                                           userMessage: undefined, detail: messageOf(err) } });
         continue;
       }
       if (!compatComplete(e.header)) {
@@ -207,34 +308,41 @@ export function createEngine({
     return { loaded, skipped, base };
   }
 
-  async function doSearch(req = {}) {
+  async function doSearch(req: SearchRequest = {}) {
     const mode = req.mode || 'text';
     const topK = Math.max(1, Math.min(200, Number(req.topK) || 50));
     if (!encoder) throw fail(ERR.MODEL_MISSING, '引擎未注入编码器');
 
     const t0 = now();
     // ---- 查询向量 ----
-    let qvec;
+    let qvec: Float32Array | undefined;
     if (mode === 'text') {
       const text = String(req.text || '').trim();
       if (!text) throw fail(ERR.BAD_REQUEST, '查询文本为空');
       qvec = await encoder.encodeText(text);
     } else if (mode === 'image') {
       // 两种来源：库内条目（libId+uid）或用户临时挑的库外图（queryImagePath，唯一例外）
-      let abs;
+      let abs: string | undefined;
+      const ref = req.imageRef;
       if (req.queryImagePath) {
         abs = resolveQueryImage(req.queryImagePath);
-      } else if (req.imageRef && req.imageRef.libId && req.imageRef.uid) {
-        const e = load(req.imageRef.libId);
-        const it = e.byUid.get(req.imageRef.uid);
-        if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${req.imageRef.uid}`);
-        abs = resolveInLibrary(registry.get(req.imageRef.libId).root, relOf(it));
+      } else if (ref && ref.libId && ref.uid) {
+        const libId = ref.libId;
+        const uid = ref.uid;
+        const e = load(libId);
+        const it = e.byUid.get(uid);
+        if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`);
+        abs = resolveInLibrary(registry.get(libId).root, relOf(it));
       } else if (req.vector) {
         qvec = Float32Array.from(req.vector);
       } else {
         throw fail(ERR.BAD_REQUEST, '图像查询需要 imageRef / queryImagePath / vector 之一');
       }
-      if (!qvec) qvec = await encoder.encodeImage(abs);
+      if (!qvec) {
+        // 走完上面三个分支后 abs 必然已被赋值的那个分支排除掉了 —— 显式写出来只是让类型收窄。
+        if (abs === undefined) throw fail(ERR.INTERNAL, '图像查询没有解析出可用的图片路径');
+        qvec = await encoder.encodeImage(abs);
+      }
     } else if (mode === 'vector') {
       if (!req.vector) throw fail(ERR.BAD_REQUEST, 'vector 模式需要 vector');
       qvec = Float32Array.from(req.vector);
@@ -256,12 +364,20 @@ export function createEngine({
     const folders = filters.folders ? new Set(filters.folders) : null;
     const exts = filters.exts ? new Set(filters.exts) : null;
 
-    const scored = [];
+    const scored: Array<{ libId: string; item: IndexItem; score: number }> = [];
     for (const e of loaded) {
       const { vectors, dim, items } = e;
+      // doSearch 只在真实模式跑（模拟模式由 fakeKit.doSearch 接管）⇒ vectors 一定是 Float32Array。
+      // 用 instanceof 收窄而**不是类型断言**：万一模拟 entry 混进打分路径，这里当场抛，
+      // 不会静默算出满屏垃圾分数。
+      if (!(vectors instanceof Float32Array)) {
+        throw fail(ERR.INTERNAL, '索引向量块不是 Float32Array（模拟 entry 混进了打分路径）');
+      }
       for (const it of items) {
         if (it.vectorRow == null) continue;
-        if (folders && !folders.has(it.folder)) continue;
+        // 原 JS 是 folders.has(it.folder)：folder 缺失时 Set.has(undefined) 为假 ⇒ 跳过。
+        // 显式写出 folder != null 就是同一条语义（且不用把 undefined 硬塞进 Set）。
+        if (folders && !(it.folder != null && folders.has(it.folder))) continue;
         if (exts && !exts.has(String(it.imageExt || '').toLowerCase())) continue;
         const off = it.vectorRow * dim;
         let dot = 0;
@@ -303,9 +419,9 @@ export function createEngine({
     for (const l of registry.list()) {
       let rootOk = true;
       try { registry.requireExistingRoot(l.libId); } catch { rootOk = false; }
-      let e = null;
-      const problems = [];
-      try { e = load(l.libId); } catch (err) { problems.push({ code: err.code, message: err.message }); }
+      let e: EngineEntry | null = null;
+      const problems: Array<{ code: string | undefined; message: string }> = [];
+      try { e = load(l.libId); } catch (err) { problems.push({ code: codeOf(err), message: messageOf(err) }); }
       libs.push({
         libId: l.libId,
         label: l.label,
@@ -317,7 +433,7 @@ export function createEngine({
         compat: e && compatComplete(e.header) ? compatKey(e.header) : null,
         builtAt: e ? (e.header.built_at || null) : null,
         failed: e && e.meta && Array.isArray(e.meta.failed) ? e.meta.failed.length : 0,
-        healthy: rootOk && !!e && problems.length === 0 && (e.items.length === e.count),
+        healthy: rootOk && e !== null && problems.length === 0 && (e.items.length === e.count),
         problems,
       });
     }
@@ -325,13 +441,16 @@ export function createEngine({
   }
 
   /** 差分扫描：新增 / 消失 / 变化。**只读**。 */
-  function doScan({ libId } = {}) {
-    registry.requireExistingRoot(libId);
-    const e = load(libId);
-    const root = registry.get(libId).root;
+  function doScan({ libId }: ScanRequest = {}) {
+    // 原 JS 把 undefined 直接交给注册表 ⇒ Map.get(undefined) 未命中 ⇒ LIB_NOT_FOUND。
+    // 用空串走同一条路：**错误码不变**（只是消息里显示空而不是 undefined）。
+    const id = libId ?? '';
+    registry.requireExistingRoot(id);
+    const e = load(id);
+    const root = registry.get(id).root;
 
-    const disk = new Map();          // relPath -> { size, mtimeMs }
-    const walk = (dir) => {
+    const disk = new Map<string, { size: number; mtimeMs: number }>();   // relPath -> { size, mtimeMs }
+    const walk = (dir: string): void => {
       for (const de of fs.readdirSync(dir, { withFileTypes: true })) {
         const full = path.join(dir, de.name);
         if (de.isDirectory()) { walk(full); continue; }
@@ -343,23 +462,23 @@ export function createEngine({
     };
     walk(root);
 
-    const known = new Map();         // relPath -> item
+    const known = new Map<string, IndexItem>();         // relPath -> item
     for (const it of e.items) {
       const rel = relOf(it);
       if (rel) known.set(rel, it);
     }
 
-    const fresh = [];
-    const changed = [];
+    const fresh: Array<{ relPath: string; stem: string }> = [];
+    const changed: Array<{ relPath: string; uid?: string; what: string[] }> = [];
     for (const [rel, s] of disk) {
       const it = known.get(rel);
       if (!it) { fresh.push({ relPath: rel, stem: path.basename(rel, path.extname(rel)) }); continue; }
-      const what = [];
+      const what: string[] = [];
       if (it.imageSize != null && Number(it.imageSize) !== s.size) what.push('size');
       if (it.imageMtime != null && Number(it.imageMtime) !== s.mtimeMs) what.push('mtime');
       if (what.length) changed.push({ relPath: rel, uid: it.uid, what });
     }
-    const missing = [];
+    const missing: Array<{ relPath: string; uid?: string }> = [];
     for (const [rel, it] of known) if (!disk.has(rel)) missing.push({ relPath: rel, uid: it.uid });
 
     const fp = fingerprintV1(root);
@@ -372,10 +491,11 @@ export function createEngine({
   }
 
   /** 取件：把选中的包（或图）复制到**已配置的**目标目录。库侧零写入。 */
-  function doCollect({ libId, uids, targetDirName, target = 'auto' } = {}) {
-    registry.requireExistingRoot(libId);
-    const e = load(libId);
-    const root = registry.get(libId).root;
+  function doCollect({ libId, uids, targetDirName, target = 'auto' }: CollectRequest = {}) {
+    const id = libId ?? '';
+    registry.requireExistingRoot(id);
+    const e = load(id);
+    const root = registry.get(id).root;
     const list = Array.isArray(uids) ? uids : [];
     if (!list.length) throw fail(ERR.BAD_REQUEST, 'uids 为空');
     if (list.length > 200) throw fail(ERR.BAD_REQUEST, `一次最多取 200 件，收到 ${list.length}`);
@@ -384,18 +504,18 @@ export function createEngine({
     fs.mkdirSync(dir, { recursive: true });
 
     // 先算总量并做**空间预检**（不要复制到一半才发现不够）
-    const plan = [];
-    const failed = [];
-    const skipped = [];
+    const plan: Array<{ uid: string; abs: string; dest: string; size: number; kind: string; rel: string | null }> = [];
+    const failed: Array<{ uid: string; error: { code: string; message: string; rel?: string | null } }> = [];
+    const skipped: Array<{ uid: string; reason: string; path: string }> = [];
     let totalBytes = 0;
     for (const uid of list) {
       const it = e.byUid.get(uid);
       if (!it) { failed.push({ uid, error: { code: ERR.UID_NOT_FOUND, message: 'uid 不在索引中' } }); continue; }
-      let src;
+      let src: { rel: string | null; kind: string };
       try {
         src = pickCollectSource(it, target);
       } catch (err) {
-        failed.push({ uid, error: { code: err.code, message: err.message } });
+        failed.push({ uid, error: { code: codeOf(err) ?? ERR.INTERNAL, message: messageOf(err) } });
         continue;
       }
       const abs = resolveInLibrary(root, src.rel);          // 含库根包含 + 链接校验
@@ -420,23 +540,23 @@ export function createEngine({
             { free, need: totalBytes, dir });
         }
       } catch (err) {
-        if (err && err.code === ERR.DISK_FULL) throw err;
+        if (codeOf(err) === ERR.DISK_FULL) throw err;
         // statfs 不可用（老平台）→ 不阻断，交给写入时报错
       }
     }
 
     const jobId = `j-${Math.random().toString(16).slice(2, 6)}`;
-    const succeeded = [];
+    const succeeded: Array<{ uid: string; kind: string; path: string; bytes: number }> = [];
     for (const p of plan) {
       try {
         fs.copyFileSync(p.abs, p.dest, fs.constants.COPYFILE_EXCL);   // EXCL：绝不覆盖
         succeeded.push({ uid: p.uid, kind: p.kind, path: p.dest, bytes: p.size });
       } catch (err) {
-        const code = err && err.code === 'EEXIST' ? ERR.COLLECT_TARGET_EXISTS : ERR.INTERNAL;
+        const code = codeOf(err) === 'EEXIST' ? ERR.COLLECT_TARGET_EXISTS : ERR.INTERNAL;
         if (code === ERR.COLLECT_TARGET_EXISTS) {
           skipped.push({ uid: p.uid, reason: 'already-exists', path: p.dest });
         } else {
-          failed.push({ uid: p.uid, error: { code, message: err.message } });
+          failed.push({ uid: p.uid, error: { code, message: messageOf(err) } });
         }
       }
     }
@@ -448,7 +568,7 @@ export function createEngine({
   const api = {
     registry,
     /** 供测试与诊断：强制重新读索引 */
-    reload(libId) { cache.delete(libId); return load(libId); },
+    reload(libId: string) { cache.delete(libId); return load(libId); },
     /**
      * 解析某条素材的绝对路径。**仅供主进程内部使用**（`thumb://` 协议处理器），
      * 刻意**不主动交给渲染进程** —— 契约 §0 要求"路径只能由 lib_id+uid 解析"。
@@ -456,29 +576,30 @@ export function createEngine({
      * ⚠️ **2026-10-13 更正**：这里原来写着"把这个结果交给渲染进程就等于把绝对路径泄出去了"，
      * 而 P3c 明确要显示两条路径 ⇒ 那句话与需求冲突（而且 `reveal` 早就返回了 `path`，立场本就不自洽）。
      * 处置（所有者决定）：**不把它塞进 `item`**，而是新增一个语义明确、有文档、可审计的只读方法
-     * **`itemPaths`**（见上面）。本方法保持"主进程内部用"的定位不变 —— 两条路各司其职。
+     * **`itemPaths`**（见下面）。本方法保持"主进程内部用"的定位不变 —— 两条路各司其职。
      * 仍走完整的包含校验与符号链接校验。
      */
-    absPathFor(libId, uid) {
+    absPathFor(libId: string, uid: string) {
       const e = load(libId);
       const it = e.byUid.get(uid);
       if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
       return resolveInLibrary(registry.get(libId).root, relOf(it));
     },
-    search: (req) => envelope(async () => (fakeKit ? fakeKit.doSearch(req) : doSearch(req))),
+    search: (req: SearchRequest) => envelope(async () => (fakeKit ? fakeKit.doSearch(req) : doSearch(req))),
     indexStatus: () => envelope(async () => (fakeKit ? fakeKit.doIndexStatus() : doIndexStatus())),
-    scan: (req) => envelope(async () => (fakeKit ? fakeKit.doScan(req) : doScan(req))),
-    collect: (req) => envelope(async () => doCollect(req)),
-    item: ({ libId, uid } = {}) => envelope(async () => {
+    scan: (req: ScanRequest) => envelope(async () => (fakeKit ? fakeKit.doScan(req) : doScan(req))),
+    collect: (req: CollectRequest) => envelope(async () => doCollect(req)),
+    item: ({ libId, uid }: ItemRequest = {}) => envelope(async () => {
       // 模拟模式：索引在内存里，**不 requireExistingRoot、不读盘** —— 所以 exists 也走样例数据
       if (fakeKit) return fakeKit.doItem({ libId, uid });
-      const e = load(libId);
-      const it = e.byUid.get(uid);
+      const id = libId ?? '';
+      const e = load(id);
+      const it = e.byUid.get(uid ?? '');
       if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
       const rel = relOf(it);
-      const abs = resolveInLibrary(registry.get(libId).root, rel);
+      const abs = resolveInLibrary(registry.get(id).root, rel);
       const arcAbs = it.archiveRelPath
-        ? resolveInLibrary(registry.get(libId).root, it.archiveRelPath) : null;
+        ? resolveInLibrary(registry.get(id).root, it.archiveRelPath) : null;
       return ok({
         libId, uid, relPath: rel, folder: it.folder, stem: it.stem,
         imageExt: it.imageExt, imageSize: it.imageSize, imageMtime: it.imageMtime,
@@ -500,13 +621,14 @@ export function createEngine({
      *
      * 仍走完整的**库根包含校验与符号链接校验**（`resolveInLibrary`）—— 不是绕开它们另开一条路。
      */
-    itemPaths: ({ libId, uid } = {}) => envelope(async () => {
-      // 模拟模式：路径由样例数据拼出，**不读盘**（fake.mjs 头注释 ①）
+    itemPaths: ({ libId, uid }: ItemRequest = {}) => envelope(async () => {
+      // 模拟模式：路径由样例数据拼出，**不读盘**（fake.ts 头注释 ①）
       if (fakeKit) return fakeKit.doItemPaths({ libId, uid });
-      const e = load(libId);
-      const it = e.byUid.get(uid);
+      const id = libId ?? '';
+      const e = load(id);
+      const it = e.byUid.get(uid ?? '');
       if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
-      const root = registry.get(libId).root;
+      const root = registry.get(id).root;
       const imagePath = resolveInLibrary(root, relOf(it));
       const archivePath = it.archiveRelPath ? resolveInLibrary(root, it.archiveRelPath) : null;
       return ok({
@@ -533,32 +655,33 @@ export function createEngine({
     // ── 长任务与写操作（契约 §2.6–§2.11 / §3 / §5）────────────────────────
     // 这几个方法的**形状已冻结、真实实现未接线**：
     //   · 真实模式 ⇒ **如实 `INTERNAL`**，绝不假装成功；
-    //   · 模拟模式 ⇒ 交给 `fake.mjs`（契约 §8，让「P3 不等真实库」的那条路）。
+    //   · 模拟模式 ⇒ 交给 `fake.ts`（契约 §8，让「P3 不等真实库」的那条路）。
     //
     // ⚠️ 2026-10-13 改成**生成式**：原来这 6 个是逐段手抄的（每段除了方法名一模一样）—— 那是 P2。
     //    现在由 **`UNIMPLEMENTED_METHODS` 一份定义**驱动；假套件的键与方法名**一一对应**
-    //    （见 `fake.mjs` 的 return —— 那里刻意按方法名作键），所以这里只要 `fakeKit[name]`，
+    //    （见 `fake.ts` 的 return —— 那里刻意按方法名作键），所以这里只要 `fakeKit[name]`，
     //    不另设"方法名→套件名"的映射表（那种表两个方向都会漂移）。
     //    主进程也读这份清单来给出**一致的**用户文案（`main/index.mjs`）——
     //    这样"哪些没做"全仓只有一处定义（P1）。
-    ...Object.fromEntries(UNIMPLEMENTED_METHODS.map((name) => [
+    ...Object.fromEntries(UNIMPLEMENTED_METHODS.map((name): [string, (req: unknown) => Promise<unknown>] => [
       name,
       (req) => envelope(async () => {
         if (!fakeKit) throw fail(ERR.INTERNAL, '这个功能还没做好。', { method: name });
         const fn = fakeKit[name];
-        if (typeof fn !== 'function') {
+        if (!isFakeMethod(fn)) {
           // 假套件里少接一个方法 = 契约 §8 的演示能力缺一块，必须显式炸而不是静默 undefined
           throw fail(ERR.INTERNAL, `模拟套件缺少实现：${name}`, { method: name });
         }
         return fn(req);
       }),
     ])),
-    reveal: ({ libId, uid, target = 'archive' } = {}) => envelope(async () => {
-      const e = load(libId);
-      const it = e.byUid.get(uid);
+    reveal: ({ libId, uid, target = 'archive' }: RevealRequest = {}) => envelope(async () => {
+      const id = libId ?? '';
+      const e = load(id);
+      const it = e.byUid.get(uid ?? '');
       if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
       const rel = target === 'archive' ? (it.archiveRelPath || relOf(it)) : relOf(it);
-      const abs = resolveInLibrary(registry.get(libId).root, rel);
+      const abs = resolveInLibrary(registry.get(id).root, rel);
       if (!fs.existsSync(abs)) throw fail(ERR.ITEM_MISSING_ON_DISK, `文件不存在：${rel}`, { rel });
 
       // ⚠️ **未注入端口必须显式失败，不许返回 ok**（F-01，契约 §2.4 第 2 条）。

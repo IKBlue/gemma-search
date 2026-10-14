@@ -16,7 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { createTxnExecutor } from '../../src/transactions/executor.mjs';
+import { createTxnExecutor } from '../../src/transactions/executor.ts';
 
 const [libRoot, journalDir, crashPoint, markerDir, srcRel, dstRel] = process.argv.slice(2);
 

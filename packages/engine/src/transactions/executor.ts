@@ -1,4 +1,4 @@
-// packages/engine/src/transactions/executor.mjs —— 事务执行器（规格 §1/§3/§5/§6）
+// packages/engine/src/transactions/executor.ts —— 事务执行器（规格 §1/§3/§5/§6）
 //
 // ⚠️ **本目录是引擎里唯一允许写素材文件的路径**（§9）。这条不是口号：
 //    `packages/engine/tests/transactions-write-path.test.mjs` 会机械地检查
@@ -13,13 +13,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { S, canCancel } from './states.mjs';
-import { ensureJournalDir, makeTxnId, txnPath, writeTxn, persistState } from './journal.mjs';
-import { sha1File } from './hash.mjs';
-import { cleanStaging, verifyStaged, commitRenames, applyIndex, cleanupSources, STAGING_DIRNAME } from './steps.mjs';
+import { S, canCancel } from './states.ts';
+import { ensureJournalDir, makeTxnId, txnPath, writeTxn, persistState } from './journal.ts';
+import { sha1File } from './hash.ts';
+import { cleanStaging, verifyStaged, commitRenames, applyIndex, cleanupSources, STAGING_DIRNAME } from './steps.ts';
+import { messageOf } from '../errors.ts';
+import type { TxnRecord } from './journal.ts';
+import type { IndexPort } from './steps.ts';
 
-/** staging 目录名（§1 的示例是 `.gs-staging`）。⚠️ 定义在 `steps.mjs`，这里**只 import 不重定义**。 */
-export { STAGING_DIRNAME } from './steps.mjs';
+/** staging 目录名（§1 的示例是 `.gs-staging`）。⚠️ 定义在 `steps.ts`，这里**只 import 不重定义**。 */
+export { STAGING_DIRNAME } from './steps.ts';
 
 /** §8 的注入点名字。**必须与实际到达位置一一对应** —— 测试靠它证明"确实杀在那个边界上"。 */
 export const CRASH_POINTS = Object.freeze([
@@ -33,10 +36,82 @@ export const CRASH_POINTS = Object.freeze([
   'after-index',       // 8：索引已更新、源未删
 ]);
 
-// `sha1File` 已移到 `./hash.mjs`（只有一份实现）；本文件按需 import。
+// `sha1File` 已移到 `./hash.ts`（只有一份实现）；本文件按需 import。
+
+/** 一次移动请求里的一条文件 */
+export interface FileMove {
+  role?: string;
+  src: string;
+  dst: string;
+}
+
+/** checkSpace() 的逐卷明细 */
+export interface SpaceDetail {
+  vol: string;
+  dir: string;
+  staged: number;
+  extraBytes: number;
+  need: number;
+  free: number | null;
+}
+
+/** checkSpace() 的返回 */
+export interface SpaceCheck {
+  ok: boolean;
+  need: number;
+  details: SpaceDetail[];
+  reason?: string;
+}
+
+/** preflight() 的返回：要么给出幂等命中的下标，要么给出拒绝原因 */
+export type PreflightResult =
+  | { ok: true; idempotentIdx: Set<number> }
+  | { ok: false; reason: string; kind: string };
+
+/** runMove() 的入参 */
+export interface MoveRequest {
+  libId: string;
+  uid: string;
+  /** §1 的 op 之一（ingest | rename-id | move-folder | re-pair | replace-image | move-out | move-lib | restore） */
+  op: string;
+  /** `{role:'image'|'archive', src, dst}` 列表 */
+  files?: FileMove[];
+  reason?: string;
+  /** 复用已有 id（恢复流程用） */
+  txnId?: string | null;
+  extraBytes?: number;
+}
+
+/** runMove() 的返回 */
+export interface MoveResult {
+  outcome: 'committed' | 'aborted' | 'recovery_needed';
+  txnId: string | null;
+  rec: TxnRecord | null;
+  detail?: string | null;
+}
+
+/** requestCancel() 的返回 */
+export interface CancelResult {
+  cancelled: boolean;
+  at: string;
+  reason?: string;
+}
+
+/** createTxnExecutor() 的入参 */
+export interface TxnExecutorOptions {
+  /** 日志目录（**注入**；引擎不认 `%APPDATA%`） */
+  journalDir?: string;
+  /** 索引更新端口。**必填** —— 缺了它"CLEANED 前必须更新索引"无从保证 */
+  indexPort?: IndexPort;
+  /** 故障注入：到达注入点后由调用方"杀死"本进程 */
+  onCrash?: ((point: string) => void) | null;
+  /** 要在哪个注入点杀（见 `CRASH_POINTS`） */
+  crashAt?: string | null;
+  now?: () => number;
+}
 
 /** 同卷 staging 路径：`<dst 所在目录>/.gs-staging/<txnId>/<dst 文件名>`（§1 的示例形态） */
-export function stagingPathFor(dst, txnId) {
+export function stagingPathFor(dst: string, txnId: string): string {
   return path.join(path.dirname(dst), STAGING_DIRNAME, txnId, path.basename(dst));
 }
 
@@ -47,7 +122,7 @@ export function stagingPathFor(dst, txnId) {
  *    拿它去 `statfs` 会 ENOENT（实测踩过：整条流程因此静默 abort、日志为空、看不出原因）。
  *    目录本身对 statfs 完全够用，且相对/绝对路径都能工作。
  */
-export function freeBytesOn(dir) {
+export function freeBytesOn(dir: string): number | null {
   try {
     const st = fs.statfsSync(dir);
     return Number(st.bavail) * Number(st.bsize);
@@ -66,14 +141,10 @@ export function freeBytesOn(dir) {
  * ⚠️ 规格里那几项**都是情境相关的输入** ⇒ 由调用方经 `extraBytes` 传入，
  *    **不在这里写死**（P3：不许硬编码应当可配置的值；而 11 MB / 1.7 GB 会随后续决策变化）。
  * ⚠️ **不额外加安全系数** —— 规格只写了"需要 X、可用 Y"的具体数字，加戏就等于改判据。
- *
- * @param {Array<{src:string,dst:string}>} files
- * @param {{extraBytes?:number}} [opts]
- * @returns {{ok:boolean, need:number, details:Array, reason?:string}}
  */
-export function checkSpace(files, { extraBytes = 0 } = {}) {
+export function checkSpace(files: FileMove[], { extraBytes = 0 }: { extraBytes?: number } = {}): SpaceCheck {
   // 按**目标卷**归组：不同卷各有各的余量，不能拿一个卷的数字去判另一个卷
-  const groups = new Map();
+  const groups = new Map<string, { vol: string; dir: string; staged: number }>();
   for (const f of files) {
     const dir = path.resolve(path.dirname(f.dst));
     const vol = path.parse(dir).root || dir;
@@ -82,7 +153,7 @@ export function checkSpace(files, { extraBytes = 0 } = {}) {
     groups.set(vol, g);
   }
 
-  const details = [];
+  const details: SpaceDetail[] = [];
   for (const g of groups.values()) {
     const need = g.staged + Number(extraBytes) || g.staged;
     const free = freeBytesOn(g.dir);
@@ -103,8 +174,8 @@ export function checkSpace(files, { extraBytes = 0 } = {}) {
  * ⚠️ **不改入参** —— 返回 `idempotentIdx`（下标集合）而不是往调用方的对象上挂 `_idempotent` 字段。
  *    改别人的数据是隐性耦合，后面必然出怪事。
  */
-export function preflight(files) {
-  const idempotentIdx = new Set();
+export function preflight(files: FileMove[]): PreflightResult {
+  const idempotentIdx = new Set<number>();
   for (let i = 0; i < files.length; i += 1) {
     const f = files[i];
     // ⚠️ 源与目标是同一个路径 ⇒ **直接拒绝**。这种请求下"幂等命中"会成立，
@@ -125,13 +196,6 @@ export function preflight(files) {
 
 /**
  * 建一个执行器实例。
- *
- * @param {object} o
- * @param {string} o.journalDir   日志目录（**注入**；引擎不认 `%APPDATA%`）
- * @param {{update:Function}} o.indexPort 索引更新端口。**必填** —— 缺了它"CLEANED 前必须更新索引"无从保证
- * @param {(point:string)=>void} [o.onCrash] 故障注入：到达注入点后由调用方"杀死"本进程
- * @param {string|null} [o.crashAt] 要在哪个注入点杀（见 `CRASH_POINTS`）
- * @param {()=>number} [o.now]
  */
 export function createTxnExecutor({
   journalDir,
@@ -139,13 +203,16 @@ export function createTxnExecutor({
   onCrash = null,
   crashAt = null,
   now = Date.now,
-} = {}) {
+}: TxnExecutorOptions = {}) {
   if (!journalDir) throw new Error('createTxnExecutor: 必须注入 journalDir');
   if (!indexPort || typeof indexPort.update !== 'function') {
-    throw new Error('createTxnExecutor: 必须注入 indexPort.update（否则无法保证"索引更新成功后才清源"）');
+    throw new Error('createTxnExecutor: 必须注入 indexPort.update（否则无法保证"索引更新成功后清源"）');
   }
+  // 收窄到局部常量：上面两条守卫之后，闭包里用它们不必再靠 CFA 跨函数边界推断。
+  const journal = journalDir;
+  const port = indexPort;
 
-  // ⚠️ `cleanStaging` 已移到 `./steps.mjs`（**只有一份实现**，恢复路径用的是同一份）。
+  // ⚠️ `cleanStaging` 已移到 `./steps.ts`（**只有一份实现**，恢复路径用的是同一份）。
   //    这里**不再**定义本地版本 —— 定义了就会遮蔽 import，于是"两条路径共用一份"变成空话。
 
   /**
@@ -157,7 +224,7 @@ export function createTxnExecutor({
    *    §8 因此明确要求"必须真的杀进程，不能只做代码评审"。
    *    ⇒ 本函数**只负责通知**；调用方（子进程）应当 `process.exit()` 或挂起等外部 kill。
    */
-  const hit = (point) => {
+  const hit = (point: string): void => {
     if (crashAt !== point) return;
     if (onCrash) onCrash(point);
     // 没有 onCrash ⇒ 显式抛，**不静默继续**（但要知道：这在语义上不等于"被杀"）
@@ -166,21 +233,16 @@ export function createTxnExecutor({
 
   // ⚠️ "检查跃迁合法性 + write-ahead 落盘" 已提到 `journal.persistState` ——
   //    恢复路径用的是**同一份**（各写一份的话，合法性检查迟早有一边漏掉）。
-  const persist = (rec, next, patch = {}) => persistState(journalDir, rec, next, patch, now());
+  const persist = (rec: TxnRecord, next: string, patch: Partial<TxnRecord> = {}): TxnRecord =>
+    persistState(journal, rec, next, patch, now());
 
   /**
    * 跑一次移动类事务。
-   *
-   * @param {object} req
-   * @param {string} req.libId
-   * @param {string} req.uid
-   * @param {string} req.op  §1 的 op 之一（ingest | rename-id | move-folder | re-pair | replace-image | move-out | move-lib | restore）
-   * @param {Array<{role:'image'|'archive', src:string, dst:string}>} req.files
-   * @param {string} [req.txnId] 复用已有 id（恢复流程用）
-   * @returns {{outcome:'committed'|'aborted'|'recovery_needed', txnId:string, rec:object, detail?:string}}
    */
-  function runMove({ libId, uid, op, files = [], reason = '用户操作', txnId = null, extraBytes = 0 }) {
-    ensureJournalDir(journalDir);
+  function runMove({
+    libId, uid, op, files = [], reason = '用户操作', txnId = null, extraBytes = 0,
+  }: MoveRequest): MoveResult {
+    ensureJournalDir(journal);
     if (files.length === 0) return { outcome: 'aborted', txnId, rec: null, detail: '没有文件要动' };
 
     // ── ① 预检（§3）────────────────────────────────────────────────
@@ -195,7 +257,7 @@ export function createTxnExecutor({
 
     const id = txnId || makeTxnId(now());
     const t = now();
-    let rec = {
+    let rec: TxnRecord = {
       txnId: id, state: S.PREPARED, op, libId, uid, reason,
       createdAt: new Date(t).toISOString(), updatedAt: new Date(t).toISOString(),
       files: files.map((f, i) => ({
@@ -215,7 +277,7 @@ export function createTxnExecutor({
     hit('before-prepared');
 
     // ── ② PREPARED：写日志 + fsync（write-ahead）────────────────────
-    writeTxn(journalDir, rec);
+    writeTxn(journal, rec);
     hit('after-prepared');                               // 注入点 2：PREPARED 已落盘、还没动任何文件
 
     // ── ③ STAGED：复制到**目标卷**的 staging（不覆盖任何既有文件）────
@@ -237,9 +299,10 @@ export function createTxnExecutor({
       }
     } catch (err) {
       // staging 阶段出问题 ⇒ 还没动过任何最终文件 ⇒ 回退（**清 staging**，源不动）
-      rec = persist(rec, S.ABORTED, { abortedAt: new Date(now()).toISOString(), abortReason: String(err && err.message) });
+      const why = messageOf(err);
+      rec = persist(rec, S.ABORTED, { abortedAt: new Date(now()).toISOString(), abortReason: why });
       cleanStaging(rec);
-      return { outcome: 'aborted', txnId: id, rec, detail: String(err && err.message) };
+      return { outcome: 'aborted', txnId: id, rec, detail: why };
     }
 
     // 回填 staging 的实际哈希，然后 **STAGED 落盘**（write-ahead：校验之前先记下"已暂存"）
@@ -252,7 +315,7 @@ export function createTxnExecutor({
     hit('after-staging');                                // 注入点 4：staging 完成、校验前
 
     // ── ④ VERIFIED：逐个比对 stagedSha1 == 源 sha1（§3 ④）──────────
-    //    判定用**共享原语** `verifyStaged`（`recovery.mjs` 走的是同一份）
+    //    判定用**共享原语** `verifyStaged`（`recovery.ts` 走的是同一份）
     const ver = verifyStaged(rec);
     if (!ver.ok) {
       rec = persist(rec, S.ABORTED, { abortReason: `校验失败：${rec.files[ver.bad[0]].dst}` });
@@ -277,13 +340,13 @@ export function createTxnExecutor({
 
     // ── ⑥ 更新索引（同一事务内）；**失败则停在 COMMITTED，绝不去清源** ──
     //    规则 ① 的关键：`applyIndex` 失败时**绝不往下走到 cleanupSources**。
-    const ix = applyIndex(indexPort, rec);
+    const ix = applyIndex(port, rec);
     if (!ix.ok) {
       rec = persist(rec, S.RECOVERY_NEEDED, { recoveryReason: ix.error });
       return { outcome: 'recovery_needed', txnId: id, rec, detail: ix.error };
     }
     rec = { ...rec, indexUpdate: { ...rec.indexUpdate, done: true } };
-    writeTxn(journalDir, rec);
+    writeTxn(journal, rec);
     hit('after-index');                                  // 注入点 8：索引已更新、源未删
 
     // ── ⑦ CLEANED：删源 + 审计（**规则 ① 现在才允许删源**）────────
@@ -297,10 +360,10 @@ export function createTxnExecutor({
    * 边界取消（§5）：**只在状态边界生效**；`COMMITTED` 之后不可取消。
    * 返回 `{cancelled:boolean, at:string}` —— 不可取消时**如实说不可以**，不假装成功。
    */
-  function requestCancel(rec) {
+  function requestCancel(rec: TxnRecord): CancelResult {
     if (canCancel(rec.state)) return { cancelled: true, at: rec.state };
     return { cancelled: false, at: rec.state, reason: `状态 ${rec.state} 不可取消（§5：COMMITTED 之后必须把索引更新完）` };
   }
 
-  return { runMove, requestCancel, journalDir, txnFile: (id) => txnPath(journalDir, id) };
+  return { runMove, requestCancel, journalDir: journal, txnFile: (id: string) => txnPath(journal, id) };
 }

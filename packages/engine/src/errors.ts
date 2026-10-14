@@ -1,4 +1,4 @@
-// core/errors.mjs —— 错误码与结果信封（docs/spec/CONTRACT-engine-v1.md §1）
+// core/errors.ts —— 错误码与结果信封（docs/spec/CONTRACT-engine-v1.md §1）
 //
 // 契约要求：**按 code 分支，绝不按 message 分支**。
 // 所以错误码在这里集中定义一次，界面与测试都从这里取。
@@ -28,6 +28,15 @@ export const ERR = Object.freeze({
   // 契约 §1.3 明写「新增=兼容，改名=破坏性」，所以新增是安全的。
   PORT_MISSING: 'PORT_MISSING',
 });
+
+/** ERR 的取值联合。有了它，`USER_MESSAGE[code]` 这类查表在编译期就能被检查（不必用 any）。 */
+export type ErrorCode = (typeof ERR)[keyof typeof ERR];
+
+/**
+ * 错误信封里的 details：调用方塞进去的诊断信息。
+ * **故意是 unknown**：引擎只负责把它原样搬到信封里，不假装知道各家调用方塞了什么形状。
+ */
+export type ErrorDetails = Record<string, unknown>;
 
 /**
  * 用户可见文案。**不含绝对路径**（界面可能显示、可能被截图外发）。
@@ -61,7 +70,10 @@ export const USER_MESSAGE = Object.freeze({
 
 /** 引擎内部的类型化错误。**不直接抛给调用方** —— 由 envelope() 转成 §1.1 的信封。 */
 export class EngineError extends Error {
-  constructor(code, message, details = {}) {
+  code: ErrorCode;
+  details: ErrorDetails;
+
+  constructor(code: ErrorCode, message?: string, details: ErrorDetails = {}) {
     super(message || code);
     this.name = 'EngineError';
     this.code = code;
@@ -69,13 +81,34 @@ export class EngineError extends Error {
   }
 }
 
-export const fail = (code, message, details) => new EngineError(code, message, details);
+export const fail = (code: ErrorCode, message?: string, details: ErrorDetails = {}): EngineError =>
+  new EngineError(code, message, details);
 
 /** 成功信封 */
-export const ok = (data, warnings = []) => ({ ok: true, data, warnings });
+export interface OkEnvelope<T = unknown> {
+  ok: true;
+  data: T;
+  warnings: string[];
+}
 
 /** 失败信封（§1.1） */
-export function err(code, message, details = {}) {
+export interface ErrEnvelope {
+  ok: false;
+  error: {
+    code: ErrorCode;
+    message: string;
+    userMessage: string;
+    details: ErrorDetails;
+  };
+}
+
+export type Envelope<T = unknown> = OkEnvelope<T> | ErrEnvelope;
+
+/** 成功信封 */
+export const ok = <T>(data: T, warnings: string[] = []): OkEnvelope<T> => ({ ok: true, data, warnings });
+
+/** 失败信封（§1.1） */
+export function err(code: ErrorCode, message?: string, details: ErrorDetails = {}): ErrEnvelope {
   return {
     ok: false,
     error: {
@@ -88,14 +121,32 @@ export function err(code, message, details = {}) {
 }
 
 /**
+ * 把 catch 到的 unknown 变成可读文案。
+ * catch 的变量现在是 unknown（useUnknownInCatchVariables），**不许直接取属性** ——
+ * 所以这里显式收窄：Error 取 message，长得像 { message } 的取 message，其余给 'unknown'。
+ * 语义与原 JS 版一致：message 为空/假值时仍回落到 'unknown'。
+ */
+export function messageOf(e: unknown): string {
+  if (e instanceof Error) return e.message || 'unknown';
+  if (typeof e === 'object' && e !== null && 'message' in e) {
+    const m = (e as { message: unknown }).message;
+    if (m) return String(m);
+  }
+  return 'unknown';
+}
+
+/**
  * 把任意函数包成"永不抛异常给调用方"的形态（契约 §1.1）。
  * 内部异常一律转成信封：EngineError 保留 code，其余归为 INTERNAL。
  */
-export async function envelope(fn) {
+export async function envelope<T>(fn: () => T | Promise<T>): Promise<T | ErrEnvelope> {
   try {
+    // ⚠️ **原样返回**，不要再包一层 `ok()`：被包的都是引擎自己已经返回信封的方法
+    //    （`doSearch`/`doCollect`/… 都 return `ok({...})`）。这里再包一次 = 双层信封，
+    //    调用方读 `res.data.results` 会拿到 undefined —— 实测就是这么被 fake 用例抓到的。
     return await fn();
   } catch (e) {
     if (e instanceof EngineError) return err(e.code, e.message, e.details);
-    return err(ERR.INTERNAL, e && e.message ? String(e.message) : 'unknown');
+    return err(ERR.INTERNAL, messageOf(e));
   }
 }

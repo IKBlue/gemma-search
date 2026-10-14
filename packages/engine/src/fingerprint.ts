@@ -1,4 +1,4 @@
-// core/fingerprint.mjs —— 库指纹 v1（SPEC-identity §5）
+// core/fingerprint.ts —— 库指纹 v1（SPEC-identity §5）
 //
 //   fingerprint_v1 = sha1( "v1\n" + join("\n", sorted(rel\tsize\tmtime_ms\text)) )
 //
@@ -14,6 +14,29 @@ import crypto from 'node:crypto';
 export const IMG_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.bmp']);
 export const ARCHIVE_EXT = new Set(['.rar', '.zip', '.7z']);
 
+/** 按扩展名分类的计数（指纹结果的一部分，供体检面板显示） */
+export interface FingerprintCounts {
+  files: number;
+  images: number;
+  archives: number;
+  other: number;
+}
+
+/** fingerprintLines() 的返回：规范化行 + 统计 */
+export interface FingerprintLines {
+  lines: string[];
+  counts: FingerprintCounts;
+  totalBytes: number;
+}
+
+/** fingerprintV1() 的返回 */
+export interface FingerprintResult {
+  fingerprint: string;
+  counts: FingerprintCounts;
+  totalBytes: number;
+  computedAt: string;
+}
+
 /**
  * 遍历库内所有文件（图与包），返回规范化的行数组。
  * 只做 stat，不读内容 —— 所以很快（7188 文件约 30–60 ms）。
@@ -27,13 +50,13 @@ export const ARCHIVE_EXT = new Set(['.rar', '.zip', '.7z']);
  *    所以这里显式用 BigInt 纳秒截断，**不用 `mtimeMs`**（它自带未文档化的舍入）。
  *    定义：mtime_ms = floor(mtime_ns / 1e6)
  */
-export function fingerprintLines(root) {
-  const lines = [];
-  const counts = { files: 0, images: 0, archives: 0, other: 0 };
+export function fingerprintLines(root: string): FingerprintLines {
+  const lines: string[] = [];
+  const counts: FingerprintCounts = { files: 0, images: 0, archives: 0, other: 0 };
   let totalBytes = 0;
 
-  const walk = (dir) => {
-    let entries;
+  const walk = (dir: string): void => {
+    let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
@@ -64,11 +87,12 @@ export function fingerprintLines(root) {
 
 /**
  * 算 v1 指纹。
- * @returns {{ fingerprint:string, counts:object, totalBytes:number, computedAt:string }}
  */
-export function fingerprintV1(root) {
+export function fingerprintV1(root: string): FingerprintResult {
   if (!fs.existsSync(root)) {
-    const e = new Error(`素材库目录不存在：${root}`);
+    // ⚠️ 这里**故意抛普通 Error + code**，不是 EngineError：调用方按 `e.code` 判定，
+    //    而 security.test 用 `e instanceof EngineError` 分流 —— 换成 EngineError 会改变那个结果。
+    const e: Error & { code?: string } = new Error(`素材库目录不存在：${root}`);
     e.code = 'LIB_ROOT_MISSING';
     throw e;
   }
@@ -87,14 +111,19 @@ export function fingerprintV1(root) {
   };
 }
 
+/** deepHashImages() 的进度回调（每 200 张一次） */
+export interface DeepHashOptions {
+  onProgress?: (n: number) => void;
+}
+
 /**
  * 深度校验（另一档）：对**预览图**逐个算 sha1。**不含压缩包**（206 GB）。
  * 供"库健康面板"按需触发。
  */
-export function deepHashImages(root, { onProgress } = {}) {
-  const out = new Map();
+export function deepHashImages(root: string, { onProgress }: DeepHashOptions = {}): Map<string, string> {
+  const out = new Map<string, string>();
   let n = 0;
-  const walk = (dir) => {
+  const walk = (dir: string): void => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, e.name);
       if (e.isDirectory()) { walk(full); continue; }

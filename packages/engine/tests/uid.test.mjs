@@ -20,9 +20,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = (() => {
   let p = HERE;
   for (;;) {
-    if (fs.existsSync(path.join(p, 'packages', 'engine', 'src', 'engine.mjs'))) return p;
+    if (fs.existsSync(path.join(p, 'packages', 'engine', 'src', 'engine.ts'))) return p;
     const up = path.dirname(p);
-    if (up === p) throw new Error('找不到仓库根（向上找不到 packages/engine/src/engine.mjs）');
+    if (up === p) throw new Error('找不到仓库根（向上找不到 packages/engine/src/engine.ts）');
     p = up;
   }
 })();

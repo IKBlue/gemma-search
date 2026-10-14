@@ -10,9 +10,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { isSafeRelPath, resolveInLibrary, resolveQueryImage, assertCollectDirAllowed,
-         LibraryRegistry } from '../src/library.mjs';
-import { ERR, EngineError } from '../src/errors.mjs';
-import { fingerprintV1, fingerprintLines } from '../src/fingerprint.mjs';
+         LibraryRegistry } from '../src/library.ts';
+import { ERR, EngineError } from '../src/errors.ts';
+import { fingerprintV1, fingerprintLines } from '../src/fingerprint.ts';
 import { resolveTestLibraryRoot } from './lib-root.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -21,9 +21,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = (() => {
   let p = HERE;
   for (;;) {
-    if (fs.existsSync(path.join(p, 'packages', 'engine', 'src', 'engine.mjs'))) return p;
+    if (fs.existsSync(path.join(p, 'packages', 'engine', 'src', 'engine.ts'))) return p;
     const up = path.dirname(p);
-    if (up === p) throw new Error('找不到仓库根（向上找不到 packages/engine/src/engine.mjs）');
+    if (up === p) throw new Error('找不到仓库根（向上找不到 packages/engine/src/engine.ts）');
     p = up;
   }
 })();

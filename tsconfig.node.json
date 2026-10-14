@@ -21,8 +21,9 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    // Node ESM 必须写显式扩展名 ⇒ .ts 之间只能 import './x.ts'。
-    // TS 需要这个开关才允许（TS5097），而它要求 noEmit（本工程正是 noEmit: true）。
+    // Node ESM 必须写显式扩展名 ⇒ .ts 之间只能 import './x.ts'；本开关允许这种写法（并要求 noEmit，本工程正是 noEmit: true）。
+    // ⚠️ 2026-10-14 实测更正：TS 7.0.2 下**关闭**该开关时未能复现 TS5097 ⇒ 不要声称"少了它门禁必红"。
+    //    保留它的理由是语义正确（写显式扩展名是本项目的硬约定），换 TS 版本时也不会突然变红。
     "allowImportingTsExtensions": true
   },
   "include": [

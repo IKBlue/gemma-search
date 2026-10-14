@@ -20,9 +20,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { listTxns } from '../src/transactions/journal.mjs';
-import { sha1File } from '../src/transactions/hash.mjs';
-import { recoverJournal } from '../src/transactions/recovery.mjs';
+import { listTxns } from '../src/transactions/journal.ts';
+import { sha1File } from '../src/transactions/hash.ts';
+import { recoverJournal } from '../src/transactions/recovery.ts';
 
 const CHILD = fileURLToPath(new URL('./helpers/txn-crash-child.mjs', import.meta.url));
 const FIXTURE = path.resolve('fixtures/lib-a');

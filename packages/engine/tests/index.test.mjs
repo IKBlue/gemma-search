@@ -1,4 +1,4 @@
-// packages/engine/tests/index.test.mjs —— index.mjs 与 compat.mjs 的单元测试（零依赖，node:test）
+// packages/engine/tests/index.test.mjs —— index.ts 与 compat.ts 的单元测试（零依赖，node:test）
 //
 // 这些测试的重点是**损坏检测**：索引静默损坏是本项目最危险的失败模式。
 // 每条都构造一个"坏"的 index.bin，断言它被**拒绝**而不是被当成有效数据。
@@ -10,10 +10,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { readIndexBin, readItems, readMeta, relOf, MAGIC, HEAD_OFF, LEN_OFF } from '../src/index.mjs';
+import { readIndexBin, readItems, readMeta, relOf, MAGIC, HEAD_OFF, LEN_OFF } from '../src/index.ts';
 import { compatKey, compatComplete, compatMismatches, compatEqual, compatReason,
-         COMPAT_FIELDS } from '../src/compat.mjs';
-import { EngineError, ERR, envelope, err, ok } from '../src/errors.mjs';
+         COMPAT_FIELDS } from '../src/compat.ts';
+import { EngineError, ERR, envelope, err, ok } from '../src/errors.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // 仓库根：测试现在跟着引擎包走（`packages/engine/tests/`），但 `data/` 仍留在**仓库根** ——
@@ -21,9 +21,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = (() => {
   let p = HERE;
   for (;;) {
-    if (fs.existsSync(path.join(p, 'packages', 'engine', 'src', 'engine.mjs'))) return p;
+    if (fs.existsSync(path.join(p, 'packages', 'engine', 'src', 'engine.ts'))) return p;
     const up = path.dirname(p);
-    if (up === p) throw new Error('找不到仓库根（向上找不到 packages/engine/src/engine.mjs）');
+    if (up === p) throw new Error('找不到仓库根（向上找不到 packages/engine/src/engine.ts）');
     p = up;
   }
 })();

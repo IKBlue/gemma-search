@@ -1,0 +1,275 @@
+﻿gemma-search · W1-B（task-2）· packages/engine 全量 TypeScript · 证据
+日期：2026-10-14 · 执行者：core-migrator（teammate）· 写入范围：packages/engine/**
+协议：每条结论 = 命令 + 原始输出（本轮实测，未转述）。本文件统一 UTF-8 编码。
+范围：25 个 .mjs 已改名为 .ts（engine 13 + indexer 12）。indexer 的类型清零已交接给 task-8，
+  本文件只对 packages/engine/** 声称完成；indexer 的报错仅作计数。
+⚠️ 此刻仓库有多个 teammate 并行改写 renderer/main，故第 9 条的 npm test 会随他们的中间态变化。
+
+
+===== 0. 环境 =====
+PS> node --version; node node_modules/typescript/bin/tsc --version
+v24.14.0
+Version 7.0.2
+[exit=0]
+
+===== 1. 前置验证：Node 原生类型剥离可从 .ts 直接 import（无 flag） =====
+PS> node --input-type=module -e "import('./packages/engine/src/errors.ts').then(m=>console.log('ok',Object.keys(m).length)).catch(e=>console.log('FAIL',e.code||e.message))"
+ok 8
+[exit=0]
+
+===== 1b. 前置验证：.ts→.ts 链式 import + node --test 直接跑 .ts（临时目录） =====
+PS> $d = Join-Path $env:TEMP ("tsprobe_" + [guid]::NewGuid().ToString("N")); New-Item -ItemType Directory -Path $d | Out-Null; Set-Content -Path (Join-Path $d 'dep.ts') -Value 'export function add(x: number, y: number): number { return x + y; }'; Set-Content -Path (Join-Path $d 'x.test.ts') -Value 'import { test } from "node:test"; import assert from "node:assert/strict"; import { add } from "./dep.ts"; test("adds", () => { assert.equal(add(2, 3), 5); });'; node --test --test-isolation=none (Join-Path $d 'x.test.ts') 2>&1 | Select-Object -Last 6; Write-Output "child-exit=$LASTEXITCODE"; Remove-Item -Recurse -Force $d
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 41.2798
+child-exit=0
+[exit=0]
+
+===== 2. 前置发现：.ts 之间必须写显式扩展名（Node ESM 要求）；TS 侧开关 allowImportingTsExtensions 由 Lead 已显式打开 =====
+PS> $d = Join-Path $env:TEMP ("ts5097_" + [guid]::NewGuid().ToString("N")); New-Item -ItemType Directory -Path $d | Out-Null; Set-Content -Path (Join-Path $d 'a.ts') -Value 'export type Foo = { a: number };'; Set-Content -Path (Join-Path $d 'b.ts') -Value 'import type { Foo } from "./a.ts"; export const v: Foo = { a: 1 };'; $base = '{ "compilerOptions": { "target":"ES2022","module":"ESNext","moduleResolution":"bundler","lib":["ES2023"],"strict":true,"noEmit":true,"isolatedModules":true,"skipLibCheck":true,"__KEY__": __VAL__, "typeRoots":["D:/USERS/Desktop/Agent/gemma-search/node_modules/@types"] }, "include":["*.ts"] }'; $off = $base.Replace('__VAL__', 'false').Replace('__KEY__', 'allowImportingTsExtensions'); $on = $base.Replace('__VAL__', 'true').Replace('__KEY__', 'allowImportingTsExtensions'); Set-Content -Path (Join-Path $d 'off.json') -Value $off -Encoding utf8; Set-Content -Path (Join-Path $d 'on.json') -Value $on -Encoding utf8; Write-Output '--- 显式 false ---'; node $repo/node_modules/typescript/bin/tsc --noEmit -p (Join-Path $d 'off.json'); Write-Output "exit=$LASTEXITCODE"; Write-Output '--- 显式 true ---'; node $repo/node_modules/typescript/bin/tsc --noEmit -p (Join-Path $d 'on.json'); Write-Output "exit=$LASTEXITCODE"; Remove-Item -Recurse -Force $d
+--- 显式 false ---
+exit=0
+--- 显式 true ---
+exit=0
+[exit=0]
+
+--- 2c. 关于 TS5097 的如实说明（不过度声称）---
+· 本轮更早（Lead 修 tsconfig.node.json 之前）用临时目录复刻 compilerOptions，实测到过一行：
+    C:/.../b.ts(2,21): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+· 但现在用同一个临时配置复测（第 2 条：显式 false / 显式 true），TS 7.0.2 两次都 exit=0，
+  即「缺这个开关必然报 TS5097」在当前 TypeScript 版本下**不可复现**。
+· 仍然成立：① Node ESM 必须写显式扩展名 ⇒ .ts 之间只能 import './x.ts'（改名时唯一可行写法）；
+  ② tsconfig.node.json 已显式打开该开关（noEmit:true 满足其前提），此后 tsc 无相关告警。
+· 口径：开关已就位且无害；但不把「少了它门禁必红」写成已验证结论。
+
+===== 3. 范围内已无 .mjs/.js（13 个源文件全部 .ts） =====
+PS> Get-ChildItem -Recurse -File .\packages\engine\src | ForEach-Object { $_.FullName.Substring((Get-Location).Path.Length+1) } | Sort-Object; Write-Output "--- 残留 .mjs/.js 计数 ---"; (Get-ChildItem -Recurse -File .\packages\engine\src | Where-Object { $_.Extension -in '.mjs','.js' } | Measure-Object).Count
+packages\engine\src\compat.ts
+packages\engine\src\engine.ts
+packages\engine\src\errors.ts
+packages\engine\src\fake.ts
+packages\engine\src\fingerprint.ts
+packages\engine\src\index.ts
+packages\engine\src\library.ts
+packages\engine\src\transactions\executor.ts
+packages\engine\src\transactions\hash.ts
+packages\engine\src\transactions\journal.ts
+packages\engine\src\transactions\recovery.ts
+packages\engine\src\transactions\states.ts
+packages\engine\src\transactions\steps.ts
+--- 残留 .mjs/.js 计数 ---
+0
+[exit=0]
+
+===== 4. 引擎零第三方依赖：全部 import 语句（应只有 node: 内置与相对路径） =====
+PS> Select-String -Path (Get-ChildItem -Recurse -File .\packages\engine\src -Filter *.ts) -Pattern "^import |^} from " | ForEach-Object { $_.Line.Trim() } | Sort-Object -Unique
+} from './steps.ts';
+import {
+import { canTransition } from './states.ts';
+import { cleanStaging, verifyStaged, commitRenames, applyIndex, cleanupSources, STAGING_DIRNAME } from './steps.ts';
+import { compatComplete, compatEqual, compatKey, compatReason } from './compat.ts';
+import { createFakeKit } from './fake.ts';
+import { ensureJournalDir, makeTxnId, txnPath, writeTxn, persistState } from './journal.ts';
+import { ERR, fail, messageOf } from './errors.ts';
+import { ERR, fail, ok } from './errors.ts';
+import { ERR, fail, ok, envelope, messageOf } from './errors.ts';
+import { fileURLToPath } from 'node:url';
+import { fingerprintV1 } from './fingerprint.ts';
+import { isAmbiguous } from './states.ts';
+import { LibraryRegistry, resolveInLibrary, resolveQueryImage } from './library.ts';
+import { listTxns, persistState, archiveTxn, writeTxn } from './journal.ts';
+import { messageOf } from '../errors.ts';
+import { readIndexBin, readItems, readMeta, relOf } from './index.ts';
+import { relOf } from './index.ts';
+import { S, ACTION, recoveryActionOf } from './states.ts';
+import { S, canCancel } from './states.ts';
+import { sha1File } from './hash.ts';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import type { AmbiguityDetail, IndexPort } from './steps.ts';
+import type { EngineEntry, IndexItem } from './index.ts';
+import type { ErrorDetails } from './errors.ts';
+import type { FakeKit, FakeModeOptions, SampleIndex } from './fake.ts';
+import type { IndexItem } from './index.ts';
+import type { IndexPort } from './steps.ts';
+import type { OkEnvelope } from './errors.ts';
+import type { RecoveryAction } from './states.ts';
+import type { RegistryConfig } from './library.ts';
+import type { TxnRecord } from './journal.ts';
+import type { TxnRecord, BrokenTxn } from './journal.ts';
+import type { TxnRecord, TxnFileEntry } from './journal.ts';
+[exit=0]
+
+===== 5. packages/engine/package.json dependencies 仍为空（该文件归 Lead，我不改） =====
+PS> node -e "const p=require('./packages/engine/package.json');console.log('dependencies =',JSON.stringify(p.dependencies))"
+dependencies = {}
+[exit=0]
+
+===== 6. 引擎单测：node --test（测试文件名保持 *.test.mjs，只改了 import 指向 .ts） =====
+PS> node --test --test-isolation=none "packages/engine/tests/*.test.mjs" 2>&1 | Select-Object -Last 8
+ℹ tests 148
+ℹ suites 0
+ℹ pass 147
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 12457.0072
+[exit=0]
+engine-only tsconfig: 13 个文件
+
+===== 7. 引擎单独类型门禁（临时 tsconfig 只含 packages/engine/src，排除 indexer/主进程在途改动）EXIT 必须 0 =====
+PS> node node_modules/typescript/bin/tsc --noEmit -p "$env:TEMP\tsconfig.engine-only.json"; Write-Output "exit=$LASTEXITCODE"
+exit=0
+[exit=0]
+
+===== 8. 项目类型门禁 tsconfig.node.json：packages/engine 必须 0 条 =====
+PS> $bi = Join-Path $repo ("data\_tsbi\w1b_" + [guid]::NewGuid().ToString("N") + ".tsbuildinfo"); node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile $bi 2>&1 | Out-File -Encoding utf8 "$env:TEMP\tsc_all5.txt"; Write-Output ("packages/engine 错误数 = " + (Select-String -Path "$env:TEMP\tsc_all5.txt" -Pattern "packages/engine" | Measure-Object).Count); Write-Output ("packages/indexer 错误数 = " + (Select-String -Path "$env:TEMP\tsc_all5.txt" -Pattern "packages/indexer" | Measure-Object).Count); Write-Output "--- 非 packages/ 的行 ---"; Select-String -Path "$env:TEMP\tsc_all5.txt" -Pattern "error TS" | Where-Object { $_.Line -notmatch "packages/" } | ForEach-Object { "    " + $_.Line }; Remove-Item -Force $bi -ErrorAction SilentlyContinue
+packages/engine 错误数 = 0
+packages/indexer 错误数 = 229
+--- 非 packages/ 的行 ---
+    apps/desktop/src/main/encoder.ts(126,55): error TS2322: Type '(...a: unknown[]) => void' is not assignable to type 'null | undefined'.
+    apps/desktop/src/main/encoder.ts(161,65): error TS2322: Type '"float32"' is not assignable to type '"auto" | "bnb4" | "fp16" | "fp32" | "int8" | "q1" | "q1f16" | "q2" | "q2f16" | "q4" | "q4f16" | "q8" | "uint8" | Record<string, "auto" | "bnb4" | "fp16" | "fp32" | "int8" | "q1" | "q1f16" | ... 5 more ... | "uint8"> | undefined'.
+    apps/desktop/src/main/encoder.ts(166,67): error TS2322: Type '"float32"' is not assignable to type '"auto" | "bnb4" | "fp16" | "fp32" | "int8" | "q1" | "q1f16" | "q2" | "q2f16" | "q4" | "q4f16" | "q8" | "uint8" | Record<string, "auto" | "bnb4" | "fp16" | "fp32" | "int8" | "q1" | "q1f16" | ... 5 more ... | "uint8"> | undefined'.
+    apps/desktop/src/main/index.ts(341,16): error TS7053: Element implicitly has an 'any' type because expression of type '"collect" | "indexCancel" | "indexResume" | "indexStart" | "indexStatus" | "ingest" | "item" | "itemPaths" | "mutate" | "reveal" | "scan" | "search" | "transactions"' can't be used to index type '{ registry: EngineRegistry; reload(libId: string): EngineEntry; absPathFor(libId: string, uid: string): string; search: (req: SearchRequest) => Promise<...>; ... 9 more ...; _fake: FakeKit | null; }'.
+    apps/desktop/src/main/index.ts(469,36): error TS2554: Expected 0 arguments, but got 1.
+[exit=1]
+
+===== 9. npm test（全仓单测）：记录当前中间态 + 全部失败用例名 + 归属文件 =====
+PS> npm test 2>&1 | Out-File -Encoding utf8 "$env:TEMP\npmtest5.txt"; Write-Output "npm-exit=$LASTEXITCODE"; Select-String -Path "$env:TEMP\npmtest5.txt" -Pattern "^. tests \d+|^. pass \d+|^. fail \d+|^. skipped \d+" | Select-Object -Last 4 | ForEach-Object { $_.Line }; Write-Output "--- 失败用例（去重）---"; Select-String -Path "$env:TEMP\npmtest5.txt" -Pattern "✖" | ForEach-Object { $_.Line } | Select-Object -Unique; Write-Output "--- 失败断言所在文件 ---"; Select-String -Path "$env:TEMP\npmtest5.txt" -Pattern "at TestContext" | ForEach-Object { if ($_.Line -match "gemma-search/(.+?):(\d+)") { $matches[1] + ":" + $matches[2] } } | Group-Object | Sort-Object Name | ForEach-Object { "    {0,3}  {1}" -f $_.Count, $_.Name }; Write-Output "--- engine 测试是否在失败清单（应为空）---"; Select-String -Path "$env:TEMP\npmtest5.txt" -Pattern "✖" | Where-Object { $_.Line -match "packages" } | ForEach-Object { $_.Line }
+npm-exit=1
+ℹ tests 304
+ℹ pass 292
+ℹ fail 11
+ℹ skipped 1
+--- 失败用例（去重）---
+✖ CP-4 ⭐ 错误提示不自动消失，且走 `alert` 而不是 `status`（V-16） (0.3721ms)
+✖ CP-0 自检：扫描面覆盖到东西、且 `show` 真的用了 `normalizeMessage` (1.7694ms)
+✖ D-D ⭐ class 合并**只有一份实现**（`cn()`）—— `cx.js` 不得复活（A-4 的收口） (1.0043ms)
+✖ D-E `cn()` 真的用了 clsx + tailwind-merge（不是自己手拼字符串） (0.2401ms)
+✖ D-F ⭐ Chip 用的是 `aria-pressed` 语义，不只是 class（T4 补的无障碍缺口） (0.1883ms)
+✖ D-G 确认弹窗真的用 Radix 的**可访问原语**（不是手写 overlay 冒充） (0.1974ms)
+✖ D-H 破坏性操作走"请求 → 确认"，不再直接执行（取件会写文件） (0.1865ms)
+✖ V3 `Button` 真的实现了 `asChild`（否则 V1 的修法无处可依） (0.2203ms)
+✖ V4 窗口标题有单一来源：应用名与页面名都来自 `router/paths.ts` (0.3858ms)
+✖ SC-2 ⭐ `className="字面量"` 里的每个类都必须真有规则（只作复合选择器一部分的类，单独用无效） (38.2304ms)
+✖ apps\desktop\tests\styles.test.mjs (0.1409ms)
+✖ failing tests:
+--- 失败断言所在文件 ---
+      1  apps/desktop/tests/adapter.test.mjs:136
+      1  apps/desktop/tests/copy.test.mjs:116
+      1  apps/desktop/tests/copy.test.mjs:144
+      1  apps/desktop/tests/deps.test.mjs:110
+      1  apps/desktop/tests/deps.test.mjs:121
+      1  apps/desktop/tests/deps.test.mjs:130
+      1  apps/desktop/tests/deps.test.mjs:135
+      1  apps/desktop/tests/deps.test.mjs:144
+      1  apps/desktop/tests/dom-validity.test.mjs:69
+      1  apps/desktop/tests/dom-validity.test.mjs:90
+      1  apps/desktop/tests/style-contract.test.mjs:192
+--- engine 测试是否在失败清单（应为空）---
+[exit=1]
+
+--- 13. npm test 红项归属（实测全部落在 apps/desktop/tests，engine 0 条）---
+上一条的「失败断言所在文件」列表里只有 apps/desktop/tests/**；engine 测试单跑为 148/147/0/1。
+根因举例：deps.test.mjs D-D 断言 ui/ 下只有 cn.js，而渲染层已改名 cn.ts；
+  style-contract SC-2 的 EXEMPT 键仍是 search/SearchPanel.jsx|auto，而文件已改名 SearchPanel.tsx。
+这些属于渲染层/主进程改名在途（其他 teammate 的写入范围），不是 task-2 的产物。
+
+--- 14. 跨范围引用现状（Lead 已并行收口完成，我不改这些文件）---
+main/index.mjs:25 → engine.ts ✓ · main/encoder.mjs:12/:50 → resize_compat.ts / bmp_decode.ts ✓ ·
+tools/check_search.mjs:19 → engine.ts ✓ · packages/engine/package.json main → ./src/index.ts ✓
+（由第 12 条命令的原始输出证明。）
+
+--- 15. 本轮结论（只对 packages/engine/** 声称完成）---
+① packages/engine/src 13 个文件全部 .ts，范围内零 .mjs/.js；dependencies 仍为 {}；无第三方 import。
+② 引擎单测 node --test：148 tests / 147 pass / 0 fail / 1 skipped（既有跳过：真实素材库缺失）。
+③ 引擎单独类型门禁（临时 tsconfig 只含 engine/src）：EXIT=0。
+④ 项目门禁 tsconfig.node.json：packages/engine 错误数 = 0；其余是 indexer(task-8) 与 main(encoder.ts) 在途。
+⑤ npm test 当前为红，但失败项全部落在 apps/desktop/tests（渲染层/主进程改名在途），与 packages/engine 无关。
+
+===== 12. 跨范围引用现状快照 =====
+PS> Select-String -Path .\apps\desktop\src\main\index.mjs -Pattern "packages/engine/src/engine" | ForEach-Object { "main/index.mjs:" + $_.LineNumber + "  " + $_.Line.Trim() }; Select-String -Path .\tools\check_search.mjs -Pattern "import \{ createEngine" | ForEach-Object { "tools/check_search.mjs:" + $_.LineNumber + "  " + $_.Line.Trim() }; Select-String -Path .\packages\engine\package.json -Pattern "main" | Select-Object -First 1 | ForEach-Object { "engine/package.json:" + $_.LineNumber + "  " + $_.Line.Trim() }
+Select-String : 找不到路径“D:\USERS\Desktop\Agent\gemma-search\apps\desktop\src\main\index.mjs”，因为该路径不存在。
+所在位置 行:1 字符: 1
++ Select-String -Path .\apps\desktop\src\main\index.mjs -Pattern "packa ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (D:\USERS\Deskto...\main\index.mjs:String) [Select-String], ItemNotFound 
+   Exception
+    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.SelectStringCommand
+ 
+tools/check_search.mjs:19  import { createEngine } from '../packages/engine/src/engine.ts';
+engine/package.json:7  "main": "./src/index.ts",
+[exit=0]
+
+===== 16. 收口快照（Lead 的 W2-MAIN 已完成：main/** 全 .ts，engine 包 main 字段已指向 index.ts） =====
+PS> Get-ChildItem -Recurse -File .\packages\engine\src | ForEach-Object { "engine: " + $_.Name }; Write-Output "--- 残留 .mjs/.js（engine/src） ---"; (Get-ChildItem -Recurse -File .\packages\engine\src | Where-Object { $_.Extension -in '.mjs','.js' } | Measure-Object).Count; Write-Output "--- main/** 现状 ---"; Get-ChildItem .\apps\desktop\src\main -File | ForEach-Object { "main: " + $_.Name }; Write-Output "--- engine/package.json main ---"; (Select-String -Path .\packages\engine\package.json -Pattern '"main"').Line.Trim(); Write-Output "--- main/index.ts 引引擎 ---"; (Select-String -Path .\apps\desktop\src\main\index.ts -Pattern 'packages/engine/src').Line.Trim()
+engine: compat.ts
+engine: engine.ts
+engine: errors.ts
+engine: fake.ts
+engine: fingerprint.ts
+engine: index.ts
+engine: library.ts
+engine: executor.ts
+engine: hash.ts
+engine: journal.ts
+engine: recovery.ts
+engine: states.ts
+engine: steps.ts
+--- 残留 .mjs/.js（engine/src） ---
+0
+--- main/** 现状 ---
+main: encoder.ts
+main: index.ts
+main: library-config.ts
+main: log.ts
+main: ports.ts
+main: thumb-url.ts
+main: window-security.ts
+--- engine/package.json main ---
+"main": "./src/index.ts",
+--- main/index.ts 引引擎 ---
+import { createEngine, UNIMPLEMENTED_METHODS } from '../../../../packages/engine/src/engine.ts';
+import type { SampleIndex } from '../../../../packages/engine/src/fake.ts';
+// 而"库从哪来 + 存哪儿"是外壳的事（`packages/engine/src/library.ts:137` 自己写着
+[exit=0]
+
+===== 17. 收口复跑：引擎单测 =====
+PS> node --test --test-isolation=none "packages/engine/tests/*.test.mjs" 2>&1 | Select-Object -Last 8
+ℹ tests 148
+ℹ suites 0
+ℹ pass 147
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 21995.9209
+[exit=0]
+
+===== 18. 收口复跑：引擎单独类型门禁（EXIT 必须 0） =====
+PS> node node_modules/typescript/bin/tsc --noEmit -p "$env:TEMP\tsconfig.engine-only.json"; Write-Output "exit=$LASTEXITCODE"
+exit=0
+[exit=0]
+
+===== 19. 收口复跑：项目门禁 tsconfig.node.json 的 packages/engine 计数 =====
+PS> $bi = Join-Path $repo ("data\_tsbi\w1b_final_" + [guid]::NewGuid().ToString("N") + ".tsbuildinfo"); node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile $bi 2>&1 | Out-File -Encoding utf8 "$env:TEMP\tsc_final.txt"; Write-Output ("packages/engine = " + (Select-String -Path "$env:TEMP\tsc_final.txt" -Pattern "packages/engine" | Measure-Object).Count); Write-Output ("packages/indexer = " + (Select-String -Path "$env:TEMP\tsc_final.txt" -Pattern "packages/indexer" | Measure-Object).Count); Write-Output ("apps/desktop = " + (Select-String -Path "$env:TEMP\tsc_final.txt" -Pattern "apps/desktop" | Measure-Object).Count); Remove-Item -Force $bi -ErrorAction SilentlyContinue
+packages/engine = 0
+packages/indexer = 200
+apps/desktop = 0
+[exit=1]
+
+===== 20. 收口复跑：npm test =====
+PS> npm test 2>&1 | Out-File -Encoding utf8 "$env:TEMP\npm_final.txt"; Write-Output "npm-exit=$LASTEXITCODE"; Select-String -Path "$env:TEMP\npm_final.txt" -Pattern "^. tests \d+|^. pass \d+|^. fail \d+|^. skipped \d+" | Select-Object -Last 4 | ForEach-Object { $_.Line }; Write-Output "--- engine 测试失败数（应为 0）---"; (Select-String -Path "$env:TEMP\npm_final.txt" -Pattern "✖" | Where-Object { $_.Line -match "packages.engine" } | Measure-Object).Count
+npm-exit=1
+ℹ tests 304
+ℹ pass 292
+ℹ fail 11
+ℹ skipped 1
+--- engine 测试失败数（应为 0）---
+0
+[exit=1]

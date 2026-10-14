@@ -10,11 +10,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { S } from '../src/transactions/states.mjs';
-import { writeTxn, listTxns, readTxn, txnPath } from '../src/transactions/journal.mjs';
-import { sha1File, sha1Of } from '../src/transactions/hash.mjs';
-import { stagingPathFor } from '../src/transactions/executor.mjs';
-import { recoverJournal } from '../src/transactions/recovery.mjs';
+import { S } from '../src/transactions/states.ts';
+import { writeTxn, listTxns, readTxn, txnPath } from '../src/transactions/journal.ts';
+import { sha1File, sha1Of } from '../src/transactions/hash.ts';
+import { stagingPathFor } from '../src/transactions/executor.ts';
+import { recoverJournal } from '../src/transactions/recovery.ts';
 
 const FIXTURE = path.resolve('fixtures/lib-a');
 const WORK = path.resolve('data/_txn-test');

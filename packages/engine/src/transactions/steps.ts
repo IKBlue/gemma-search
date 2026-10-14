@@ -1,8 +1,8 @@
-// packages/engine/src/transactions/steps.mjs —— 事务流程里**共享的原语**（§2/§3）
+// packages/engine/src/transactions/steps.ts —— 事务流程里**共享的原语**（§2/§3）
 //
 // ── 为什么要有这个文件（不是为了整洁）──────────────────────────────────
-//   同一套"校验 staging / 逐个 rename / 更新索引 / 清源"既被**正常路径**（`executor.mjs`）
-//   用到，也被**恢复路径**（`recovery.mjs`）用到。
+//   同一套"校验 staging / 逐个 rename / 更新索引 / 清源"既被**正常路径**（`executor.ts`）
+//   用到，也被**恢复路径**（`recovery.ts`）用到。
 //   如果在两处各写一遍，就等于把规格 §3 那**两条不可动摇的规则**实现两次：
 //     ① 源文件在 COMMITTED 且索引更新成功之前绝不删除
 //     ② 绝不覆盖已存在的不同内容文件
@@ -13,22 +13,69 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { sha1File } from './hash.mjs';
-import { isAmbiguous } from './states.mjs';
+import { sha1File } from './hash.ts';
+import { isAmbiguous } from './states.ts';
+import { messageOf } from '../errors.ts';
+import type { TxnRecord, TxnFileEntry } from './journal.ts';
 
-/** staging 目录名。⚠️ 与 `executor.mjs` 的**必须一致** —— 所以这里导出，那边 import，不各写一份。 */
+/** staging 目录名。⚠️ 与 `executor.ts` 的**必须一致** —— 所以这里导出，那边 import，不各写一份。 */
 export const STAGING_DIRNAME = '.gs-staging';
+
+/** 索引更新请求里的一条文件（rename 的起止名） */
+export interface IndexUpdateFile {
+  role?: string;
+  src?: string;
+  dst?: string;
+}
+
+/**
+ * 索引更新请求。`txnId/libId/uid/op` 由记录透传；外壳按它去改索引。
+ * 字段可选是**如实**的：记录可能来自一条不完整的日志，那种情况由调用方判定为歧义。
+ */
+export interface IndexUpdateRequest {
+  txnId: string;
+  libId?: string;
+  uid?: string;
+  op?: string;
+  files: IndexUpdateFile[];
+}
+
+/**
+ * 索引更新端口：**唯一**的索引写入口，由外壳注入。
+ * 引擎只声明形状、不 import 任何索引实现（传输无关 + 零依赖）。
+ */
+export interface IndexPort {
+  update(req: IndexUpdateRequest): void;
+}
+
+/** assessAmbiguity() 的明细行（§4 要求界面能列出来） */
+export interface AmbiguityDetail {
+  index: number;
+  role?: string;
+  src?: string;
+  dst?: string;
+  stage?: string;
+  srcExists: boolean;
+  dstExists: boolean;
+  stagingExists: boolean;
+  sameBytes: boolean | null;
+  dstHasExpectedBytes: boolean | null;
+  reason: string;
+}
 
 /**
  * 清 staging（§2 `ABORTED（清 staging，源保持不动）` / §4 `PREPARED → 回退（删 staging）`）。
  * 只删**本次事务自己的**暂存文件与那个空的 `<txnId>` 目录 —— **不递归删父目录**
  * （`.gs-staging/` 下可能还有别的未完成事务）。
  */
-export function cleanStaging(rec) {
+export function cleanStaging(rec: TxnRecord): void {
   for (const f of rec.files || []) {
     try { if (f.stage && fs.existsSync(f.stage)) fs.rmSync(f.stage, { force: true }); } catch { /* 删不掉不致命 */ }
   }
-  const dirs = new Set((rec.files || []).map((f) => (f.stage ? path.dirname(f.stage) : null)).filter(Boolean));
+  // 收集"本事务自己的 staging 目录"。原实现是 map→null→filter(Boolean)，换成显式循环：
+  // filter(Boolean) 不能收窄类型（TS 只看到 (string|null)[]），而这里本就只关心非空 stage。
+  const dirs = new Set<string>();
+  for (const f of rec.files || []) if (f.stage) dirs.add(path.dirname(f.stage));
   for (const d of dirs) {
     try { if (fs.existsSync(d) && fs.readdirSync(d).length === 0) fs.rmdirSync(d); } catch { /* 同上 */ }
     // 父目录 `.gs-staging/` 若也空了就一并收掉 —— 素材库里少留一点我们自己的东西。
@@ -46,8 +93,8 @@ export function cleanStaging(rec) {
  * §3 ④ 校验：逐个比对 `stagedSha1 == 源 sha1`（PREPARED 时记下的 `sha1`）。
  * 纯判定，不动文件。返回坏掉的条目下标。
  */
-export function verifyStaged(rec) {
-  const bad = [];
+export function verifyStaged(rec: TxnRecord): { ok: boolean; bad: number[] } {
+  const bad: number[] = [];
   (rec.files || []).forEach((f, i) => {
     if (f._idempotent) return;
     if (!f.stagedSha1 || f.stagedSha1 !== f.sha1) bad.push(i);
@@ -62,8 +109,11 @@ export function verifyStaged(rec) {
  * ⚠️ 返回 `{doneIdx, error}` 而**不是**抛 —— 调用方需要知道"已经 rename 成功了几条"
  *    （§3 第 5 条：图已 rename、包未 rename 时**只能前进**，不能回滚）。
  */
-export function commitRenames(rec, onEach = null) {
-  const doneIdx = [];
+export function commitRenames(
+  rec: TxnRecord,
+  onEach: ((i: number) => void) | null = null,
+): { doneIdx: number[]; error: string | null } {
+  const doneIdx: number[] = [];
   for (let i = 0; i < rec.files.length; i += 1) {
     const f = rec.files[i];
     if (f._idempotent) { doneIdx.push(i); continue; }
@@ -83,7 +133,7 @@ export function commitRenames(rec, onEach = null) {
     try {
       fs.renameSync(f.stage, f.dst);                    // 同卷、单文件原子
     } catch (e) {
-      return { doneIdx, error: `rename 失败：${f.dst} —— ${e && e.message}` };
+      return { doneIdx, error: `rename 失败：${f.dst} —— ${messageOf(e)}` };
     }
     doneIdx.push(i);
     if (onEach) onEach(i);                              // 故障注入点挂在两条 rename 之间
@@ -91,11 +141,14 @@ export function commitRenames(rec, onEach = null) {
   return { doneIdx, error: null };
 }
 
+/** applyIndex() 的返回：跳过（幂等）或失败，调用方据此决定能不能清源 */
+export type ApplyIndexResult = { ok: true; skipped: boolean } | { ok: false; error: string };
+
 /**
  * §3 ⑥ 更新索引。**失败必须被调用方看见** —— 规则 ① 说索引更新成功之前不许清源。
  * 返回值刻意是 `{ok, error}` 而不是抛：抛出去会被上层误当成"可以回滚"。
  */
-export function applyIndex(indexPort, rec) {
+export function applyIndex(indexPort: IndexPort, rec: TxnRecord): ApplyIndexResult {
   if (rec.indexUpdate && rec.indexUpdate.done) return { ok: true, skipped: true };
   try {
     indexPort.update({
@@ -104,7 +157,7 @@ export function applyIndex(indexPort, rec) {
     });
     return { ok: true, skipped: false };
   } catch (e) {
-    return { ok: false, error: `索引更新失败：${e && e.message}` };
+    return { ok: false, error: `索引更新失败：${messageOf(e)}` };
   }
 }
 
@@ -118,8 +171,8 @@ export function applyIndex(indexPort, rec) {
  *    （`preflight` 已经会拒绝这种请求，这里是第二道锁：宁可留下文件，也不可删错。）
  * 返回被真正删掉的下标；已删过的（`srcDeleted`）跳过 ⇒ 幂等。
  */
-export function cleanupSources(rec) {
-  const deleted = [];
+export function cleanupSources(rec: TxnRecord): number[] {
+  const deleted: number[] = [];
   rec.files.forEach((f, i) => {
     if (f.srcDeleted) return;                           // 幂等：已删过
     if (path.resolve(f.src) === path.resolve(f.dst)) return;   // 第二道锁：绝不删"源即目标"
@@ -130,7 +183,8 @@ export function cleanupSources(rec) {
 }
 
 /** staging 是否还在盘上（恢复时判"要不要继续往前推"） */
-export const stagingExists = (f) => Boolean(f.stage) && fs.existsSync(f.stage);
+export const stagingExists = (f: TxnFileEntry): boolean =>
+  typeof f.stage === 'string' && f.stage !== '' && fs.existsSync(f.stage);
 
 /**
  * 记录是否**完整到可以据它恢复**。
@@ -140,17 +194,18 @@ export const stagingExists = (f) => Boolean(f.stage) && fs.existsSync(f.stage);
  *    而且理由显示的是"校验失败"，根本看不出真实原因是**记录不完整**。
  *    ⇒ 记录不完整 = "无法识别的状态"，按 §4 的精神**必须停下来问人**，不许猜。
  *
- * @returns {{ok:boolean, missing:string[]}} `missing` 形如 `files[0].sha1`
+ * @returns `missing` 形如 `files[0].sha1`
  */
-export function validateRecord(rec) {
-  const missing = [];
+export function validateRecord(rec: unknown): { ok: boolean; missing: string[] } {
+  const missing: string[] = [];
   if (!rec || typeof rec !== 'object') return { ok: false, missing: ['(记录本身)'] };
-  if (!rec.txnId) missing.push('txnId');
-  if (typeof rec.state !== 'string') missing.push('state');
-  if (!Array.isArray(rec.files)) missing.push('files');
+  const r = rec as Partial<TxnRecord>;
+  if (!r.txnId) missing.push('txnId');
+  if (typeof r.state !== 'string') missing.push('state');
+  if (!Array.isArray(r.files)) missing.push('files');
   else {
-    rec.files.forEach((f, i) => {
-      for (const k of ['src', 'dst', 'stage', 'sha1']) {
+    r.files.forEach((f, i) => {
+      for (const k of ['src', 'dst', 'stage', 'sha1'] as const) {
         if (f == null || f[k] === undefined || f[k] === null) missing.push(`files[${i}].${k}`);
       }
     });
@@ -164,17 +219,17 @@ export function validateRecord(rec) {
  *
  * 只读，不动任何文件。返回明细（哪一条、缺什么），因为 §4 要求界面能列出来。
  */
-export function assessAmbiguity(rec) {
-  const details = [];
+export function assessAmbiguity(rec: TxnRecord): { ambiguous: boolean; details: AmbiguityDetail[] } {
+  const details: AmbiguityDetail[] = [];
   (rec.files || []).forEach((f, i) => {
     const srcExists = fs.existsSync(f.src);
     const dstExists = fs.existsSync(f.dst);
     const stageExists = stagingExists(f);
-    let sameBytes = null;
+    let sameBytes: boolean | null = null;
     if (srcExists && dstExists) sameBytes = sha1File(f.src) === sha1File(f.dst);
     // ⚠️ 目标是否"就是期望的那份字节" —— 用来区分"rename 已完成"与"数据不知去向"。
     //    只有源不在时才需要算（否则不影响判定，算了也是白读盘）。
-    let dstHasExpectedBytes = null;
+    let dstHasExpectedBytes: boolean | null = null;
     if (!srcExists && dstExists) dstHasExpectedBytes = f.sha1 ? (sha1File(f.dst) === f.sha1) : null;
 
     if (!isAmbiguous({ srcExists, dstExists, sameBytes, stagingExists: stageExists, dstHasExpectedBytes })) return;

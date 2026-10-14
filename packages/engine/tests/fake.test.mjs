@@ -15,10 +15,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-import { createEngine, BANDS, UNIMPLEMENTED_METHODS } from '../src/engine.mjs';
-import { ERR } from '../src/errors.mjs';
-import { COMPAT_FIELDS } from '../src/compat.mjs';
-import { loadSampleIndex, DEFAULT_FIXTURE_PATH, createFakeKit } from '../src/fake.mjs';
+import { createEngine, BANDS, UNIMPLEMENTED_METHODS } from '../src/engine.ts';
+import { ERR } from '../src/errors.ts';
+import { COMPAT_FIELDS } from '../src/compat.ts';
+import { loadSampleIndex, DEFAULT_FIXTURE_PATH, createFakeKit } from '../src/fake.ts';
 
 /** 同步假时钟：把 `setTimer` 排进队列，由 `runAll` 按序执行 */
 function makeClock() {

@@ -14,12 +14,12 @@ import path from 'node:path';
 
 import {
   S, FORWARD, TERMINAL, isTerminal, nextOf, canTransition, canCancel, recoveryActionOf, isAmbiguous, ACTION,
-} from '../src/transactions/states.mjs';
+} from '../src/transactions/states.ts';
 import {
   makeTxnId, txnFileName, txnPath, writeTxn, readTxn, listTxns, withState, archiveTxn, ensureJournalDir,
-} from '../src/transactions/journal.mjs';
-import { createTxnExecutor, preflight, checkSpace, freeBytesOn, stagingPathFor, CRASH_POINTS } from '../src/transactions/executor.mjs';
-import { sha1File } from '../src/transactions/hash.mjs';
+} from '../src/transactions/journal.ts';
+import { createTxnExecutor, preflight, checkSpace, freeBytesOn, stagingPathFor, CRASH_POINTS } from '../src/transactions/executor.ts';
+import { sha1File } from '../src/transactions/hash.ts';
 
 const FIXTURE = path.resolve('fixtures/lib-a');
 const WORK = path.resolve('data/_txn-test');
