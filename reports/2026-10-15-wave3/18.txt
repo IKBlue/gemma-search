@@ -1,0 +1,78 @@
+================================================================================
+T-18 证据 · thumb:// 缓存与失败状态码（task-28）—— 第 1 步（模块 + 单测）
+执行: storage-worker   日期: 2026-10-15
+新增（**没有改 main/index.ts**，按 Lead 的串行要求）：
+  · apps/desktop/src/main/thumb-cache.ts
+  · apps/desktop/tests/thumb-cache.test.mjs（17 条）
+================================================================================
+
+【依据：SPEC 里**没有**缩略图协议那一节 —— 如实记（Lead 记为 U13）】
+· SPEC.md §4 是「界面规格」；§3 的 F1 只把「缩略图」写成输出；§8 明写「真实缩略图协议取图 = 未测」。
+· 所以本任务依据的是**既有代码契约**，不自己发明一份：
+    · 形状 / 尺寸白名单 / 库 id 还原 ⇒ main/thumb-url.ts（parseThumbUrl · ALLOWED_SIZE · thumbFailureStatus）
+    · 信任规则 ⇒ main/window-security.ts（既有，未动）
+    · 缓存落点 ⇒ 保持既有布局 <dataDir>/thumbs（派生数据，可整目录删除；**不在素材目录里**）
+· 白名单/阈值/路径形状**一个字没动**；素材只读（P4）不受影响（缓存写在数据目录下）。
+
+【本次交付的失败 → 状态码表（Lead 已裁定，逐行有用例钉住）】
+  | 情况                                  | 状态码 |
+  |--------------------------------------|-------|
+  | URL/形状/尺寸不合法                    | 400   |
+  | 形状合法但库 id 还原不出来              | 404   |
+  | 引擎未就绪                             | 503   |
+  | UID_NOT_FOUND / LIB_NOT_FOUND          | 404   |
+  | PATH_ESCAPES_LIB / SYMLINK_REJECTED    | 403   |
+  | 解码失败                               | 415   |
+  | **其余一切（含我们自己的异常）**         | 500   |
+  ⚠️ 改动前 index.ts 写的是：codeText(e) === 'SYMLINK_REJECTED' ? 403 : 404
+     ⇒ PATH_ESCAPES_LIB 与任何内部异常都被伪装成 404（**接线后改掉**，见第 2 步）。
+
+【原始证据】
+
+--- 命令 1 · 单测（17 条）PS> node --test --test-isolation=none apps/desktop/tests/thumb-cache.test.mjs  → EXIT=0
+  ✔ C1 缓存路径只有一处实现：<dataDir>/thumbs/<libId>/<uid>@<size>.jpg (0.838ms)
+  ✔ C2 没有缓存 ⇒ hit=false 且理由写明"未命中"（**不抛**） (0.6745ms)
+  ✔ C3 真有缓存 ⇒ hit=true，字节逐位一致 (2.9949ms)
+  ✔ C4 ⭐ 0 字节缓存算**未命中**（否则界面拿到空图，且永远不再重算） (0.7719ms)
+  ✔ C5 写缓存：目录不存在也会自己建出来（递归） (1.4106ms)
+  ✔ C6 写不进去（拿文件当目录）⇒ ok=false + error 非空，**不抛** (0.9886ms)
+  ✔ T1 形状/尺寸不合法 ⇒ 400（与"库在不在"无关） (0.3232ms)
+  ✔ T2 形状合法但库 id 还原不出来 ⇒ 404 (0.1309ms)
+  ✔ T3 引擎未就绪 ⇒ 503（"暂时不能"不是"没有"） (0.1185ms)
+  ✔ T4 UID_NOT_FOUND / LIB_NOT_FOUND ⇒ 404（素材/库确实不在） (0.1962ms)
+  ✔ T5 ⭐ PATH_ESCAPES_LIB / SYMLINK_REJECTED ⇒ **403**（安全拒绝不是"不存在"） (0.145ms)
+  ✔ T6 ⭐⭐ 未知/内部错误码 ⇒ **500 且 internal=true**（不许伪装成 404） (0.1583ms)
+  ✔ T7 文件在但解不出图 ⇒ 415 (0.0801ms)
+  ✔ T8 全部通过 ⇒ null（可以出图） (0.0646ms)
+  ✔ T9 顺序是契约：形状错 + 引擎未就绪 ⇒ **400**（先判形状，别被后一步抢先） (0.0645ms)
+  ✔ T10 复用 thumb-url 的白名单，不另写一套：白名单里的尺寸都进得去、999 进不来 (0.2171ms)
+  ✔ S1 thumb-cache.ts 不 import electron（否则 node:test 根本加载不了它，本文件早就跑不起来） (0.3414ms)
+  ℹ tests 17
+  ℹ suites 0
+  ℹ pass 17
+  ℹ fail 0
+  ℹ cancelled 0
+  ℹ skipped 0
+--- 命令 2 · 类型门禁
+  PS> tsc --noEmit -p tsconfig.node.json → (原始输出为空) EXIT=0
+  PS> tsc --noEmit -p tsconfig.web.json → (原始输出为空) EXIT=0
+
+--- 命令 3 · 有没有既有测试断言**旧**映射（Lead 要求：有就改它并写明旧映射是 bug）
+  PS> 在 apps/desktop/tests 里搜 SYMLINK_REJECTED / PATH_ESCAPES_LIB
+  thumb-cache.test.mjs:6: //   · 安全拒绝（PATH_ESCAPES_LIB / SYMLINK_REJECTED）与**我们自己的异常**被伪装成 404
+  thumb-cache.test.mjs:125: test('T5 ⭐ PATH_ESCAPES_LIB / SYMLINK_REJECTED ⇒ **403**（安全拒绝不是"不存在"）', () => {
+  thumb-cache.test.mjs:126: for (const code of ['PATH_ESCAPES_LIB', 'SYMLINK_REJECTED']) {  ⇒ 命中的**只有本次新增的 thumb-cache.test.mjs**：旧映射原先写在 index.ts 的内联代码里，node:test 加载不了
+     ⇒ **没有任何既有测试断言旧行为**，所以不存在"为了让门禁变绿而放宽断言"的问题。
+
+【第 2 步（**待 Lead 说「T-16c 已落地」后做**）】
+· index.ts 的 handleThumb 改成调用本模块（约 6 行）：
+    读缓存 readCachedThumb(thumbCachePath({...})) · 写缓存 writeCachedThumb(...) ·
+    状态 thumbServeStatus({ shapeOk, libId, engineReady, resolveCode, decoded })
+· 然后重跑：单测 + tsc + **一次实跑**（同一张图两次请求 ⇒ 第二次命中缓存；坏图 ⇒ 415 而不是 404），
+  并把原始输出追加到本文件。**在第 2 步落地前，本文件里的证据只覆盖新模块，不覆盖主进程实际行为。**
+
+【回滚方式】只新增两个文件：
+  Remove-Item apps/desktop/src/main/thumb-cache.ts
+  Remove-Item apps/desktop/tests/thumb-cache.test.mjs
+  核对: node --test --test-isolation=none "apps/desktop/tests/thumb-cache.test.mjs"（删掉后文件不存在）
+================================================================================
