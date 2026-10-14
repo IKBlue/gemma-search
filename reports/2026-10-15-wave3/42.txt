@@ -1,0 +1,114 @@
+================================================================================
+T-42 证据 · 真机重建走不通（A11 缺的那一环）+ IMPORT_FAILED 被归一成 INDEX_CORRUPT
+任务板 id: task-42   执行: db-worker   日期: 2026-10-15
+写入范围: apps/desktop/src/main · apps/desktop/tests · apps/desktop/e2e（+ 临时物 data/_t42）
+===============================================================================
+
+【一句话结论】
+1. **真机重建的根因是"临时目录不可写"，不是索引坏**：SQLite 在导入的写入阶段要建临时文件，
+   那个目录不可写时 SQLite 报 "unable to open database file" ⇒ 整条导入回滚成 IMPORT_FAILED。
+   **修法**：应用启动时把 TMP/TEMP/TMPDIR/SQLITE_TMPDIR 一起指到 **<userData>/tmp**（应用自有、可写）。
+2. **错误码假因果已断**：IMPORT_* 现在**原样透出**（不再是 INDEX_CORRUPT）——真 IPC 实测 B 段：
+   `code:"IMPORT_FAILED"` · `userMessage:"重建元数据时写不进去（临时目录或库根不可写），本次没有改动任何数据。"`
+3. **真 IPC 重建已通过**（A 段）：`REBUILD = {ok:true, created:true, dbCount:3594, dbOk:true, indexAction:"kept", afterOk:true}`，
+   复检从 `db-file:DB_MISSING` 变成 9 项全 ok，**素材摘要前后一致 = true**。
+
+【① 根因：四组对照（纯 Node，同一份代码只改环境变量）】
+$ node data/_t42/repro.mjs   # openGsDb（建 schema）+ importItemsFromJson（写 3594 行）
+  A) TEMP=可写  TMP=不可写                        ⇒ **失败** "unable to open database file"
+  B) TEMP=不可写 TMP=可写                         ⇒ ok · dbCount=3594
+  C) TEMP=不可写 TMP=不可写 SQLITE_TMPDIR=可写     ⇒ **失败**
+  D) TEMP=不可写 TMP=不可写                       ⇒ 失败（对照组）
+⇒ **这个构建读的是 TMP**；**不会**从不可用的 TMP 回退到 TEMP（A 就是证据）；**SQLITE_TMPDIR 被忽略**（C 就是证据）。
+⚠️ 这也解释了你给的 F-1：electron.exe 在沙箱里写不了系统 TEMP（AppData EPERM），
+   而 ui-migrator 的纯 Node 探针能过——因为**普通 node 进程**写 AppData 是允许的。同一个 bug，两种结果。
+
+【② 修法（含一次自我纠正）】
+· 新文件 apps/desktop/src/main/db/tmp-dir.ts：`configureProcessTempDir(<userData>)`
+  —— 建 <userData>/tmp，并把 **TMP / TEMP / TMPDIR / SQLITE_TMPDIR 四个一起**指过去（一次设全）；
+  显式覆盖 `GEMMA_TEMP_DIR` 优先；建不出来就**大声记日志并保持原样**（不假装成功）。
+· apps/desktop/src/main/index.ts：app ready 拿到 userData 后**立刻**调用（在任何 SQLite 写入之前）。
+· ⚠️ **我第一次只设了 SQLITE_TMPDIR** —— 被我自己写的 ST3 断言抓出来（那一路仍然 failure），
+  于是回头做了上面那四组对照，才发现"读的是 TMP、SQLITE_TMPDIR 被忽略"。**只设一个变量是不够的**，
+  这条已写进 tmp-dir.ts 顶部注释，并在 ST3 里用"只设 SQLITE_TMPDIR ⇒ 仍然失败"钉住。
+
+【③ 真 IPC 证据（不是纯 Node）：data/_t42/probe-real-ipc.mjs】
+夹具：真库副本 3594 条 + .gs-index.bin + 2 条素材；先建好 .gs.db **再删掉**（模拟"元数据丢了、用户点重建自救"）。
+毒化：把**继承来的 TMP 指向一个"文件"**（对 SQLite 不可用），TEMP 保持有效（只为让 Chromium 能起窗）。
+
+--- A 段：应用自己的临时目录（修复生效）
+[probe] 主进程里的临时目录变量 = {"TMP":"…\_t42\probe\userdata\tmp","TEMP":"…userdata\tmp",
+                                  "TMPDIR":"…userdata\tmp","SQLITE_TMPDIR":"…userdata\tmp"}
+[probe] HEALTH(before) ok=true 库ok=false 需要重建=true
+[probe]   checks = ["library-root:ok","items-file:ok","index:ok","db-file:DB_MISSING"]
+[probe] REBUILD = {"ok":true,"created":true,"removed":0,"dbCount":3594,"dbOk":true,"indexAction":"kept","afterOk":true}
+[probe] HEALTH(after) ok=true 库ok=true 需要重建=false
+[probe] 素材摘要 before/after = {"count":6,"bytes":1970431,"digest":"ffde7dbb04f3b6f8b8cff987d0cd10bf4c9313ab"} · **一致 = true**
+应用自己的日志（同一次运行）：
+  [temp] 进程临时目录 = …\userdata\tmp （应用私有：系统 TEMP/TMP 不可写时导入才不会莫名失败）· keys = TMP/TEMP/TMPDIR/SQLITE_TMPDIR
+  [体检] L1 有问题 · 自检发现 1 项问题：db-file(DB_MISSING) ⇒ 可以删库重建
+  invoke libraryHealth 16ms → ok
+  [重建] L1 · dbCount=3594 · 索引处置=kept · 重建完成：删除 0 个 .gs.db 文件 → schema v0→v2 → 导入 3594 条 → 索引 kept；复检 通过（9 项）
+  **invoke libraryRebuild 1162ms → ok**
+  [体检] L1 ok · 自检通过（9 项）
+  invoke libraryHealth 27ms → ok
+
+--- B 段：连应用临时目录也不可用（GEMMA_TEMP_DIR 指向"父路径是文件"的位置）
+[probe] 主进程里的临时目录变量 = {"TMP":"…\probe\tmp-is-a-file","TEMP":"…\data\_esbuild-tmp"}   ← 覆盖不可用 ⇒ 保持原样
+[probe] REBUILD = {"code":"IMPORT_FAILED",
+                   "message":"导入写入阶段失败，已回滚（库里没有半份导入）：unable to open database file",
+                   "userMessage":"重建元数据时写不进去（临时目录或库根不可写），本次没有改动任何数据。",
+                   "details":{"libId":"L1","rawCode":"IMPORT_FAILED"}}
+⇒ **不再是 INDEX_CORRUPT**（对照组就是 F-1 里那条假因果）；userMessage 也不提"索引损坏"。
+
+【④ 错误码修法（apps/desktop/src/main/library-ipc.ts）】
+· `PASS_THROUGH_PREFIXES = ['IMPORT_']`：主进程先把"已是引擎契约码"的原样透出，再让 **IMPORT_*** 原样透出，
+  最后才走 storage-ports 的映射表（那张表仍把 DB_OPEN_FAILED 等归到 INDEX_CORRUPT —— T-15a 的语义不变）。
+· `MAIN_USER_MESSAGE`：为 IMPORT_* 一族给一句能说清"本次没有改动任何数据"的文案（引擎 USER_MESSAGE 表里没有这些码）。
+
+--- 建议提交进 SPEC §5 的两处（**我没动 SPEC**，按规矩由你提交）
+  (a) 错误码清单追加一行（放在既有码之后，保持"新增=兼容"的口径）：
+      | `IMPORT_FAILED` · `IMPORT_INPUT_INVALID` · `IMPORT_SOURCE_INVALID` · `IMPORT_INDEX_UNREADABLE` ·
+        `IMPORT_RECORD_INVALID` · `IMPORT_DUPLICATE_UID` · `IMPORT_COUNT_MISMATCH` |
+        元数据**导入/重建**阶段的失败（含临时目录不可写）。**不得**归成 `INDEX_CORRUPT`（索引并没有坏）。新增码 = 兼容（§9.1）。 |
+  (b) 用户文案（与其它码同表）：
+      `IMPORT_FAILED` = 「重建元数据时写不进去（临时目录或库根不可写），本次没有改动任何数据。」
+
+【⑤ 单测（新增/修改）】
+· apps/desktop/tests/library-methods.test.mjs 加 **IM1**（子进程，毒化 TEMP/TMP）：
+  重建失败 ⇒ `code === 'IMPORT_FAILED'`、**≠ INDEX_CORRUPT**、rawCode 一致、userMessage 非空且不含"索引"。
+· apps/desktop/tests/sqlite-tmp-dir.test.mjs 新增 **ST1/ST2/ST3**：
+  ST1 四个变量一起被指向 <userData>/tmp（少设一个就可能踩"另一个才是被读的"）；
+  ST2 覆盖不可用 ⇒ 返回 null 且**不偷偷设置**环境；ST3 钉住机制：(1) 临时目录可写 ⇒ 导入成功 3594 ·
+  (2) **只设 SQLITE_TMPDIR ⇒ 仍然失败**（证明为什么必须设 TMP）· (3) 对照组全不可写 ⇒ IMPORT_FAILED。
+· apps/desktop/tests/db-schema.test.mjs 的 A1 精确清单加上 `tmp-dir.ts`（**这条是我自己的守卫抓出来的**：
+  新增 db 层文件没同步清单 ⇒ A1 直接红 —— 守卫按设计工作）。
+  $ node --test …/library-methods.test.mjs ⇒ 8/8 · …/sqlite-tmp-dir.test.mjs ⇒ 3/3
+
+【⑥ 门禁】
+  npm test ⇒ **520 tests / pass 519 / fail 0 / skipped 1** · duration 76.4s   NPM_TEST_EXIT=0
+  npx tsc --noEmit -p tsconfig.node.json ⇒ 0 · -p tsconfig.web.json ⇒ 0
+  npm run build ⇒ BUILD_EXIT=0
+  npx playwright test … smoke.spec.mjs m0-real.spec.mjs ⇒ **2 passed (7.6s)** · E2E_EXIT=0
+
+【这条工作**证明不了**什么 / 已知边界（如实写）】
+· **引擎端口那条路仍会把 .gs.db 的问题归到引擎码**（storage-ports.engineCodeOf 把 IMPORT_* / DB_OPEN_FAILED
+  映射成 INDEX_CORRUPT）——那是**引擎码空间**（packages/engine/src/errors.ts 的 ErrorCode），本次没动它：
+  ① packages/engine 不在我的写入范围；② 引擎侧只有一个码空间，要新增码得让所有者批。
+  影响面：走**引擎**读条目的路径（search/item/collect）仍只用引擎码；本次修的是 libraryHealth/libraryRebuild
+  这两条主进程方法**信封里的码**。要不要让引擎侧也分得清，请你裁决（我建议下一步：给引擎加 IMPORT_* 一族，
+  与 SPEC §5 同步；否则 UI 在这两条路径上看到的是两种口径）。
+· A 段的"继承 TMP 不可用"是**我构造的**（TMP 指向一个文件）；T-15b 那次真实失败是**引用既有证据**（15b.txt F-1），
+  本轮没有重跑它当时的那条探针。Chromium 的 TEMP 我刻意保持有效（否则窗口起不来，就不是"真窗口"证据了）。
+· 真机（正常机器）的 %TEMP% 本来可写 —— 这次修的是**受限/被锁死临时目录**的鲁棒性；
+  它同时让"重建"不再依赖系统临时目录，这一点对用户是净收益，但**没有**在真机上做过对照实验。
+· 没有测：macOS/Linux 上的 TMPDIR 行为（代码里一并设了 TMPDIR，但只在 Windows 验证）；
+  多库并发重建；SPEC §5 的文档改动（归 Lead）。
+
+【临时物 / 回滚】
+· 回滚：删 apps/desktop/src/main/db/tmp-dir.ts 与 index.ts 里那一行调用（+ import）；
+  library-ipc.ts 去掉 PASS_THROUGH_PREFIXES 分支与 MAIN_USER_MESSAGE（IMPORT_* 会退回 INDEX_CORRUPT 的旧口径）；
+  删 tests/sqlite-tmp-dir.test.mjs 与本证据；IM1 / A1 的两处改动可按需回退。
+· 未跑 git（AGENTS P7）；临时物 **data/_t42**（夹具 + repro/probe 脚本 + 输出）已删除 ——
+  ⚠️ 该目录不在本任务声明的写入范围内（data/_* 是本机临时物的约定位置），此处如实说明。
+===============================================================================

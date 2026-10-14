@@ -167,6 +167,8 @@ test('A1：db 层只有 sqlite-adapter.ts 碰 node:sqlite，且不 import electr
   // ⚠️ 这是一份**精确清单**（不是 >= 判断）：新增文件必须显式加进来，否则下面的扫描面会
   //    "看起来还活着"却漏掉新文件 —— 那正是 A1/A2 变成空气断言的方式。
   //    T-11b 新增 import.ts 时同步加了这一行（同属 db 层，见 reports/2026-10-15-wave3/11b.txt）。
+  //    T-42 新增 tmp-dir.ts（进程临时目录，SQLite 写不进去时那条真机失败路径的修复）——
+  //    它只 import node:fs/node:path 与 log.ts，所以两条扫描（node:sqlite / electron）都不该命中它。
   assert.deepEqual(files.sort(), [
     'errors.ts',
     'import.ts',
@@ -175,6 +177,7 @@ test('A1：db 层只有 sqlite-adapter.ts 碰 node:sqlite，且不 import electr
     'open.ts',
     'row-types.ts',
     'sqlite-adapter.ts',
+    'tmp-dir.ts',
   ]);
 
   const sqliteImporters = [];

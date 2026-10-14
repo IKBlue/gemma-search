@@ -8,12 +8,14 @@
 //   L5 未知库：LIB_NOT_FOUND 信封（**不抛**）· userMessage 非空
 //   L6 库根缺失：体检给结构化结论、重建给 LIB_ROOT_MISSING 信封（都不抛）
 //   L7 坏 .gs.db：体检把它报出来（结构化）→ 重建修好 → 复检 ok
+//   IM1（T-42）IMPORT_* 经信封出去**不得**变成 INDEX_CORRUPT（假因果）
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { validateCall, METHOD_NAMES } from '../src/shared/ipc.ts';
 import { runLibraryHealth, runLibraryRebuild } from '../src/main/library-ipc.ts';
@@ -21,6 +23,7 @@ import { materialDigest } from '../src/main/library-rebuild.ts';
 import { openGsDb, importItemsFromJson } from '../src/main/db/index.ts';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
+const LIB_IPC = fileURLToPath(new URL('../src/main/library-ipc.ts', import.meta.url));
 const REAL = path.join(ROOT, 'data', 'libraries', 'L1');
 const TMP = path.join(ROOT, 'data', '_t15a2', 'library-methods-' + process.pid);
 const TINY_JPEG = Buffer.from('/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==', 'base64');
@@ -227,4 +230,30 @@ test('L7 坏 .gs.db：体检报出来（结构化）→ 重建修好 → 复检 
   const health2 = runLibraryHealth(deps(dir, LIBS(dir)));
   assert.equal(health2.data.ok, true, '重建之后必须真的好了：' + health2.data.reason);
   assert.equal(health2.data.needsDbRebuild, false);
+});
+
+test('IM1 ⭐ IMPORT_* 经信封出去**不得**变成 INDEX_CORRUPT（T-42 的假因果）', () => {
+  // 复现手法：SQLite 的临时目录不可写 ⇒ 导入**写数据阶段**报 "unable to open database file"
+  //   （纯 Node 实测：TEMP 可写 ⇒ ok；TEMP 指到不存在的目录 ⇒ 同样的 IMPORT_FAILED）
+  // ⚠️ 必须开子进程：SQLite 会把临时目录配置缓存住，同进程里前面成功导入过的用例会把这条"洗白"。
+  const dir = cloneBase('importfail');
+  const bogus = path.join(TMP, 'no-such-temp-' + String(Date.now()));
+  const code = 'const m = await import(' + JSON.stringify(pathToFileURL(LIB_IPC).href) + ');'
+    + 'const res = m.runLibraryRebuild({ libId: "L1", libraries: [{ libId: "L1", root: ' + JSON.stringify(dir) + ' }], userDataDir: null });'
+    + 'console.log("RESULT" + JSON.stringify(res));';
+  // ⚠️ 毒化的是**真正生效**的临时目录（TEMP/TMP），不是只设 SQLITE_TMPDIR ——
+  //    实测：只把 SQLITE_TMPDIR 指到不存在的目录时，SQLite 会**回退**到可写的 TEMP 并成功。
+  //    这与 Electron 里那条失败路径同形（electron.exe 在沙箱里写不了系统 TEMP）。
+  const env = Object.assign({}, process.env, { TEMP: bogus, TMP: bogus });
+  delete env.SQLITE_TMPDIR;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { env, encoding: 'utf8' });
+  const line = String(r.stdout || '').split(/\r?\n/).find((l) => l.startsWith('RESULT'));
+  assert.ok(line, '子进程应当打出 RESULT：' + (String(r.stdout) + String(r.stderr)).slice(0, 400));
+  const res = JSON.parse(line.slice('RESULT'.length));
+  assert.equal(res.ok, false, '临时目录不可写时导入必须失败（这就是复现路径）');
+  assert.equal(res.error.code, 'IMPORT_FAILED', 'code 必须是 IMPORT_FAILED（实测 ' + res.error.code + '）');
+  assert.notEqual(res.error.code, 'INDEX_CORRUPT', '**不许**把它说成索引损坏（假因果）');
+  assert.equal(res.error.details.rawCode, 'IMPORT_FAILED');
+  assert.ok(res.error.userMessage.length > 0, 'userMessage 恒非空');
+  assert.ok(!/索引/.test(res.error.userMessage), '文案不许再提"索引损坏"：' + res.error.userMessage);
 });

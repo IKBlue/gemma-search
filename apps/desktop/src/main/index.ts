@@ -40,6 +40,7 @@ import type { BoundsDecision } from './window-state.ts';
 import { createRevealPort } from './ports.ts';
 import { createLibraryResolverPort, createStoragePorts } from './storage-ports.ts';
 import { runLibraryHealth, runLibraryRebuild } from './library-ipc.ts';
+import { configureProcessTempDir } from './db/tmp-dir.ts';
 import type { StoragePorts } from '../../../../packages/engine/src/storage-ports.ts';
 import { parseThumbUrl, createLibIdResolver } from './thumb-url.ts';
 import { thumbCachePath, readCachedThumb, writeCachedThumb, thumbServeStatus } from './thumb-cache.ts';
@@ -319,12 +320,14 @@ function buildStoragePorts(r: ResolveLibrariesResult): StoragePorts | null {
     const libraries = createLibraryResolverPort({
       libraries: r.libraries.map((l) => ({ libId: l.libId, root: l.root, label: l.label })),
       userDataDir: USER_DATA_DIR,
+      // 迁移期：旧布局（<dataDir>/libraries/<libId>/index.bin）也要认 —— 判据只有引擎那一份（T-44）
+      legacyLibrariesDir: path.join(DATA_DIR, 'libraries'),
     });
     const ports = createStoragePorts({
       libraries,
       onFallback: (m: string) => log('[存储][回落]', m),
     });
-    log('[存储] 端口已装配：items ← .gs.db（无则回落 items.json）· index ← <库根>/.gs-index.bin · libraries ← 注册表 + T-04 落点');
+    log('[存储] 端口已装配：items ← .gs.db（无则回落 items.json）· index ← 新布局库根 / 旧布局回退（T-44 唯一判据）· libraries ← 注册表 + T-04 落点');
     return ports;
   } catch (e) {
     log('!! 存储端口装配失败（本次回落到旧布局 <dataDir>/libraries/<libId>）:', stackText(e));
@@ -576,6 +579,8 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
       libId: String(p.libId),
       libraries: r.libraries.map((l) => ({ libId: l.libId, root: l.root })),
       userDataDir: USER_DATA_DIR,
+      // 旧布局根：体检/重建据此回退（T-44）；判据唯一来源是引擎的 resolveIndexLocation
+      legacyLibrariesDir: path.join(DATA_DIR, 'libraries'),
     };
     return method === 'libraryHealth' ? runLibraryHealth(input) : runLibraryRebuild(input);
   }
@@ -977,6 +982,10 @@ async function startApp(): Promise<void> {
     USER_DATA_DIR = app.getPath('userData');
     log('userData', USER_DATA_DIR);
     log('注册表路径', registryPath(USER_DATA_DIR));
+    // ⚠️ T-42：把 SQLite 的临时目录指到 <userData>/tmp —— 必须在**任何** SQLite 写入之前。
+    //    系统 TEMP 不可写时（受限沙箱 / 锁死的企业机），导入写数据阶段会报
+    //    "unable to open database file" 并整条回滚成 IMPORT_FAILED（实测复现：只改 TEMP 就能复现）。
+    configureProcessTempDir(USER_DATA_DIR);
   } catch (e) {
     log('!! userData 解析失败（会退到索引自举）:', messageText(e));
   }
