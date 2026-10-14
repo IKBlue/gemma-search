@@ -3,7 +3,7 @@
 // 契约要求：**按 code 分支，绝不按 message 分支**。
 // 所以错误码在这里集中定义一次，界面与测试都从这里取。
 
-/** 契约 §1.3 的 19 个错误码。冻结后新增=兼容，改名=破坏性。 */
+/** 契约 §1.3 的 20 个错误码（19 个原始 + 2026-10-12 F-01 新增的 PORT_MISSING）。冻结后新增=兼容，改名=破坏性。 */
 export const ERR = Object.freeze({
   BAD_REQUEST: 'BAD_REQUEST',
   LIB_NOT_FOUND: 'LIB_NOT_FOUND',

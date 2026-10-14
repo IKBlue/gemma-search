@@ -1,7 +1,7 @@
 # GETTING-STARTED · 从克隆到跑起来
 
-> 面向**第一次拿到这个仓库**的人。每一步都写清"该看到什么"；看不到就是有问题，去 [`TROUBLESHOOTING.md`](docs/guide/TROUBLESHOOTING.md)。
-> 改动代码/文档前请先读 [`AGENTS.md`](AGENTS.md)（目录职责与纪律）。
+> 面向**第一次拿到这个仓库**的人。每一步都写清"该看到什么"；看不到就是有问题，去 [`TROUBLESHOOTING.md`](/docs/guide/TROUBLESHOOTING.md)。
+> 改动代码/文档前请先读 [`AGENTS.md`](/AGENTS.md)（目录职责与纪律）。
 
 最后核对：2026-10-12 · 环境：Windows / PowerShell / Node ≥ 20
 
@@ -86,7 +86,7 @@ npm run build                             # 期望：out/{main,preload,renderer}
 
 ```
 
-**只有 1 项跳过**，原因是环境限制（详见 [`AGENTS.md`](AGENTS.md) §3）：
+**只有 1 项跳过**，原因是环境限制（详见 [`AGENTS.md`](/AGENTS.md) §3）：
 
 1. 本环境无法创建**文件**符号链接（`EPERM`）→ 那条「库内指向库外的符号链接必须被拒」跳过（目录联接能建，文件符号链接不能）。在能建链接的机器上会真跑。
 
@@ -106,7 +106,7 @@ npm run build                             # 期望：out/{main,preload,renderer}
 ```powershell
 
 > 已按所有者指令移除**（原件备份在 `data/_removed-guards-backup/`）。上面只列现存的两个 —— 这两个都需要
-> 模型目录与已注册索引，**在 agent 沙箱里跑不动**；移除的代价见 [`TODO.md`](../TODO.md) B-4。
+> 模型目录与已注册索引，**在 agent 沙箱里跑不动**；移除的代价见 [`TODO.md`](/../TODO.md) B-4。
 node packages/indexer/src/build_index_onnx.mjs --model <ONNX 模型目录> --lib <素材库根> `
      --out data/idx-full --seq 140 --device webgpu --lib-id L1
 ```
@@ -121,10 +121,10 @@ node packages/indexer/src/build_index_onnx.mjs --model <ONNX 模型目录> --lib
 
 | 目的 | 文档 |
 |---|---|
-| 目录职责 / 新东西放哪儿 / 门禁 / 写作纪律 | [`AGENTS.md`](AGENTS.md) |
-| 有什么文档、哪件事以谁为准 | [`docs/README.md`](docs/README.md) |
-| 做到哪一步、下一步做什么 | [`docs/plan/ROADMAP.md`](docs/plan/ROADMAP.md) |
-| 应用规格与技术栈 | [`docs/spec/SPEC-app.md`](docs/spec/SPEC-app.md) |
-| 引擎接口契约 | [`docs/spec/CONTRACT-engine-v1.md`](docs/spec/CONTRACT-engine-v1.md) |
-| 验收阈值与门禁口径 | [`docs/spec/SPEC-acceptance.md`](docs/spec/SPEC-acceptance.md) |
-| 出问题了 | [`TROUBLESHOOTING.md`](docs/guide/TROUBLESHOOTING.md) |
+| 目录职责 / 新东西放哪儿 / 门禁 / 写作纪律 | [`AGENTS.md`](/AGENTS.md) |
+| 有什么文档、哪件事以谁为准 | [`docs/README.md`](/docs/README.md) |
+| 做到哪一步、下一步做什么 | [`docs/plan/ROADMAP.md`](/docs/plan/ROADMAP.md) |
+| 应用规格与技术栈 | [`docs/spec/SPEC-app.md`](/docs/spec/SPEC-app.md) |
+| 引擎接口契约 | [`docs/spec/CONTRACT-engine-v1.md`](/docs/spec/CONTRACT-engine-v1.md) |
+| 验收阈值与门禁口径 | [`docs/spec/SPEC-acceptance.md`](/docs/spec/SPEC-acceptance.md) |
+| 出问题了 | [`TROUBLESHOOTING.md`](/docs/guide/TROUBLESHOOTING.md) |

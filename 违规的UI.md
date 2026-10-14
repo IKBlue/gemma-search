@@ -9,6 +9,7 @@
 - 审查日期：2026-10-13 · 被审产物：`out/`（构建于 2026-10-13T06:35:04Z，**晚于**最新渲染层源码 06:35:01Z ⇒ 截图与代码同版）
 - 审查对象：`apps/desktop/src/renderer/`（44 个 `.jsx`/`.js` + `renderer.css` + `styles/tailwind.css`）· `packages/design-tokens/tokens.css` · `apps/desktop/src/main/index.mjs`（窗口与协议）· `apps/desktop/src/renderer/index.html`
 - 证据类型：**代码事实**（`file:line`）· **真窗口实测**（Playwright 启动真 Electron 后读 `getComputedStyle` 与 DOM，原样输出在报告附录）· **脚本复算**（WCAG 对比度）· **命令输出**。无证据的标【判断，非实测】。
+- 增补：**V-43 / V-44 于 2026-10-14 补登** —— 二者是本轮修 P0 时由 `contrast.test.mjs` 的**令牌计算**发现的，**不在原审查的 42 条里**；原报告 `docs/audit/UIUX-APPLE-STYLE-AUDIT.md` 仍保持 **42 条的冻结快照**，不改写。
 
 ## 判据与严重度口径
 
@@ -22,7 +23,7 @@
 影响面 3 = 主任务路径或全应用 · 2 = 单页或单类状态 · 1 = 局部装饰；触发 3 = 必现 · 2 = 常态会出现 · 1 = 边缘。
 `9 = Critical · 6 = High · 4 = Medium · ≤3 = Low`。每条都写出两个因子，可复算。
 
-**统计**：违规 **42** 条 ⇒ Critical **1** · High **8** · Medium **22** · Low **11**。
+**统计**：违规 **44** 条 ⇒ Critical **1** · High **8** · Medium **24** · Low **11**（= 原审查 42 条 + 2026-10-14 补登的 V-43 / V-44，两条均 Medium 2×2=4）。
 
 ---
 
@@ -72,6 +73,8 @@
 | V-40 | High (2×3=6) | 文案 | 界面**直接显示未渲染的 Markdown**（`**加粗**` 按字面渲染） |
 | V-41 | Low (1×2=2) | 文案/心智 | 开发者术语外露（thumb 协议 · compat · seq · dim · uid · 错误码 · canUndo） |
 | V-42 | Medium (2×2=4) | 状态/文案 | toast 里直接显示 **undefined**（真窗口截图实测） |
+| V-43 | Medium (2×2=4) | 配色 | 错误 toast **白字压红底**只有 **3.55:1**（< 4.5:1，SC 1.4.3） |
+| V-44 | Medium (2×2=4) | 配色 | 状态圆点（8px **非文字**图形）只有 **2.22:1**（< 3:1，SC 1.4.11） |
 
 ## A · 视觉与配色
 
@@ -142,6 +145,23 @@
 - **事实**：`tokens.css:235-239` 与 `renderer.css:52` 的 `:focus-visible` 规则里带 `border-radius: var(--radius-sm)` ⇒ 聚焦瞬间把组件自己的圆角（胶囊 999px、卡片 12px）改成 8px。
 - **判据**：WCAG 2.2 SC 2.4.7（焦点可见本身没问题，本条是**副作用**）。
 - **建议**：删掉该 `border-radius`（`outline` 本就跟随元素圆角）。
+
+### V-43 · Medium（影响面 2 × 触发 2 = 4）· 错误 toast 白字压红底只有 3.55:1
+- **违规**：错误 toast 是**白字压红底**，而 `--color-critical`（`#ff3b30`）承载白字只有 **3.55:1** —— 低于正文 AA 的 4.5:1。**恰好在"出错时最需要看清"的组件上**。
+- **判据**：WCAG 2.2 **SC 1.4.3**（AA，正文 4.5:1）；HIG › **Color**（语义色要按承载角色取值，一个色不能同时当"填充"和"压白字的底色"）。
+- **事实**：`packages/design-tokens/tokens.css:57-60` 新增 `--toast-err-bg: #c7362b`（白字 **5.26:1** ✔）；`apps/desktop/src/renderer/src/renderer.css:309` 的 `.toast.err` 已改用它。**修前**用 `--color-critical`，白字 3.55:1。
+- **复现**：`npm test`（`apps/desktop/tests/contrast.test.mjs:113`，由令牌值直接计算，不需要 DOM）。
+- **说明**：这条是**本轮新发现的**（不在原 42 条里）—— 原审查的对比度脚本扫的是"文字用哪个色"，没扫"白字压哪个底"这一组合。
+- **建议/已修**：单独一个"深到能压白字"的红令牌，不复用 `--color-critical`（`AGENTS.md` §1 S6：令牌只在 `tokens.css` 定义）。
+- **验收**：`contrast.test.mjs` 的 CT 系列在两种模式下都过（已双向验证：注入旧前景 ⇒ 变红）。
+
+### V-44 · Medium（影响面 2 × 触发 2 = 4）· 状态圆点只有 2.22:1（非文字图形）
+- **违规**：侧栏/卡片上的**状态圆点**是 **8px 的非文字图形**，原先用 `--color-success`（`#34c759`）压在浅色底上只有 **2.22:1** —— 低于非文字图形的 3:1。
+- **判据**：WCAG 2.2 **SC 1.4.11**（AA，非文字对比度 **3:1**，**不是 4.5:1**）。阈值不一样，别拿正文阈值要求它，也别反过来当正文放过。
+- **事实**：`renderer.css:132-134` 的 `.dot-ok` / `.dot-warn` / `.dot-err` 已改用可读变体 `--color-success-text` / `--color-warning-text` / `--color-critical-text`（`tokens.css:55-56` 的同色系压暗阶梯）。
+- **复现**：`npm test`（`contrast.test.mjs:118-120`，`min: 3.0` / `sc: '1.4.11'`）。
+- **说明**：与 V-03 同源（"填充色被当文字/信号色用"），但**判定阈值不同**，所以单独立条 —— 合并会丢掉"该按 3:1 还是 4.5:1"这个判据。
+- **建议/已修**：语义色分"填充"与"可读变体"两档，`tokens.css` 里已写明各自用途（`:50-54`）。
 
 ---
 

@@ -424,7 +424,7 @@ error during build: Error: spawn EPERM
 
 ### B-6 UI/UX 治理（Apple Style 审查，2026-10-13）—— **第一段已做，标注处未完成**
 
-> 审查产物：仓库根 [`违规的UI.md`](违规的UI.md)（**违规唯一详表**，42 条）·
+> 审查产物：仓库根 [`违规的UI.md`](违规的UI.md)（**违规唯一详表**，44 条 = 原审查 42 + 补登 V-43/V-44）·
 > [`docs/audit/UIUX-APPLE-STYLE-AUDIT.md`](docs/audit/UIUX-APPLE-STYLE-AUDIT.md)（论证与优先级）·
 > [`docs/design/UI-KIT.md`](docs/design/UI-KIT.md)（Apple HIG 基线对差）。
 > ⚠️ 这三份 + `docs/design/ui-kit/`（生成器与数据）**目前仍未提交** —— 见下表"未完成"第 2 条。
@@ -477,6 +477,29 @@ error during build: Error: spawn EPERM
    判断成败要看**产物**（`out/renderer/assets/*` 的时间戳与内容），不是退出码。
 3. **断言不能只匹配函数名**：`/normalizeMessage\(msg\)/` 会被**函数定义**满足 ⇒ 把调用点改回 `String(msg)` 也照样绿。
    必须断言**确切的调用表达式**。这条是**双向验证当场抓出来的**。
+
+### B-7 文档↔代码一致性缺口（**2026-10-14 完整性核对 · 已全部修复**）
+
+> 起因：一次「项目完整度」核对 —— **门禁 4/4 全绿，问题全在文档与交付层**。每条都带证据与复现方式；
+> 已修的写清改成了什么，避免下一个人照旧文档再走一遍。
+
+| # | 缺口（改前） | 证据 | 处置 |
+|---|---|---|---|
+| **B-7-1** | **工作树未提交**：40 个已改文件 + `docs/PROJECT-INFO.md` 未跟踪，而 `AGENTS.md` 已把后者当作「事实/现状」来源 ⇒ 克隆者拿到断链指针 | `git status --porcelain`（40 M + 1 ??） | ✅ 已提交 **`082e0d6`**（41 文件，+763/−450），工作树干净 |
+| **B-7-2** | `README.md` 状态节过期：写「测试 90 项 · 89 过」·「P3 只完成 1/4 页」·「`npm test` 164 条 / e2e 13 条」·「没有 typecheck 门禁」 | 本轮实测 313/312/0/1 · e2e **62 passed** · `typecheck` EXIT=0 | ✅ 全部改为实测值；新增「技术栈迁移 T1–T5 ✅」一行；P4 的未实现清单补齐为 **6 个**方法 |
+| **B-7-3** | `docs/plan/ROADMAP.md` 停在 2026-10-12：页头「P3 ⚠️ 只完成 1/4 页」· §0「测试 113 条」· §0 形态行「全仓 0 个 `.ts/.tsx`…没有 typecheck 门禁」· 任务表 P3b/P3c/P3d「❌ 未开始」 | 代码事实（4 路由 / 6 页面 / 1 个 `.ts` / `typecheck` 在 `package.json`） | ✅ 页头与任务表按现状改；「下一步」改为 **P4 → P5 → P6** |
+| **B-7-4** | **错误码数少算 1**（4 处写 19，实为 **20** —— `PORT_MISSING` 于 2026-10-12 新增） | `errors.mjs:7-30` 共 20 个键 | ✅ `errors.mjs` · `ipc.ts:8` · `docs/README.md:32` · `PROJECT-INFO.md:279` 全部改为 20 |
+| **B-7-5** | `docs/README.md` 另两处过期：§1 写 `SPEC-transactions`「实现未开始」（地基已实现 + 4 个测试文件）· 写契约「10 方法」（实为引擎 13 / IPC 登记 16） | `packages/engine/src/transactions/` · `shared/ipc.ts` | ✅ 已改 |
+| **B-7-6** | **契约 §2.0 有一行是错的**：`CONTRACT-engine-v1.md:105` 把 `thumbPath` 列为「✅ 已实现」，而全仓代码**搜不到它** | 全仓 grep：仅本文档与 `docs/archive/`；实际走 `thumb://` 协议（`main/index.mjs` 的 `protocol.handle('thumb')` + `PhotoCard.jsx:34`） | ✅ §2.0 移出「已实现」行 · §2.3 加「已被协议取代」标注 · §4 表同步 |
+| **B-7-7** | **V-43 / V-44 已修但没进台账**（台账自称「唯一详表」，原审查 42 条） | `TODO.md` B-6 表 + `tokens.css:57` · `renderer.css:309` · `contrast.test.mjs:113-120` | ✅ 台账补 **V-43 / V-44**（含判据 / 复现 / 验收）；统计 **42 → 44 条**（Medium 22 → 24）；原审计报告**保持 42 条冻结快照**并在 `PROJECT-INFO.md` 注明 |
+| **B-7-8** | **文档引用解不开**：76 份 `.md` / 204 条内部链接里，**56 条**按文件相对解算失败（其中 **8 条**两种口径都死，全在 `docs/audit/`）—— 根因是「根相对」写法不带前导 `/` 在 GitHub 上点不开 | 死链自检（口径见下） | ✅ 56 条全部改为可解算形式（带前导 `/` 的仓库根相对）；`AGENTS.md` §6.1 写明形式与**自检口径**。**修后实测死链 0** |
+| **B-7-9** | 就地 README 过期：`apps/desktop/src/README.md:116-117`「刻意没有 typecheck 脚本 / Tailwind·shadcn·zustand·Radix 均未接入」· `renderer/README.md:31` 仍指已删除的 `hooks/useSearch.js` | `package.json` · `store/search.js` | ☐ **未修**（`PROJECT-INFO.md` 附录 A 的 A5/A6 已登记；本轮范围外，**别当成已修**） |
+| **B-7-10** | `PROJECT-INFO.md` 自己的两处小错：索引构建写「11 个 `.mjs`」（实 12）· 头部写「工作树 `ac97978`，`git status` 干净」 | 静态计数 · `git status` | ✅ 已改（12 个；头部改为 `082e0d6`） |
+
+**死链自检口径**（只读、无依赖；已写进 `AGENTS.md` §6.1）：遍历所有 `.md`，对每条 `](…)` 先按**文件相对**解算、失败再按**仓库根**（前导 `/`）解算，两处都不存在即死链。
+
+**本轮门禁复跑（修复后，2026-10-14）**：`npm test` **313 · 312 · 0 · 1**（EXIT=0）· `npm run typecheck` EXIT=0 ·
+`npm run build` EXIT=0（三端齐备，**需提权**）· `npm run e2e` **62 passed**（EXIT=0，**需提权**）。
 
 ---
 

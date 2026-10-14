@@ -2,7 +2,7 @@
 
 > **复核者**：独立验证者（未参与本次重构）· **日期**：2026-10-12
 > **被验证对象**：工作区状态 `HEAD=4555c1b` + index + worktree（**未提交**）
-> **执行依据**：[`docs/MIGRATION-PLAN.md`](MIGRATION-PLAN.md) §1/§2/§3/§6/§7 · [`AGENTS.md`](../AGENTS.md) §2/§5
+> **执行依据**：[`docs/MIGRATION-PLAN.md`](/docs/MIGRATION-PLAN.md) §1/§2/§3/§6/§7 · [`AGENTS.md`](/AGENTS.md) §2/§5
 > **纪律**：本文件是复核者**唯一写入**的文件。未修改任何被验证的源码 / 配置 / 文档；未跑 `npm install` / `npm ci`（只跑 `--dry-run`）。
 > **方法**：每条结论都是复核者**自己跑命令 / 自己读原文件**得到的原始输出。凡未验证的一律标【未验证】。
 
@@ -29,7 +29,7 @@
 
 | 项 | 内容 |
 |---|---|
-| **位置** | [`reports/README.md:37`](../reports/README.md#L37) · `:42` · `:47` · `:48` · `:49` · `:51` |
+| **位置** | [`reports/README.md:37`](/reports/README.md#L37) · `:42` · `:47` · `:48` · `:49` · `:51` |
 | **为什么是 blocker** | 该文件**未进入本次改动的任何清单**（`git status --short -- reports/README.md` 为空 → HEAD 版 = 工作区版），即**迁移完全没碰它**。而 `AGENTS.md` §3/§4 明确把它登记为**现行权威**：「门禁证据 → 协议见 `reports/README.md`」。它现在写着 5 条**必然失败**的命令。 |
 
 **证据（原文，`read` 工具读出）**：
@@ -61,7 +61,7 @@ node onnx-spike/build_index_onnx.mjs --model <ONNX 模型目录> --lib "G:\model
 
 **为什么不接受「它只是没验」**：
 - 本文件头部第 3 行自己写着「**项目规则：无归档证据 = 门禁未通过**」，它是这把尺子的持有者。
-- 该文件**不是** `reports/G-*/` 下的历史证据（历史证据不改是**正确**的，见 [`docs/DEBT-CLEANUP.md:229`](../docs/DEBT-CLEANUP.md#L229)）；它是 `reports/` 的**现行说明文档**，与 `AGENTS.md` 平级被引用。
+- 该文件**不是** `reports/G-*/` 下的历史证据（历史证据不改是**正确**的，见 [`docs/DEBT-CLEANUP.md:229`](/docs/DEBT-CLEANUP.md#L229)）；它是 `reports/` 的**现行说明文档**，与 `AGENTS.md` 平级被引用。
 - MIGRATION-PLAN §3 的 P5 门禁原文是「**旧路径全仓无引用**」，本文件命中 3 类旧路径。
 
 **最小修法（不属复核者职责，仅供 Lead 参考）**：保留 `reports/G-B-*` 的原文不动（那是历史），把 `reports/README.md` §「复现一遍 G-B」整段改写为「**该流程已随 Python 档退役，不可复跑**，判据见 `docs/spec/SPEC-acceptance.md`」，命令改为新路径；`--lib` 改为 `<素材库根>`。
@@ -72,7 +72,7 @@ node onnx-spike/build_index_onnx.mjs --model <ONNX 模型目录> --lib "G:\model
 
 | 项 | 内容 |
 |---|---|
-| **位置** | [`apps/desktop/src/README.md:75`](../apps/desktop/src/README.md#L75) · `:118` |
+| **位置** | [`apps/desktop/src/README.md:75`](/apps/desktop/src/README.md#L75) · `:118` |
 | **状态** | `git status --short` → `R  src/README.md -> apps/desktop/src/README.md`（**纯 rename，未改内容**） |
 | **为什么是 blocker** | 这是一份**已进入 index**（将被提交）的文件，它给「索引/重采样/BMP 解码」这三个关键件写了**与磁盘相反的定位**，并把一条**已被明确取消**的债务（D-3）继续登记为待办。 |
 
@@ -84,7 +84,7 @@ node onnx-spike/build_index_onnx.mjs --model <ONNX 模型目录> --lib "G:\model
   → `onnx-spike/` **不存在**（`Test-Path` = False）；实际在 `packages/indexer/src/`。
   → `git status --short` 同时显示 `RM packages/indexer/src/resize_compat.mjs`（**该文件本轮确实被改了，17 insertions(+), 10 deletions(-)**），与「刻意不动」直接矛盾。
   → 该文件 `:122` 还保留 `| 7 | … | P6 |` 等多条与 `apps/desktop/src/README.md` §5 表格绑定的旧结论。
-- 同一文件 `:121` 写「`npm run start:legacy` 仍可跑它」，而 [`package.json:36-37`](../package.json#L36) 明确写该脚本**已删除**，并给出替代命令。
+- 同一文件 `:121` 写「`npm run start:legacy` 仍可跑它」，而 [`package.json:36-37`](/package.json#L36) 明确写该脚本**已删除**，并给出替代命令。
 
 **为什么计入 blocker 而不是「历史留档」**：它不在 `docs/archive/` 下，且已被 `git add` 进 index，读者会把它当现状依据（`AGENTS.md` §6 的定位行号纪律正是要求这类文件与磁盘一致）。
 

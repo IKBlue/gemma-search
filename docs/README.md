@@ -1,7 +1,7 @@
 # docs/ · 文档索引与权威关系
 
-> 全部正文文档都在本目录下。**入口在仓库根**：[`README.md`](README.md)（项目是什么、什么状态、怎么跑）
-> · [`AGENTS.md`](AGENTS.md)（在这个仓库里怎么干活）。
+> 全部正文文档都在本目录下。**入口在仓库根**：[`README.md`](/README.md)（项目是什么、什么状态、怎么跑）
+> · [`AGENTS.md`](/AGENTS.md)（在这个仓库里怎么干活）。
 > 本文回答：**有哪些文档 · 谁指向谁 · 哪件事以谁为准 · 怎么加新文档**。
 
 最后核对：2026-10-14（本轮：修「仓库根只留两份 .md」的过期陈述；`PROJECT-INFO.md` 的登记见 §1）
@@ -15,7 +15,7 @@
 ├── README.md            项目是什么 · 现在什么状态 · 怎么跑 · 已知边界
 ├── AGENTS.md            ★ 唯一权威「工作指南」：目录职责、放置规则、权威关系、门禁、写作纪律
 ├── TODO.md              ★ 唯一行动清单：A 已修 BUG · B 未完成项 · C 缺证据项
-└── 违规的UI.md          UI/UX 违规唯一详表 V-01…V-42（**已登记例外**，见 `AGENTS.md` §4）
+└── 违规的UI.md          UI/UX 违规唯一详表 V-01…V-44（44 条；**已登记例外**，见 `AGENTS.md` §4）
 
 docs/
 ├── README.md            ← 本文：索引 + 权威关系
@@ -27,9 +27,9 @@ docs/
 │   ├── SPEC-app.md                 应用规格：目标、成功标准、技术栈、边界
 │   ├── SPEC-identity.md            身份与配对：uid、文件身份、库指纹、索引格式
 │   ├── SPEC-security.md            威胁模型、IPC 白名单、**明确不防的边界**
-│   ├── SPEC-transactions.md        文件事务与崩溃恢复（规格已成文，实现未开始）
+│   ├── SPEC-transactions.md        文件事务与崩溃恢复（地基已实现：日志 / 状态机 / 恢复；ingest·mutate 未接线）
 │   ├── SPEC-acceptance.md          验收与口径（**阈值唯一出处**）
-│   └── CONTRACT-engine-v1.md       引擎接口契约：19 错误码 + 10 方法
+│   └── CONTRACT-engine-v1.md       引擎接口契约：20 错误码 + 引擎 13 方法（IPC 登记 16 个）
 ├── design/              设计（"做成什么样"）
 │   ├── DESIGN-tokens.md            ★ 视觉令牌唯一来源（可执行版 packages/design-tokens/tokens.css）
 │   ├── DESIGN-app-details.md       详细设计：UI、库管理、索引、入库
@@ -69,28 +69,28 @@ docs/
 
 ## 2. 权威关系（同一件事只有一个出处）
 
-发现两处不一致：**改错的那处**，不要在两处各改一半。完整表（含"怎么干活"类）见 [`AGENTS.md`](AGENTS.md) §7.1。
+发现两处不一致：**改错的那处**，不要在两处各改一半。完整表（含"怎么干活"类）见 [`AGENTS.md`](/AGENTS.md) §7.1。
 
 | 这件事 | 以谁为准 |
 |---|---|
 | 项目是什么 / 什么状态 / 怎么跑 | [`README.md`](../README.md) |
 | **现在还有什么没做完 / 什么坏了** | [`TODO.md`](../TODO.md)（仓库根） |
-| 怎么干活（目录职责、放置、门禁、写作纪律） | [`AGENTS.md`](AGENTS.md) |
-| 顺序与进度（做什么、什么顺序、什么算做完） | [`plan/ROADMAP.md`](docs/plan/ROADMAP.md) |
-| 应用技术栈与目录结构 | [`spec/SPEC-app.md`](docs/spec/SPEC-app.md) |
-| 引擎接口形状（方法 / 错误码 / 事件 / 恢复） | [`spec/CONTRACT-engine-v1.md`](docs/spec/CONTRACT-engine-v1.md) |
-| 索引元数据 / 身份 / 配对 / 指纹 | [`spec/SPEC-identity.md`](docs/spec/SPEC-identity.md) |
-| 事务 / 撤销 / 并发 | [`spec/SPEC-transactions.md`](docs/spec/SPEC-transactions.md) |
-| **验收阈值 / 性能口径 / 门禁** | [`spec/SPEC-acceptance.md`](docs/spec/SPEC-acceptance.md) |
-| 传输层与外壳安全 | [`spec/SPEC-security.md`](docs/spec/SPEC-security.md) |
-| **UI / UX** | [`design/UI-REVIEW-and-migration.md`](docs/design/UI-REVIEW-and-migration.md)（摘要见 `DESIGN-app-details.md` §一） |
-| **视觉令牌** | [`design/DESIGN-tokens.md`](docs/design/DESIGN-tokens.md)（可执行版 = `packages/design-tokens/tokens.css`） |
-| 还欠什么 | [`DEBT-CLEANUP.md`](docs/DEBT-CLEANUP.md) |
-| 本次重构怎么执行（目录结构已冻结） | [`MIGRATION-PLAN.md`](docs/MIGRATION-PLAN.md) |
-| 现状事实（审查基线） | [`audit/00-current-state.md`](docs/audit/00-current-state.md) |
-| 本次审查的判据 | [`audit/01-acceptance-criteria.md`](docs/audit/01-acceptance-criteria.md) |
-| 本次审查的结论与缺口优先级（最终 review） | [`audit/AUDIT-FINAL.md`](docs/audit/AUDIT-FINAL.md) |
-| 门禁证据协议 | [`reports/README.md`](reports/README.md) |
+| 怎么干活（目录职责、放置、门禁、写作纪律） | [`AGENTS.md`](/AGENTS.md) |
+| 顺序与进度（做什么、什么顺序、什么算做完） | [`plan/ROADMAP.md`](/docs/plan/ROADMAP.md) |
+| 应用技术栈与目录结构 | [`spec/SPEC-app.md`](/docs/spec/SPEC-app.md) |
+| 引擎接口形状（方法 / 错误码 / 事件 / 恢复） | [`spec/CONTRACT-engine-v1.md`](/docs/spec/CONTRACT-engine-v1.md) |
+| 索引元数据 / 身份 / 配对 / 指纹 | [`spec/SPEC-identity.md`](/docs/spec/SPEC-identity.md) |
+| 事务 / 撤销 / 并发 | [`spec/SPEC-transactions.md`](/docs/spec/SPEC-transactions.md) |
+| **验收阈值 / 性能口径 / 门禁** | [`spec/SPEC-acceptance.md`](/docs/spec/SPEC-acceptance.md) |
+| 传输层与外壳安全 | [`spec/SPEC-security.md`](/docs/spec/SPEC-security.md) |
+| **UI / UX** | [`design/UI-REVIEW-and-migration.md`](/docs/design/UI-REVIEW-and-migration.md)（摘要见 `DESIGN-app-details.md` §一） |
+| **视觉令牌** | [`design/DESIGN-tokens.md`](/docs/design/DESIGN-tokens.md)（可执行版 = `packages/design-tokens/tokens.css`） |
+| 还欠什么 | [`DEBT-CLEANUP.md`](/docs/DEBT-CLEANUP.md) |
+| 本次重构怎么执行（目录结构已冻结） | [`MIGRATION-PLAN.md`](/docs/MIGRATION-PLAN.md) |
+| 现状事实（审查基线） | [`audit/00-current-state.md`](/docs/audit/00-current-state.md) |
+| 本次审查的判据 | [`audit/01-acceptance-criteria.md`](/docs/audit/01-acceptance-criteria.md) |
+| 本次审查的结论与缺口优先级（最终 review） | [`audit/AUDIT-FINAL.md`](/docs/audit/AUDIT-FINAL.md) |
+| 门禁证据协议 | [`reports/README.md`](/reports/README.md) |
 
 ---
 
@@ -99,8 +99,8 @@ docs/
 `DOCS-REQUIREMENTS.md` · `DOCS-DESIGN.md` · `DOCS-IMPLEMENTATION.md` · `DOCS-TESTING.md` · `DOCS-DEPLOYMENT.md`
 按软件工程阶段组织（需求 / 设计 / 实现 / 测试 / 部署），性质是**收敛与索引**，不取代上面 §2 的权威文档：
 
-- 阈值仍以 [`spec/SPEC-acceptance.md`](docs/spec/SPEC-acceptance.md) 为准；
-- 顺序仍以 [`plan/ROADMAP.md`](docs/plan/ROADMAP.md) 为准。
+- 阈值仍以 [`spec/SPEC-acceptance.md`](/docs/spec/SPEC-acceptance.md) 为准；
+- 顺序仍以 [`plan/ROADMAP.md`](/docs/plan/ROADMAP.md) 为准。
 
 **冲突时以上述两份为准，并回来修阶段文档。**
 
@@ -108,7 +108,7 @@ docs/
 
 ## 4. 门禁证据
 
-**项目规则：无归档证据 = 门禁未通过。** 证据一律在 `reports/G-<字母>-<日期>/`，命名与协议见 [`reports/README.md`](reports/README.md)。
+**项目规则：无归档证据 = 门禁未通过。** 证据一律在 `reports/G-<字母>-<日期>/`，命名与协议见 [`reports/README.md`](/reports/README.md)。
 
 | 目录 | 门禁 |
 |---|---|
@@ -145,7 +145,7 @@ docs/
 
 - 别删（git 历史虽可回溯，但它们是决策依据）；
 - 别再往里加新东西，也别让现行文档依赖它们；
-- 唯一例外已处置：`tokens.css` 曾住在原型目录，现已是**正式生产资产** `packages/design-tokens/tokens.css`（见 [`design/DESIGN-tokens.md`](docs/design/DESIGN-tokens.md)）。
+- 唯一例外已处置：`tokens.css` 曾住在原型目录，现已是**正式生产资产** `packages/design-tokens/tokens.css`（见 [`design/DESIGN-tokens.md`](/docs/design/DESIGN-tokens.md)）。
 
 ---
 

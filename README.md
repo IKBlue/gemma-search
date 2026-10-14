@@ -17,14 +17,15 @@
 
 | | 状态 |
 |---|---|
-| **引擎** `packages/engine/` | ✅ 测试期望 `90 项 · 89 过 · 0 失败 · 1 跳过`（引擎 74 + 桌面 16）。**那 1 项跳过是环境限制**（无法建文件符号链接）；原先另有 2 项"永久跳过"，D2 修复后已复活，见 §4 |
+| **引擎** `packages/engine/` | ✅ 单测 **148 项**（引擎段，零第三方依赖）。**全仓 `npm test` 本轮实测 313 项 · 312 过 · 0 失败 · 1 跳过**；那 1 项跳过是环境限制（无法建文件符号链接），原先另有 2 项"永久跳过"，D2 修复后已复活，见 §4 |
 | **桌面外壳** `apps/desktop/` | ✅ 已在 Electron 内实跑出窗（React 渲染 + WebGPU 编码器载入，证据 `reports/G-D-p2-electron/`；**引用既有证据，本轮未复跑**）。✅ 库从四路解析（含索引自举），无库时给**首启向导** |
-| **索引** | ✅ 已接受：`data/libraries/L1/`（3594 条 · dim 768 · float32）。**该索引在本机的存在性与可读性未在本轮核实** |
+| **索引** | ✅ 已接受：`data/libraries/L1/`（3594 条 · dim 768 · float32）。✅ **本轮实测可读**：`npm test` 里"整库 uid 唯一性"那条真跑了（原始输出「扫描 3594 张图 · 库根来自 index-meta」） |
 | **G-B 索引质量判定** | ✅ v2 判 **PASS**（min 0.967894 · 中位 0.999263；证据 `reports/G-B-20261010-v2/`）。判据脚本已随旧档退役，**不可复跑** |
-| **P3 界面** | ⚠️ **只完成 4 步中的第 1 步**：`App.jsx` 只挂了 `<SearchPage />`。其余页面未做 |
-| **P4 入库与增量** | ❌ 未做：主进程显式拒绝 `ingest` / `mutate` / `indexStart` / `indexCancel` |
+| **P3 界面** | ✅ **已完成（2026-10-13）**：4 条 hash 路由（`/` · `/item/:libId/:uid` · `/tasks` · `/activity`）· 6 个页面（`SearchPage` · `ItemPage` · `TasksPage` · `ActivityPage` + `LibraryGate` / `FirstRunWizard`）；真实导航由 `npm run e2e`（62 条）覆盖 |
+| **P4 入库与增量** | ❌ 未做：主进程显式拒绝 **6 个**方法 —— `ingest` / `mutate` / `transactions` / `indexStart` / `indexCancel` / `indexResume`（唯一清单 = `packages/engine/src/engine.mjs` 的 `UNIMPLEMENTED_METHODS`）。事务地基（日志 / 状态机 / 恢复）已实现且有 4 个测试文件 |
 | **P5 多库管理** | ❌ 未做：界面无入口；多库注册表**无持久化** |
 | **P6 打包与离线分发** | ❌ 未做：无安装器产物；`build/` 里只有图标与签名配置 |
+| **技术栈迁移 T1–T5** | ✅ **已完成（2026-10-13）**：Tailwind 生成层落地 · Zustand 与 React Router 真接入 · `cn()` 收口 · 依赖清账（"已装零 import" 19 → 0）· `npm run typecheck` 门禁（**只覆盖 `.ts`**）。逐条验收见 [`TODO.md`](TODO.md) B-1 |
 | **④ 人工复核** | ⏳ 未执行（非门槛，所有者决定） |
 
 > **开箱可用（D2 已修，2026-10-12）**：主进程不再只认 `config.json`。库按**四条优先级**解析
@@ -93,7 +94,7 @@ node tools\verify_encoder_path.mjs --model <ONNX 模型目录>   # 编码路径�
 node tools\check_search.mjs               # 检索端到端自查（向量模式，需已有查询向量）
 ```
 
-- **两条独立门禁，不要混**：`npm test`（164 条，快、随时能跑）与 `npm run e2e`（13 条，**真启动 Electron**）。
+- **两条独立门禁，不要混**：`npm test`（**313 条**，快、随时能跑）与 `npm run e2e`（**62 条**，**真启动 Electron**）。
   ⚠️ 在 agent 沙箱内 `npm run e2e` **需要提权**（Chromium 进程沙箱起不来 ⇒ 启动助手已带 `--no-sandbox`）；普通终端直接跑。
 - 现存守卫**只剩上面 2 个**（其余 6 个已按所有者指令移除，原件备份在 `data/_removed-guards-backup/`）——
   这两个都需要模型目录与已注册索引，**在 agent 沙箱里跑不动**；
@@ -159,12 +160,12 @@ node packages/indexer/src/build_index_onnx.mjs --model <ONNX 模型目录> --lib
   ⇒ **有索引的机器零配置即用**；一个库都没有时，界面显示**首启向导**让你选文件夹，而不是让你对着 `LIB_NOT_FOUND` 发愣。
 - **多库不是真的（D8）**：当前只有「从配置派生单库」，**没有持久化的库注册表**（P5 未做）。
 - **`reveal` 已修（F-01，2026-10-12）**：引擎在端口缺失时返回 `PORT_MISSING`（不再静默假成功），主进程已注入 `shell` 端口。⚠️ 边界：`shell.showItemInFolder` 返回 void、不报失败，只保证「文件在盘上 + 端口被调用过」。旧描述：rue})`。
-- **契约方法与实现不同步**：`ingest` / `mutate` / `indexStart` / `indexCancel` 已在契约里冻结形状，但主进程**显式拒绝**（P4/P5 欠账）。见 [`docs/spec/CONTRACT-engine-v1.md`](docs/spec/CONTRACT-engine-v1.md)。
+- **契约方法与实现不同步**：`ingest` / `mutate` / `transactions` / `indexStart` / `indexCancel` / `indexResume`（**6 个**）已在契约里冻结形状，但主进程**显式拒绝**（P4/P5 欠账）。见 [`docs/spec/CONTRACT-engine-v1.md`](docs/spec/CONTRACT-engine-v1.md)。
 - 预览图里有 **20 个文件名叫 `.jpg`、实际内容是 BMP**（集中在 `VR`）。解码路径会自动回退，**它们不是坏文件**。
 - 素材库**再次移动**会让索引里的绝对路径失效，需要重建。
 - 受限沙箱内必须加 `--no-sandbox`（Chromium 进程沙箱起不来 → 秒退）；**普通终端不需要**，也不要把它固化进产品。
 - 生产态保留 DevTools 是**已决策项**（`docs/spec/SPEC-security.md` §9 决定 3），不是疏漏。
-- **TypeScript 迁移只是计划**：当前界面是 JS/JSX，`tsconfig*.json` 只服务于编辑器，**没有 typecheck 门禁**（`checkJs: false`）。
+- **TypeScript 迁移已开始、但只覆盖契约边界**：`npm run typecheck` 存在且 EXIT=0，**但只检查 `.ts`** —— 当前唯一有内容的来源是 `apps/desktop/src/shared/ipc.ts`；两个 tsconfig 的 `checkJs` 仍是 `false`，`.js` / `.jsx` / `.mjs` 一律不参与。⇒ **不得声称"全局类型检查通过"**（打开 `checkJs` 后是渲染层 148 错 / 主进程侧 472 错，见 `docs/plan/ROADMAP.md` §10.1.1）。
 
 ---
 

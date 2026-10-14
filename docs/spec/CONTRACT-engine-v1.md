@@ -15,7 +15,7 @@
 |---|---|---|
 | 1 | **传输无关** | `packages/engine/` 里 import `electron` 或 `http` 即违规（单测会拦） |
 | 2 | **路径只能由 `lib_id + uid` 解析** | 任何接受"绝对路径"入参的方法都违规（§7 不变量 ①） |
-| 3 | **只读操作绝不写库** | `search`/`item`/`thumbPath`/`scan`/`indexStatus` 在文件系统上零写入 |
+| 3 | **只读操作绝不写库** | `search`/`item`/`scan`/`indexStatus` 在文件系统上零写入（缩略图缓存见 §2.3，写的是**应用数据目录**，不写库） |
 
 **没有全局可变状态**：引擎以 `createEngine({ config })` 返回实例；测试可并行建多个实例。
 
@@ -25,7 +25,7 @@
 > `verify_renderer_styles` / `smoke_app` / `verify-doc-refs` 的地方，那些守卫**已按所有者指令移除**
 > （原件备份在 `data/_removed-guards-backup/`）。文中的"有自动化/由它断言"一律**不再成立**；
 > 现存守卫只剩 `verify_encoder_path` 与 `check_search`，且两者都需要模型与已注册索引（沙箱跑不动）。
-> 详见 [`TODO.md`](../TODO.md) B-4 的"移除的代价"。
+> 详见 [`TODO.md`](/../TODO.md) B-4 的"移除的代价"。
 
 ## 1. 通用形状
 
@@ -102,7 +102,8 @@
 
 | 方法 | 契约 | 实现 |
 |---|---|---|
-| `search` · `item` · `thumbPath` · `scan` · `indexStatus` | 已冻结 | ✅ 已实现 |
+| `search` · `item` · `scan` · `indexStatus` | 已冻结 | ✅ 已实现 |
+| `thumbPath`（§2.3） | **历史形状** | ❌ **未实现，也不在 IPC 白名单里**（`shared/ipc.ts` 的 `Methods` 没有它）。缩略图实际走 **`thumb://` 协议**：主进程 `protocol.handle('thumb')` + `main/thumb-url.mjs` 按 `libId + uid@size` 反查，`search`/`item` 回传 `thumbKey` |
 | `itemPaths`（§2.2a，**新**） | 已冻结 | ✅ 已实现 |
 | `reveal` | 已冻结（§2.4 含 `shell` 注入的现行要求） | ✅ **已接线**（F-01 已修，2026-10-12，见 §2.4） |
 | `collect` | 已冻结 | ⚠️ 库根配置缺口下默认必失败（见 §2.5） |
@@ -188,7 +189,7 @@
 `apps/desktop/e2e/item-detail.spec.mjs` **E9-a**（真窗口里断言两条绝对路径的具体值）·
 `apps/desktop/e2e/fake-mode.spec.mjs` **E8-e**。
 
-### 2.3 `thumbPath`
+### 2.3 `thumbPath`（**已被 `thumb://` 协议取代 —— 未实现，见 §2.0**）
 
 ```jsonc
 // req
@@ -199,6 +200,12 @@
 
 - **命中缓存直接返回**；未命中则生成并落盘到**应用数据目录**（绝不写库）
 - 界面**不拼路径**，一律用返回的 `cachePath`（`thumb://` 协议只接受 `libId/uid@size`，见 P2）
+
+> ⚠️ **2026-10-14 以代码为准的核对**：全仓代码里**搜不到 `thumbPath`**（只出现在本文档与 `docs/archive/`）。
+> 现行实现是 **`thumb://<libId>/<uid>@<size>` 协议**（`apps/desktop/src/main/index.mjs` 的 `protocol.handle('thumb')`
+> + `main/thumb-url.mjs` 的形状解析与尺寸白名单），渲染层自己拼 URL
+> （`search/PhotoCard.jsx:34` · `pages/ItemPage.jsx:174`），主进程只按 `libId+uid` 反查 ⇒ **路径进不了 URL**。
+> 本节形状**保留作历史**，不构成实现承诺；契约 §1.3「新增=兼容、改名=破坏性」对**从未接线的方法**不适用。
 
 ### 2.4 `reveal`
 
@@ -405,7 +412,7 @@ P3d 要用它（续跑）时才发现，已补进白名单。**教训**：契约
 | 方法 | 写库 | 写应用数据目录 | 可撤销 |
 |---|---|---|---|
 | `search` `item` `scan` `indexStatus` | ❌ | ❌ | — |
-| `thumbPath` | ❌ | ✅ 缩略图缓存 | — |
+| ~~`thumbPath`~~（未实现，见 §2.0）· **`thumb://` 协议** | ❌ | ✅ 缩略图缓存 | — |
 | `reveal` | ❌ | ❌ | —（**F-01 已修 2026-10-12**：需外壳注入 `shell` 端口，未注入返回 `PORT_MISSING`） |
 | `collect` | ❌ | ❌ | — |
 | `ingest` `mutate` | ✅ **四步纪律** | ✅ 事务日志 | ✅ |

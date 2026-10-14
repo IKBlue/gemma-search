@@ -137,7 +137,7 @@ node tools/check_search.mjs               # 检索端到端自查（需查询向
 ```
 
 > 已按所有者指令移除**（原件备份在 `data/_removed-guards-backup/`）。上面只列现存的两个 —— 这两个都需要
-> 模型目录与已注册索引，**在 agent 沙箱里跑不动**；移除的代价见 [`TODO.md`](../TODO.md) B-4。
+> 模型目录与已注册索引，**在 agent 沙箱里跑不动**；移除的代价见 [`TODO.md`](/../TODO.md) B-4。
 
 > 日志：主进程 + 渲染进程诊断都写 `data\_app.log`（GUI 子系统没有 stdout）。
 > 前后端命令口径的完整版（含每个守卫的前置条件与"证明不了什么"）见 `AGENTS.md` §3 与 `README.md` §2。

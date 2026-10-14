@@ -9,7 +9,7 @@
 > | 项 | 值 |
 > |---|---|
 > | 生成/核对日期 | **2026-10-14** |
-> | 被核对的代码 | 工作树 `ac97978`（`feat(uiux): 把 Apple Style 审查从"报告"变成治理机制 + 修完 P0 六条`），`git status` 干净 |
+> | 被核对的代码 | 工作树 `082e0d6`（`docs(governance): AGENTS.md 重排为 §0–§7…`，**本文件随该提交入库**） |
 > | 口径 | `本轮实测` = 生成本文件时真跑过并留下原始输出（附录 B）；`静态计数` = 数源码得到、未运行；`引用既有` = 取自 `reports/` 或 `AGENTS.md` 的既有记录，**不当成本轮实测** |
 > | 生成方式 | 逐文件读源码头注释 + 跑门禁命令；每条数字都有出处，未实测的写【判断，非实测】 |
 
@@ -35,7 +35,7 @@
 | 引擎 | **Node ESM**，`packages/engine`，**零第三方依赖**（`dependencies: {}`，是架构决策不是遗漏）；`engine.mjs` 约 590 行 + 事务模块 6 文件 |
 | 语义编码 | `@huggingface/transformers` 4.3（ONNX Runtime）· **WebGPU 优先 / CPU 回退** · dtype `fp32` · `seq` 70/140/280 · **dim 768** |
 | 图像预处理 | `sharp` 0.35（resize，对齐 PIL 参考实现）· `bmp-js` 0.1（BMP 回退，**动态 `await import`** ⇒ 依赖清账脚本必须能看见动态 import，`deps.test.mjs` D-C） |
-| 索引构建 | `packages/indexer/src` 11 个 `.mjs`：`build_index_onnx.mjs`（约 590 行）· `encode_queries.mjs` · `resize_compat.mjs` · `bmp_decode.mjs` + 7 个探针/一次性验证脚本 |
+| 索引构建 | `packages/indexer/src` **12 个** `.mjs`：`build_index_onnx.mjs`（约 590 行）· `encode_queries.mjs` · `resize_compat.mjs` · `bmp_decode.mjs` + **8 个**探针/一次性验证脚本（静态计数） |
 | 数据格式 | `data/libraries/<libId>/{index.bin(float32), items.json, meta.json}`；契约样例 `fixtures/sample-index.json` |
 | 测试 | **`node:test`**：`npm test` **本轮实测 `tests 313 · pass 312 · fail 0 · skipped 1`**（88.6 s）+ **Playwright 1.64**：12 个 spec 文件 / **62 条（静态计数）**，真启动 Electron |
 | 构建/打包 | **electron-vite 5** + Vite 7 + `@vitejs/plugin-react` · **electron-builder 26**（`electron-builder.yml` 只保证形状，**未产出安装器**，P6 欠账） |
@@ -163,7 +163,7 @@ gemma-search/
 ├─ README.md                     # 项目是什么 · 状态 · 怎么跑（⚠️ 状态节已过期，见附录 A）
 ├─ AGENTS.md                     # 治理宪章 + 三层架构 + 放置规则 + 权威关系 + 门禁 + 写作纪律
 ├─ TODO.md                       # 唯一行动清单（待修 BUG / 未完成项 / 防回归）
-├─ 违规的UI.md                    # UI/UX 违规唯一详表 V-01…V-42（根目录已登记例外）
+├─ 违规的UI.md                    # UI/UX 违规唯一详表 V-01…V-44（44 条；根目录已登记例外）
 ├─ apps/desktop/                 # Electron 应用（主战场）
 │  ├─ src/main/                  # 主进程：命令分派 + 能力注入
 │  │  ├─ index.mjs               # 597 行：组装引擎 · 注册 2 条 IPC · thumb:// · 窗口姿态 · FAKE 模式 · 拒绝未实现方法
@@ -271,12 +271,12 @@ gemma-search/
 | [`../README.md`](../README.md) | 项目是什么 · 当前状态 · 快速开始 · 验证命令 · 索引 · 已知边界 · 文档导航 |
 | [`../AGENTS.md`](../AGENTS.md) | **唯一权威「工作指南」**：治理宪章、禁止项、三层架构、目录职责表、东西放哪儿、权威关系表、门禁与验收、写作纪律、术语表 |
 | [`../TODO.md`](../TODO.md) | **唯一行动清单**：A 已修 BUG（逐条带证据与复现命令）· B 未完成项 · C 缺证据项 · T1–T5 迁移记录（470 行） |
-| [`../违规的UI.md`](../违规的UI.md) | **UI/UX 违规唯一详表** `V-01…V-42`（报告只引用编号；已登记为根目录例外） |
+| [`../违规的UI.md`](../违规的UI.md) | **UI/UX 违规唯一详表** `V-01…V-44`（44 条 = 原审查 42 + 2026-10-14 补登 V-43/V-44；报告只引用编号；已登记为根目录例外） |
 | [`README.md`](README.md) | 文档索引 + 权威关系 + 目录地图 + 门禁证据 + 改文档纪律 |
 | [`MIGRATION-PLAN.md`](MIGRATION-PLAN.md) | monorepo 重构执行依据（`apps/` + `packages/` 结构已冻结） |
 | [`DEBT-CLEANUP.md`](DEBT-CLEANUP.md) | 历史欠账台账（已清 / 未清逐条，含陈旧记录） |
 | [`spec/SPEC-app.md`](spec/SPEC-app.md) | 应用规格：目标、成功标准、技术栈、边界 |
-| [`spec/CONTRACT-engine-v1.md`](spec/CONTRACT-engine-v1.md) | 引擎接口契约：19 错误码 · 方法形状 · 事件 · 恢复 · §8 模拟模式 |
+| [`spec/CONTRACT-engine-v1.md`](spec/CONTRACT-engine-v1.md) | 引擎接口契约：**20 错误码** · 方法形状（引擎 13 方法；IPC 登记 16）· 事件 · 恢复 · §8 模拟模式 |
 | [`spec/SPEC-identity.md`](spec/SPEC-identity.md) | 身份与配对：`uid`、文件身份、库指纹、索引格式 |
 | [`spec/SPEC-security.md`](spec/SPEC-security.md) | 威胁模型、IPC 白名单、渲染进程姿态、**明确不防的边界**、权限用例 |
 | [`spec/SPEC-transactions.md`](spec/SPEC-transactions.md) | 文件事务、四步纪律、撤销、并发与崩溃恢复（地基已实现，`ingest`/`mutate` 未接线） |
@@ -293,7 +293,7 @@ gemma-search/
 | [`audit/00-current-state.md`](audit/00-current-state.md) | **现状事实基线**（只有 Lead 能改） |
 | [`audit/01-acceptance-criteria.md`](audit/01-acceptance-criteria.md) | 冻结判据：G1–G7 · 严重度口径 · S1–S10 / U1–U10 |
 | [`audit/AUDIT-FINAL.md`](audit/AUDIT-FINAL.md) · [`STACK-AUDIT.md`](audit/STACK-AUDIT.md) · [`UIUX-AUDIT.md`](audit/UIUX-AUDIT.md) | 三份汇总报告（最终 review / 技术栈 / UIUX，冻结批次） |
-| [`audit/UIUX-APPLE-STYLE-AUDIT.md`](audit/UIUX-APPLE-STYLE-AUDIT.md) | **当前 4 页 + Tailwind/Radix 之后**的 Apple Style 全新审查：42 条违规（Critical 1 / High 8 / Medium 22 / Low 11）+ 逐条改法（889 行） |
+| [`audit/UIUX-APPLE-STYLE-AUDIT.md`](audit/UIUX-APPLE-STYLE-AUDIT.md) | **当前 4 页 + Tailwind/Radix 之后**的 Apple Style 全新审查：42 条违规（Critical 1 / High 8 / Medium 22 / Low 11）+ 逐条改法（889 行）。⚠️ **这是冻结快照**，保持在 42 条；后续补登的 V-43/V-44 只进台账 |
 | [`audit/stack-evidence.md`](audit/stack-evidence.md) · [`uiux-evidence.md`](audit/uiux-evidence.md) · `REVIEW-*.md` | 两份证据附录 + 独立复核记录 |
 | [`archive/`](archive) | **已失效/历史**：`legacy/`（旧计划 · 旧外壳 · 原 PROJECT-GUIDE）· `prototype/`（原型套件）· `spike/`（选型证据）——「不再是依据」 |
 | [`../reference/MODEL_CARD.md`](../reference/MODEL_CARD.md) | 官方模型卡（前缀 / `seq` / 精度上限依据；外部资料，只读） |
