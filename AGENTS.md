@@ -79,6 +79,7 @@
 3. ⇒ **按需生成，不预装**：用 `npx shadcn@latest add alert-dialog dialog dropdown-menu …`；原语依赖只有 `radix-ui` 一个。
 4. ⚠️ 现有 `@radix-ui/react-alert-dialog` / `@radix-ui/react-slot` 是**旧代码直接用裸 Radix** 留下的（`ui/ConfirmDialog.jsx` · `ui/Button.jsx`）：重写时由 `radix-ui` 统一包替代并删除这两个分散包。
 5. 历史教训：本项目曾一次性装 11 个 `@radix-ui/react-*` 却**零 import**，后来全部删除。**预装原语 = 造无用依赖**。
+6. ⚠️ **统一包里的原语是命名空间对象**：`Slot` = `{ Root, Slot, Slottable, … }` ⇒ 必须写 `<Slot.Root>`；写 `<Slot>` 会渲染成 object ⇒ **React #130 整页白屏**（2026-10-14 实测踩到，回归断言在 `dom-validity.test.mjs` V3）。其余原语同理用 `X.Root` / `X.Content` 这类子组件形式。
 
 > ✅ **`react-router` 已升到 8.4.0**（2026-10-14 spike 通过：`npm test` / `typecheck` / `build` / 导航 E2E 全绿，**一行代码都不用改**）。升级前请先看 spike 证据；同一 spike 也确认了 CLI 与 `radix-ui` 的装法。
 > 版本号以 **lockfile** 为准；这里记的是核实日期当天的最新稳定版。

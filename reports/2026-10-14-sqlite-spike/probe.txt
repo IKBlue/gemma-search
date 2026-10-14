@@ -1,0 +1,10 @@
+process.type = browser
+node = 24.21.0 · electron = 44.7.0 · chrome = 152.0.7977.130
+require("node:sqlite") = OK · DatabaseSync = function
+journal_mode = wal
+插入后行数 = 2
+重复检测 SQL (group by having) = OK · 结果 0 组
+WAL 文件存在 = true · SHM 存在 = true
+close() = OK
+删除后重建 = OK（.gs.db 可重建这条成立）
+RESULT = PASS

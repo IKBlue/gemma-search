@@ -67,7 +67,14 @@ test('V2 更一般地：`<button>`（含原生）里不许直接嵌 `<a>`', () =
 
 test('V3 `Button` 真的实现了 `asChild`（否则 V1 的修法无处可依）', () => {
   const src = fs.readFileSync(path.join(RENDERER, 'ui', 'Button.jsx'), 'utf8')
-  assert.match(src, /from '@radix-ui\/react-slot'/, 'Button 必须用 Radix Slot 实现 asChild')
+  // 2026-10-14：改用**统一原语包** radix-ui（shadcn/ui v4 的装法；分散包 @radix-ui/react-* 已删除）。
+  // 断言同时钉住"不许再回去装分散包" —— 那正是 P1（同一概念两份来源）的老毛病。
+  assert.match(src, /import\s*\{\s*Slot\s*\}\s*from\s*'radix-ui'/, 'Button 必须用统一原语包 radix-ui 的 Slot 实现 asChild')
+  assert.doesNotMatch(src, /@radix-ui\/react-/, '不许再引入分散的 @radix-ui/react-* 包（统一包 radix-ui 已覆盖）')
+  // ⚠️ 名字最容易骗人的一处：统一包的 Slot 是**命名空间对象**，必须写 <Slot.Root>。
+  //    写 <Slot> 会渲染成 object ⇒ React #130 白屏（2026-10-14 E5-b 实测踩到）。
+  assert.match(src, /<Slot\.Root\b/, '必须渲染 <Slot.Root>（统一包的 Slot 是命名空间对象）')
+  assert.doesNotMatch(src, /<Slot\s/, '不许直接渲染 <Slot>（会触发 React #130）')
   assert.match(src, /asChild/, 'Button 必须暴露 asChild 属性')
   // Slot 要求恰好一个子元素 —— 文档化这条约束，避免有人传数组进去
   assert.match(src, /恰好一个|exactly one/, '注释里要写明 Slot 只接受单个子元素')

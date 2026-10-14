@@ -31,8 +31,8 @@
 | # | 任务 | 验收 | 依赖 | 写入范围 |
 |---|---|---|---|---|
 | ☑ **T-01**（**完成 2026-10-14**） | **spike · router 8**：装 `react-router@8.4.0` → `RouterProvider` 改从 `react-router/dom` 引入 → 跑四道门禁 | 全绿 ⇒ 锁定 8.4.0 并同步文档；**不通过 ⇒ 退回 7.18.4 并记录原因**（退回成本 = 改一行版本号）。✅ **实测通过且一行代码都不用改** —— `npm test` 313/312/0/1 · `typecheck` EXIT=0 · `build` EXIT=0 · 导航 E2E **10 passed**；证据 `reports/2026-10-14-router8-spike/` | — | `package.json` · `router/` |
-| **T-02** | **spike · radix-ui 统一包**：用它替换 `@radix-ui/react-alert-dialog` / `@radix-ui/react-slot`，删分散包 | 确认框与按钮行为不变（焦点 / ESC / 焦点归还仍达标）；依赖数下降 | — | `package.json` · `ui/` |
-| **T-03** | **spike · node:sqlite**：在**真 Electron 主进程**内建表 / 写入 / 删除重建；确认实验性告警可接受 | 三件事都成功；落点符合 SPEC §3 | — | `src/main/` |
+| ☑ **T-02**（**完成 2026-10-14**） | **spike · radix-ui 统一包**：用它替换 `@radix-ui/react-alert-dialog` / `@radix-ui/react-slot`，删分散包 | 确认框与按钮行为不变（焦点 / ESC / 焦点归还仍达标）；依赖数下降。✅ **实测**：`npm test` 313/312/0/1 · `build` EXIT=0（chunk −12.7 KB）· E2E 15 passed；**过程中抓到并修掉 `<Slot>`→`<Slot.Root>` 的 React #130 白屏**，证据 `reports/2026-10-14-radix-ui-spike/` | — | `package.json` · `ui/` |
+| ☑ **T-03**（**完成 2026-10-14**） | **spike · node:sqlite**：在**真 Electron 主进程**内建表 / 写入 / 删除重建；确认实验性告警可接受。✅ **真主进程实测 PASS**（`process.type=browser` · `node:sqlite` 可用 · WAL · 删除重建 OK），证据 `reports/2026-10-14-sqlite-spike/` | 三件事都成功；落点符合 SPEC §3 | — | `src/main/` |
 | **T-04** | 存储根解析：程序目录 `models/` · 库根 `.gs-*` · 不可写时回退 userData 并**打印当前落点** | 三种情形各跑一次，落点正确且日志可读 | T-03 | `src/main/` |
 | **T-05** | 全量 TypeScript：tsconfig 严格、渲染 `.tsx`、`npm run typecheck` 必绿 | 注入一个类型错误 ⇒ **门禁变红**；还原 ⇒ 绿 | T-01 | 全仓 |
 | **T-06** | Tailwind + shadcn/ui 接入（按需 `npx shadcn@latest add`）；令牌仍只在 `tokens.css`；`cn()` 唯一 | 生成类可用；渲染层零写死色值；**不预装未用到的原语** | T-05 | `renderer/` |

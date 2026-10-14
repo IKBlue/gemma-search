@@ -38,7 +38,7 @@
 //    小屏用 `calc(100vw - var(--space-12))` 兜底 —— 仍然走令牌，没写死像素。
 //    `z-40/50` 是**本图层内部**的层叠序（遮罩 < 内容），不跨层比较，故未上令牌。
 import { useEffect, useRef } from 'react'
-import * as AlertDialog from '@radix-ui/react-alert-dialog'
+import { AlertDialog } from 'radix-ui'
 
 import Button from './Button.jsx'
 import { cn } from './cn.js'

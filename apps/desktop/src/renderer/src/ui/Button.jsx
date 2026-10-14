@@ -24,7 +24,7 @@
 //    `<a href="#/...">`，带着按钮的类名。语义正确、可聚焦元素只有一个、样式不走样。
 //    ⚠️ `Slot` 要求子元素**恰好一个**（且能接受 className/ref）。
 import { cva } from 'class-variance-authority'
-import { Slot } from '@radix-ui/react-slot'
+import { Slot } from 'radix-ui'
 
 import { cn } from './cn.js'
 
@@ -62,7 +62,10 @@ export default function Button({
   const cls = cn(button({ variant, size: resolvedSize, block }), className)
 
   if (asChild) {
-    return <Slot className={cls} {...rest}>{children}</Slot>
+    // ⚠️ 统一包 radix-ui 的 Slot 是**命名空间对象**（{ Root, Slot, Slottable, … }），
+    //    直接写 <Slot> 会触发 React #130（Element type is invalid … got: object）。
+    //    2026-10-14 实测踩到过：a11y E5-b 打开任务页即白屏。
+    return <Slot.Root className={cls} {...rest}>{children}</Slot.Root>
   }
   return (
     <button type={type} className={cls} {...rest}>
