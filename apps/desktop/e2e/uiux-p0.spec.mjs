@@ -65,8 +65,9 @@ test('E12-c ⭐ 侧栏当前页有 `active` 类（V-01：修前恒为 undefined�
 
     const current = navLink(win, '语义搜索')
     await expect(current).toBeVisible()
-    const cls = await current.getAttribute('class')
-    expect(cls, `当前项应带 active 类，实际 class=${JSON.stringify(cls)}`).toMatch(/\bactive\b/)
+    // ⚠️ 必须用**会重试**的断言：class 由 React 渲染出来，直接 getAttribute 会与渲染赛跑。
+    //    2026-10-14 全量 e2e 里 E12-e 就是这么翻的车：读到渲染前的一帧 ⇒ class=null。
+    await expect(current).toHaveClass(/\bactive\b/)
   } finally {
     await app.close()
     cleanup()
@@ -103,7 +104,9 @@ test('E12-e ⭐ 换一页之后 active **跟着转移**（证明它不是恒真�
     await expect.poll(() => win.evaluate(() => location.hash), { timeout: 10_000 }).toBe('#/tasks')
 
     const tasks = navLink(win, '索引任务')
-    expect(await tasks.getAttribute('class')).toMatch(/\bactive\b/)
+    // hash 变了 ≠ React 已经重渲染：这里必须**重试等待** active 真的跟过来。
+    // 2026-10-14：全量跑时此处在渲染前的一帧读到 class=null 而失败，单跑 6/6 绿 ⇒ 是竞态，不是回归。
+    await expect(tasks).toHaveClass(/\bactive\b/)
     const bg = await tasks.evaluate((el) => getComputedStyle(el).backgroundColor)
     expect(bg).not.toBe('rgba(0, 0, 0, 0)')
   } finally {
@@ -122,8 +125,10 @@ test('E12-f ⭐ 非当前项**没有** active（防"全都带 active"这种假�
     for (const name of ['索引任务', '操作记录']) {
       const other = navLink(win, name)
       await expect(other).toBeVisible()
-      const cls = await other.getAttribute('class')
-      expect(cls || '', `非当前项「${name}」不该带 active，实际 class=${JSON.stringify(cls)}`).not.toMatch(/\bactive\b/)
+      // ⚠️ 顺序很重要：先确认「当前项**确实** active」，再断言其它项没有。
+      //    否则"整个侧栏还没渲染出来"会让下面那条**假绿**（这正是 V-01 那类空断言的形态）。
+      await expect(navLink(win, '语义搜索')).toHaveClass(/\bactive\b/)
+      await expect(other).not.toHaveClass(/\bactive\b/)
       const bg = await other.evaluate((el) => getComputedStyle(el).backgroundColor)
       expect(bg, `非当前项「${name}」背景不该是选中色`).toBe('rgba(0, 0, 0, 0)')
     }
