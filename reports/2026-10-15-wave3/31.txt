@@ -1,0 +1,112 @@
+================================================================================
+T-31 证据 · 设备语义拆分 + GPU 可用性权威探测（U2 修法的实现）
+执行: storage-worker   日期: 2026-10-15   （task-31）
+================================================================================
+
+【改动文件】
+· 新增 apps/desktop/src/main/encoder-device.ts —— **设备语义的唯一来源**（纯函数 decideDevice）
+    · requested = 请求值 · device = 实际初始化值 · effectiveProvider = 已验证 EP（拿不到就是 null）
+    · 头注释写清 effectiveProvider 每个取值的**依据出处**（映射表行号 + u2.txt 实测 + ORT 全有或全无）
+· 改  apps/desktop/src/main/encoder.ts —— 只按 decision 执行；**不再自己判断设备**；
+    接口新增 effectiveProvider / gpuProbe；DeviceFallback 类型改为从 encoder-device.ts 转出（不再两份定义 · P1）
+· 改  apps/desktop/src/main/index.ts —— 新增 probeGpu()：主进程用 webContents.executeJavaScript 问渲染进程；
+    把 gpuProbe 喂给 createEncoder；encoder.ready 增加 effectiveProvider / gpuProbe 两个字段
+· 改  apps/desktop/src/renderer/src/pages/SearchPage.tsx —— 文案三态：回退/已验证/未验证，
+    **不再拿 device 当实际值**（两义写法废除）
+· 新增 apps/desktop/tests/encoder-device.test.mjs —— 10 条把每种情形钉死（含"不许猜"）
+· 证据 reports/2026-10-15-wave3/31.txt（本文件）
+
+【探测方式选择：为什么用 (a) 主进程 executeJavaScript，而不是 (b) 渲染层 invoke 上报】
+· 权威来源只能是**渲染进程**（真 navigator.gpu；主进程是 Node 上下文，transformers 甚至把 IS_WEBGPU_AVAILABLE
+  恒置为真 —— 见 encoder-device.ts 头注释与 u2.txt）。
+· (b) 需要**新增 IPC 方法** ⇒ 改 shared/ipc.ts 与 SPEC §5 ⇒ **契约变更**，必须先经所有者批准；
+  (a) 用 webContents.executeJavaScript 拿到同一个答案却**不动契约** ⇒ 按任务的"优先 (a)"选它。
+· 方向性（重要）：探测只说"**能不能**用 GPU"。探测**失败/超时/没窗口**一律按 null（拿不到结论）处理：
+  保留请求值继续跑，但 effectiveProvider 记 **null**（不许猜）；只有明确 false 才退到 cpu。
+  这样"探测说不可用但主进程其实能用"只会让我们白退一次（保守），
+  而"探测说可用但 ORT 初始化失败"仍会被既有 catch 接住并回退 cpu —— 两个方向都不会把 cpu 说成 gpu。
+
+【0. ⚠️ T-00 护栏（硬性：本任务碰了 main/encoder.*）】
+命令（改动前后同一条）：
+  node tools/verify_encoder_path.mjs --model model-cache/onnx/embeddinggemma-2/daa72c51243991dfcaf9f9137d2c573d8f7790c0/fp32 --lib G:\model
+· 改动前基线：data/_t17/guardrail-before.txt（EXIT=0 · 结论 PASS）
+· 改动后：data/_t31/guardrail-after.txt（EXIT=0 · 结论 PASS）
+· Top-5 逐位比对（只取 0.xxxx 分数行，两边都必须恰好 5 行）：  基线 5 行：0.7855 CR\ID-633419997.jpg | 0.7852 VR\ID-15588806.jpg | 0.7836 VR\ID-723604.jpeg | 0.7756 VR\ID-115822915.jpg | 0.7751 VR\ID-1112089406.jpg
+  T-31 5 行：0.7855 CR\ID-633419997.jpg | 0.7852 VR\ID-15588806.jpg | 0.7836 VR\ID-723604.jpeg | 0.7756 VR\ID-115822915.jpg | 0.7751 VR\ID-1112089406.jpg
+  **逐位一致? True**
+
+  为什么护栏路径应当**一个字都不变**：护栏不传 gpuProbe ⇒ 默认 UNPROBED（available=null）
+  ⇒ decideDevice 走"没结论"分支 ⇒ device 仍是请求值、无回退、初始化路径与改动前逐字一致。
+  护栏自己打出来的那行决策就是证据：
+    [enc] 设备决策：请求=webgpu · 实际=webgpu · 已验证 EP=未验证 · 请求 webgpu，但**探测没给出结论**（未做探测（调用方没有提供探测结果））⇒ 实际 EP **未验证**，不按请求值充当结论
+  护栏结论行：
+    [enc] 设备决策：请求=webgpu · 实际=webgpu · 已验证 EP=未验证 · 请求 webgpu，但**探测没给出结论**（未做探测（调用方没有提供探测结果））⇒ 实际 EP **未验证**，不按请求值充当结论
+    结论：PASS（产品编码路径在这台机器上自洽）
+【1. 门禁】
+PS> node --test --test-isolation=none apps/desktop/tests/encoder-device.test.mjs ⇒ tests 10 / pass 10 / fail 0
+PS> npm test
+  ℹ tests 484
+  ℹ pass 483
+  ℹ fail 0
+  ℹ cancelled 0
+  ℹ skipped 1PS> npm run typecheck（node + web）⇒ 均 0 行输出 EXIT=0 / EXIT=0
+PS> npm run build ⇒ EXIT=0（三端产物齐备）
+PS> npm run e2e -- smoke.spec.mjs m0-real.spec.mjs
+  Running 2 tests using 1 worker
+  [M0] 控制台错误（未落素材的那些缩略图 415 属夹具现象）= ["Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)"]
+    2 passed (12.4s)  那一串 415 是**夹具现象**（M0 只落了搜索结果里的几条素材），不是产品缺陷。
+
+【2. 实跑 A：本机 GPU 可用（默认）】
+PS> node data/_t31/run-device.mjs ""            （原始输出 data/_t31/device-available.txt）
+  === 本次额外参数: [] ===
+  界面提示原文 = "模型就绪 · 实际 webgpu · 2.4s"
+  结果卡数量 = 60 ⇒ 检索可用
+  [07:18:07.081] [设备] GPU 探测：available=true · requestAdapter 返回了适配器
+  [07:18:07.088] 设备决策：请求=webgpu · 实际=webgpu · 已验证 EP=webgpu · 探测到可用适配器 ⇒ 请求 webgpu（requestAdapter 返回了适配器）；ORT 的 EP 解析全有或全无，初始化成功即该 EP 被采用
+  [07:18:09.442] 载入完成 2.4s · 请求=webgpu · 实际=webgpu · 已验证 EP=webgpu
+
+【3. 实跑 B：**GPU 不可用**（验收要求的那一次）】
+  怎么造出"真的不可用"（三选一，前两个**无效**，都试过）：
+    ✗ --disable-webgpu                              → 探测仍 available=true（Electron 44 不认这个开关）
+    ✗ --disable-features=WebGPU                     → 探测仍 available=true
+    ✔ --disable-gpu --disable-software-rasterizer   → 探测 available=false（**下面这次**）
+PS> node data/_t31/run-device.mjs "--disable-gpu,--disable-software-rasterizer"
+    （原始输出 data/_t31/device-unavailable.txt）
+  === 本次额外参数: ["--disable-gpu","--disable-software-rasterizer"] ===
+  界面提示原文 = "模型就绪 · cpu（本机 GPU 不可用，已用 CPU）· 1.8s"
+  结果卡数量 = 60 ⇒ 检索可用
+  [07:18:14.556] [设备] GPU 探测：available=false · requestAdapter 返回 null（没有可用适配器）
+  [07:18:14.563] 设备决策：请求=webgpu · 实际=cpu · 已验证 EP=cpu · 探测明确说 GPU 不可用 ⇒ 直接使用 CPU，不把 cpu 说成 webgpu
+  [07:18:16.406] 载入完成 1.8s · 请求=webgpu · 实际=cpu · 已验证 EP=cpu
+  [07:18:16.407] !! GPU 回退：webgpu → cpu（原因：本机 GPU 不可用（requestAdapter 返回 null（没有可用适配器）））—— 检索仍可用，但会慢一些
+  ⇒ 三条要求同时满足：
+     · **界面明说**「本机 GPU 不可用，已用 CPU」（不再让用户猜为什么是 cpu）
+     · **没有**把 cpu 报成 webgpu（决策行写着 实际=cpu · 已验证 EP=cpu）
+     · 检索照常可用（60 条），不是"靠报错换来一致性"
+
+【4. 语义表（实现里就是这样，用例逐条钉住）】
+  请求        探测            实际     回退                     effectiveProvider
+  cpu         —               cpu      无                       cpu（映射表 + u2 实测）
+  webgpu      false           cpu      webgpu→cpu（含探测话）   cpu
+  webgpu      true            webgpu   无                       webgpu（探测 + ORT 全有或全无；u2 实测一致）
+  webgpu      null（没结论）   webgpu   无                       **null**（不许猜 —— 本任务的核心）
+  契约外值     —               原样透传  无                       null（不假装知道）
+
+【5. 未决 / 界限（如实）】
+· 探测是**能力**信号（渲染进程能不能拿到 adapter），不是"主进程这一会话真的调用了 WebGPU EP"的逐次证明。
+  后者的硬证据在 u2.txt（ORT profile）里，靠 profiling 取得、约 8MB/次 ⇒ **没有**放进产品路径。
+  所以 effectiveProvider=webgpu 的依据写成了"探测到适配器 + ORT 的 EP 解析全有或全无 + u2 本机实测一致"，
+  而不是"日志这么写"。复核时请按这个口径看。
+· "渲染进程与主进程共用同一 GPU 栈"是**推断**（未单独证明）。误差方向已被上面那段兜住：
+  探测失败一律 null；探测说可用而实际初始化失败仍走既有 catch 回退。
+· 本轮验收用的强制手段是 Chromium 开关（--disable-gpu + --disable-software-rasterizer），不是产品开关。
+  换机器复现时若该组合无效，请改用"真的没有 GPU 的机器"，不要改成伪造探测结果。
+
+【6. 回滚方式】
+· encoder-device.ts 整个删除；tests/encoder-device.test.mjs 删除。
+· encoder.ts：恢复本地 DeviceFallback 接口；createEncoder 去掉 gpuProbe/decision，恢复
+  device 局部变量与旧的「device=<值>」日志；接口去掉 effectiveProvider/gpuProbe。
+· index.ts：删掉 probeGpu()/gpuProbeCache 与 gpuProbe 传参；encoder.ready 去掉两个新字段。
+· SearchPage.tsx：文案恢复成「模型就绪 · <device> · Ns」单行。
+· 核对：npm run typecheck · npm test · node tools/verify_encoder_path.mjs --model <模型目录> --lib G:\model
+================================================================================

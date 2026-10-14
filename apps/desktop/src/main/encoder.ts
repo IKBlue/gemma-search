@@ -15,6 +15,8 @@ import path from 'node:path';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
 import type { PretrainedModelOptions } from '@huggingface/transformers';
 import { installResizeCompat, selfTestResizeCompat, assertResizeCompatInstalled } from '../../../../packages/indexer/src/resize_compat.ts';
+import { decideDevice, UNPROBED } from './encoder-device.ts';
+import type { DeviceFallbackFact, GpuProbe, RequestedDevice } from './encoder-device.ts';
 
 export const QUERY_PREFIX = 'task: search result | query: ';
 export const IMG_EXT: ReadonlySet<string> = new Set(['.jpg', '.jpeg', '.png', '.webp', '.bmp']);
@@ -34,27 +36,37 @@ export interface ImageVector extends Float32Array {
 export interface CreateEncoderOptions {
   modelDir: string;
   seq?: number;
-  device?: 'webgpu' | 'cpu';
+  /** **请求值**（不保证等于实际使用的 EP —— 见 encoder-device.ts） */
+  device?: RequestedDevice;
+  /**
+   * GPU 可用性探测结果（T-31 / S2b）。**调用方注入**：本文件不许 import electron，
+   * 而权威探测在渲染进程（那里有真 navigator.gpu），所以由 index.ts 探好传进来。
+   * 不传 = UNPROBED（拿不到结论）⇒ 决策不产生任何行为变化（T-00 护栏就是这条路径）。
+   */
+  gpuProbe?: GpuProbe;
   log?: (...a: unknown[]) => void;
 }
 
-/** 设备回退的事实（T-17：回退必须能被界面看到，不能只写主进程日志） */
-export interface DeviceFallback {
-  from: 'webgpu' | 'cpu';
-  to: 'webgpu' | 'cpu';
-  /** 原始报错文案（原样带上，不加工 —— 排障时这行最有用） */
-  reason: string;
-}
+/** 回退事实（唯一定义在 encoder-device.ts，这里只做转出，避免第二份定义 · P1） */
+export type { DeviceFallbackFact as DeviceFallback } from './encoder-device.ts';
 
 /** 引擎要的编码器端口（与 `packages/engine/src/engine.ts` 的 `EncoderPort` 结构性一致） */
 export interface Encoder {
   modelDir: string;
   seq: number;
-  device: 'webgpu' | 'cpu';
+  /** **实际拿去初始化**的设备（探测说 GPU 不可用 ⇒ 这里就是 cpu） */
+  device: RequestedDevice;
   /** 调用方**请求**的设备（与 device 不同就说明发生过回退） */
-  deviceRequested: 'webgpu' | 'cpu';
+  deviceRequested: RequestedDevice;
   /** 回退事实；没回退就是 null */
-  deviceFallback: DeviceFallback | null;
+  deviceFallback: DeviceFallbackFact | null;
+  /**
+   * **已验证**的执行提供者名；拿不到就是 null。
+   * ⚠️ 它不是 device 的复述：device=webgpu + 探测没结论时，这里必须是 null（不许猜）。
+   */
+  effectiveProvider: string | null;
+  /** 这次用的探测结果（界面/日志据此说明"凭什么"） */
+  gpuProbe: GpuProbe;
   loadMs: number;
   encodeText(text: string): Promise<Float32Array>;
   encodeImage(absPath: string): Promise<Float32Array>;
@@ -124,7 +136,9 @@ async function readImageAny(absPath: string): Promise<ReadImageResult> {
   return { image: await RawImage.read(absPath), source: 'native' };
 }
 
-export async function createEncoder({ modelDir, seq = 140, device = 'webgpu', log = () => {} }: CreateEncoderOptions): Promise<Encoder> {
+export async function createEncoder({
+  modelDir, seq = 140, device = 'webgpu', gpuProbe = UNPROBED, log = () => {},
+}: CreateEncoderOptions): Promise<Encoder> {
   if (!modelDir || !fs.existsSync(modelDir)) {
     const e: Error & { code?: string } = new Error(`模型目录不存在：${modelDir || '(未配置)'}`);
     e.code = 'MODEL_MISSING';
@@ -143,7 +157,16 @@ export async function createEncoder({ modelDir, seq = 140, device = 'webgpu', lo
   const rst = await selfTestResizeCompat();
   log(`重采样兼容层已安装并自检通过（kernel=${rst.kernel}）`);
 
-  log(`载入模型 dtype=fp32 seq=${seq} device=${device}`);
+  // T-31：设备语义**只由 encoder-device.ts 的纯函数决定**（见该文件头的依据）。
+  // 探测明确说 GPU 不可用 ⇒ 决策直接给 cpu：不去"先试 webgpu 再失败"，也就不会把 cpu 说成 webgpu。
+  const decision = decideDevice(device, gpuProbe);
+  const requestedDevice: RequestedDevice = decision.requested;
+  device = decision.device;
+  let effectiveProvider: string | null = decision.effectiveProvider;
+  let deviceFallback: DeviceFallbackFact | null = decision.fallback;
+  // ⚠️ 日志不再写 "device=webgpu" 这种**两义**写法（它会被读成"实际"）：请求与已验证分开写。
+  log('设备决策：请求=' + requestedDevice + ' · 实际=' + device
+      + ' · 已验证 EP=' + (effectiveProvider ?? '未验证') + ' · ' + decision.note);
   const t0 = Date.now();
   const config = await AutoConfig.from_pretrained(modelDir);
   // transformers 的 .d.ts 没声明 `audio_config`，但运行时它就在 config 上（本应用用不到音频塔）。
@@ -176,8 +199,7 @@ export async function createEncoder({ modelDir, seq = 140, device = 'webgpu', lo
   // ⚠️ 每次调用都**重新取值** `device`（回退后第二次要用 'cpu'），所以写成函数而不是复用对象。
   const modelOptions = (): PretrainedModelOptions =>
     ({ config, dtype: 'float32', device }) as unknown as PretrainedModelOptions;
-  const deviceRequested: 'webgpu' | 'cpu' = device;
-  let deviceFallback: DeviceFallback | null = null;
+  const deviceRequested: RequestedDevice = requestedDevice;
   let model: Awaited<ReturnType<typeof AutoModel.from_pretrained>>;
   try {
     model = await AutoModel.from_pretrained(modelDir, modelOptions());
@@ -187,16 +209,18 @@ export async function createEncoder({ modelDir, seq = 140, device = 'webgpu', lo
       // T-17：把这次回退**记成事实**交出去（界面据此显示"已回退"，而不是让用户自己猜为什么是 cpu）
       deviceFallback = { from: 'webgpu', to: 'cpu', reason: errMessage(err) };
       device = 'cpu';
+      // 改成请求 cpu 了 ⇒ 已验证 EP 更新为 cpu（依据同 encoder-device.ts 的 cpu 分支）
+      effectiveProvider = 'cpu';
       model = await AutoModel.from_pretrained(modelDir, modelOptions());
     } else {
       throw err;
     }
   }
   const loadMs = Date.now() - t0;
-  log(`载入完成 ${(loadMs / 1000).toFixed(1)}s · device=${device}`);
+  log(`载入完成 ${(loadMs / 1000).toFixed(1)}s · 请求=${deviceRequested} · 实际=${device} · 已验证 EP=${effectiveProvider ?? '未验证'}`);
 
   return {
-    modelDir, seq, device, deviceRequested, deviceFallback, loadMs,
+    modelDir, seq, device, deviceRequested, deviceFallback, effectiveProvider, gpuProbe, loadMs,
     async encodeText(text: string): Promise<Float32Array> {
       const inputs = await processor(QUERY_PREFIX + text);
       const emb = pickEmbedding(await model.forward(inputs));

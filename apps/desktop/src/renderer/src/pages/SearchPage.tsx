@@ -29,6 +29,10 @@ type PageEvent = {
   device?: string
   /** T-17：GPU→CPU 回退的**事实**（有值就说明发生过回退，不是用户自己选的 cpu） */
   deviceFallback?: { from?: string; to?: string; reason?: string } | null
+  /** T-31：**已验证**的执行提供者（拿不到时主进程给 null —— 那就不能按请求值说"在用 GPU"） */
+  effectiveProvider?: string | null
+  /** T-31：GPU 可用性探测结果（界面据此说明"凭什么"，而不是复述请求值） */
+  gpuProbe?: { available?: boolean | null; detail?: string } | null
   loadMs?: number
   message?: string
   done?: number
@@ -74,14 +78,18 @@ export default function SearchPage() {
     const e = evt as PageEvent
     if (!e.type) return
     if (e.type === 'encoder.ready') {
-      setDevice(e.device || '')
-      // T-17 / 契约 §3「GPU 回退不静默」：**回退过就要说出口**。
-      // 只显示 cpu 的话用户看不出"这是回退"（可能是他自己在设置里选的 cpu）。
-      // ⚠️ 这里只做这一句提示，不新增第二份兜底文案 —— 错误兜底仍在 Adapter。
+      // T-31：**不再拿 device 当"实际值"**（它只是请求值，两义写法已废）。三种情形分开说：
+      //   · 回退过        ⇒ 明说"本机 GPU 不可用，已用 CPU"（契约 §3 不静默）
+      //   · 已验证 EP     ⇒ 说"实际 <EP>"
+      //   · 没验证出来    ⇒ 如实说"请求 X（实际 EP 未验证）"，**不许**把请求值说成事实
+      setDevice(e.effectiveProvider || e.device || '')
       const ms = ((e.loadMs ?? 0) / 1000).toFixed(1)
-      show(e.deviceFallback
-        ? `模型就绪 · ${e.device}（GPU 不可用，已回退）· ${ms}s`
-        : `模型就绪 · ${e.device} · ${ms}s`)
+      const label = e.deviceFallback
+        ? `模型就绪 · ${e.device}（本机 GPU 不可用，已用 CPU）· ${ms}s`
+        : e.effectiveProvider
+          ? `模型就绪 · 实际 ${e.effectiveProvider} · ${ms}s`
+          : `模型就绪 · 请求 ${e.device || '—'}（实际 EP 未验证）· ${ms}s`
+      show(label)
     } else if (e.type === 'encoder.failed') {
       setDevice('')
       show(`模型载入失败：${e.message}`, 'err')

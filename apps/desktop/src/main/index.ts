@@ -33,6 +33,7 @@ import { resolveLibraries, loadRegistry, saveRegistry, normalizeLibraries, regis
 import type { MainConfig, ResolveLibrariesResult } from './library-config.ts';
 import { resolveStorageRoots, describeStorageRoots, probeWritable, resolveModels } from './storage-roots.ts';
 import type { ModelResolution } from './storage-roots.ts';
+import type { GpuProbe } from './encoder-device.ts';
 import { decideWindowBounds, readSavedBounds, persistBounds } from './window-state.ts';
 import type { BoundsDecision } from './window-state.ts';
 import { createRevealPort } from './ports.ts';
@@ -369,6 +370,57 @@ function buildEngine(): ResolveLibrariesResult {
   return r;
 }
 
+/**
+ * GPU 可用性探测（T-31 / S2b · 选 (a) 的理由见下方）。
+ *
+ * **为什么是"主进程主动问渲染进程"，而不是"渲染层 invoke 告诉主进程"**：
+ *   · 权威来源只能是**渲染进程**（只有那里有真 navigator.gpu；主进程是 Node 上下文，
+ *     transformers 甚至把"WebGPU 可用"恒置为真 —— 见 encoder-device.ts 文件头）；
+ *   · 而 (a) 用 webContents.executeJavaScript **不需要新增 IPC 方法** ⇒ 不动 shared/ipc.ts 与 SPEC §5
+ *     （契约变更必须先经所有者批准）。所以选 (a)。
+ *
+ * ⚠️ 方向性：探测只说"**能不能**用 GPU"，不说"**是不是**在用"。
+ *   探测失败/超时一律按 **null（拿不到结论）** 处理 —— 那种情况下我们保留请求值，
+ *   但 effectiveProvider 记 null（不许猜）；只有明确 false 才会退到 cpu。
+ *
+ * 结果**缓存一次**：requestAdapter 有成本，且同一进程里 GPU 可用性不会来回变。
+ */
+let gpuProbeCache: GpuProbe | null = null;
+async function probeGpu(): Promise<GpuProbe> {
+  if (gpuProbeCache) return gpuProbeCache;
+  const win = winRef.win;
+  if (!win || win.isDestroyed()) {
+    gpuProbeCache = { available: null, detail: '探测时没有可用窗口（拿不到结论，不猜）' };
+    return gpuProbeCache;
+  }
+  let result: GpuProbe;
+  try {
+    // 渲进程里跑：与主进程共用同一个 GPU 进程 / Dawn 栈（**推断**，见下）；超时保证不拖住编码器。
+    const script = '(async () => {'
+      + ' if (!navigator.gpu) return { available: false, detail: "渲染进程里没有 navigator.gpu" };'
+      + ' try { const a = await navigator.gpu.requestAdapter();'
+      + '   return a ? { available: true, detail: "requestAdapter 返回了适配器" }'
+      + '            : { available: false, detail: "requestAdapter 返回 null（没有可用适配器）" }; }'
+      + ' catch (e) { return { available: false, detail: "requestAdapter 抛错：" + String(e) }; }'
+      + ' })()';
+    const raw: unknown = await Promise.race([
+      win.webContents.executeJavaScript(script, true),
+      new Promise((res) => setTimeout(() => res(null), 5000)),
+    ]);
+    if (raw && typeof raw === 'object' && typeof (raw as { available?: unknown }).available === 'boolean') {
+      const r = raw as { available: boolean; detail?: unknown };
+      result = { available: r.available, detail: String(r.detail ?? '(无详情)') };
+    } else {
+      result = { available: null, detail: '探测超时或返回形状不可用（拿不到结论，不猜）' };
+    }
+  } catch (e) {
+    result = { available: null, detail: '探测抛错：' + messageText(e) };
+  }
+  gpuProbeCache = result;
+  log('[设备] GPU 探测：available=' + String(result.available) + ' · ' + result.detail);
+  return result;
+}
+
 async function ensureEncoder(): Promise<Encoder> {
   if (encoder) return encoder;
   if (encoderError) throw encoderError;
@@ -396,7 +448,9 @@ async function ensureEncoder(): Promise<Encoder> {
     // ⚠️ `config.device` 是外部 JSON 里的字符串；原实现把它原样交给编码器（后者只认这两个值），
     //    这里用断言保留同一行为 —— 不改写成"非法值就回退 webgpu"的静默降级。
     const device = (config.device || 'webgpu') as 'webgpu' | 'cpu';
-    encoder = await createEncoder({ modelDir, seq: 140, device, log });
+    // T-31：把**探测结果**喂进去 —— 设备语义的判定在 encoder-device.ts 的纯函数里，不在这里。
+    const gpuProbe = await probeGpu();
+    encoder = await createEncoder({ modelDir, seq: 140, device, gpuProbe, log });
     // T-17：回退要**说出口**。encoder 自己知道 requested/actual/原因，
     // 这里把它一并交给界面（并同步写一条显眼日志）——契约 §3「GPU 回退不静默」。
     if (encoder.deviceFallback) {
@@ -406,10 +460,13 @@ async function ensureEncoder(): Promise<Encoder> {
       // 理论上到不了：只有在 createEncoder 里发生回退时两者才会不同。
       log('!! 设备与请求不一致（requested=' + encoder.deviceRequested + ' actual=' + encoder.device + '）');
     }
+    // T-31：事件里**请求 / 实际 / 已验证 EP** 三个字段分开，界面不必再从 device 猜（S1 · S3）。
     emit({
       type: 'encoder.ready', device: encoder.device, loadMs: encoder.loadMs,
       deviceRequested: encoder.deviceRequested,
       deviceFallback: encoder.deviceFallback,
+      effectiveProvider: encoder.effectiveProvider,
+      gpuProbe: encoder.gpuProbe,
     });
     return encoder;
   } catch (e) {
