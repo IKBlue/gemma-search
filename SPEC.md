@@ -259,9 +259,14 @@
 | `ingest` · `mutate` · `transactions` · `indexStart` · `indexCancel` · `indexResume` | 形状已冻结，**真实模式未接线** ⇒ F3 的接线任务 |
 | 文档类（登记目录 / 扫描 / 检索） | **新增**，本规格首次定义 |
 
-**错误码（20 个，新增=兼容，改名=破坏性）**
+**错误码（27 个，新增=兼容，改名=破坏性）**
 
 `BAD_REQUEST` · `LIB_NOT_FOUND` · `LIB_ROOT_MISSING` · `INDEX_MISSING` · `INDEX_CORRUPT` · `UID_NOT_FOUND` · `ITEM_MISSING_ON_DISK` · `COMPAT_MISMATCH` · `PATH_ESCAPES_LIB` · `SYMLINK_REJECTED` · `COLLECT_DIR_NOT_ALLOWED` · `COLLECT_TARGET_EXISTS` · `DISK_FULL` · `JOB_NOT_FOUND` · `JOB_BUSY` · `RECOVERY_NEEDED` · `UNDO_EXPIRED` · `MODEL_MISSING` · `PORT_MISSING` · `INTERNAL`
+
+**元数据导入 / 重建一族（2026-10-15 新增 · 属兼容）**：`IMPORT_FAILED` · `IMPORT_INPUT_INVALID` · `IMPORT_SOURCE_INVALID` · `IMPORT_INDEX_UNREADABLE` · `IMPORT_RECORD_INVALID` · `IMPORT_DUPLICATE_UID` · `IMPORT_COUNT_MISMATCH`。
+语义 = **元数据导入/重建阶段的失败**（含临时目录或库根不可写）；
+⚠️ **不得归成 `INDEX_CORRUPT`**（索引并没有坏）—— 那是**假因果**：用户会看到「索引文件已损坏」而体检说索引是好的（2026-10-15 T-15b/T-42 实测）。
+用户文案：`IMPORT_FAILED` = 「重建元数据时写不进去（临时目录或库根不可写），**本次没有改动任何数据**。」
 
 **事件**：`index.progress`（单调不减）· `index.done` · `index.failed` · `encoder.ready`（含 `device` **= 请求值** · `effectiveProvider` **= 实际，取不到就 `null`（不许猜）** · `deviceFallback` · 耗时）· `encoder.fallback`（GPU → CPU，必须显示，不许静默）。
 
