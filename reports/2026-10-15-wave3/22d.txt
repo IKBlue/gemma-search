@@ -1,0 +1,106 @@
+================================================================================
+T-22d 证据 · 打包体积再裁一刀（task-39）—— 含 arm64 口径变更后的复跑
+执行: storage-worker   日期: 2026-10-15
+================================================================================
+
+【改动】只有 electron-builder.yml 的 files 段（JS 侧一行未动）
+  · 新增 '!**/onnxruntime-web/**'
+  · 新增 '!**/onnxruntime-node/bin/napi-v6/darwin/**' 与 '!**/onnxruntime-node/bin/napi-v6/linux/**'
+  · **撤销** T-22d 第一版的 '!**/onnxruntime-node/bin/napi-v6/win32/arm64/**'（owner 改口支持 arm64 ⇒ 原前提 B 不成立）
+  · 注释里给出 arm64 打包命令，**默认 target 未改**（默认仍 x64）
+
+★★ 两条前提（明文；前提不成立就要撤销对应排除）★★
+  【前提 A】编码只在【主进程】。
+    依据：transformers 在 Node/Electron 主进程这条路上只会要 onnxruntime-node（22c 实测：模块缓存里没有
+    onnxruntime-web；移走 onnxruntime-node 时它不能顶替，硬失败 Cannot find module 'onnxruntime-node'）。
+    ⚠️ 将来若把编码搬进【渲染层 / Worker】⇒ 必须删掉 onnxruntime-web 那条排除。
+  【前提 B】本产物只出【win32-x64 与 win32-arm64】（2026-10-15 owner 决定支持 arm64）。
+    ✅ win32/arm64 必须保留：arm64 Windows 解析到 .../bin/napi-v6/win32/arm64/onnxruntime_binding.node。
+    ⚠️ 将来要出【macOS / Linux】产物 ⇒ 必须撤销 darwin / linux 两条。
+
+【1. 体积与构成（一次打包实测）】
+  命令：npm run build:unpack （= npm run build && electron-builder --dir）· 产物 dist/win-unpacked/
+  测量方法：PowerShell 递归求和 + @electron/asar list 数条目（见下）。
+    · 产物总计          = 557.4 MB (110 文件)   ← T-22c 基线 849.8 MB ⇒ **-292.4 MB (-34.4%)**
+    · app.asar          = 37.5 MB                ← T-22c 基线 176.1 MB（T-22c 投影 37.6，几乎一致）
+    · app.asar.unpacked = 152.3 MB (38 文件)     ← T-22c 基线 306.0 MB
+    · gemma-search.exe  = 235.0 MB（Electron 运行时，未动）
+  构成：
+    · app.asar 条目总数 = 4459
+    · 含 onnxruntime-web 的条目 = **0** ⇒ 排除生效（这是比体积更硬的证据）
+    · 含 onnxruntime-node 的条目 = 40（原生 .node 走 unpacked）
+    · unpacked 只有 node_modules = 152.3 MB：
+        onnxruntime-node win32/x64   = 64.0 MB
+        onnxruntime-node win32/arm64 = 69.4 MB   ← **按新口径保留**
+        @img/sharp-win32-x64         = 18.9 MB
+    · darwin / linux 的 ORT 二进制已不在产物里（基线里那 153.5 MB 没了）
+  ⚠️ 与 T-22c 投影(≈488 MB)不同：那是**只出 x64**（连 win32/arm64 一起排）的投影；
+     支持 arm64 后必须留那 69.4 MB ⇒ 557.4 MB **不是没裁够，是口径变了**。
+  ⚠️ 我第一版用 JS 递归测出 519.9/188.8 两个内部矛盾的数字，与 PowerShell + asar 列表都对不上 ⇒
+     **那组数字作废**（方法问题，不是产物问题）；本文件只采用上面这组可交叉验证的。
+
+【2. 一次打包四验：**打包 exe** 里真的能跑（硬证据）】
+  驱动：node data/_t22/run-packed.mjs（executablePath = dist/win-unpacked/gemma-search.exe）
+  原始输出 data/_t22/packed-run.txt：
+    打包 exe = D:\USERS\Desktop\Agent\gemma-search\dist\win-unpacked\gemma-search.exe
+    === ① 窗口 / preload / 控制台 ===
+    window.api 暴露面 = ["invoke","onEvent","platform"] ⇒ 恰好三键 ✓
+    标题 = "语义搜索 · gemma-search"
+    加载协议 = file: ⇒ 打包态 file:// ✓
+    === ② 文本检索（真界面：#query → Enter）===
+    结果卡数量 = 8 ⇒ 文本检索成功 ✓
+    === ③ 图像检索（IPC，与 perf.spec 同口径）===
+    imageRef=L1/8a70380a9575 ⇒ {"ok":true,"err":null,"n":50} ⇒ 图像检索成功 ✓
+    === ④ thumb:// 不回归 ===
+    <img src=thumb://...@256> = {"ok":true,"w":1,"h":1} ⇒ 200 且解码出图 ✓
+    === ⑤ 控制台错误（**分开数**：验收要的是 pageerror=0）===
+    pageerror 条数 = 0 ⇒ 0 ✓
+    console.error 条数 = 24（其中与 415 无关的 = 0）
+    === ⑥ 打包态日志（模型 / 设备 / 引擎）===
+    [08:02:36.071] 设备决策：请求=webgpu · 实际=webgpu · 已验证 EP=webgpu · 探测到可用适配器 ⇒ 请求 webgpu（requestAdapter 返回了适配器）；ORT 的 EP 解析全有或全无，初始化成功即该 EP 被采用
+    [08:02:36.099] 设备决策：请求=webgpu · 实际=webgpu · 已验证 EP=webgpu · 探测到可用适配器 ⇒ 请求 webgpu（requestAdapter 返回了适配器）；ORT 的 EP 解析全有或全无，初始化成功即该 EP 被采用
+    [08:02:39.715] 载入完成 3.6s · 请求=webgpu · 实际=webgpu · 已验证 EP=webgpu
+    [08:02:40.309] 载入完成 4.2s · 请求=webgpu · 实际=webgpu · 已验证 EP=webgpu
+  ⇒ 逐条：
+    · 文本检索：真界面 #query → Enter ⇒ **8 条结果卡**
+    · 图像检索：IPC（与 perf.spec 同口径）⇒ ok:true · n=50
+    · 窗口 / preload / 控制台：window.api **恰好三键** · 标题正确 · **file://**（加载的是 asar 内页面）·
+      **pageerror = 0**；与 415 无关的 console.error = 0
+    · thumb://：<img src=thumb://...@256> ⇒ 200 且解码出图（1x1）⇒ 不回归
+    · 那 24 条 415 是**夹具现象**（夹具只落 10 条素材，其余条目的缩略图解不出来；m0-real 同此现象）
+
+【3. arm64 专项：sharp 那个坑（代码级证据，不是推断）】
+  问题：T-22c 证明 @img/sharp-win32-x64 **不能动**（移走连文本检索都失败）。sharp 是**按平台装包**的。
+  本机实测：
+    · node_modules/@img 下只有 colour · sharp-wasm32 · **sharp-win32-x64** —— **没有 sharp-win32-arm64**
+    · node_modules/sharp/dist/sharp.cjs:69-70  case "win32-arm64": sharp = require("@img/sharp-win32-arm64/sharp.node");
+    · node_modules/sharp/dist/sharp.cjs:113     报错文案 'Could not load the "sharp" module using the <runtimePlatform> runtime'
+    · node_modules/sharp/package.json:188        "@img/sharp-win32-arm64": "0.35.5"（optionalDependencies，npm 按 os/cpu 门控安装）
+    · package-lock.json:1649-1651                "node_modules/@img/sharp-win32-arm64" + resolved tarball（registry.npmmirror.com）
+    · npm 缓存（%LOCALAPPDATA%\npm-cache 与仓库 .npm-cache）**内容搜索** sharp-win32-arm64 ⇒ **命中 0**
+  结论 (1) **会报**：arm64 Windows 上会走 sharp.cjs 的 win32-arm64 分支去 require 那个包，而包里没有它
+           ⇒ 正是「Could not load the sharp module using the win32-arm64 runtime」。
+           （依据 = 代码 + 包内文件缺失；**不是**在 arm64 机器上跑出来的 —— 本机没有 arm64 硬件。）
+  结论 (2) 想让 arm64 真能用，**必须让 arm64 的 sharp 包进产物**，两条路：
+           (a) **按架构分别构建**（arm64 机器 / CI 上 npm ci + 打包）⇒ npm 按 os/cpu 自然装上 arm64 变体。推荐。
+           (b) 本机交叉安装 npm i --os=win32 --cpu=arm64 @img/sharp-win32-arm64@0.35.5 ⇒
+               同一次打包会同时带 x64 与 arm64 两份 sharp（约 +19 MB）。本机无网 + 缓存无命中 ⇒ **未做、未验证**。
+       ⇒ 只改 electron-builder.yml **不足以**让 arm64 可用；**要改依赖安装方式**（分架构构建）。
+
+【4. 【未测】清单（明文；按 AGENTS P6 不得说成可用）】
+  · npx electron-builder --win --arm64 需**下载 arm64 版 Electron** —— 本沙箱**无网** ⇒ 产物出不来，**未测**；
+  · 没有 arm64 机器 / 模拟器 ⇒ arm64 产物能否启动、检索能否跑，**一概未测**；
+  · (b) 交叉安装 arm64 sharp：**未做**（无网 + 缓存无命中）；
+  · win32/arm64 的 ORT 二进制**在包里但从未被加载过**（本机是 x64）⇒「保留是对的」依据是**代码解析规则**，不是实测。
+  ⇒ 本轮**不声称 arm64 可用**；只声称「x64 产物体积已裁 + 打包 exe 四验通过」。
+
+【5. 顺带发现（**不在本任务范围**，未改任何 JS）】
+  打包态日志出现**两对**「模型搜索命中 / 设备决策 / 载入完成」（3.6s 与 4.2s）⇒ ensureEncoder() 在并发下
+  会加载两次模型（它只挡「encoder 已存在」，不挡「正在加载中」）。触发：预热(1.5s)未结束就发起检索。
+  影响：多一次 1.7 GB 模型加载（内存峰值翻倍 + 首次检索变慢）。建议单开任务修（一行 in-flight promise）。
+
+【6. 回滚】
+  · 去掉 onnxruntime-web 与 darwin/linux 两条排除（回到 T-22c 状态）；
+  · 若要回到「只出 x64」：再加回 '!**/onnxruntime-node/bin/napi-v6/win32/arm64/**'；
+  · 核对：npm run build:unpack && node data/_t22/run-packed.mjs
+================================================================================

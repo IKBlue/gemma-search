@@ -38,6 +38,31 @@ files:
   - '!model-cache/*'
   - '!.npm-cache/*'
   - '!*.tsbuildinfo'
+  # ⚠️ 下面三条是 **T-22d 实测（2026-10-15）后补的**，依据 reports/2026-10-15-wave3/22c.txt 的审计
+  #    （T-22c 查清了"哪些能裁、哪些不能动"）。两条排除各自带一个**前提**；
+  #    **前提一旦不成立，排除必须撤销** —— 这两种情况失败的样子是"功能直接不可用"，不是"变慢"。
+  #
+  #   【前提 A】编码只在**主进程** ⇒ 排除 onnxruntime-web（本机实测 138.7 MB，躺在 asar 内）
+  #     为什么：transformers 在 Node/Electron 主进程这条路上**只会要 onnxruntime-node**；
+  #     22c 实测模块缓存里没有 onnxruntime-web，且把 onnxruntime-node 移走时它**不能顶替**（硬失败：
+  #     "Cannot find module 'onnxruntime-node'"）。所以它是死重。
+  #     ⚠️ 若将来把编码搬进**渲染层 / Worker**（那条路走的是 onnxruntime-web），**必须删掉这条排除**。
+  - '!**/onnxruntime-web/**'
+  #
+  #   【前提 B】本产物只出 **win32-x64 与 win32-arm64**（2026-10-15 所有者决定支持 arm64）⇒
+  #     排除 **darwin / linux** 的 ORT 二进制（153.5 MB）：darwin/arm64 85.3 · linux/x64 44.1 · linux/arm64 24.3。
+  #     为什么只排这些：onnxruntime-node 的 bin/napi-v6/ 下共 287.1 MB，Windows 的两个架构才是本产物的目标
+  #     （22c 实测 x64 加载到的是 <asar>\node_modules\onnxruntime-node\bin\napi-v6\win32\x64\onnxruntime_binding.node）。
+  #     ✅ **win32/arm64 必须保留**：arm64 Windows 上解析到的是 .../win32/arm64/onnxruntime_binding.node；
+  #        排掉它 ⇒ arm64 产物检索**直接起不来**（不是变慢）。
+  #        （T-22d 第一版曾把它一起排掉 —— 那是"只出 x64"的旧前提下才成立，owner 改口径后已撤销。）
+  #     ⚠️ **将来要出 macOS / Linux 产物时，撤销下面这两条**，否则那些平台的检索起不来。
+  #     ⚠️ arm64 产物**本轮未验证**（本沙箱无网 + 无 arm64 机器）：命令是
+  #        npx electron-builder --win --arm64    （**不把默认 target 改成 arm64**，避免每次打包都去下载 arm64 Electron）
+  #        还有一件 arm64 专属的坑没解决：sharp 的 arm64 包（@img/sharp-win32-arm64）本机没装，
+  #        见 reports/2026-10-15-wave3/22d.txt「arm64 还差什么」。
+  - '!**/onnxruntime-node/bin/napi-v6/darwin/**'
+  - '!**/onnxruntime-node/bin/napi-v6/linux/**'
 asarUnpack:
   - resources/**
 win:
