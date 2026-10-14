@@ -1,0 +1,64 @@
+================================================================================
+T-41 证据 · ensureEncoder 并发双加载（真 bug：一次并发检索多加载 N 次 1.7GB 模型）
+执行: storage-worker   日期: 2026-10-15   （task-41）
+================================================================================
+
+【现象与根因】
+  apps/desktop/src/main/index.ts 的 ensureEncoder() 只挡「已经有 encoder」，**不挡「正在加载中」**：
+  并发调用（启动预热 1.5s + 用户检索）各自走完整个载入流程 ⇒ 模型被加载多次。
+  触发条件：预热还没结束就发起检索（打包态 T-22d 实跑就撞到了：日志 3.6s / 4.2s 两行「载入完成」）。
+
+【修复前：原始复现】（data/_t41/run-concurrent.mjs，并发 3 次检索）
+  并发 3 次检索 → 3 个都 ok:true / n=10 · 耗时 9254ms
+  模型搜索命中 = 3 · 设备决策 = 3 · **载入完成 = 3**
+    [08:05:59.189] 载入完成 5.0s · 请求=webgpu · 实际=webgpu · 已验证 EP=webgpu
+    [08:05:59.800] 载入完成 5.6s · 请求=webgpu · 实际=webgpu · 已验证 EP=webgpu
+    [08:06:00.614] 载入完成 6.4s · 请求=webgpu · 实际=webgpu · 已验证 EP=webgpu
+  ⇒ 三次 1.7 GB 载入（内存峰值翻倍 + 首次检索变慢），而用户只发了一次意图。
+
+【修复】
+  · 新增 apps/desktop/src/main/single-flight.ts（**纯模块**，可 node:test）：
+      createSingleFlight() —— 进行中 ⇒ 复用同一个 Promise；settle 后清空（要不要缓存失败留给调用方）
+  · apps/desktop/src/main/index.ts：ensureEncoder() 拆成两层 ——
+      薄包装 ensureEncoder()：encoder 快路径 / encoderError 快路径 / 其余走 encoderFlight.run(loadEncoderOnce)
+      真正载入的 loadEncoderOnce()：原来的函数体一字未改（成功写 encoder、失败写 encoderError）
+  · **失败语义不变**：encoderError 仍然缓存 ⇒ 后续调用直接抛同一个错、不重试（与改动前一致）。
+  · ⚠️ **没有触碰 main/encoder.***（编码器本身一行未动）⇒ 按纪律 T-00 护栏非必需；仍跑了作为旁证（见下）。
+
+【修复后：同一命令、同一夹具】
+  并发 3 次检索 → 3 个都 ok:true / n=10 · 耗时 3473ms
+  模型搜索命中 = 1 · 设备决策 = 1 · **载入完成 = 1**
+    [08:06:35.843] 载入完成 2.4s · 请求=webgpu · 实际=webgpu · 已验证 EP=webgpu
+  ⇒ 载入次数 3 → **1**；同一组 3 次并发检索耗时 9254ms → **3473ms**（约 2.7 倍）。
+
+【单测（新增 6 条，含任务要求的「并发 3 次只加载 1 次」）】
+  apps/desktop/tests/single-flight.test.mjs ⇒ tests 6 / pass 6 / fail 0
+    S1 并发 3 次 ⇒ factory 只调用 1 次、三方拿到同一个值
+    S2 inFlight() 进行中 true / settle 后 false
+    S3 settle 后清空 ⇒ 下一次会重新执行（不是永久缓存）
+    S4 并发失败 ⇒ 只跑 1 次、所有调用方拿到同一个错误对象、不产生 unhandledRejection
+    S5 失败后已清空 ⇒ 下一次会重试（失败缓存由调用方决定，模块不越权做第二份策略 · P1）
+    S6 串行调用不复用（每次都真的跑）
+
+【门禁】
+  npm test：
+    ℹ tests 499
+    ℹ pass 498
+    ℹ fail 0
+    ℹ cancelled 0
+    ℹ skipped 1
+  tsc node / web ⇒ 均 0 行输出 EXIT=0 / EXIT=0
+  npm run build ⇒ EXIT=0（三端产物齐备）
+  npm run e2e -- smoke.spec.mjs m0-real.spec.mjs：
+    Running 2 tests using 1 worker
+    2 passed (8.0s)
+    （那串 415 是夹具现象：M0 只落了搜索结果里的几条素材）
+  护栏旁证（**未动 encoder.ts，仍跑了**）：GUARDRAIL_EXIT=0 · 结论 PASS ·
+    Top-5 与基线**逐位一致 True**（0.7855 / 0.7852 / 0.7836 / 0.7756 / 0.7751）
+    护栏自己那行仍是「已验证 EP=未验证」（未传探测 ⇒ 走「没结论」分支），说明设备语义没被本次改动带偏。
+
+【回滚方式】
+  · 删 apps/desktop/src/main/single-flight.ts 与 apps/desktop/tests/single-flight.test.mjs；
+  · index.ts：把 loadEncoderOnce 改回 ensureEncoder（去掉 encoderFlight 与薄包装），import 一并去掉；
+  · 核对：npm run typecheck · npm test · node data/_t41/run-concurrent.mjs 3（回滚后应重现 3 次载入）
+================================================================================
