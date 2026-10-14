@@ -1,0 +1,114 @@
+================================================================================
+T-22c 证据 · 打包内容**只读**审计（那 306.0 MB 是什么、能不能安全裁）
+任务板 id: task-36   执行: db-worker   日期: 2026-10-15
+写入范围: data/_t22（临时物）· reports/ —— **不改任何配置、不改产品代码**（只读审计 + 临时移走/还原实验）
+===============================================================================
+
+【结论一句话】
+306.0 MB 的 app.asar.unpacked **只有两个包**：onnxruntime-node 287.1 MB + @img/sharp-win32-x64 18.9 MB。
+其中 onnxruntime-node **只有 win32/x64 那 64.0 MB 是真在用的**（模块缓存实测），其余 **223.1 MB 是别的平台/架构**；
+另外 asar 内还躺着 **onnxruntime-web 138.5 MB**（运行时**从未加载**，且移走 onnxruntime-node 时它**不能顶替** ⇒ 硬失败）。
+⇒ 有明确证据支持的两笔可裁量 ≈ **361.6 MB**（占当前 win-unpacked 849.8 MB 的 42.5%，**投影值，未实测**）。
+⚠️ **sharp 不能动**：移走 @img/sharp-win32-x64 后**连文本检索都失败**（实测）。
+
+【方法（只读；可复跑）】
+1) 用**与 T-22b 相同的仓库配置**重打包（mk-config.mjs 由 electron-builder.yml 生成，未改任何配置）：
+     node data/_t22/mk-config.mjs → npx electron-builder --dir -c data/_t22/eb-dir.json
+   产物：asar 184,661,813 B（176.1 MB）· app.asar.unpacked 306.0 MB（与 T-22b 一致，说明本轮的包没变）
+2) 静态：直接解析 **asar 头部**（process.noAsar + 读 16 字节 pickle + JSON 目录）⇒ 权威清单（谁被解包、谁在 asar 里）；
+   解包目录按包与按目录树量体积（不靠文件扩展名 —— 第一版按 .so/.dll/.node 统计**漏掉了 linux 的 .so.N**，见下修正）。
+3) 运行时（**可观察证据**，不是 package.json 推断）：跑打包 exe →
+   · 主进程 process.getBuiltinModule('module')._cache 看**实际加载了谁**（含 .node 的完整路径）
+   · 然后**把包临时移走再跑**（rename → 跑 → 还原），看是"硬失败"还是"悄悄换一个实现"
+
+【Q1 · 运行时到底用哪个 ORT？（三条独立证据）】
+证据 A（模块缓存，baseline 跑完文本+图像检索之后）：
+  [rt:baseline] 已加载的 onnxruntime* 包 = ["onnxruntime-node","onnxruntime-common"]
+  [rt:baseline] 已加载的 .node 原生件 =
+     ["<asar>\\node_modules\\@img\\sharp-win32-x64\\lib\\sharp-win32-x64-0.35.5.node",
+      "<asar>\\node_modules\\onnxruntime-node\\bin\\napi-v6\\win32\\x64\\onnxruntime_binding.node"]
+  [rt:baseline] **onnxruntime-web 是否被加载 = false**
+  ⇒ 真在用的是 **onnxruntime-node**，而且加载的是 **bin/napi-v6/win32/x64** 那一份（不是 arm64、不是 darwin/linux）。
+证据 B（移走 onnxruntime-node 再跑 = "是不是它不可替代"）：
+  [rt:no-ort] 文本检索 ⇒ {"code":"INTERNAL","message":"Cannot find module 'onnxruntime-node'
+              Require stack: - ...\\app.asar\\node_modules\\@huggingface\\transformers\\dist\\transformers.node.mjs", ...}
+  [rt:no-ort] 图像检索 ⇒ 同上（同一个 require 栈）
+  ⇒ **硬失败**，而且 require 栈指向 @huggingface/transformers 的 **transformers.node.mjs**：
+    即 transformers 在 Node/Electron 主进程这条路上**只会要 onnxruntime-node** —— 它不会退回 onnxruntime-web。
+证据 C（日志）：
+  设备决策：请求=cpu · 实际=cpu · 已验证 EP=cpu · 请求 cpu ⇒ 使用 CPU（transformers 的 cpu -> "cpu" 映射；u2 实测只有 CPUExecutionProvider）
+  resize_compat 已安装（kernel=pil-like，替代 upstream affine-bicubic）
+  （这两条一起说明：编码在主进程、走 ORT 的 CPU EP；**没有任何** wasm/web 后端迹象）
+⇒ **答案：是 onnxruntime-node（win32/x64）；onnxruntime-web 从未被加载，且不能顶替。**
+   ⚠️ 反面（为什么不能只凭 package.json/引用 grep 下结论）：构建产物里 grep 不到 'onnxruntime-node' 字样
+      （transformers 是**运行时 require**，不经打包器），我第一版的静态"引用=否"因此**没有证明力** —— 真正有证明力的是上面 A/B。
+
+【Q2 · 哪些是构建期/开发期依赖被带进来了？—— 结论：**基本没有**（并修正审计前的猜测）】
+asar 内 node_modules 合计 173.6 MB / 54 个包，前几名：
+  onnxruntime-web 138.5 MB（间接）· @huggingface 9.3 · react-dom 7.7（直接）· zod 5.5（直接）· @radix-ui 4.1 ·
+  protobufjs 2.8 · react-router 1.7 · tailwind-merge 0.9 · sharp 0.6 · @floating-ui 0.5 · onnxruntime-common 0.4 · …
+按"构建/开发链"模式匹配到的全部内容 = **semver 0.1 + global-agent 0.1 + globalthis 0.0 + @types 0.0 ≈ 0.1 MB（0.1%）**
+  （semver/global-agent 其实是 transformers 下载器的**运行时**依赖，不是构建工具）
+⇒ **electron-winstaller / @rollup / lightningcss / @tailwindcss / vite / typescript / playwright 这些一个都不在包里**
+  （它们在 node_modules 磁盘上，但 electron-builder 只装 dependencies 及其传递依赖；根 files 清单又排掉了源码目录）。
+  ⇒ 审计前那份"静态统计 node_modules"的清单**不能代表包内容**：它把磁盘当成了包。这条我按实纠正。
+包内真正的大头只有两块：onnxruntime-web 138.5（**死重**）+ onnxruntime-node 287.1（**只有 64.0 在用**）。
+
+【Q3 · 非目标平台的二进制占比（精确按目录量，修正按扩展名的第一版）】
+onnxruntime-node 287.1 MB 100% 在 bin/napi-v6/ 下：
+  bin/napi-v6/darwin/arm64   85.3 MB
+  bin/napi-v6/linux/arm64    24.3 MB
+  bin/napi-v6/linux/x64      44.1 MB
+  bin/napi-v6/win32/arm64    69.4 MB
+  **bin/napi-v6/win32/x64    64.0 MB  ← 唯一被加载的（证据 A 的 .node 路径就是它）**
+  ⇒ 对本目标（win32-x64）**可裁 223.1 MB**（287.1 − 64.0）。
+  ⚠️ 我第一版按 .so/.dll/.node 扩展名统计得出 "linux 各 0.4 MB"，**是错的**：linux 的版本化 .so.N 不匹配 \.so$。
+     现在这组数字来自**目录树全量求和**，与总数自洽（85.3+24.3+44.1+69.4+64.0 = 287.1 ✓）。
+@img/sharp-win32-x64 18.9 MB：sharp 只装了**本平台**的预编译包（没有 linux/darwin 的 sharp），所以这块**没有跨平台可裁空间**。
+electron-builder 能不能按平台裁：能 —— files 是 glob，可以对**具体平台目录**下排除（例如
+  '!**/onnxruntime-node/bin/napi-v6/{linux,darwin}/**' 与 '!**/onnxruntime-node/bin/napi-v6/win32/arm64/**'）；
+  代价是产出的包**只在 win32-x64 上可用**（arm64 Windows 会失败）—— 这是产品决策，不是纯技术问题。
+
+【Q4 · 结论表 + 体积账目 + 安全排除建议】
+| # | 项目 | 体积 | 运行时是否在用 | 证据 | 建议 |
+|---|---|---|---|---|---|
+| 1 | onnxruntime-node · bin/napi-v6/win32/x64 | 64.0 MB | **是**（唯一被加载的 .node） | 模块缓存里的 .node 路径 | **不能动** |
+| 2 | onnxruntime-node · darwin/arm64 + linux/* + win32/arm64 | 223.1 MB | 否（本目标跑不到） | 目录分解 + "加载的是 win32/x64" | **有把握排除**（前提：只出 win32-x64） |
+| 3 | onnxruntime-web（asar 内） | 138.5 MB | **否**（缓存里没有；移走 ort-node 时它不能顶替） | 证据 A + B | **有把握排除**，但**必须写注释/ADR**：将来若把编码搬进渲染进程/Worker 就会踩 |
+| 4 | @img/sharp-win32-x64 | 18.9 MB | **是**（移走连文本检索都失败） | no-sharp 实测 | **不能动** |
+| 5 | 其余 runtime 依赖（react-dom/zod/radix/protobufjs/…） | ≈35 MB | 是 | asar 清单 | 不动 |
+| 6 | 构建/开发链（rollup/lightningcss/tailwind/winstaller/…） | **0 MB** | — | asar 清单里根本没有 | 无需处理（审计前的猜测不成立） |
+
+体积账目（当前，实测）：win-unpacked 891,046,684 B = 849.8 MB
+  = app.asar 176.1 MB（含 onnxruntime-web 138.5）+ app.asar.unpacked 306.0 MB（ort-node 287.1 + sharp 18.9）+ exe 246.3 MB + 其余 Electron 运行文件
+**投影**（⚠️ 未实测，只是把上面可裁项相加）：849.8 − 223.1 − 138.5 ≈ **488 MB（−42.5%）**；asar 会从 176.1 降到 ≈37.6 MB。
+建议分档：
+  · **有把握**：#2 非本平台/非本架构的 ORT 二进制（前提是构建目标锁定 win32-x64）；#3 onnxruntime-web（前提是"编码只在主进程"这条架构不变，且要在配置注释里写明理由）。
+  · **要先验证**：若将来要支持 arm64 Windows 或把编码搬到渲染层 ⇒ #2/#3 都要重新评估；另外 NSIS 压缩后的安装器体积、以及"删掉后真机安装是否仍完整"要做一次实装验证。
+  · **不能动**：#1 onnxruntime-node 的 win32/x64；#4 sharp 的本平台包；#5 其余运行时依赖。
+  ⚠️ 本轮**没有改任何配置**（files 一行没动）。要落地上面两条排除，应另开任务，并按 §4 证据协议重跑"打包 → 跑起来 → 文本+图像检索 + 取图"四项。
+
+【实验怎么做的（可复跑，含还原）】
+  $ node data/_t22/mk-config.mjs && node data/_t22/fixture.mjs && npx electron-builder --dir -c data/_t22/eb-dir.json
+  $ node data/_t22/audit-static.mjs      # 解包目录按包/按平台
+  $ node data/_t22/audit-asar.mjs        # asar 内按包
+  $ node data/_t22/audit-ort-dirs.mjs    # onnxruntime-node 按平台目录精确分解
+  $ node data/_t22/audit-runtime.mjs baseline
+  $ Move-Item ...\app.asar.unpacked\node_modules\onnxruntime-node ...onnxruntime-node.bak; node data/_t22/audit-runtime.mjs no-ort; Move-Item ...bak ...onnxruntime-node
+  $ Move-Item ...\node_modules\@img\sharp-win32-x64 ...sharp-win32-x64.bak; node data/_t22/audit-runtime.mjs no-sharp; Move-Item ...bak ...
+  还原已确认：restored=True/True（onnxruntime-node 与 @img/sharp-win32-x64 都在原位）。
+  ⚠️ 实验只 rename 了**我自己生成的临时产物**里的两个目录，仓库配置/产品代码/源码 node_modules 一律没动。
+
+【证明不了 / 未测（如实写）】
+· 上面 42.5% 是**投影**，不是实测：我**没有**真的改配置再打一次包（本任务明确不许改配置）。
+· 没测 NSIS 压缩后的安装器体积（不做安装器）· 没测"删掉后干净机器实装"。
+· 没测 arm64 Windows / Linux / macOS 上跑起来会怎样（本轮只跑 win32-x64）：#2 的"可裁"结论**建立在这个前提上**。
+· 没有验证 transformers 是否**将来**会在别的条件下选 onnxruntime-web（例如 device=dml/webgpu 的某些路径）—— 本轮只跑 device=cpu；
+  这条正是把 onnxruntime-web 归到"有把握但必须留注释"的原因。
+· sharp 的 18.9 MB 未拆开看（libvips 本体），没有评估是否有更小的发行变体。
+
+【回滚方式】
+· 零产品代码/零配置改动 ⇒ **无需回滚**。
+· 临时物 data/_t22（含 849.8 MB 产物、审计脚本、被 rename 过又还原的两个目录）已删除。
+· 未跑 git（AGENTS P7）。
+===============================================================================
