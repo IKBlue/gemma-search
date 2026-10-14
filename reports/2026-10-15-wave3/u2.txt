@@ -1,0 +1,136 @@
+================================================================================
+U2 核查 · 「上报的 device」是否等于「真的用了 GPU」（task-30）
+执行: storage-worker   日期: 2026-10-15
+性质: **只读核查** —— 本任务**不改产品行为**（写入范围 data/_u2 + reports/）
+================================================================================
+
+【结论先行（分两半：静态已定 · 运行时待跑）】
+· **静态已定（证据在下面，逐条带 文件:行号）**：
+  ① 我们的 encoder **上报的是"请求值"，不是运行时确认的执行提供者**；
+  ② 在 Node / Electron 主进程里，transformers.js 把"WebGPU 可用"**硬编码为真**，
+     所以"supported / 报了 webgpu"这件事**不携带任何"真有 GPU"的信息**；
+  ③ 运行时**存在**一个真实可读的信号：每个 session 上被挂了一个 executionProviders 代理，
+     它是"请求的 EP ∩ 实际可用"——可直接读，用来区分两种情形。
+· **运行时未跑**：本会话沙箱 + Lead 的全量 e2e 占用机器，按纪律第 10 条（同一时刻只跑一件重活）
+  我先把探测脚本备好（data/_u2/probe-ep.mjs / probe-electron.cjs），**等放行后跑**并把原始输出追加到本文件。
+· **在跑到之前，本文件不下"实际跑在 CPU"的结论** —— 那不是能靠读代码断定的东西。
+
+【① 我们上报的是"请求值"（静态证据）】
+  apps/desktop/src/main/encoder.ts：
+    · CreateEncoderOptions.device 由调用方给（index.ts 传 config.device 或默认 webgpu）；
+    · 只有 try 里的 from_pretrained 抛错、且 device === 'webgpu' 时，才把局部变量 device 改成 'cpu'
+      并记 deviceFallback；
+    · 返回值里 device 就是**这个局部变量**。
+  ⇒ 只要 from_pretrained **没抛错**，我们上报的就是"我们请求的"，与运行期真正用了哪个 EP 无关。
+  （T-17 已把"发生过我们看见的回退"记成事实 deviceFallback；但"我们没看见的降级"仍然看不见。）
+
+【② 在 Node/Electron 主进程里，"WebGPU 可用"是硬编码为真的（静态证据）】
+  node_modules/@huggingface/transformers/dist/transformers.js:38
+      var IS_WEBGPU_AVAILABLE = IS_NODE_ENV || typeof navigator !== "undefined" && "gpu" in navigator;
+  ⇒ IS_NODE_ENV 为真时它**恒为真**（Node / Electron 主进程都属于这种；我们正是跑在那里）。
+  transformers.js:13345-13362（IS_NODE_ENV 分支）
+      ONNX = onnx_node_default;  ...  supportedDevices.push("webgpu"); supportedDevices.push("cpu"); defaultDevices = ["cpu"];
+  ⇒ supportedDevices **无条件**包含 webgpu。
+  transformers.js:13375-13387 deviceToExecutionProviders('webgpu')
+      supportedDevices.includes('webgpu') ⇒ 返回 ["webgpu"]（**不会抛 Unsupported device**）
+  ⇒ 于是"请求 webgpu"在一台**没有 GPU** 的机器上也不会在参数校验层被拒 —— 这正是静默降质的土壤。
+
+【③ 运行时有一个真实信号可以区分（静态证据）】
+  transformers.js:8577-8587（每个 session 的初始化）：
+      let r = a.executionProviders || [], s = r.map(...), f = s.length === 0 ? tt : s, i, p = [], l = new Set();
+      for (let g of f) { let w = await hc(g); typeof w == "string" ? p.push({name:g, err:w}) : (i || (i = w), i === w && l.add(g)); }
+      if (!i) throw new Error('no available backend found. ERR: ...');
+      for (...) console.warn('removing requested execution provider "'+g+'" from session options because it is not available: '+w);
+      let b = r.filter((g) => l.has(name(g)));
+      return [i, new Proxy(a, { get: (g,w) => w === "executionProviders" ? b : Reflect.get(g,w) })];
+  ⇒ 两个可观察量：
+     (a) session.executionProviders（代理出来的 = 请求 ∩ 可用）；
+     (b) transformers 自己 console.warn 的那句 "removing requested execution provider ... not available"。
+  ⇒ 探测脚本就读这两样，**不读我们自己的日志文案**（任务要求：不许拿日志文案当证据）。
+
+【探测设计（已备好，待跑）】
+  data/_u2/probe-ep.mjs —— 同一个模型目录分别以 device='webgpu' 与 device='cpu' 载入：
+     · 打印 process.versions.electron / node（区分环境）
+     · 打印 globalThis[Symbol.for("onnxruntime")] 是否存在、env.backends.onnx 的 keys/versions
+     · 打印 Object.keys(model.sessions) 与**每个 session 的 executionProviders**
+     · 打印首次文本推理耗时（第二个可观察量：两个数量级的差异比文案可信）
+     · 捕获并打印 transformers 发出的 console.warn/info
+     · 结果写 data/_u2/probe-out.txt（GUI 下 stdout 不可见也能留证）
+  data/_u2/probe-electron.cjs —— 让同一个探测跑在**真 Electron 主进程**（产品的真实环境）；
+     输出写 data/_u2/probe-out-electron.txt。
+  判读规则（先写死，避免事后找理由）：
+     · 请求 webgpu 且 executionProviders 含 'webgpu' ⇒ **真的用上了**（当前观察被推翻）；
+     · 请求 webgpu 而 executionProviders 为空/只有 wasm|cpu，或出现 "removing requested execution provider" ⇒
+       **确认静默降级**（上报值 ≠ 实际值），并给出修法建议；
+     · 两者都读不出来 ⇒ 如实写「当前无法区分」，不硬下结论。
+
+【待办】放行后：跑 node 版 + electron 版探测，把**原始输出**追加到本文件，再写最终判读与修法建议。
+================================================================================
+
+================================================================================
+运行时实验（Lead 放行后跑的）—— 结论：**本机请求 webgpu 真的用了 WebGPU**；
+但"上报值=请求值"这个静态风险仍在（本机没触发，按代码可推、未复现）
+================================================================================
+
+--- 实验 1（v1，**已被我作废**）：先 webgpu 后 cpu 直接比首次推理耗时
+  结果 305ms vs 36ms ⇒ 看起来"webgpu 更慢"。**这是预热混淆**：先跑的那次吃掉了模块初始化/编译。
+  记在这里是因为它正是任务要求防的那种"看起来能区分、其实不能"的证据。
+  原始输出：data/_u2/probe-out.txt（保留，作为反例）
+
+--- 实验 2（v2）：各自先预热一次，再各测 5 次（node）
+  webgpu 5 次 = [39,38,42,41,40] · 中位 40ms
+  cpu   5 次 = [62,59,61,58,58] · 中位 59ms
+  ⇒ 混淆去掉后**方向反过来**。耗时只能算弱证据（受负载影响），所以继续找硬证据。
+
+--- 实验 3（v3 + profile）：ORT profiling 落盘的 profile 里读**真实 provider**（硬证据）
+  做法：AutoModel.from_pretrained(..., { session_options: { enableProfiling: true, profileFilePrefix: <prefix> } })
+        ⇒ ORT 写出 profile JSON；统计其中的 *ExecutionProvider 出现次数。
+  ⚠️ 中途踩坑两处，都记下来：
+     (a) session.endProfiling() 返回 **undefined**（读不到路径）⇒ 只能按前缀去目录里找文件；
+     (b) profile 文件在**会话结束/释放之后**才写完整；我第一版在会话还开着时读，JSON 是空的（Unexpected end of JSON input）。
+  命令：
+    node data/_u2/probe-ep3.mjs <模型目录> data/_u2/probe3-out.txt        （纯 node）
+    electron --no-sandbox data/_u2/probe-electron3.cjs                    （真 Electron 主进程）
+
+  ① 真 Electron 主进程（产品真实环境）：
+     device=webgpu → profile 里：**WebGpuExecutionProvider × 6192** · CPUExecutionProvider × 222
+     device=cpu    → profile 里：**CPUExecutionProvider × 6396**（无 WebGpu）
+     profile 文件：p3-webgpu_2026-10-14_15-11-10_072.json（8508517 字节）· p3-cpu_2026-10-14_15-11-12_595.json（7369778 字节）
+  ② 纯 node（transformers 走的是同一条 IS_NODE_ENV 分支）：结论相同
+     device=webgpu → WebGpuExecutionProvider × 6192 · CPUExecutionProvider × 222
+     device=cpu    → CPUExecutionProvider × 6396
+     profile 文件：p3-webgpu_2026-10-14_15-10-19_784.json · p3-cpu_2026-10-14_15-10-21_857.json
+  ⇒ **请求 webgpu 时确实跑在 WebGPU EP 上**；那 222 个 CPU 节点是"WebGPU 不支持的算子回落 CPU"，属正常。
+  ⚠️ 我再自曝一个中途的假数字：第一次统计时我用了 Select-String -First 400 行，
+     于是得出 WebGpuExecutionProvider × 366；改成对**整个文件**正则统计才是 6192。小的那个才是错的。
+
+--- 实验 4（v4）：想找一条"产品内能直接读 EP"的路 —— **没找到**（如实报）
+  · session.executionProviders = undefined（transformers 的 InferenceSession 只有 handler + config）
+  · handler 构造器 = OnnxruntimeSessionHandler，自有键只有 ["inputNames","outputNames","inputMetadata","outputMetadata"]
+  · session.endProfiling() → undefined
+  ⇒ **产品运行时没有现成 API 能读真实 EP**；要读就得开 profiling（8MB/次）再用外部脚本统计。
+
+【判读（按任务先写死的规则）】
+R1 「上报的 device 从哪来」= **我们请求的值**（encoder.ts 的局部变量），不是运行时确认值。代码级结论，见上。
+R2 「实际跑在 CPU 吗」= **不是**（在本机）。profile 硬证据：请求 webgpu ⇒ WebGpuExecutionProvider 6192 次；
+   node 版与 Electron 主进程版**都复现**。
+R3 但**风险仍然存在**（静态可推、本机未复现）：transformers.js:38 把 IS_WEBGPU_AVAILABLE 在 Node/Electron 主进程里
+   **恒置为真**、supportedDevices 无条件含 webgpu ⇒ 若某台机器的 WebGPU **真的**初始化失败，
+   请求值仍是 webgpu、我们仍会照着上报；而"移除该 EP"的告警走的是 transformers 的 logger，不进我们的日志。
+   这一条我**没有**在本机复现（本机 GPU 可用），所以按任务要求写成"按代码可推、未复现"，不当结论用。
+R4 「能不能区分」= **能**：ORT profiling 的 *ExecutionProvider 计数是运行时确定的 EP（不是我们的日志文案）。
+   warm 后推理耗时（webgpu 40~42ms vs cpu 59~68ms，三处独立复现）可作旁证，但它是弱证据。
+
+【修法建议（**本任务不改行为**，请另开任务）】
+S1 语义拆分：Encoder 现在只有 device（=请求）。建议保留 device 表示"请求"，另加一个明确命名的字段表示
+   "已确认/未确认"（例如 effectiveProvider: string | null，取不到就 null），UI/日志按它措辞 ——
+   不要再用"device=webgpu"这种既可能是请求也可能是事实的写法。
+S2 拿证据的两条路（本任务已验证 S2a 可行、S2b 未试）：
+   S2a 诊断开关：排障时开 session_options.enableProfiling，解析 profile 里的 *ExecutionProvider（成本 ~8MB/次，只适合排障）。
+   S2b 渲染进程探测：WebGPU 真正存在于**渲染进程**（navigator.gpu）；在那里 requestAdapter() 探一次，
+       把"有没有真 GPU"通过 IPC 告诉主进程。成本低、可持续，且这才是"能不能用 GPU"的权威来源。
+S3 不建议：把 device 字段本身当证据（那正是本任务要否掉的做法）。
+
+【落点】本任务只读：写 data/_u2（探测脚本与 profile）与 reports/2026-10-15-wave3/u2.txt，**没改任何产品代码**。
+  大文件（profile，共约 33MB）在 data/_u2 下，已 gitignore；统计结果已抄进本文件。
+================================================================================
