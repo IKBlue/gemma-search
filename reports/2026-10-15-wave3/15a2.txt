@@ -1,0 +1,118 @@
+================================================================================
+T-15a 证据 · 体检 / 重建 两条 IPC 方法（契约 + 主进程接线）· 2026-10-15 所有者批准
+任务板 id: task-37   执行: db-worker   日期: 2026-10-15
+写入范围: apps/desktop/src/shared/ipc.ts · apps/desktop/src/main · apps/desktop/tests（**未动** preload / 通道 / 其它文件）
+===============================================================================
+
+【结论】
+· 契约：两条新方法进白名单 · 参数 { libId } 且 .strict() · **未登记方法仍被拒**（闸门没放松）。
+· 主进程：libraryHealth ⇒ checkLibraryHealth（只读）· libraryRebuild ⇒ rebuildLibraryDb（删 .gs.db 家族并重建，**不碰素材**）。
+  实现放在 **main/library-ipc.ts**（不 import electron ⇒ 可被 node:test 直接覆盖），index.ts 只把"已解析的库清单 + userData"递进去。
+· 错误：**永不抛**、userMessage 恒非空、**坏索引仍是 INDEX_CORRUPT**（实测），未知库 = LIB_NOT_FOUND，库根缺失 = LIB_ROOT_MISSING。
+· 验收：npm test **493 / pass 492 / fail 0 / skipped 1** · tsc 两工程 EXIT=0 · build EXIT=0 ·
+  e2e（smoke + m0-real）**2 passed** · 真实副本「体检 → 重建 → 复检」原始输出见下（**素材摘要前后一致**）。
+· ⚠️ 本任务**没有新增事件**（按指示）；重建期间界面上的"正在重建元数据"由 UI 忙碌态满足（SPEC §2.3），归 T-15b。
+
+【改了哪些文件】
+· apps/desktop/src/shared/ipc.ts —— 只在 Methods 末尾加 **libraryHealth / libraryRebuild**（授权范围内的窄改）
+· apps/desktop/src/main/library-ipc.ts —— **新增**：两个方法的实现（信封组装 + 错误码归一 + 永不抛）
+· apps/desktop/src/main/index.ts —— ① import ② 分派条件加这两个名字 ③ handleLibraryMethod 里一个分支（递库清单）
+· apps/desktop/tests/library-methods.test.mjs —— **新增** L1–L7
+· apps/desktop/tests/log-fallback.test.mjs —— **修一个我自己上一轮埋的坑**（见下"自查出的缺陷"）
+未动：apps/desktop/src/preload/**（仍是三键）· IPC 通道名 · 其它方法 · packages/**
+
+【实现要点（为什么这么写）】
+1. **"先把引擎契约码原样透出，其余才走映射表"**（normalizeCode）：
+   顺序反了就会踩 T-15a 明文禁止的那条 —— `.gs-index.bin` 损坏抛的是 IndexFileError('INDEX_CORRUPT')，
+   而 storage-ports 的 asEngineError() 对**未知**码一律归 INTERNAL ⇒ 坏索引会变成 INTERNAL。
+   现在：code 已在引擎 ERR 集合里 ⇒ 原样；否则（DB_OPEN_FAILED / IMPORT_* / MKDIR_FAILED…）才走那张表
+   （那张表把"元数据坏了"归到 INDEX_CORRUPT —— 也是契约要的处置码）。
+2. **抽成 library-ipc.ts 而不是写在 index.ts**：index.ts import 了 electron ⇒ node:test 加载不了它，
+   "信封 + 错误码 + 永不抛"这三件最该有测试的事会变成零自动化覆盖（同 thumb-url.ts 当初抽出去的理由）。
+3. **userMessage 恒非空**：优先取引擎的 USER_MESSAGE 表（唯一来源，不抄第二份文案）；
+   表里没有的 main 私有码用一句兜底文案 + 原样 code，日志里有完整原文。
+4. **参数里没有路径**：libId ⇒ 主进程用 T-04 的落点解析（createLibraryResolverPort.storageOf）。
+   dbPath 用的是**解析结果**（含 userData 回退），items.json 固定在库根 —— 与 T-11b 的导入输入一致。
+5. **写探测保持关闭**：体检/重建每次调用都会走 storageOf，开着会在库根反复写删探针文件；
+   "能不能写"由 T-04 的启动期解析负责（它自己会探）。
+6. 重建**不给 indexBytes** ⇒ 索引一字不动（实测 indexAction=kept）；素材目录只读（摘要前后一致，见下）。
+
+【原始输出】
+
+--- ① 单测（新文件 7 条全过）
+$ node --test apps/desktop/tests/library-methods.test.mjs
+[体检] L1 ok · 自检通过（9 项）
+[体检] L1 有问题 · 自检发现 1 项问题：index(INDEX_CORRUPT) ⇒ 索引需要重新编码（删库重建修不好）
+[重建] L1 · dbCount=3594 · 索引处置=kept · 重建完成：删除 3 个 .gs.db 文件 → schema v0→v2 → 导入 3594 条（新增 3594 / 更新 0 / 删除幽灵行 0）→ 索引 kept；复检 通过（9 项）
+!! 体检失败 [LIB_NOT_FOUND] 未登记的库：L9
+!! 重建失败 [LIB_NOT_FOUND] 未登记的库：L9
+[体检] L1 有问题 · 自检发现 1 项问题：library-root(LIB_ROOT_MISSING)
+!! 重建失败 [LIB_ROOT_MISSING] 库根不存在或不是目录：… —— 拒绝重建（不静默创建，见 U6）
+[体检] L1 有问题 · 自检发现 1 项问题：db-open(DB_OPEN_FAILED) ⇒ 可以删库重建
+[重建] L1 · dbCount=3594 · 索引处置=kept · 重建完成：删除 1 个 .gs.db 文件 → … → 复检 通过（9 项）
+✔ L1 契约：两条新方法登记 · 未登记仍被拒 · .strict() 拒多传 · 缺/非法 libId 被拒
+✔ L2 体检（健康库）：结构化结论 · 每项 ok · 不需要重建
+✔ L3 体检（坏索引）：index 项 code=INDEX_CORRUPT —— 不许归成 INTERNAL
+✔ L4 重建（真实副本）：素材摘要前后一致 · 索引字节未动 · 复检通过
+✔ L5 未知库：LIB_NOT_FOUND 信封（不抛）· userMessage 非空
+✔ L6 库根缺失：体检给结构化结论 · 重建给 LIB_ROOT_MISSING（都不抛）
+✔ L7 坏 .gs.db：体检报出来（结构化）→ 重建修好 → 复检 ok
+ℹ tests 7 / pass 7 / fail 0 · duration_ms 2603.9   LM_TEST_EXIT=0
+（L1 里两条 .strict() 断言：多传 root / path 一律被拒；未登记方法 'libraryNuke' 与 'exec' 仍被拒）
+
+--- ② 真实副本「体检 → 重建 → 复检」（data/_t15a2/demo-health-rebuild.mjs，走 library-ipc.ts 同一条实现）
+$ node data/_t15a2/demo-health-rebuild.mjs
+[demo] 夹具就绪：dbCount=3594 · 素材 2 条 · 库根=…\data\_t15a2\demo\lib
+[demo] ======== ① 体检（健康库）========          [08:05:51.968] [体检] L1 ok · 自检通过（9 项）
+[demo] SUMMARY ①健康  ok=true needsDbRebuild=false needsIndexRebuild=false
+      checks=library-root:ok,items-file:ok,index:ok,db-file:ok,db-open:ok,db-schema:ok,db-integrity:ok,db-tables:ok,db-read:ok
+[demo] ======== ② 删掉 .gs.db 家族（模拟"元数据丢了"）========
+      [体检] L1 有问题 · 自检发现 1 项问题：db-file(DB_MISSING) ⇒ 可以删库重建
+[demo] SUMMARY ②缺元数据 ok=false needsDbRebuild=true needsIndexRebuild=false
+      checks=library-root:ok,items-file:ok,index:ok,db-file:DB_MISSING
+[demo] ======== ③ 重建（libraryRebuild 的实现）========
+      [重建] L1 · dbCount=3594 · 索引处置=kept · 重建完成：删除 0 个 .gs.db 文件 → schema v0→v2 → 导入 3594 条 → 索引 kept；复检 通过（9 项）
+[demo] SUMMARY ③重建 report: created=true removed=0 dbCount=3594 dbOk=true indexAction=kept after.ok=true
+      （removed=0 是因为②已经把它删了；单测 L4 那一路是"删掉 3 个 .gs.db 文件"再重建）
+[demo] ======== ④ 复检（重建之后）========        [08:05:53.288] [体检] L1 ok · 自检通过（9 项）
+[demo] SUMMARY ④复检    ok=true needsDbRebuild=false needsIndexRebuild=false（9 项全 ok）
+[demo] SUMMARY 素材摘要 before={"count":6,"bytes":1970431,"digest":"88d4e046655aeb553aa7aa239307939494ee424e","withContent":false}
+                      after ={"count":6,"bytes":1970431,"digest":"88d4e046655aeb553aa7aa239307939494ee424e","withContent":false}
+                      identical=true      ⭐ **重建前后素材摘要完全一致**
+      ⚠️ 附带证明 U11 的修复：②③ 之间 .gs.db 被删又在③重建出来，而摘要**没变** ⇒ 保留命名空间（.gs.db 家族）确实没被算进素材。
+[demo] ======== ⑤ 坏索引：体检必须报 INDEX_CORRUPT（不许 INTERNAL）========
+      [体检] L1 有问题 · 自检发现 1 项问题：index(INDEX_CORRUPT) ⇒ 索引需要重新编码（删库重建修不好）
+[demo] SUMMARY ⑤坏索引  ok=false needsDbRebuild=false needsIndexRebuild=true
+      checks=library-root:ok,items-file:ok,index:INDEX_CORRUPT,db-file:ok,db-open:ok,db-schema:ok,db-integrity:ok,db-tables:ok,db-read:ok
+      ⇒ 坏索引走的是 **INDEX_CORRUPT**，不是 INTERNAL；且 needsIndexRebuild=true（删库重建修不好它，语义正确）。
+（完整 JSON 报告另存在 data/_t15a2/demo-out.txt，372 行；本文件摘的是其中可引用部分。）
+
+--- ③ 门禁
+$ npm test ⇒ tests 493 / pass 492 / fail 0 / skipped 1 · duration_ms 54003.7   NPM_TEST_EXIT=0
+$ npx tsc --noEmit -p tsconfig.node.json ⇒ NODE_TSC_EXIT=0 · -p tsconfig.web.json ⇒ WEB_TSC_EXIT=0
+$ npm run build ⇒ BUILD_EXIT=0（三端产物齐）
+$ npx playwright test -c apps/desktop/e2e/playwright.config.mjs smoke.spec.mjs m0-real.spec.mjs ⇒ **2 passed (8.8s)** · E2E_EXIT=0
+  （[M0] 结果条数=60 · 命中 uid=7251fa882ae6 · 取件 sha1 一致 · 库根只有 .gs-* 与素材）
+
+【自查出的缺陷（我这轮修的，写下来防再犯）】
+· **log-fallback L2 之前是"看谁先 import"的运气测试**：LOG_FILE 在 log.ts 模块顶层只算一次，
+  而 npm test 是 --test-isolation=none（一个进程跑所有文件）；只要别的文件先 import 过 log.ts
+  （例如新增的 library-ipc.ts → log.ts 这条链），同进程里再设 GEMMA_APP_LOG 也不会重算 ⇒ 单独跑绿、**全量跑红**。
+  现在 L2 改成**开子进程**（全新模块注册表，与文件顺序无关）。
+  ⇒ T-22b 那次单独跑它的结论仍然成立；但那条测试本身是脆的，这轮才真正修好。
+
+【这条工作**证明不了**什么 / 未测】
+· **没有**通过真实 IPC 通道调用这两条方法：能调它的只有渲染层，而 T-15b（界面入口）还没做 ⇒
+  契约（zod）+ 实现（library-ipc.ts）都测了，**"经 index.ts 分派、过 preload、回渲染层"这一段留给 T-15b 的 e2e**。
+· 体检/重建**在模拟模式（GEMMA_FAKE=1）下的界面表现**未测（本轮没有界面）；实现上会如实报 LIB_ROOT_MISSING，
+  不假装成功 —— 这一点只有代码事实,没有实测。
+· 多库并行 / 大库（>10 万条）的重建耗时未测（本轮 3594 条：体检 ~40ms、重建 ~700ms，见单测 duration）。
+· 重建**不覆盖索引**（indexAction=kept 是刻意的）；"索引也一起重建"是另一个入口（indexStart/UNIMPLEMENTED），不在本任务。
+· 没有事件：重建期间的进度**只有 UI 忙碌态**（T-15b）；若将来要真进度，需另批事件。
+
+【回滚方式】
+· 删 apps/desktop/src/main/library-ipc.ts 与 apps/desktop/tests/library-methods.test.mjs；
+· ipc.ts 删 Methods 里那两条；index.ts 删 import、分派条件里的两个名字、handleLibraryMethod 里那个分支；
+· log-fallback.test.mjs 的 L2 改动**建议保留**（它修的是真缺陷）。
+· 未跑 git（AGENTS P7）；data/_t15a2（临时副本 + demo 输出）已删除。
+===============================================================================

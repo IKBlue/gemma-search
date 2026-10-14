@@ -34,10 +34,12 @@ import type { MainConfig, ResolveLibrariesResult } from './library-config.ts';
 import { resolveStorageRoots, describeStorageRoots, probeWritable, resolveModels } from './storage-roots.ts';
 import type { ModelResolution } from './storage-roots.ts';
 import type { GpuProbe } from './encoder-device.ts';
+import { createSingleFlight } from './single-flight.ts';
 import { decideWindowBounds, readSavedBounds, persistBounds } from './window-state.ts';
 import type { BoundsDecision } from './window-state.ts';
 import { createRevealPort } from './ports.ts';
 import { createLibraryResolverPort, createStoragePorts } from './storage-ports.ts';
+import { runLibraryHealth, runLibraryRebuild } from './library-ipc.ts';
 import type { StoragePorts } from '../../../../packages/engine/src/storage-ports.ts';
 import { parseThumbUrl, createLibIdResolver } from './thumb-url.ts';
 import { thumbCachePath, readCachedThumb, writeCachedThumb, thumbServeStatus } from './thumb-cache.ts';
@@ -421,9 +423,24 @@ async function probeGpu(): Promise<GpuProbe> {
   return result;
 }
 
+/**
+ * T-41：**并发只允许一次载入**。
+ *
+ * 原先 ensureEncoder 只挡「已经有 encoder」，不挡「正在加载」⇒ 启动预热与用户检索并发时
+ * 各自走完整个载入流程。实测（data/_t41）：并发 3 次检索 ⇒ 日志 3 行「载入完成」，模型被加载 3 次。
+ * 现在把「进行中的那一次」收进 single-flight（纯模块 + 单测）：并发 N 次只调用一次 factory。
+ * ⚠️ 失败语义**不变**：loadEncoderOnce 仍把错误记在 encoderError 上 ⇒ 后续调用直接抛同一个错，不重试。
+ */
+const encoderFlight = createSingleFlight<Encoder>();
+
 async function ensureEncoder(): Promise<Encoder> {
   if (encoder) return encoder;
   if (encoderError) throw encoderError;
+  return encoderFlight.run(loadEncoderOnce);
+}
+
+/** 真正载入模型的那一次（只会被 single-flight 调用；成功写 encoder，失败写 encoderError） */
+async function loadEncoderOnce(): Promise<Encoder> {
   // T-17：模型搜索只有一处（resolveModel → storage-roots.resolveModels），
   // 找不到时把它的**可读指引**当错误文案 —— 说清找过哪些路径、该放哪儿、怎么重试。
   const resolution = resolveModel();
@@ -504,7 +521,10 @@ function registerIpc(): void {
     if (!engine) buildEngine();
 
     // 库配置是由主进程处理的方法（不是引擎方法）——首启向导用
-    if (v.method === 'libraryConfig' || v.method === 'libraryAdd' || v.method === 'libraryPickDir') {
+    // ⚠️ libraryHealth / libraryRebuild 也在这里分派：它们**不是引擎方法**（体检要读索引 + 只读开 .gs.db；
+    //    重建要删/建文件），但走同一条 IPC 通道、同一套 zod 白名单与信封（2026-10-15 所有者批准新增）。
+    if (v.method === 'libraryConfig' || v.method === 'libraryAdd' || v.method === 'libraryPickDir'
+        || v.method === 'libraryHealth' || v.method === 'libraryRebuild') {
       const res = await handleLibraryMethod(v.method, v.params);
       log(`invoke ${v.method} ${(Date.now() - started)}ms → ${resultCode(res)}`);
       return res;
@@ -546,6 +566,20 @@ function registerIpc(): void {
 // 让用户**主动**选目录的入口，且它只把结果交给主进程自己处理，**不把路径能力授予渲染层**
 // —— 渲染层本来就拿不到 `dialog`，这个方法是它唯一的、需用户亲自点击的间接通道。
 async function handleLibraryMethod(method: MethodName, params: unknown): Promise<Envelope> {
+  // ---- 体检 / 重建（T-15a · 2026-10-15 批准新增）----
+  // 实现体在 main/library-ipc.ts（那边**不 import electron** ⇒ 可被 node:test 直接覆盖）。
+  // 这里只负责"把**已解析**的库清单与 userData 递进去" —— 库从哪来是 library-config 的事。
+  if (method === 'libraryHealth' || method === 'libraryRebuild') {
+    const p = (params && typeof params === 'object' ? params : {}) as Req<'libraryHealth'>;
+    const r = librariesResolved();
+    const input = {
+      libId: String(p.libId),
+      libraries: r.libraries.map((l) => ({ libId: l.libId, root: l.root })),
+      userDataDir: USER_DATA_DIR,
+    };
+    return method === 'libraryHealth' ? runLibraryHealth(input) : runLibraryRebuild(input);
+  }
+
   if (method === 'libraryConfig') {
     // 模拟模式：给一个**自洽的假世界**。少了这一步会出现很别扭的错配 ——
     // 引擎侧 `indexStatus` 报着 3 个样例库，而门禁（`decideGate` 判的是**本方法**的 `libraries.length`）

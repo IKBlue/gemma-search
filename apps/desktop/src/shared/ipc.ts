@@ -141,6 +141,23 @@ export const Methods = {
     root: z.string().min(1).max(4096),
     label: z.string().max(64).optional(),
   }).strict(),
+
+  /**
+   * `libraryHealth` / `libraryRebuild` —— **2026-10-15 所有者批准新增**（SPEC §5 契约表）。
+   *
+   * · 体检（只读）：返回**结构化**健康结论（每项 ok + 错误码 + 人话理由），不抛；
+   * · 重建元数据：删 `.gs.db` 家族并从 `items.json` 重新导入，**不得碰素材**，返回重建报告（含 before/after）。
+   *
+   * ⚠️ 为什么走 IPC 而不让渲染层自己算：体检要读 `.gs-index.bin`（引擎五道校验）与只读打开 `.gs.db`；
+   *    重建要删/建文件 —— 都是**主进程的活**（渲染层拿不到 fs，也不该拿）。
+   * ⚠️ 参数只有 `libId`：**路径一律不进契约**（由主进程用 T-04 的落点解析）——
+   *    与 item/scan 同一条规矩，渲染进程传不进任何绝对路径。
+   * ⚠️ `.strict()`：多传字段一律拒。契约 §9.1 说"新增方法/字段=兼容"，但**多传**不是兼容。
+   * ⚠️ 本方法**不发事件**（只批了这两个方法）：重建期间的"正在重建元数据"由 UI 忙碌态满足（SPEC §2.3）。
+   */
+  libraryHealth: z.object({ libId: LibId }).strict(),
+
+  libraryRebuild: z.object({ libId: LibId }).strict(),
 };
 
 export const METHOD_NAMES = Object.freeze(Object.keys(Methods));
