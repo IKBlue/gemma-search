@@ -323,9 +323,8 @@ export interface IndexReadReport {
  * @throws EngineError(INDEX_MISSING | INDEX_CORRUPT)
  */
 export function readIndexFile(libraryRoot: string): IndexReadReport {
-  const root = requireRoot(libraryRoot);
-  const file = indexPathFor(root);
-  const bin = readIndexBin(file);
+  const file = indexPathFor(libraryRoot);
+  const bin = readIndexBinAt(file);
   return {
     path: file,
     count: bin.count,
@@ -333,4 +332,18 @@ export function readIndexFile(libraryRoot: string): IndexReadReport {
     bytes: NODE_INDEX_FS.sizeOfSync(file),
     header: bin.header,
   };
+}
+
+/**
+ * 按**给定路径**读回完整索引（含向量块）—— T-16b 的 VectorIndexPort 用这个。
+ *
+ * 为什么单独一个入口而不是让调用方直接调引擎的 readIndexBin：
+ *   ① main 侧"读索引"只有这一个模块（路径构造 indexPathFor 也在这里）；
+ *   ② 五道校验**仍然只有引擎那一份实现**，本函数只是把路径交过去；
+ *   ③ readIndexFile 只回摘要（不搬 11 MB 向量块），端口要向量 ⇒ 用这个，别把摘要接口撑大。
+ *
+ * @throws EngineError(INDEX_MISSING | INDEX_CORRUPT)
+ */
+export function readIndexBinAt(indexPath: string): IndexBin {
+  return readIndexBin(indexPath);
 }

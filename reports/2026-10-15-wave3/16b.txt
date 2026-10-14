@@ -1,0 +1,163 @@
+================================================================================
+T-16b 证据 · 主进程存储端口接线 + M0 端到端实测
+任务板 id: task-26   执行: db-worker   日期: 2026-10-15
+依赖: T-16a（引擎侧 storage-ports 接口 + createEngine 的 storage 参数，97fc2a0）·
+      T-11a/b（.gs.db 建表与导入）· T-12a（索引落点/原子写入）· T-04（落点解析）
+写入范围: apps/desktop/src/main/** · apps/desktop/tests/**
+===============================================================================
+
+【结论】
+· 三个端口都在主进程实现并接上引擎（**非 fake 模式**），错误一律是引擎的 EngineError：
+  ① ItemStorePort       ← .gs.db（只读打开 + 列↔字段唯一映射）；**没有 .gs.db 才回落 items.json，并明说**
+  ② VectorIndexPort     ← <库根>/.gs-index.bin（走 index-file.readIndexBinAt ⇒ 五道校验仍只有引擎那一份）
+  ③ LibraryResolverPort ← 已登记库清单 + T-04 的落点解析（root 是声明库根；.gs-* 可回退 userData）
+· **M0 端到端实测通过**（真库副本 3594 条 + 真索引 3594×768 + **真编码器**，非 fake）：
+  找到库 healthy=true · 检索出 5 条真结果（真分数/band，145ms）· 详情字段齐全 · **取件字节一致**（sha1 相等）。
+  原始输出见证据③。
+· 单测：node --test apps/desktop/tests/storage-ports-main.test.mjs ⇒ 8 tests / pass 8 / fail 0 / skipped 0 / EXIT=0
+· 七个相关单测同进程合跑 ⇒ 72 tests / pass 72 / fail 0 / EXIT=0
+· tsc 两个工程都 EXIT=0（node + web）
+· ⚠️ 全量门禁（npm test / build / e2e）按 Lead 的分工由 Lead 跑，本证据不声称跑过。
+
+【改了哪些文件】
+新增：
+  apps/desktop/src/main/storage-ports.ts              366 行  三个端口的主进程实现 + createStoragePorts
+  apps/desktop/src/main/errors.ts                      26 行  codeOf / messageOf（新代码的共用小工具）
+  apps/desktop/tests/storage-ports-main.test.mjs       366 行  M1–M8
+修改：
+  apps/desktop/src/main/index-file.ts                  +readIndexBinAt（按路径读回**完整**索引，含向量块）
+  apps/desktop/src/main/db/row-types.ts                +sqlRowToItemRecord（**反向**映射：SQL 行 → 条目）
+未改：storage-roots.ts（Lead 明确要求不碰，storage-worker 在做 T-04c）· main/index.ts（未接线到启动流程）·
+      packages/engine/**（引擎侧一行没动）。
+
+【实现要点】
+1) **端口抛错纪律**（T-16a 的明文契约）：asEngineError() 统一转换 —— 已经是 EngineError 的原样抛（保住 code），
+   其余按映射表给码。映射：.gs.db 打开失败 / 元表缺失 / schema 过新 / 迁移失败 / 导入族 ⇒ INDEX_CORRUPT（元数据损坏，
+   处置就是重建）；没有落点 ⇒ INDEX_MISSING；实在认不出 ⇒ INTERNAL。M8 实测：坏索引 / 坏 .gs.db 走信封后
+   code 仍是 INDEX_CORRUPT（**不是 INTERNAL**），且 userMessage 非空。
+2) **回落必须明说**：ItemStorePort 找不到 .gs.db 时调 onFallback（默认 console.warn），文案含"回落到 items.json"
+   与**具体路径**（M4 断言）。items.json 走**引擎的 readItems**，不重写第二份解析。
+3) **回落带 mtime 守卫缓存**：引擎取件循环会对同一库反复 getItem（最多 200 次），每次重读 2 MB JSON 是浪费；
+   缓存只在文件 mtime 变化时失效（改了文件立刻读到新内容，不是永久缓存）。
+4) **root 与 .gs-* 落点分开**：storageOf().root = **声明库根**（素材所在地，scan/collect 数的是它）；
+   .gs-* 路径可能落在 userData 回退目录（T-04 的裁定）。素材从不搬家，只有派生数据会回退（M2 断言）。
+5) **写探测默认关**：端口每次 storageOf 都会被调，probeWrites=true 会在库根反复写删 .gs-write-probe-*；
+   那是 T-04 启动路径的职责。代价（如实写）：ACL 拒绝的库根会被当成"存在即可用"。
+6) 索引读取**只有一处入口**：index-file.readIndexBinAt → 引擎 readIndexBin（五道）。main 侧不出现第二份 GSIDX 解析
+   （T-12a 的 A1 用例持续守着这件事）。
+7) 可空性适配：.gs.db 里 vector_row / vector_source 可以是真的 NULL，而引擎的 IndexItem 把它们声明成
+   「可选 number」/「可选 string」（可缺省、不可为 null）⇒ 映射时把 null 落成"键不存在"
+   （语义相同：引擎用 == null 判断）。
+8) ⚠️ 本轮抓到并修掉一个**真 bug**（由 M3/M7 的失败暴露）：sqlRowToItemRecord 最初按**字段名**取 SQL 行的值，
+   而 SQL 行是**下划线列名**（lib_id / rel_path）⇒ 每一行都报"缺少字段 libId"。修法：先按 ITEM_FIELD_COLUMNS
+   把列名翻成字段名（同一份配对，不另写映射），缺列**不补 undefined**（缺失要响亮）。
+
+【原始证据】
+
+--- ① 单测
+$ node --test apps/desktop/tests/storage-ports-main.test.mjs
+✔ M1 ⭐ 库解析端口：list/has/get/requireExistingRoot/storageOf；未知库与缺库根都抛引擎错误 (452.1902ms)
+✔ M2 ⭐ 回退落点：库根不可用 ⇒ .gs-* 指到 userData，而 root 仍是声明库根（素材不搬家） (0.2057ms)
+✔ M3 ⭐ 条目端口：有 .gs.db 就从 db 读，**不**回落（onFallback 一次都不该响） (472.3831ms)
+✔ M4 ⭐ 条目端口回落：没有 .gs.db ⇒ 读 items.json，且**必须明说**（onFallback 带上路径） (10.9656ms)
+✔ M5 ⭐ 条目端口错误码：.gs.db 损坏 ⇒ INDEX_CORRUPT；items.json 也没有 ⇒ INDEX_MISSING (467.3797ms)
+✔ M6 ⭐ 索引端口：读回真索引（含向量块）；缺失/损坏都是引擎错误 (437.0461ms)
+✔ M7 ⭐⭐ 接上引擎（真素材 + 真索引，非 fake）：找库 → 检索 → 详情 → 取件 (453.857ms)
+✔ M8 ⭐⭐ 端口错误进了信封还是**带码的**（不是 INTERNAL） (485.4513ms)
+ℹ tests 8 / pass 8 / fail 0 / cancelled 0 / skipped 0 / duration_ms 2960.871   EXIT=0
+
+--- ② 七个相关单测同进程合跑（--test-isolation=none）
+$ node --test --test-isolation=none db-schema · db-import · db-rebuild · index-location · index-corruption · health-rebuild · storage-ports-main
+ℹ tests 72 / pass 72 / fail 0 / cancelled 0 / skipped 0 / duration_ms 32754.1849   TEST_EXIT=0
+
+--- ③ M0 端到端实测（临时脚本 data/_t16/m0.mjs，跑完已删）
+$ node data/_t16/m0.mjs "坦克 装甲车"
+[m0] 库根副本 = D:\...\data\_t16\m0 · 条目 = 3594 · meta.count = 3594 · libId = L1
+[m0] 已落素材： CR+VR\ID-10083808.jpg · CR+VR\ID-10083808.rar
+[m0] 建 .gs.db：dbCount = 3594 · schema = 2 · libraryCreated = true
+[m0] 库解析端口 storageOf = {"root":"...\\data\\_t16\\m0","indexPath":"....gs-index.bin","dbPath":"....gs.db","journalPath":"....gs-journal"}
+[m0] 载入真编码器（device=cpu）： ...\\model-cache\\onnx\\embeddinggemma-2\\daa72c...\\fp32
+[m0] encoder: 重采样兼容层已安装并自检通过（kernel=pil-like）
+[m0] encoder: 载入完成 2.1s · device=cpu
+[m0] 编码器就绪：device = cpu · loadMs = 2051
+
+=== ① 找到库（indexStatus）===
+{ "ok": true, "data": { "libs": [ {
+  "libId": "L1", "label": "L1(副本)", "root": "...\\data\\_t16\\m0", "rootExists": true,
+  "indexed": 3594, "encoded": 3594, "dim": 768,
+  "compat": "onnx-community/embeddinggemma-2-ONNX|daa72c51243991dfcaf9f9137d2c573d8f7790c0|fp32|2|140|768|l2|mean_soft_tokens",
+  "builtAt": "2026-10-10T07:44:27.968Z", "failed": null, "healthy": true, "problems": [],
+  "storage": { "layout": "library-root", "root": "...\\data\\_t16\\m0",
+               "indexPath": "....gs-index.bin", "dbPath": "....gs.db", "journalPath": "....gs-journal",
+               "indexExists": true, "dbExists": true } } ] }, "warnings": [] }
+
+=== ② 检索（mode=text · 真编码器）· query = 坦克 装甲车 ===
+libsUsed = ["L1"] · libsSkipped = [] · tookMs = 145
+   0.648606 low 7251fa882ae6 VR\ID-15302998.jpg · archive = VR\ID-15302998.7z
+   0.645407 low 0bb6db62f4a9 VR\ID-915327.jpeg · archive = VR\ID-915327.zip
+   0.640782 low 8550228d0051 VR\ID-109335488.jpg · archive = VR\ID-109335488.rar
+   0.640009 low 5312451342f9 VR\ID-839243.jpeg · archive = VR\ID-839243.rar
+   0.637694 low c61d3b102403 VR\ID-15130994.jpeg · archive = VR\ID-15130994.rar
+
+=== ③ 看详情（item）· uid = 7251fa882ae6 ===
+{ "libId": "L1", "uid": "7251fa882ae6", "relPath": "VR\\ID-15302998.jpg", "folder": "VR", "stem": "ID-15302998",
+  "imageExt": ".jpg", "imageSize": 85473, "imageMtime": 1773730273149, "vectorSource": "native",
+  "archive": { "relPath": "VR\\ID-15302998.7z", "ext": ".7z", "size": 33281773, "mtime": 1773729887051 },
+  "exists": { "image": false, "archive": false } }
+（exists=false 是**如实**的：这一条的真素材在原库 G:/model，副本里没落；副本里落的只有取件用的那一条）
+
+=== ④ 取件（collect）· uid = 8a70380a9575 ===
+{ "ok": true, "data": { "jobId": "j-c5f4", "targetDirName": "out", "targetDir": "...\\data\\_t16\\out",
+  "bytesTotal": 32,
+  "succeeded": [ { "uid": "8a70380a9575", "kind": "archive", "path": "...\\out\\ID-10083808.rar", "bytes": 32 } ],
+  "failed": [], "skipped": [] }, "warnings": [] }
+M0 判据② 字节一致 = true · src = 1b40b6b8bce39909f74e79953272953be1edaa2d · dest = 1b40b6b8bce39909f74e79953272953be1edaa2d
+目标目录内容 = ["ID-10083808.rar"]
+
+=== ⑤ 库根内容（应当只有原素材 + .gs-*）===
+[".gs-index.bin",".gs.db",".gs.db-shm",".gs.db-wal","CR+VR","items.json","meta.json"]
+关键文件 sha1 = {"items.json":"e9428bf088c1f026f3ff75349bf8b01a7a2987e8","meta.json":"7751eec256ced5ed5cdd74c97c4ff2e1b50b8947","index.bin(原件)":"56a8bf5f5f700ea734f22bc1bf255edd1432ae83"}
+node = v24.14.0
+EXIT=0
+
+--- ④ 类型门禁（两个工程）
+$ npx tsc --noEmit -p tsconfig.node.json   ⇒ NODE_TSC_EXIT=0
+$ npx tsc --noEmit -p tsconfig.web.json    ⇒ WEB_TSC_EXIT=0
+
+【这条工作**证明不了**什么（如实写）】
+· **不等于"界面做到了 M0"**：本轮只到引擎 + 端口的调用面（脚本直调 createEngine），没有 Electron 窗口、
+  没有 IPC、没有渲染层。界面侧的 M0 判据要等 T-20/T-21/T-22。
+· 不是打包态实测：跑的是仓库内的 out-of-package 路径（node 直跑 .ts），electron-builder 打包冒烟不在此列。
+· 检索用了**真编码器**（CPU，2.1s 载入），但查询是脚本写死的文本；**没有**覆盖图像查询、GPU 路径与性能阈值（那属 T-19）。
+· 取件的"字节一致"是**副本内自洽**（源文件是按 items.json 的 relPath 落进副本的 32 字节文件），
+  不是"从原库 G:/model 取出原件"——原库在本沙箱不可读写（环境限制，见下）。
+· 索引读取正确性沿用 T-12b 的逐道破坏证据（本轮没有重复破坏五道）。
+· 未跑全量 npm test / build / e2e（Lead 的分工）。
+
+【环境说明（哪些是环境、哪些是产品）】
+· 本会话沙箱把 **electron.exe** 的写限制在仓库工作目录内；原库所在盘与 AppData 一律 EPERM（TASKS §5）。
+  ⇒ M0 的库根**故意**用仓库内副本 data/_t16/m0（真 items.json / meta.json / 3594×768 索引，
+    素材只落了取件要用的那一条），临时目录与脚本已删除。这是**环境限制，不是产品落点** ——
+    产品落点由 T-04 的 storage-roots 解析（声明库根；不可写时回退 <userData>/libraries/<libId>）。
+· 普通 node 不受上述写限制（引擎自带测试也用 os.tmpdir()），所以夹具构造不受影响。
+· 两个 node：run_code 进程内 v24.18.1，pwsh/PATH 里 v24.14.0（证据③末尾）。单测与 tsc 走 PATH 的 v24.14.0。
+· 每进程一条 "(node:PID) ExperimentalWarning: SQLite is an experimental feature"（T-03 已判可接受，引用既有证据）。
+
+【未决 / 交接】
+1) **接线到启动流程（main/index.ts）本轮没做**：Lead 要求 index.ts 的改动必须先说；而且 storage-worker 在做 T-04c。
+   ⇒ 现在 createStoragePorts/createLibraryResolverPort 是**可调用但未被启动路径调用**的模块。
+   接线清单（下一手）：读 config.json/注册表 → resolveLibraries() → createLibraryResolverPort →
+   createStoragePorts → createEngine({ config, encoder, storage })；回落日志用 electron-log 而不是 console.warn。
+2) **U12 未踩**：scan.new 仍含压缩包 = 既有行为，口径归 T-33，本轮没顺手改。
+3) engineCodeOf 的映射表里 INDEX_CORRUPT 是"元数据坏了"的落点码；引擎当前没有 DB_* 码，
+   若将来加，映射表要跟着改（注释里已写明理由）。
+4) 未跑全量门禁 / build / e2e。
+
+【回滚方式】
+· 新增文件（删掉即可）：storage-ports.ts · errors.ts · storage-ports-main.test.mjs · 本证据文件。
+· 修改文件：
+    index-file.ts：删掉 readIndexBinAt（readIndexFile 恢复直接调引擎 readIndexBin）
+    db/row-types.ts：删掉 sqlRowToItemRecord（约 40 行）
+· 未跑 git（AGENTS P7）；本轮临时物 data/_t16（库副本 + out + 脚本）与 data/_t11 / data/_t15 已全部清理。
+· storage-roots.ts 与 packages/engine/** 均未改动，无需回退。
+===============================================================================

@@ -210,6 +210,46 @@ function optionalInteger(rec: Record<string, unknown>, field: ItemField, where: 
 }
 
 /**
+ * **反向**映射：items 表读回来的行 → ItemRecord（T-16b 的 ItemStorePort 用）。
+ *
+ * 与 parseItemRecord 用**同一套**取值器 ⇒ 列名/可空性/类型的判据只有一份。
+ * 类型不符（列被外部改过、库损坏）时抛 IMPORT_RECORD_INVALID —— 读路径也要**响亮**，
+ * 不能把 null/错值悄悄塞进条目，那会让检索结果静默变味。
+ *
+ * @throws GsDbError(IMPORT_RECORD_INVALID)
+ */
+export function sqlRowToItemRecord(row: Record<string, unknown>, where: string): ItemRecord {
+  // ⚠️ SQL 行是**下划线列名**（lib_id / rel_path），取值器吃的是**驼峰字段名** ⇒
+  //    先按 ITEM_FIELD_COLUMNS 把列名翻成字段名（同一份配对，不另写映射）。
+  //    缺列**不补 undefined**：让 pick 报"缺少字段"——外部改过表结构时必须响亮。
+  const byField: Record<string, unknown> = {};
+  for (const [field, column] of ITEM_FIELD_COLUMNS) {
+    if (Object.hasOwn(row, column)) byField[field] = row[column];
+  }
+  const rec = byField;
+  return {
+    uid: requireText(rec, 'uid', where),
+    libId: requireText(rec, 'libId', where),
+    folder: requireText(rec, 'folder', where),
+    stem: requireText(rec, 'stem', where),
+    name: requireText(rec, 'name', where),
+    relPath: requireText(rec, 'relPath', where),
+    absPath: requireText(rec, 'absPath', where),
+    imageExt: requireText(rec, 'imageExt', where),
+    imageSize: requireInteger(rec, 'imageSize', where),
+    imageMtime: requireInteger(rec, 'imageMtime', where),
+    archiveName: optionalText(rec, 'archiveName', where),
+    archiveRelPath: optionalText(rec, 'archiveRelPath', where),
+    archiveAbsPath: optionalText(rec, 'archiveAbsPath', where),
+    archiveExt: optionalText(rec, 'archiveExt', where),
+    archiveSize: optionalInteger(rec, 'archiveSize', where),
+    archiveMtime: optionalInteger(rec, 'archiveMtime', where),
+    vectorRow: optionalInteger(rec, 'vectorRow', where),
+    vectorSource: optionalText(rec, 'vectorSource', where),
+  };
+}
+
+/**
  * 把外部 JSON 的一条记录严格解析成 ItemRecord。
  *
  * ⚠️ 为什么**严格**（缺字段 / 多字段 / 类型不对都要能发现）：
