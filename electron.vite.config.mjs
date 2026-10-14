@@ -71,7 +71,7 @@ export default defineConfig({
     build: {
       outDir: out('main'),
       rollupOptions: {
-        input: { index: desktop('src', 'main', 'index.mjs') },
+        input: { index: desktop('src', 'main', 'index.ts') },
       },
     },
   },

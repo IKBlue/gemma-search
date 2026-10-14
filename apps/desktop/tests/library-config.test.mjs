@@ -15,7 +15,7 @@ import path from 'node:path';
 import {
   resolveLibraries, saveRegistry, loadRegistry, normalizeLibraries,
   discoverLibrariesFromIndex, DEFAULT_COLLECT, registryPath, parseCollectDirsEnv,
-} from '../src/main/library-config.mjs';
+} from '../src/main/library-config.ts';
 
 /** 造一个临时"应用数据目录"，里面按需放 libraries/<id>/meta.json */
 function tmpData({ libs = [] } = {}) {

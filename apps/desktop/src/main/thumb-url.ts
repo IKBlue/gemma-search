@@ -1,9 +1,9 @@
-// apps/desktop/src/main/thumb-url.mjs —— `thumb://` 的形状解析与尺寸白名单
+// apps/desktop/src/main/thumb-url.ts —— `thumb://` 的形状解析与尺寸白名单
 //
 // 为什么单独成模块（这是 SPEC-security §8 的 S4–S6）：
-// `main/index.mjs` import 了 `electron`，`node:test` 加载不了它 ⇒ 这个协议处理器
+// `main/index.ts` import 了 `electron`，`node:test` 加载不了它 ⇒ 这个协议处理器
 // 在写这份文件之前**零自动化覆盖**。而它是渲染进程唯一能"指定读哪个文件"的表面，
-// 恰恰最该被测。抽出来的先例是 `main/ports.mjs` 与 `main/library-config.mjs`。
+// 恰恰最该被测。抽出来的先例是 `main/ports.ts` 与 `main/library-config.ts`。
 //
 // ⚠️ **本模块的安全属性（三条，都必须能测）**：
 //   1. **纯函数，不碰文件系统**。它只做"形状 + 白名单"判定。
@@ -15,12 +15,31 @@
 //      URL 的 host **一律小写**（URL 规范），而引擎的 libId 大小写敏感（`L1`）——
 //      这一步不做，`thumb://L1/…` 会变成 `l1`、引擎回 LIB_NOT_FOUND、界面全是"无预览"
 //      （实测记录见 `main/index.mjs` 原注释）。未注册的库 ⇒ 无法还原 ⇒ 404。
+//
+// 2026-10-14：本文件由 `thumb-url.mjs` 转为 `.ts`（全量 TypeScript）。
+// **语义逐字未改**（形状白名单 / 尺寸白名单 / 400-404 映射一字未动），只补类型。
 
 /** 允许的缩略图边长。**唯一白名单**；不在其中的一律拒。 */
-export const ALLOWED_SIZE = new Set([128, 256, 512]);
+export const ALLOWED_SIZE: ReadonlySet<number> = new Set([128, 256, 512]);
 
 /** 形状：`/<uid>@<size>`，uid 与引擎 uid 同形（12 位小写 hex） */
 const SHAPE_RE = /^\/([0-9a-f]{12})@(\d+)$/;
+
+/**
+ * 测试注入用的 I/O 观察口。**本模块不会调用其中任何方法**，
+ * 它存在的唯一目的是让"有人真的在这里加了 I/O"在 review 与测试里一眼可见。
+ */
+export interface ThumbIo {
+  readFileSync?: (...args: unknown[]) => unknown;
+  existsSync?: (...args: unknown[]) => unknown;
+  openSync?: (...args: unknown[]) => unknown;
+  [k: string]: unknown;
+}
+
+/** 形状解析结果（判别联合：成功才有 uid/size，失败只有状态码与原因） */
+export type ParseThumbUrlResult =
+  | { ok: true; rawHost: string; uid: string; size: number }
+  | { ok: false; status: number; reason: string };
 
 /**
  * 解析 `thumb://` 请求的**形状**。
@@ -33,16 +52,13 @@ const SHAPE_RE = /^\/([0-9a-f]{12})@(\d+)$/;
  * **"正常写法下本模块不做 I/O；刻意混淆的写法能绕过这两道检查"**，不是"结构上不可能读取"。
  * 之所以留 `io`：它让"有人真的在这里加了 I/O"在 review 里一眼可见，成本几乎为零。
  *
- * @param {string} rawUrl 请求的完整 URL
- * @param {{readFileSync?:Function, existsSync?:Function, openSync?:Function, [k:string]:any}} [io]
- *   仅用于测试注入；**本函数不会调用其中任何方法**。
- * @returns {{ok:true, rawHost:string, uid:string, size:number}
- *          |{ok:false, status:number, reason:string}}
+ * @param rawUrl 请求的完整 URL
+ * @param io 仅用于测试注入；**本函数不会调用其中任何方法**
  */
-export function parseThumbUrl(rawUrl, io = null) {
+export function parseThumbUrl(rawUrl: string, io: ThumbIo | null = null): ParseThumbUrlResult {
   // 显式声明契约：本函数是纯字符串处理。若将来有人在这里加了读取，`io` 会把它暴露出来。
   void io;
-  let url;
+  let url: URL;
   try {
     url = new URL(String(rawUrl));
   } catch {
@@ -51,7 +67,7 @@ export function parseThumbUrl(rawUrl, io = null) {
 
   // host 小写化是 URL 规范行为；`decodeURIComponent` 防 `%2e%2e` 之类的编码绕过
   // 让 host 里出现意外字符（形状判不过 RE 就直接拒）。
-  let rawHost;
+  let rawHost: string;
   try {
     rawHost = decodeURIComponent(url.host || '');
   } catch {
@@ -85,10 +101,11 @@ export function parseThumbUrl(rawUrl, io = null) {
  * 返回的是 **404**，而 §3 要求 **400**。
  * **顺序是契约的一部分：先判形状，再判库。**
  *
- * @param {{shapeOk:boolean, libId:string}} f `shapeOk`=形状/尺寸/URL 是否合法；`libId`=还原后的库 id
- * @returns {number|null} 该返回的状态码；`null` = 两项都正常，可继续
+ * @param f `shapeOk`=形状/尺寸/URL 是否合法；`libId`=还原后的库 id
+ * @returns 该返回的状态码；`null` = 两项都正常，可继续
  */
-export function thumbFailureStatus({ shapeOk, libId } = {}) {
+export function thumbFailureStatus(f: { shapeOk?: boolean; libId?: string } = {}): number | null {
+  const { shapeOk, libId } = f;
   if (!shapeOk) return 400;      // 形状/尺寸不对 —— 与"库在不在"无关
   if (!libId) return 404;        // 形状合法但库无法还原
   return null;
@@ -98,14 +115,14 @@ export function thumbFailureStatus({ shapeOk, libId } = {}) {
 /**
  * 把 URL 里的 host（已小写）还原成**引擎注册时的 libId 写法**。
  *
- * @param {string} host 已小写化的 host
- * @param {() => Promise<string[]>} listLibIds 取已注册库 id 的注入点（生产传 engine.indexStatus 的投影）
- * @returns {Promise<string>} 还原后的 libId；空串表示"未注册/无法还原" ⇒ 调用方给 404
+ * @param host 已小写化的 host
+ * @param listLibIds 取已注册库 id 的注入点（生产传 engine.indexStatus 的投影）
+ * @returns 还原后的 libId；空串表示"未注册/无法还原" ⇒ 调用方给 404
  *
  * 为什么注入而不是直接拿 engine：这样测试能在**不启动 Electron、不建真索引**的前提下
  * 覆盖 S6（未注册库 ⇒ 404）与"大小写还原"这条**曾经真出过 bug** 的路径。
  */
-export async function canonicalLibId(host, listLibIds) {
+export async function canonicalLibId(host: string, listLibIds: () => Promise<string[]>): Promise<string> {
   const lower = String(host || '').toLowerCase();
   if (!lower) return '';
   const ids = await listLibIds();
@@ -115,6 +132,12 @@ export async function canonicalLibId(host, listLibIds) {
   return '';
 }
 
+/** `createLibIdResolver` 的注入点 */
+export interface LibIdResolverDeps {
+  listLibIds: () => Promise<string[]>;
+  log?: (...a: unknown[]) => void;
+}
+
 /**
  * 带缓存的 libId 还原器（生产用）。缓存理由：每个缩略图都查一次 `indexStatus` 太贵。
  *
@@ -122,12 +145,10 @@ export async function canonicalLibId(host, listLibIds) {
  * 初版无条件 `filled = true`，于是**第一次**调用若发生在索引还没就绪（或 `indexStatus` 失败）时，
  * 空映射会被**永久**缓存 ⇒ 之后每一张缩略图都 404，而界面只会显示"无预览"，
  * 没有任何报错线索。（旧的内联实现用 `if (MAP.size === 0)`，反而会重查 —— 抽函数时退化了一步。）
- *
- * @param {{ listLibIds: () => Promise<string[]>, log?: (...a:any)=>void }} deps
  */
-export function createLibIdResolver({ listLibIds, log = () => {} }) {
-  const cache = new Map();
-  return async function resolve(host) {
+export function createLibIdResolver({ listLibIds, log = () => {} }: LibIdResolverDeps): (host: string) => Promise<string> {
+  const cache = new Map<string, string>();
+  return async function resolve(host: string): Promise<string> {
     const key = String(host || '').toLowerCase();
     if (!key) return '';
     if (!cache.has(key)) {

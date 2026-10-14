@@ -1,7 +1,7 @@
-// apps/desktop/src/main/index.mjs —— Electron 主进程（P2）
+// apps/desktop/src/main/index.ts —— Electron 主进程（P2）
 //
 // 职责（SPEC-security §2–§5）：
-//   · 组装引擎（注入 ONNX 编码器端口）—— 库来源见 library-config.mjs（D2 修复）
+//   · 组装引擎（注入 ONNX 编码器端口）—— 库来源见 library-config.ts（D2 修复）
 //   · 只开两个 IPC 通道：engine:invoke / engine:event
 //   · 每个调用先做**来源校验**，再过**zod 白名单**，最后才打引擎
 //   · 窗口姿态：nodeIntegration:false / contextIsolation:true / sandbox:true
@@ -14,6 +14,10 @@
 // （`ELECTRON_RENDERER_URL`，见 electron.vite.config.mjs）③ 编码器改成**按需动态导入**
 // （这样 transformers 的导入期失败可被捕获并报给界面，而不是让进程无声消失）。
 //
+// 2026-10-14：本文件由 `index.mjs` 转为 `.ts`（全量 TypeScript）。
+// **安全语义逐字未改**：两条 IPC 通道与显式分派、来源校验、`thumb://` 形状/尺寸白名单与
+// 400/404/403/415/503 映射、窗口三决策（来源校验/新窗口/导航）—— 只补类型。
+//
 // Electron 的 `electron` 模块在 ESM 下用默认导入再解构最稳：**具名导入会在
 // 实例化阶段抛**，那时任何日志都来不及写（见下面的自愈分支）。
 import { spawn } from 'node:child_process';
@@ -24,22 +28,28 @@ import { fileURLToPath } from 'node:url';
 import { ROOT, log } from './log.ts';   // ← 必须最先导入：导入即初始化日志
 import { createEngine, UNIMPLEMENTED_METHODS } from '../../../../packages/engine/src/engine.ts';
 import { CH_INVOKE, CH_EVENT, validateCall, METHOD_NAMES } from '../shared/ipc.ts';
-import { resolveLibraries, loadRegistry, saveRegistry, normalizeLibraries, registryPath } from './library-config.mjs';
-import { createRevealPort } from './ports.mjs';
-import { parseThumbUrl, createLibIdResolver, thumbFailureStatus } from './thumb-url.mjs';
+import type { Envelope, MethodName, Req } from '../shared/ipc.ts';
+import { resolveLibraries, loadRegistry, saveRegistry, normalizeLibraries, registryPath } from './library-config.ts';
+import type { MainConfig, ResolveLibrariesResult } from './library-config.ts';
+import { createRevealPort } from './ports.ts';
+import { parseThumbUrl, createLibIdResolver, thumbFailureStatus } from './thumb-url.ts';
 import {
   isTrustedSender as isTrustedSenderImpl,
   decideWindowOpen,
   decideNavigation,
-} from './window-security.mjs';
+} from './window-security.ts';
+import type { InvokeEventLike } from './window-security.ts';
+import type { Encoder } from './encoder.ts';
+import type { SampleIndex } from '../../../../packages/engine/src/fake.ts';
 
 import electron from 'electron';
+import type { OpenDialogOptions } from 'electron';
 const { app, BrowserWindow, ipcMain, protocol, nativeImage, dialog, shell } = electron;
 /** 本文件所在目录：dev/预览态是 `<根>/out/main`，打包态在 asar 内 */
-const HERE = path.dirname(fileURLToPath(import.meta.url));
+const HERE: string = path.dirname(fileURLToPath(import.meta.url));
 
 /** dev 态页面地址（由 electron-vite dev 注入；打包/预览态为空） */
-const DEV_RENDERER_URL = process.env.ELECTRON_RENDERER_URL || '';
+const DEV_RENDERER_URL: string = process.env.ELECTRON_RENDERER_URL || '';
 
 /**
  * 模拟模式（契约 `CONTRACT-engine-v1.md` §8「UI 用的测试数据与模拟接口」）。
@@ -49,10 +59,45 @@ const DEV_RENDERER_URL = process.env.ELECTRON_RENDERER_URL || '';
  * 打开时 `buildEngine()` 会**大声记日志**（见那里的三条 log）。
  * 用法：`GEMMA_FAKE=1 npm run dev`（P3c/P3d 的界面开发与 E2E 靠它摆脱 ONNX 模型）。
  */
-const FAKE_MODE = process.env.GEMMA_FAKE === '1';
+const FAKE_MODE: boolean = process.env.GEMMA_FAKE === '1';
 
 /** 模拟模式的库根：与 `fixtures/sample-index.json` 的 `root` 一致，且本机不存在（见 fake.test.mjs 的 F1） */
 const FAKE_LIB_ROOT = 'Z:\\__fake_library__';
+
+/** catch / 事件回调里的 unknown → message 文案（与旧 `e.message` 同口径） */
+function messageText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** catch / 事件回调里的 unknown → 错误码（旧 `e.code` 的口径；没有就空串） */
+function codeText(e: unknown): string {
+  if (e && typeof e === 'object' && 'code' in e) {
+    const c = (e as { code?: unknown }).code;
+    if (typeof c === 'string') return c;
+  }
+  return '';
+}
+
+/** catch / 事件回调里的 unknown → 优先 stack 的文案（旧 `e && e.stack ? e.stack : …` 同口径） */
+function stackText(e: unknown): string {
+  if (e instanceof Error && e.stack) return e.stack;
+  if (e && typeof e === 'object' && 'stack' in e) {
+    const s = (e as { stack?: unknown }).stack;
+    if (typeof s === 'string' && s) return s;
+  }
+  return String(e);
+}
+
+/** 与旧日志写法同口径：成功记 'ok'，失败记错误码（拿不到就空串） */
+function resultCode(res: unknown): string {
+  if (res && typeof res === 'object') {
+    const rec = res as { ok?: unknown; error?: { code?: unknown } };
+    if (rec.ok) return 'ok';
+    const code = rec.error ? rec.error.code : undefined;
+    if (typeof code === 'string') return code;
+  }
+  return '';
+}
 
 /**
  * 读模拟模式的样例索引（契约 §8 的 `fixtures/sample-index.json`）。
@@ -61,14 +106,15 @@ const FAKE_LIB_ROOT = 'Z:\\__fake_library__';
  * 指向 `out/main/index.js`，上溯会落到仓库外（实测把主进程崩在建窗之前）。
  * ⚠️ 读不到就**抛**：模拟模式读不到数据却继续跑，只会让人以为"样例就是这样"，比崩更坏。
  */
-function loadFakeFixture() {
+function loadFakeFixture(): SampleIndex {
   const p = path.join(ROOT, 'fixtures', 'sample-index.json');
   try {
-    return JSON.parse(fs.readFileSync(p, 'utf8'));
+    const raw: unknown = JSON.parse(fs.readFileSync(p, 'utf8'));
+    return raw as SampleIndex;
   } catch (e) {
     throw new Error(
       `GEMMA_FAKE=1 但读不到样例索引：${p}\n` +
-      `（原样错误：${e.message}）\n` +
+      `（原样错误：${messageText(e)}）\n` +
       '模拟模式需要仓库里的 fixtures/sample-index.json —— 打包态不含它，所以模拟模式只用于开发与 E2E。',
     );
   }
@@ -104,23 +150,24 @@ if (process.env.ELECTRON_RUN_AS_NODE || !app || typeof app.whenReady !== 'functi
   }
 }
 
-// ---------------------------------------------------------------- 配置（D2 修复：见 library-config.mjs 文件头）
+// ---------------------------------------------------------------- 配置（D2 修复：见 library-config.ts 文件头）
 //
 // 库从哪来 = 四条路按优先级：GEMMA_LIB_ROOT > userData 注册表 > config.json > 已有索引自举。
 // 其中「索引自举」让**已有索引的机器零配置可用**（索引的 meta.json 本就存着 lib_id + lib_root）。
 //
 // ⚠️ `config.json` **不是要求用户去配的东西** —— 它只是最下面那条兼容回退。
 //    它已随 Python 档退役被删除，仓库里也没有模板，所以正常情况下这一层就是空的。
-function loadConfig() {
-  const candidates = [process.env.GEMMA_CONFIG, path.join(ROOT, 'config.json')].filter(Boolean);
+function loadConfig(): { data: MainConfig; path: string | null } {
+  const candidates = [process.env.GEMMA_CONFIG, path.join(ROOT, 'config.json')]
+    .filter((p): p is string => Boolean(p));
   for (const p of candidates) {
     if (fs.existsSync(p)) {
       try {
-        const c = JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, ''));
+        const c: unknown = JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, ''));
         log('配置来源', p);
-        return { data: c, path: p };
+        return { data: c as MainConfig, path: p };
       } catch (e) {
-        log('配置读取失败', p, e.message);
+        log('配置读取失败', p, messageText(e));
       }
     }
   }
@@ -130,14 +177,14 @@ function loadConfig() {
 const _cfg = loadConfig();
 const config = _cfg.data;
 const CONFIG_PATH = _cfg.path;
-const DATA_DIR = config.data_dir || path.join(ROOT, 'data');
+const DATA_DIR: string = config.data_dir || path.join(ROOT, 'data');
 
 // userData：`app.getPath` 在 app ready 之前不可靠，所以延到 whenReady 里再解析。
 // 但 `buildEngine()` 需要库列表，故用**惰性** getter —— 模块加载期零副作用，
 // 也不会"只是启动了一下"就往用户目录写东西（写注册表只发生在 libraryAdd 被调用时）。
-let USER_DATA_DIR = null;
-let RESOLVED = null;
-function librariesResolved() {
+let USER_DATA_DIR: string | null = null;
+let RESOLVED: ResolveLibrariesResult | null = null;
+function librariesResolved(): ResolveLibrariesResult {
   if (!RESOLVED) {
     RESOLVED = resolveLibraries({
       dataDir: DATA_DIR,
@@ -154,10 +201,10 @@ function librariesResolved() {
 }
 
 /** 注册表变了（libraryAdd）后让解析结果与引擎一起失效重建 */
-function invalidateLibraries() { RESOLVED = null; engine = null; }
+function invalidateLibraries(): void { RESOLVED = null; engine = null; }
 
 /** 模型目录：config 指定，或从 model_cache 下按 revision 找 fp32。 */
-function resolveModelDir() {
+function resolveModelDir(): string | null {
   if (config.onnx_model_dir && fs.existsSync(config.onnx_model_dir)) return config.onnx_model_dir;
   const base = path.join(config.model_cache || path.join(ROOT, '..', 'model-cache'),
                          'onnx', 'embeddinggemma-2');
@@ -170,28 +217,42 @@ function resolveModelDir() {
 }
 
 // ---------------------------------------------------------------- 引擎
-let engine = null;
-let encoder = null;
-let encoderError = null;
-const winRef = { win: null };
+type EngineApi = ReturnType<typeof createEngine>;
+let engine: EngineApi | null = null;
+let encoder: Encoder | null = null;
+let encoderError: unknown = null;
+const winRef: { win: electron.BrowserWindow | null } = { win: null };
 
-function emit(evt) {
+function emit(evt: unknown): void {
   if (winRef.win && !winRef.win.isDestroyed()) winRef.win.webContents.send(CH_EVENT, evt);
 }
 
-function buildEngine() {
+/**
+ * 按契约方法名取引擎方法（名字已过 `validateCall` 的白名单）。
+ *
+ * 为什么要这个函数：引擎把公开方法放在一个对象上（未实现的那 6 个是生成式挂上去的），
+ * 而调用点的名字来自**运行时** IPC 消息 —— 静态上无法把它与具体属性关联，
+ * 所以这里显式收成"函数或 null"（拿不到就走原先的"引擎无此方法"分支），而不是把类型整体放宽。
+ */
+function engineMethod(eng: EngineApi, method: MethodName): ((req: unknown) => Promise<unknown>) | null {
+  const table = eng as unknown as Record<string, unknown>;
+  const fn = table[method];
+  return typeof fn === 'function' ? (fn as (req: unknown) => Promise<unknown>) : null;
+}
+
+function buildEngine(): ResolveLibrariesResult {
   const r = librariesResolved();
   engine = createEngine({
-    config: { libraries: r.libraries, data_dir: DATA_DIR, collect: r.collect },
+    config: { libraries: r.libraries, data_dir: DATA_DIR, collect: { dirs: r.collect.dirs, default: r.collect.default } },
     encoder: {
       // 延迟到真正检索时才载模型：冷启动要 ≤5s，不能把 2.6s 的模型载入挡在出窗之前
-      async encodeText(t) { const e = await ensureEncoder(); return e.encodeText(t); },
-      async encodeImage(p) { const e = await ensureEncoder(); return e.encodeImage(p); },
+      async encodeText(t: string) { const e = await ensureEncoder(); return e.encodeText(t); },
+      async encodeImage(p: string) { const e = await ensureEncoder(); return e.encodeImage(p); },
     },
     onEvent: emit,
     // ⚠️ **必须注入**（F-01）：不注入的话引擎会返回 PORT_MISSING 而不是静默假成功。
     // 引擎不 import electron，所以"在资源管理器里定位"这个能力只能由外壳这样交进去。
-    // 端口本身只负责调用；成功/失败的判定在引擎里（见 ports.mjs 的注释）。
+    // 端口本身只负责调用；成功/失败的判定在引擎里（见 ports.ts 的注释）。
     shell: createRevealPort(shell),
     // 模拟模式（契约 §8）：`GEMMA_FAKE=1` ⇒ 无模型、无真实库，界面可演示全部状态。
     // ⚠️ 只由**显式环境变量**打开，且启动时**大声记日志**（见下面的 log）—— 绝不静默生效。
@@ -216,7 +277,7 @@ function buildEngine() {
   return r;
 }
 
-async function ensureEncoder() {
+async function ensureEncoder(): Promise<Encoder> {
   if (encoder) return encoder;
   if (encoderError) throw encoderError;
   const modelDir = resolveModelDir();
@@ -229,36 +290,40 @@ async function ensureEncoder() {
     // **动态导入**：编码器模块图会拉 `@huggingface/transformers` + 原生 onnxruntime。
     // 若它载入失败（原生模块缺失、路径不对…），动态导入才**catch 得到** ——
     // 静态导入会在模块实例化阶段抛出，那时连一行日志都不会留下。
-    const { createEncoder } = await import('./encoder.mjs');
-    encoder = await createEncoder({ modelDir, seq: 140, device: config.device || 'webgpu', log });
+    const { createEncoder } = await import('./encoder.ts');
+    // ⚠️ `config.device` 是外部 JSON 里的字符串；原实现把它原样交给编码器（后者只认这两个值），
+    //    这里用断言保留同一行为 —— 不改写成"非法值就回退 webgpu"的静默降级。
+    const device = (config.device || 'webgpu') as 'webgpu' | 'cpu';
+    encoder = await createEncoder({ modelDir, seq: 140, device, log });
     emit({ type: 'encoder.ready', device: encoder.device, loadMs: encoder.loadMs });
     return encoder;
   } catch (e) {
     encoderError = e;
-    log('!! 编码器不可用：', e && e.stack ? e.stack : e);
-    emit({ type: 'encoder.failed', message: e.message, code: e.code || 'INTERNAL' });
+    log('!! 编码器不可用：', stackText(e));
+    emit({ type: 'encoder.failed', message: messageText(e), code: codeText(e) || 'INTERNAL' });
     throw e;
   }
 }
 
 // ---------------------------------------------------------------- 应用自身地址（§2 + §5）
-// 判据与"开新窗口/导航/来源校验"的**决策**都在 `main/window-security.mjs`（可脱离 Electron 单测）；
+// 判据与"开新窗口/导航/来源校验"的**决策**都在 `main/window-security.ts`（可脱离 Electron 单测）；
 // 这里只做**接线**，并把 DEV_RENDERER_URL 作为参数喂进去。
-function isTrustedSender(event) {
+function isTrustedSender(event: InvokeEventLike): boolean {
   const w = winRef.win;
   return isTrustedSenderImpl(event, w, DEV_RENDERER_URL);
 }
 
 // ---------------------------------------------------------------- IPC（§2 + §4）
-function registerIpc() {
-  ipcMain.handle(CH_INVOKE, async (event, payload) => {
+function registerIpc(): void {
+  ipcMain.handle(CH_INVOKE, async (event, payload: unknown) => {
     const started = Date.now();
     if (!isTrustedSender(event)) {
       log('拒绝来源不明的调用');
       return { ok: false, error: { code: 'BAD_REQUEST', userMessage: '请求来源不被信任。', message: 'untrusted sender', details: {} } };
     }
-    const method = payload && payload.method;
-    const params = payload && payload.params;
+    const rec: Record<string, unknown> = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+    const method = rec.method;
+    const params = rec.params;
     const v = validateCall(method, params);
     if (!v.ok) {
       return { ok: false, error: { code: 'BAD_REQUEST', message: v.reason,
@@ -269,12 +334,12 @@ function registerIpc() {
     // 库配置是由主进程处理的方法（不是引擎方法）——首启向导用
     if (v.method === 'libraryConfig' || v.method === 'libraryAdd' || v.method === 'libraryPickDir') {
       const res = await handleLibraryMethod(v.method, v.params);
-      log(`invoke ${v.method} ${(Date.now() - started)}ms → ${res && res.ok ? 'ok' : (res && res.error && res.error.code)}`);
+      log(`invoke ${v.method} ${(Date.now() - started)}ms → ${resultCode(res)}`);
       return res;
     }
 
     // 引擎里还没实现的方法在这里显式拒绝，避免"静默什么都不做"。
-    // 模拟模式下**不拒绝** —— 由 `fake.mjs` 提供假实现，这是契约 §8 让「P3 不等真实库」的那条路。
+    // 模拟模式下**不拒绝** —— 由 `fake.ts` 提供假实现，这是契约 §8 让「P3 不等真实库」的那条路。
     // （真实模式仍然拒绝：不许假装成功，见引擎侧的 `INTERNAL`。）
     //
     // ⚠️ 清单来自**引擎导出的唯一一份**（`UNIMPLEMENTED_METHODS`）—— 原先是这里手写一份、
@@ -283,13 +348,16 @@ function registerIpc() {
       return { ok: false, error: { code: 'INTERNAL', message: `方法尚未实现：${v.method}`,
                                    userMessage: '这个功能还没做好。', details: { method: v.method } } };
     }
-    const fn = engine[v.method];
-    if (typeof fn !== 'function') {
+    const eng = engine;
+    // buildEngine() 必定给 engine 赋值 ⇒ 这一条只是把类型收窄，运行期走不到。
+    if (!eng) throw new Error('引擎未就绪：buildEngine() 没有装配引擎');
+    const fn = engineMethod(eng, v.method);
+    if (!fn) {
       return { ok: false, error: { code: 'BAD_REQUEST', message: `引擎无此方法：${v.method}`,
                                    userMessage: '请求参数不合法。', details: {} } };
     }
     const res = await fn(v.params);
-    log(`invoke ${v.method} ${(Date.now() - started)}ms → ${res && res.ok ? 'ok' : (res && res.error && res.error.code)}`);
+    log(`invoke ${v.method} ${(Date.now() - started)}ms → ${resultCode(res)}`);
     return res;
   });
   log('IPC 已注册 · 允许的方法：', METHOD_NAMES.join(', '));
@@ -299,13 +367,13 @@ function registerIpc() {
 //
 // 为什么要单独一组方法：用户要能**在应用内**把库加进来（决策 9：注册表存应用数据目录）。
 // 这三个方法**不经引擎** —— 引擎是传输无关的，它只接受"给我一组库"，
-// 而"库从哪来 + 存哪儿"是外壳的事（`packages/engine/src/library.mjs:137` 自己写着
+// 而"库从哪来 + 存哪儿"是外壳的事（`packages/engine/src/library.ts:137` 自己写着
 // 「P1 从 config 派生单库；P5 扩为真正的多库注册表」，持久化不在引擎职责内）。
 //
 // 安全：仍然走同一条 `isTrustedSender` + zod 白名单；`libraryPickDir` 是唯一一个
 // 让用户**主动**选目录的入口，且它只把结果交给主进程自己处理，**不把路径能力授予渲染层**
 // —— 渲染层本来就拿不到 `dialog`，这个方法是它唯一的、需用户亲自点击的间接通道。
-async function handleLibraryMethod(method, params) {
+async function handleLibraryMethod(method: MethodName, params: unknown): Promise<Envelope> {
   if (method === 'libraryConfig') {
     // 模拟模式：给一个**自洽的假世界**。少了这一步会出现很别扭的错配 ——
     // 引擎侧 `indexStatus` 报着 3 个样例库，而门禁（`decideGate` 判的是**本方法**的 `libraries.length`）
@@ -334,10 +402,13 @@ async function handleLibraryMethod(method, params) {
 
   if (method === 'libraryPickDir') {
     const w = winRef.win;
-    const picked = await dialog.showOpenDialog(w && !w.isDestroyed() ? w : undefined, {
+    const openOptions: OpenDialogOptions = {
       title: '选择素材库根目录',
       properties: ['openDirectory'],
-    });
+    };
+    const picked = w && !w.isDestroyed()
+      ? await dialog.showOpenDialog(w, openOptions)
+      : await dialog.showOpenDialog(openOptions);
     if (picked.canceled || !picked.filePaths || !picked.filePaths[0]) {
       return { ok: true, data: { canceled: true, path: null } };
     }
@@ -345,7 +416,8 @@ async function handleLibraryMethod(method, params) {
   }
 
   // libraryAdd
-  const root = path.resolve(String(params.root));
+  const p = (params && typeof params === 'object' ? params : {}) as Req<'libraryAdd'>;
+  const root = path.resolve(String(p.root));
   if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
     return { ok: false, error: { code: 'LIB_NOT_FOUND', message: `目录不存在：${root}`,
       userMessage: '这个目录不存在，或不是文件夹。请重新选择。', details: { root } } };
@@ -357,7 +429,7 @@ async function handleLibraryMethod(method, params) {
 
   const reg = loadRegistry(USER_DATA_DIR);
   const existing = normalizeLibraries(reg && reg.data ? reg.data.libraries : []).kept;
-  const { kept: incoming } = normalizeLibraries([{ libId: params.libId || '', root, label: params.label }]);
+  const { kept: incoming } = normalizeLibraries([{ libId: p.libId || '', root, label: p.label }]);
   if (!incoming.length) {
     return { ok: false, error: { code: 'BAD_REQUEST', message: '库条目不合法',
       userMessage: '请求参数不合法。', details: { root } } };
@@ -365,7 +437,7 @@ async function handleLibraryMethod(method, params) {
   let entry = incoming[0];
 
   // 省略 libId 时自动分配：L1、L2…（跳过已占用的）
-  if (!params.libId) {
+  if (!p.libId) {
     const used = new Set(existing.map((l) => l.libId));
     let n = 1; while (used.has(`L${n}`)) n++;
     entry = { ...entry, libId: `L${n}` };
@@ -397,26 +469,33 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'thumb', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
 
-const THUMB_DIR = path.join(DATA_DIR, 'thumbs');
+const THUMB_DIR: string = path.join(DATA_DIR, 'thumbs');
 
-// ⚠️ 形状解析、尺寸白名单**与失败状态码映射**已抽到 `main/thumb-url.mjs`
-// （SPEC-security §8 的 S4–S6）。抽出去的理由只有一个：`index.mjs` import 了 electron，
+// ⚠️ 形状解析、尺寸白名单**与失败状态码映射**已抽到 `main/thumb-url.ts`
+// （SPEC-security §8 的 S4–S6）。抽出去的理由只有一个：`index.ts` import 了 electron，
 // `node:test` 加载不了它 ⇒ 这段代码本来**零自动化覆盖**。它是渲染进程唯一能"指定读哪个文件"的表面。
 // **行为变更（唯一一处，已记录）**：原实现把"库 id 无法还原"与"形状不对"合并成 400；
 // 按 `SPEC-security.md` §3 的表（`libId` 不在注册表 ⇒ 404）现在拆成 404。这是**对齐 §3**。
-async function listRegisteredLibIds() {
-  if (!engine) return [];
-  const st = await engine.indexStatus({});
-  return ((st && st.ok && st.data && st.data.libs) || []).map((l) => l.libId);
+async function listRegisteredLibIds(): Promise<string[]> {
+  const eng = engine;
+  if (!eng) return [];
+  // 引擎的 indexStatus 是**零参**方法（原 JS 版多传的 `{}` 会被忽略）—— 这里保持同一调用语义。
+  const st = await eng.indexStatus();
+  if (!st || !st.ok) return [];
+  const data: unknown = st.data;
+  if (!data || typeof data !== 'object') return [];
+  const libs = (data as { libs?: unknown }).libs;
+  if (!Array.isArray(libs)) return [];
+  return libs.map((l) => (l && typeof l === 'object' ? String((l as { libId?: unknown }).libId) : ''));
 }
 const resolveLibId = createLibIdResolver({ listLibIds: listRegisteredLibIds, log });
-/** 引擎未就绪时不尝试还原（还原器本身对"空结果"也不会缓存，见 thumb-url.mjs） */
-async function canonicalLibId(host) {
+/** 引擎未就绪时不尝试还原（还原器本身对"空结果"也不会缓存，见 thumb-url.ts） */
+async function canonicalLibId(host: string): Promise<string> {
   if (!engine) return '';
   return resolveLibId(host);
 }
 
-async function handleThumb(request) {
+async function handleThumb(request: Request): Promise<Response> {
   // thumb://L1/<uid>@256  → host=libId, pathname=/<uid>@256
   const p = parseThumbUrl(request.url);
   // ⚠️ **顺序是契约**：先判形状（400），再判库（404）。写成
@@ -424,14 +503,17 @@ async function handleThumb(request) {
   // 实测被 `tools/verify_main_wiring.mjs`（**已移除 2026-10-13**） 抓到（调用真实产物，`@999` 回了 404 而非 §3 要求的 400）。
   const libId = p.ok ? await canonicalLibId(p.rawHost) : '';
   const status = thumbFailureStatus({ shapeOk: p.ok, libId });
-  if (status !== null) {
+  // `!p.ok` 是类型收窄用的等价条件：`thumbFailureStatus` 对形状不合法**必然**给 400，
+  // 所以两个写法进入的分支完全一致（这样下面才能安全读 p.uid / p.size）。
+  if (!p.ok || status !== null) {
     log('thumb 拒绝', p.ok ? `库 id 无法还原：${p.rawHost}` : p.reason, '→', status);
-    return new Response('bad shape', { status });
+    return new Response('bad shape', { status: status ?? 400 });
   }
   const uid = p.uid;
   const size = p.size;
   log('thumb 请求', libId, uid, size);
-  if (!engine) return new Response('engine not ready', { status: 503 });
+  const eng = engine;
+  if (!eng) return new Response('engine not ready', { status: 503 });
 
   const cachePath = path.join(THUMB_DIR, libId, `${uid}@${size}.jpg`);
   try {
@@ -442,12 +524,12 @@ async function handleThumb(request) {
     }
   } catch { /* 缓存读失败就重生成 */ }
 
-  let src;
+  let src: string;
   try {
-    src = engine.absPathFor(libId, uid);         // 内含 库根包含 + 符号链接校验
+    src = eng.absPathFor(libId, uid);            // 内含 库根包含 + 符号链接校验
   } catch (e) {
-    log('thumb 取路径失败', libId, uid, e.code || e.message);
-    return new Response('not found', { status: e.code === 'SYMLINK_REJECTED' ? 403 : 404 });
+    log('thumb 取路径失败', libId, uid, codeText(e) || messageText(e));
+    return new Response('not found', { status: codeText(e) === 'SYMLINK_REJECTED' ? 403 : 404 });
   }
   const img = nativeImage.createFromPath(src);
   if (img.isEmpty()) { log('thumb 解码失败', src); return new Response('decode failed', { status: 415 }); }
@@ -461,13 +543,13 @@ async function handleThumb(request) {
   try {
     fs.mkdirSync(path.dirname(cachePath), { recursive: true });
     fs.writeFileSync(cachePath, jpg);
-  } catch (e) { log('缩略图缓存写入失败', e.message); }
+  } catch (e) { log('缩略图缓存写入失败', messageText(e)); }
   log('thumb 生成成功', libId, uid, size, `${width}x${height}→${out.getSize().width}x${out.getSize().height}`, jpg.length);
   return new Response(jpg, { headers: { 'content-type': 'image/jpeg', 'cache-control': 'no-cache' } });
 }
 
 // ---------------------------------------------------------------- 窗口（§5）
-function createWindow() {
+function createWindow(): electron.BrowserWindow {
   const win = new BrowserWindow({
     width: 1440, height: 920, minWidth: 1040, minHeight: 680,
     backgroundColor: '#f5f5f7',
@@ -490,7 +572,7 @@ function createWindow() {
   winRef.win = win;
 
   win.once('ready-to-show', () => win.show());           // 冷启动不闪白
-  // 决策在 window-security.mjs（可单测），这里只接线
+  // 决策在 window-security.ts（可单测），这里只接线
   win.webContents.setWindowOpenHandler(() => decideWindowOpen());
   win.webContents.on('will-navigate', (e, url) => {
     if (!decideNavigation(url, DEV_RENDERER_URL)) { e.preventDefault(); log('阻止导航', url); }
@@ -531,15 +613,19 @@ function createWindow() {
         const { width, height } = img.getSize();
         log('已截图', target, `${width}x${height}`);
       } catch (e) {
-        log('截图失败', e && e.message ? e.message : String(e));
+        log('截图失败', messageText(e));
       }
       if (process.env.GS_CAPTURE_EXIT !== '0') app.quit();
     }, delayMs);
   });
   win.webContents.on('did-fail-load', (_e, code, desc, url) => log('!! 渲染页加载失败', code, desc, url));
-  win.webContents.on('console-message', (...args) => {
+  win.webContents.on('console-message', (...args: unknown[]) => {
     const a = args[0];
-    const e = a && typeof a === 'object' && 'message' in a ? a : { level: args[1], message: args[2] };
+    // 新版是单个事件对象（带 message），旧版是 (event, level, message, …) —— 两种形状都兜住。
+    const e: { level?: unknown; message?: unknown } =
+      a && typeof a === 'object' && 'message' in a
+        ? (a as { level?: unknown; message?: unknown })
+        : { level: args[1], message: args[2] };
     log('[renderer]', e.level ?? '', e.message ?? '');
   });
 
@@ -571,7 +657,7 @@ app.whenReady().then(async () => {
     log('userData', USER_DATA_DIR);
     log('注册表路径', registryPath(USER_DATA_DIR));
   } catch (e) {
-    log('!! userData 解析失败（会退到索引自举）:', e.message);
+    log('!! userData 解析失败（会退到索引自举）:', messageText(e));
   }
   try {
     protocol.handle('thumb', handleThumb);        // 必须在窗口加载渲染页之前
@@ -582,16 +668,16 @@ app.whenReady().then(async () => {
     createWindow();
     log('启动流程完成（窗口已创建）');
   } catch (e) {
-    log('!! 启动流程异常:', e && e.stack ? e.stack : String(e));
+    log('!! 启动流程异常:', stackText(e));
     throw e;
   }
 
   // 启动就绪后**后台**载模型（不挡出窗）；失败也不致命，检索时会再试并报错
-  setTimeout(() => { ensureEncoder().catch((e) => log('预热失败', e.message)); }, 1500);
+  setTimeout(() => { ensureEncoder().catch((e: unknown) => log('预热失败', messageText(e))); }, 1500);
 
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
 app.on('window-all-closed', () => { app.quit(); });        // 关窗即退出（不做托盘）
-process.on('uncaughtException', (e) => log('未捕获异常', e && e.stack ? e.stack : String(e)));
-process.on('unhandledRejection', (e) => log('未处理的 rejection', e && e.stack ? e.stack : String(e)));
+process.on('uncaughtException', (e) => log('未捕获异常', stackText(e)));
+process.on('unhandledRejection', (e) => log('未处理的 rejection', stackText(e)));

@@ -1,4 +1,4 @@
-// apps/desktop/src/main/library-config.mjs —— 库与配置的解析（D2 修复）
+// apps/desktop/src/main/library-config.ts —— 库与配置的解析（D2 修复）
 //
 // 背景（为什么需要这个模块）：
 //   主进程原先只从 `config.json` / `GEMMA_CONFIG` 读库根，而**那个文件早已随 Python 档退役被删除**，
@@ -27,6 +27,9 @@
 //
 // ⚠️ **本模块只读 + 只在显式调用时写**。启动路径上**绝不写** userData，
 //    以免"只是启动了一下"就产生副作用。写注册表只发生在 `saveRegistry()` 被调用时。
+//
+// 2026-10-14：本文件由 `library-config.mjs` 转为 `.ts`（全量 TypeScript）。
+// **语义逐字未改**（四条优先级、取件白名单优先级、空 ⇒ null 的 F-04 防线都不动），只补类型。
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -53,6 +56,119 @@ export const DEFAULT_COLLECT = Object.freeze({
   default: '素材待用',
 });
 
+/** 取件白名单：目录名 → 目录路径，外加默认项 */
+export interface CollectDirs {
+  dirs: Record<string, string>;
+  default: string;
+}
+
+/** 只做形状判断的取件配置（注册表 / config.json 里的 `collect`） */
+export interface CollectConfigLike {
+  dirs?: Record<string, string>;
+  default?: string;
+}
+
+/** 注册表文件的内容（外部 JSON：字段可能缺失、形状不可信） */
+export interface RegistryData {
+  libraries?: unknown;
+  collect?: unknown;
+}
+
+/** `loadRegistry` 的返回 */
+export interface RegistryLoadResult {
+  path: string;
+  data: RegistryData | null;
+  error: string | null;
+}
+
+/** `saveRegistry` 的返回 */
+export interface RegistrySaveResult {
+  ok: boolean;
+  path: string | null;
+  error: string | null;
+}
+
+/** 归一化后的库条目（root 已 resolve） */
+export interface NormalizedLibrary {
+  libId: string;
+  root: string;
+  label: string;
+}
+
+/** 被丢弃的条目 + 原因（**不静默改造**） */
+export interface DroppedLibrary {
+  item: unknown;
+  why: string;
+}
+
+/** 解析出的库条目（`source` 记录它来自四条路的哪一条） */
+export interface LibraryEntry {
+  libId: string;
+  root: string;
+  label: string;
+  source: string;
+  count?: number;
+  indexPath?: string;
+}
+
+/** `discoverLibrariesFromIndex` 的返回 */
+export interface DiscoverResult {
+  libraries: LibraryEntry[];
+  notes: string[];
+}
+
+/**
+ * 主进程会读到的 `config.json` 字段（外部 JSON：都可能缺失）。
+ * ⚠️ 只声明**已知字段**；引擎侧另有 `EngineConfig`，两者不合并（引擎不认识主进程字段）。
+ */
+export interface MainConfig {
+  data_dir?: string;
+  onnx_model_dir?: string;
+  model_cache?: string;
+  device?: string;
+  lib_id?: string;
+  library_root?: string;
+  libraries?: unknown;
+  collect?: unknown;
+  [key: string]: unknown;
+}
+
+/** `resolveLibraries` 的入参 */
+export interface ResolveLibrariesOptions {
+  /** 应用数据目录（`data/`） */
+  dataDir: string;
+  /** `app.getPath('userData')`；缺省则跳过注册表这一层 */
+  userDataDir?: string | null;
+  /** 已读到的 `config.json`（可选） */
+  config?: MainConfig;
+  /** 上面那份 config 的来源路径（仅用于报告） */
+  configPath?: string | null;
+  /** `process.env.GEMMA_LIB_ROOT` */
+  envLibRoot?: string;
+  /** `process.env.GEMMA_COLLECT_DIRS` */
+  envCollectDirs?: string;
+}
+
+/** `resolveLibraries` 的返回 */
+export interface ResolveLibrariesResult {
+  libraries: LibraryEntry[];
+  collect: CollectDirs;
+  chosen: string | null;
+  diagnostics: string[];
+  warnings: string[];
+  registryPath: string;
+}
+
+/** `typeof x === 'object' && x !== null`（读外部 JSON 时的统一收窄） */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+
+/** 注册表 / config 里的 `collect` 是否为对象（**形状由下游的 `dirs` 检查兜底**） */
+function isCollectConfig(v: unknown): v is CollectConfigLike {
+  return !!v && typeof v === 'object';
+}
+
 /**
  * 解析 `GEMMA_COLLECT_DIRS`（P3：给取件目录一个配置入口，与库根的 `GEMMA_LIB_ROOT` 同惯例）。
  *
@@ -63,14 +179,11 @@ export const DEFAULT_COLLECT = Object.freeze({
  * **保证不返回空**：解析不出任何条目就返回 `null`（调用方继续走下一优先级），
  * 绝不返回 `{dirs:{}}` —— 空的白名单会让任何 `collect` 都变成 `COLLECT_DIR_NOT_ALLOWED`
  * （那是缺陷 F-04，已修，不能再回来）。
- *
- * @param {unknown} raw
- * @returns {{dirs:Record<string,string>, default:string}|null}
  */
-export function parseCollectDirsEnv(raw) {
+export function parseCollectDirsEnv(raw: unknown): CollectDirs | null {
   const s = typeof raw === 'string' ? raw.trim() : '';
   if (!s) return null;
-  const dirs = {};
+  const dirs: Record<string, string> = {};
   for (const part of s.split(';')) {
     const seg = part.trim();
     if (!seg) continue;
@@ -86,7 +199,7 @@ export function parseCollectDirsEnv(raw) {
   return { dirs, default: names[0] };
 }
 
-export function registryPath(userDataDir) {
+export function registryPath(userDataDir: string): string {
   return path.join(userDataDir, REGISTRY_FILE);
 }
 
@@ -94,15 +207,15 @@ export function registryPath(userDataDir) {
  * 读注册表。**任何异常都返回 null 而不是抛** ——
  * 配置坏了不该让应用起不来，调用方会退到下一优先级并把原因报出来。
  */
-export function loadRegistry(userDataDir) {
+export function loadRegistry(userDataDir: string | null | undefined): RegistryLoadResult | null {
   if (!userDataDir) return null;
   const p = registryPath(userDataDir);
   if (!fs.existsSync(p)) return null;
   try {
-    const raw = JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, ''));
-    return { path: p, data: raw, error: null };
+    const raw: unknown = JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, ''));
+    return { path: p, data: raw as RegistryData, error: null };
   } catch (e) {
-    return { path: p, data: null, error: e.message };
+    return { path: p, data: null, error: e instanceof Error ? e.message : String(e) };
   }
 }
 
@@ -110,7 +223,10 @@ export function loadRegistry(userDataDir) {
  * 写注册表（**只在用户明确注册/改设置时调用**）。
  * 返回 `{ok, path, error}`，不抛 —— 写失败要能让界面显示出来，而不是崩。
  */
-export function saveRegistry(userDataDir, data) {
+export function saveRegistry(
+  userDataDir: string | null | undefined,
+  data: { libraries?: unknown; collect?: unknown },
+): RegistrySaveResult {
   if (!userDataDir) return { ok: false, path: null, error: '无 userData 目录' };
   const p = registryPath(userDataDir);
   const payload = { version: REGISTRY_VERSION, ...data };
@@ -119,20 +235,21 @@ export function saveRegistry(userDataDir, data) {
     fs.writeFileSync(p, JSON.stringify(payload, null, 2) + '\n', 'utf8');
     return { ok: true, path: p, error: null };
   } catch (e) {
-    return { ok: false, path: p, error: e.message };
+    return { ok: false, path: p, error: e instanceof Error ? e.message : String(e) };
   }
 }
 
 /** 校验并归一一组库条目；非法条目**丢弃并记录**，不静默改造 */
-export function normalizeLibraries(input) {
-  const kept = [];
-  const dropped = [];
-  for (const l of Array.isArray(input) ? input : []) {
-    const libId = l && typeof l.libId === 'string' ? l.libId.trim() : '';
-    const root = l && typeof l.root === 'string' ? l.root.trim() : '';
+export function normalizeLibraries(input: unknown): { kept: NormalizedLibrary[]; dropped: DroppedLibrary[] } {
+  const kept: NormalizedLibrary[] = [];
+  const dropped: DroppedLibrary[] = [];
+  const items: unknown[] = Array.isArray(input) ? input : [];
+  for (const l of items) {
+    const libId = isRecord(l) && typeof l.libId === 'string' ? l.libId.trim() : '';
+    const root = isRecord(l) && typeof l.root === 'string' ? l.root.trim() : '';
     if (!LIB_ID_RE.test(libId)) { dropped.push({ item: l, why: `libId 形状不合法：${JSON.stringify(libId)}` }); continue; }
     if (!root) { dropped.push({ item: l, why: 'root 为空' }); continue; }
-    kept.push({ libId, root: path.resolve(root), label: (l.label && String(l.label)) || libId });
+    kept.push({ libId, root: path.resolve(root), label: isRecord(l) && l.label ? String(l.label) : libId });
   }
   return { kept, dropped };
 }
@@ -143,32 +260,32 @@ export function normalizeLibraries(input) {
  * 这是"零配置可用"的来源：索引自己记着它属于哪个库、库根在哪。
  * 索引目录名（如 `L1`）就是 libId；`meta.lib_id` 若存在则以它为准（两者不一致时记 warning）。
  */
-export function discoverLibrariesFromIndex(dataDir) {
+export function discoverLibrariesFromIndex(dataDir: string): DiscoverResult {
   const base = path.join(dataDir, 'libraries');
-  const out = [];
-  const notes = [];
+  const out: LibraryEntry[] = [];
+  const notes: string[] = [];
   if (!fs.existsSync(base)) return { libraries: out, notes };
   for (const dir of fs.readdirSync(base, { withFileTypes: true })) {
     if (!dir.isDirectory()) continue;
     const metaFile = path.join(base, dir.name, 'meta.json');
     if (!fs.existsSync(metaFile)) { notes.push(`跳过 ${dir.name}：没有 meta.json`); continue; }
-    let meta;
+    let meta: unknown;
     try {
       meta = JSON.parse(fs.readFileSync(metaFile, 'utf8').replace(/^\uFEFF/, ''));
     } catch (e) {
-      notes.push(`跳过 ${dir.name}：meta.json 解析失败（${e.message}）`);
+      notes.push(`跳过 ${dir.name}：meta.json 解析失败（${e instanceof Error ? e.message : String(e)}）`);
       continue;
     }
-    const libId = (meta.lib_id && String(meta.lib_id)) || dir.name;
+    const libId = isRecord(meta) && meta.lib_id ? String(meta.lib_id) : dir.name;
     if (!LIB_ID_RE.test(libId)) { notes.push(`跳过 ${dir.name}：meta.lib_id 形状不合法`); continue; }
     if (libId !== dir.name) notes.push(`注意 ${dir.name}：目录名与 meta.lib_id（${libId}）不一致，以 meta 为准`);
-    const root = meta.lib_root ? String(meta.lib_root) : '';
+    const root = isRecord(meta) && meta.lib_root ? String(meta.lib_root) : '';
     if (!root) { notes.push(`跳过 ${dir.name}：meta 里没有 lib_root`); continue; }
     out.push({
       libId,
       root: path.resolve(root),
       label: '主库',
-      count: Number(meta.count) || 0,
+      count: isRecord(meta) ? Number(meta.count) || 0 : 0,
       source: 'index-meta',
       indexPath: path.join(base, dir.name),
     });
@@ -178,25 +295,24 @@ export function discoverLibrariesFromIndex(dataDir) {
 
 /**
  * 解析出最终的库列表 + 取件白名单 + 一份**可读的诊断报告**。
- *
- * @param {object} o
- * @param {string} o.dataDir        应用数据目录（`data/`）
- * @param {string} [o.userDataDir]  `app.getPath('userData')`；缺省则跳过注册表这一层
- * @param {object} [o.config]       已读到的 `config.json`（可选）
- * @param {string} [o.configPath]   上面那份 config 的来源路径（仅用于报告）
- * @param {string} [o.envLibRoot]   `process.env.GEMMA_LIB_ROOT`
- * @returns {{libraries:Array, collect:object, diagnostics:Array<string>, warnings:Array<string>}}
  */
-export function resolveLibraries({ dataDir, userDataDir, config = {}, configPath = null, envLibRoot = '', envCollectDirs = '' } = {}) {
-  const diagnostics = [];
-  const warnings = [];
-  let libraries = [];
-  let chosen = null;
+export function resolveLibraries({
+  dataDir,
+  userDataDir,
+  config = {},
+  configPath = null,
+  envLibRoot = '',
+  envCollectDirs = '',
+}: ResolveLibrariesOptions): ResolveLibrariesResult {
+  const diagnostics: string[] = [];
+  const warnings: string[] = [];
+  let libraries: LibraryEntry[] = [];
+  let chosen: string | null = null;
 
   // 1) 环境变量显式覆盖
   if (envLibRoot && String(envLibRoot).trim()) {
     const root = path.resolve(String(envLibRoot).trim());
-    const libId = (config.lib_id && String(config.lib_id)) || 'L1';
+    const libId = config.lib_id ? String(config.lib_id) : 'L1';
     libraries = [{ libId, root, label: '主库（GEMMA_LIB_ROOT）', source: 'env' }];
     chosen = 'env';
     diagnostics.push(`库来自环境变量 GEMMA_LIB_ROOT = ${root}`);
@@ -222,7 +338,7 @@ export function resolveLibraries({ dataDir, userDataDir, config = {}, configPath
 
   // 3) config.json 兼容回退
   if (!chosen) {
-    const fromCfg = [];
+    const fromCfg: unknown[] = [];
     if (Array.isArray(config.libraries) && config.libraries.length) fromCfg.push(...config.libraries);
     else if (config.library_root) {
       fromCfg.push({ libId: config.lib_id || 'L1', root: config.library_root, label: '主库' });
@@ -255,10 +371,16 @@ export function resolveLibraries({ dataDir, userDataDir, config = {}, configPath
   const envDirs = parseCollectDirsEnv(envCollectDirs);
   const regDirs = (() => {
     const reg = loadRegistry(userDataDir);
-    return reg && reg.data && reg.data.collect && typeof reg.data.collect === 'object' ? reg.data.collect : null;
+    const c: unknown = reg && reg.data ? reg.data.collect : null;
+    return isCollectConfig(c) ? c : null;
   })();
-  const collect = (() => {
-    for (const [src, from] of [[envDirs, '环境变量 GEMMA_COLLECT_DIRS'], [regDirs, '注册表'], [config.collect, 'config.json']]) {
+  const collect: CollectDirs = (() => {
+    const sources: Array<[CollectConfigLike | null, string]> = [
+      [envDirs, '环境变量 GEMMA_COLLECT_DIRS'],
+      [regDirs, '注册表'],
+      [isCollectConfig(config.collect) ? config.collect : null, 'config.json'],
+    ];
+    for (const [src, from] of sources) {
       if (src && src.dirs && Object.keys(src.dirs).length) {
         diagnostics.push(`取件白名单来自${from}（${Object.keys(src.dirs).length} 个目录）`);
         return { dirs: { ...src.dirs }, default: src.default || Object.keys(src.dirs)[0] };
@@ -276,5 +398,8 @@ export function resolveLibraries({ dataDir, userDataDir, config = {}, configPath
     }
   }
 
-  return { libraries, collect, chosen, diagnostics, warnings, registryPath: registryPath(userDataDir) };
+  // ⚠️ `as string`：本函数走到这里时调用方必然已给出 userDataDir（启动路径在 `app.whenReady`
+  //    之后才解析库）。原 JS 版在这里传 null/undefined 会由 `path.join` 抛 TypeError —— 保留同一行为，
+  //    所以不用 `?? ''` 静默改写语义，只是在类型上显式声明这个前置条件。
+  return { libraries, collect, chosen, diagnostics, warnings, registryPath: registryPath(userDataDir as string) };
 }

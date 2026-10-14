@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isAppUrl, decideWindowOpen, decideNavigation, isTrustedSender } from '../src/main/window-security.mjs';
+import { isAppUrl, decideWindowOpen, decideNavigation, isTrustedSender } from '../src/main/window-security.ts';
 
 // ---------------------------------------------------------------- S12：导航
 

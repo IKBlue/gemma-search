@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createRevealPort } from '../src/main/ports.mjs';
+import { createRevealPort } from '../src/main/ports.ts';
 
 test('端口形状：恰好只有 reveal 一个成员（端口最小化）', () => {
   const port = createRevealPort({ showItemInFolder() {} });

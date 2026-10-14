@@ -1,0 +1,113 @@
+==============================================================================
+W2-MAIN / task-6 · 主进程 6 个 .mjs -> .ts（全量 TypeScript 第二波）
+时间：2026-10-14 · worker: main-migrator · Windows / Node v24.14.0 / Electron 44 / TS 7.0.2
+写入范围：apps/desktop/src/main/**（+ Lead 授权的 6 处测试规格串 + electron.vite.config.mjs:74 一行）
+==============================================================================
+
+## 0. 改名清单（6 个 .mjs -> .ts；语义逐字保留，只补类型）
+  apps/desktop/src/main/index.mjs           -> index.ts
+  apps/desktop/src/main/encoder.mjs         -> encoder.ts
+  apps/desktop/src/main/library-config.mjs  -> library-config.ts
+  apps/desktop/src/main/ports.mjs           -> ports.ts
+  apps/desktop/src/main/thumb-url.mjs       -> thumb-url.ts
+  apps/desktop/src/main/window-security.mjs -> window-security.ts
+  （log.ts / preload/index.ts 已是 .ts，未动）
+
+## 0b. 越界改动（均经 Lead 逐行授权）
+  electron.vite.config.mjs:74   input: { index: desktop('src','main','index.ts') }
+  apps/desktop/tests/library-config.test.mjs:18   import 规格串 .mjs -> .ts
+  apps/desktop/tests/permissions.test.mjs:24/147  .mjs -> .ts
+  apps/desktop/tests/permissions.test.mjs:148/149 断言文案 thumb-url.mjs -> thumb-url.ts
+  apps/desktop/tests/ports.test.mjs:14            import 规格串 .mjs -> .ts
+  apps/desktop/tests/window-security.test.mjs:13  import 规格串 .mjs -> .ts
+
+## 1. 自检：tsc --noEmit -p tsconfig.node.json（独立 tsBuildInfoFile）
+命令：node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "$env:TEMP\tsbi_main.tsbuildinfo" 2>&1 | Select-String "apps/desktop/src/main|apps/desktop/src/preload"
+结果：过滤后 **无输出**（范围内 0 类型错误）。
+全工程 tsc EXIT=1，错误总行数 143；其中匹配 main/preload 的行数 = 0
+剩余错误全部落在 packages/indexer 与 packages/engine（task-8 / task-2 正在清），与本任务范围无关。
+（首次跑时 %TEMP% 上的 tsbuildinfo 一度被拒写(TS5033)，删除后重跑已正常，无 TS5033。）
+
+## 2. 主进程相关测试（4 个直接 import 本模块的测试文件）
+命令：node --test --test-isolation=none apps/desktop/tests/{library-config,permissions,ports,window-security}.test.mjs
+  ℹ tests 43
+  ℹ pass 43
+  ℹ fail 0
+  ℹ cancelled 0
+  ℹ skipped 0
+=> 43/43 全绿，0 失败。
+
+## 3. npm test（全仓）
+  ℹ tests 304  |  ℹ pass 292  |  ℹ fail 11  |  ℹ cancelled 0  |  ℹ skipped 1
+失败项（全部属于渲染层 UI；task-4 / W2-UI 正在转换中，与本任务范围无关）：
+    ✖ CP-4 ⭐ 错误提示不自动消失，且走 `alert` 而不是 `status`（V-16） (0.3417ms)
+    ✖ CP-0 自检：扫描面覆盖到东西、且 `show` 真的用了 `normalizeMessage` (1.3731ms)
+    ✖ D-D ⭐ class 合并**只有一份实现**（`cn()`）—— `cx.js` 不得复活（A-4 的收口） (1.8261ms)
+    ✖ D-E `cn()` 真的用了 clsx + tailwind-merge（不是自己手拼字符串） (0.2627ms)
+    ✖ D-F ⭐ Chip 用的是 `aria-pressed` 语义，不只是 class（T4 补的无障碍缺口） (0.1908ms)
+    ✖ D-G 确认弹窗真的用 Radix 的**可访问原语**（不是手写 overlay 冒充） (0.209ms)
+    ✖ D-H 破坏性操作走"请求 → 确认"，不再直接执行（取件会写文件） (0.1911ms)
+    ✖ V3 `Button` 真的实现了 `asChild`（否则 V1 的修法无处可依） (0.2407ms)
+    ✖ V4 窗口标题有单一来源：应用名与页面名都来自 `router/paths.ts` (0.3877ms)
+    ✖ SC-2 ⭐ `className="字面量"` 里的每个类都必须真有规则（只作复合选择器一部分的类，单独用无效） (39.0894ms)
+    ✖ apps\desktop\tests\styles.test.mjs (0.1317ms)
+    ✖ failing tests:
+  · styles.test.mjs 的 ERR_MODULE_NOT_FOUND 来自它 import ../src/renderer/src/ui/cn.js（磁盘上已是 cn.ts）
+    —— 属测试侧适配（task-5），不在本次授权清单内，已另行上报 Lead。
+  · 其余 10 条在 copy.test.mjs / dom-validity.test.mjs / style-contract.test.mjs。
+
+## 4. npm run build（TEMP/TMP 指向仓库内 data/_esbuild-tmp）
+EXIT=0；三端产物：
+    out/main/chunks/bmp_decode-CrjD8y7P.js  1826 bytes
+    out/main/chunks/encoder-CIUh_ENs.js  8104 bytes
+    out/main/index.js  97817 bytes
+    out/preload/index.cjs  849 bytes
+    out/renderer/assets/index-BlzNWBUm.css  48615 bytes
+    out/renderer/assets/index-DBlQNfHr.js  1162220 bytes
+    out/renderer/index.html  1152 bytes
+构建输出尾部：
+    ktop/Agent/gemma-search/apps/desktop/src/renderer/src/App.tsx, dynamic import will not move module into another chunk.
+    rendering chunks...
+    ../../../../out/renderer/index.html                     1.15 kB
+    ../../../../out/renderer/assets/index-BlzNWBUm.css     48.62 kB
+    ../../../../out/renderer/assets/index-DBlQNfHr.js   1,162.22 kB
+    ✓ built in 2.01s
+
+## 5. npm run e2e -- smoke.spec.mjs routing.spec.mjs confirm-dialog.spec.mjs（真窗口）
+  Running 16 tests using 1 worker
+    16 passed (42.4s)
+    ok  1 apps\desktop\e2e\confirm-dialog.spec.mjs:42:1 › E7-a ⭐ 「取件」先弹确认框：不能点一下就把文件搬走 (2.3s)
+    ok  2 apps\desktop\e2e\confirm-dialog.spec.mjs:65:1 › E7-b ⭐ 焦点被**捕获在弹窗内**，且 Tab 不会跑到背后的页面（焦点陷阱） (1.9s)
+    ok  3 apps\desktop\e2e\confirm-dialog.spec.mjs:101:1 › E7-c ⭐ ESC 关闭弹窗，且**动作未执行**（collect 一个都没发） (1.9s)
+    ok  4 apps\desktop\e2e\confirm-dialog.spec.mjs:120:1 › E7-d ⭐ 点「取消」同样不执行；且焦点**归还**给触发它的那个按钮 (2.0s)
+    ok  5 apps\desktop\e2e\confirm-dialog.spec.mjs:153:1 › E7-e ⭐ 确认才执行：collect 恰好一次，且参数是那一项 (2.3s)
+    ok  6 apps\desktop\e2e\confirm-dialog.spec.mjs:173:1 › E7-f 连点两次确认只发一次 collect（先清状态再执行） (2.5s)
+    ok  7 apps\desktop\e2e\routing.spec.mjs:15:1 › E2-a 默认落在搜索页（hash 为空即 `/`） (2.1s)
+    ok  8 apps\desktop\e2e\routing.spec.mjs:29:1 › E2-b ⭐ 侧栏点「索引任务」⇒ 真的导航，hash 与界面都变 (2.0s)
+    ok  9 apps\desktop\e2e\routing.spec.mjs:47:1 › E2-c ⭐ `/item/:libId/:uid` 的参数**在真界面里**取到了（P3c 靠它拿两条路径） (1.6s)
+    ok 10 apps\desktop\e2e\routing.spec.mjs:70:1 › E2-c2 `/item` 用错的 uid ⇒ 如实报错（参数**真的**被送到了引擎，不是被忽略） (2.1s)
+    ok 11 apps\desktop\e2e\routing.spec.mjs:83:1 › E2-d 未知 hash ⇒ 回搜索页（不白屏） (1.8s)
+    ok 12 apps\desktop\e2e\routing.spec.mjs:99:1 › E2-e 返回搜索页（从任务页导航回去） (2.0s)
+    ok 13 apps\desktop\e2e\routing.spec.mjs:124:1 › E6-a ⭐ 真窗口 DOM 里没有 `<a>` 嵌在 `<button>` 里（T2 修的那 4 处） (2.1s)
+    ok 14 apps\desktop\e2e\routing.spec.mjs:145:1 › E6-b ⭐ 返回控件是**链接**（语义正确 + 只有一个可聚焦元素） (2.2s)
+    ok 15 apps\desktop\e2e\routing.spec.mjs:165:1 › E6-c ⭐ 窗口标题随路由变（修前：三条路由共用一个标题） (4.2s)
+    ok 16 apps\desktop\e2e\smoke.spec.mjs:14:1 › E0 探针：Electron 出窗，且 preload 暴露面恰好三键 (8.7s)
+
+## 6. 范围内卫生检查
+  apps/desktop/src/main/**  .mjs 残留 = 0
+  apps/desktop/src/preload/**  .mjs 残留 = 0
+  any / as any / @ts-ignore / @ts-expect-error / @ts-nocheck = 0 处
+  用了 3 处 as unknown as（第三方 .d.ts 缺失字段 / 生成式方法表收窄，非 any）：
+    encoder.ts  installResizeCompat logger 断言（indexer 侧 logger 目前只推出 null 类型，task-8 补齐后可删）
+    encoder.ts  dtype:'float32' -> PretrainedModelOptions（.d.ts 只列 'fp32'；既有取值原样保留）
+    index.ts    engineMethod() 里 eng as unknown as Record<string, unknown>
+
+## 7. 行为保持（安全/协议路径一字未改）
+  · thumb:// 形状白名单（/^\/([0-9a-f]{12})@(\d+)$/）与尺寸白名单 {128,256,512}：原样。
+  · 400/404 映射（thumbFailureStatus：先形状、后库）与 403(SYMLINK_REJECTED)/415/503：原样。
+  · 窗口安全三决策（isTrustedSender 三条件 / decideWindowOpen 无条件 deny / decideNavigation=isAppUrl）：原样。
+  · IPC 两条通道 engine:invoke / engine:event、来源校验->zod 白名单->引擎的显式分派：原样。
+  · 日志落点（log.ts 的 data/_app.log）与全部既有 log 语句：原样。
+  · 唯一改写的调用写法：engine.indexStatus({}) -> engine.indexStatus() —— 引擎该方法是零参箭头函数，
+    原 JS 多传的 {} 本就被忽略；运行语义不变，仅为满足类型签名。
+==============================================================================

@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { validateCall, MAX_PAYLOAD_BYTES, METHOD_NAMES } from '../src/shared/ipc.ts';
-import { parseThumbUrl, canonicalLibId, ALLOWED_SIZE, createLibIdResolver, thumbFailureStatus } from '../src/main/thumb-url.mjs';
+import { parseThumbUrl, canonicalLibId, ALLOWED_SIZE, createLibIdResolver, thumbFailureStatus } from '../src/main/thumb-url.ts';
 
 // ============================================================ S1 / S2 / S3 / S14
 
@@ -144,9 +144,9 @@ test('S4：thumb:// 路径穿越被拒，且**解析阶段零文件读取**（�
   }
   assert.deepEqual(reads, [], `解析阶段发生了文件访问：${JSON.stringify(reads)}`);
   // 连带的结构证明（比"我这次没调到"更强，但不是替代品 —— 上面那条才是行为证明）
-  const src = fs.readFileSync(path.join(process.cwd(), 'apps/desktop/src/main/thumb-url.mjs'), 'utf8');
-  assert.doesNotMatch(src, /from\s+['"]node:fs['"]/, 'thumb-url.mjs 不该 import fs');
-  assert.doesNotMatch(src, /\brequire\(\s*['"]fs['"]/, 'thumb-url.mjs 不该 require fs');
+  const src = fs.readFileSync(path.join(process.cwd(), 'apps/desktop/src/main/thumb-url.ts'), 'utf8');
+  assert.doesNotMatch(src, /from\s+['"]node:fs['"]/, 'thumb-url.ts 不该 import fs');
+  assert.doesNotMatch(src, /\brequire\(\s*['"]fs['"]/, 'thumb-url.ts 不该 require fs');
 });
 
 test('S6：失败状态码映射 —— 形状/尺寸错 ⇒ 400；库无法还原 ⇒ 404（可执行契约）', async () => {
