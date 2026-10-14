@@ -77,12 +77,12 @@ console.log('  设备  :', DEVICE);
 //    Windows 上 `import('D:\\...\\x.mjs')` 会被当成 URL 解析并以
 //    `ERR_UNSUPPORTED_ESM_URL_SCHEME: Received protocol 'd:'` 崩掉（实测）。
 //    本文件下面三处（encoder / resize_compat / index）都遵守这一条 —— 别"简化"回去。
-const enc = await import(pathToFileURL(path.join(ROOT, 'apps', 'desktop', 'src', 'main', 'encoder.mjs')).href);
+const enc = await import(pathToFileURL(path.join(ROOT, 'apps', 'desktop', 'src', 'main', 'encoder.ts')).href);
 const { createEncoder, QUERY_PREFIX } = enc;
 console.log();
 console.log('--- 1) 编码器初始化 ---');
 
-// 模块图里 RawImage 必须是**同一个类**且已被 shim 替换 —— encoder.mjs 内部会断言，
+// 模块图里 RawImage 必须是**同一个类**且已被 shim 替换 —— encoder.ts 内部会断言，
 // 这里再独立核一次，确认断言真的跑了（不是被 try/catch 吞掉）。
 const { resizeCompatState } = await import(pathToFileURL(path.join(ROOT, 'packages', 'indexer', 'src', 'resize_compat.ts')).href);
 
@@ -172,7 +172,7 @@ for (const t of targets) {
 // ---------- 2b) BMP 回退回归断言 ----------
 //
 // 为什么单列一条：库里实测有 20 张「文件名 `.jpg`、内容其实是 BMP」（AGENTS §7）。
-// 应用侧 `apps/desktop/src/main/encoder.mjs` 的 BMP 回退曾把 **Buffer** 传给
+// 应用侧 `apps/desktop/src/main/encoder.ts` 的 BMP 回退曾把 **Buffer** 传给
 // `readBmpAsRawImage(filePath)`（该 API 内部自己 `fs.readFileSync(path)`），于是这条路径
 // **每次都抛** `ERR_INVALID_ARG_VALUE` —— 而单测与其它守卫都不覆盖它，所以一直没人发现。
 // 这里拿 data/quality 的**实测清单**真正走一次回退，并断言两件事：

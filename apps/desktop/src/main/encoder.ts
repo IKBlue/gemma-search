@@ -126,7 +126,7 @@ export async function createEncoder({ modelDir, seq = 140, device = 'webgpu', lo
   // 不报错、不崩溃，只是结果变差（实测像素差 1.93%，全量 min 余弦 0.9153）。
   // ⚠️ `logger` 的断言：indexer 侧的 `installResizeCompat` 目前只从默认值 `null` 推出 `logger?: null`，
   //    而运行时它就是"日志函数或 null"（本文件一直传 log）。这里按**运行时契约**断言，等 W1-B2 补完类型后即可删。
-  installResizeCompat({ kernel: 'pil-like', RawImage, logger: log } as unknown as Parameters<typeof installResizeCompat>[0]);
+  installResizeCompat({ kernel: 'pil-like', RawImage, logger: log });   // W1-B2 补完类型后，原先那句 as unknown as 已可删
   assertResizeCompatInstalled(RawImage);        // ← 两份 transformers.js 的护栏（见 resize_compat.ts）
   const rst = await selfTestResizeCompat();
   log(`重采样兼容层已安装并自检通过（kernel=${rst.kernel}）`);
@@ -183,13 +183,13 @@ export async function createEncoder({ modelDir, seq = 140, device = 'webgpu', lo
     modelDir, seq, device, loadMs,
     async encodeText(text: string): Promise<Float32Array> {
       const inputs = await processor(QUERY_PREFIX + text);
-      const emb = pickEmbedding(inputs);
+      const emb = pickEmbedding(await model.forward(inputs));
       return Float32Array.from(emb.data);
     },
     async encodeImage(absPath: string): Promise<Float32Array> {
       const { image, source } = await readImageAny(absPath);
       const inputs = await processor(null, [image]);
-      const emb = pickEmbedding(inputs);
+      const emb = pickEmbedding(await model.forward(inputs));
       const v = Float32Array.from(emb.data) as ImageVector;
       v.__source = source;
       return v;
