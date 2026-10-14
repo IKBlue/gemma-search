@@ -10,7 +10,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { decideGate } from '../src/renderer/src/utils/gate.js'
+import { decideGate } from '../src/renderer/src/utils/gate.ts'
 
 test('G1：还没问出来 ⇒ loading（留白，不要闪一下向导又消失）', () => {
   assert.equal(decideGate({ loading: true, data: null, error: null }), 'loading')

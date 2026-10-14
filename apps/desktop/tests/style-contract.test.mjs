@@ -33,7 +33,7 @@ function walk(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) return walk(p);
-    return /\.(jsx|js)$/.test(e.name) ? [p] : [];
+    return /\.(jsx|js|ts|tsx)$/.test(e.name) ? [p] : [];   // 全量 TS 迁移：扫描面必须含 .ts/.tsx
   });
 }
 const rel = (p) => p.replace(/\\/g, '/').split('/src/renderer/src/')[1];

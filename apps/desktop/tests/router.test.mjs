@@ -11,7 +11,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { matchRoutes } from 'react-router'
 
-import { ROUTES, PATHS } from '../src/renderer/src/router/paths.js'
+import { ROUTES, PATHS } from '../src/renderer/src/router/paths.ts'
 
 test('R1：路由表至少 3 条，且路径唯一（多页是 P3c/P3d 的前置）', () => {
   assert.ok(ROUTES.length >= 3, `至少有 3 条路由，实际 ${ROUTES.length}`)

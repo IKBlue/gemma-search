@@ -121,7 +121,7 @@ test('T3 ⭐ 已迁到 Tailwind 的旧类名不得复活（`.btn` / `.icon-btn` 
   // 也不许在组件里用字符串写死（那是绕过 Button/Chip 组件的裸用法）
   // ⚠️ 这里**必须**用 maskComments：类名就写在字符串里，maskNonCode 会把整条 json 抹掉 ⇒ 永远查不到
   const bare = []
-  for (const f of walk(RENDERER).filter((x) => /\.jsx$/.test(x))) {
+  for (const f of walk(RENDERER).filter((x) => /\.(jsx|tsx)$/.test(x))) {
     const code = maskComments(read(f))
     for (const m of code.matchAll(/className=['"][^'"]*\b(btn|icon-btn|chip)\b[^'"]*['"]/g)) {
       bare.push(`${rel(f)} → ${m[0]}`)

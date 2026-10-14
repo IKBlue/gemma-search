@@ -35,7 +35,7 @@ function walk(dir) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name)
     if (e.isDirectory()) out.push(...walk(p))
-    else if (/\.(js|jsx)$/.test(e.name)) out.push(p)
+    else if (/\.(js|jsx|ts|tsx)$/.test(e.name)) out.push(p)   // 全量 TS 迁移：扫描面必须含 .ts/.tsx
   }
   return out
 }

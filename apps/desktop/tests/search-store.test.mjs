@@ -12,7 +12,7 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { useSearchStore, sortResults, FOLDERS, CHIPS } from '../src/renderer/src/store/search.js'
+import { useSearchStore, sortResults, FOLDERS, CHIPS } from '../src/renderer/src/store/search.ts'
 
 const S = () => useSearchStore.getState()
 

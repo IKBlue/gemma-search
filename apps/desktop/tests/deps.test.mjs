@@ -106,7 +106,7 @@ test('D-C ⭐⭐ 断言本身有效：能看见**动态** `import()`（差点因
 
 test('D-D ⭐ class 合并**只有一份实现**（`cn()`）—— `cx.js` 不得复活（A-4 的收口）', () => {
   const ui = fs.readdirSync(path.join(ROOT, 'apps/desktop/src/renderer/src/ui'))
-  const impls = ui.filter((f) => /^(cx|cn|classnames?|clsx)\.js$/i.test(f))
+  const impls = ui.filter((f) => /^(cx|cn|classnames?|clsx)\.(js|ts)$/i.test(f))
   assert.deepEqual(impls, ['cn.js'], `ui/ 下应只有 cn.js 一份 class 合并实现，实得 ${JSON.stringify(impls)}`)
 
   // 全渲染层不许再有人从别处挪一个 cx 回来

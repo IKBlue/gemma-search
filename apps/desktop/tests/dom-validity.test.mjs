@@ -80,8 +80,8 @@ test('V3 `Button` 真的实现了 `asChild`（否则 V1 的修法无处可依）
   assert.match(src, /恰好一个|exactly one/, '注释里要写明 Slot 只接受单个子元素')
 })
 
-test('V4 窗口标题有单一来源：应用名与页面名都来自 `router/paths.js`', () => {
-  const paths = fs.readFileSync(path.join(RENDERER, 'router', 'paths.js'), 'utf8')
+test('V4 窗口标题有单一来源：应用名与页面名都来自 `router/paths.ts`', () => {
+  const paths = fs.readFileSync(path.join(RENDERER, 'router', 'paths.ts'), 'utf8')
   assert.match(paths, /export const LABELS/, 'paths.js 必须导出 LABELS（页面名的唯一来源）')
   assert.match(paths, /export const APP_NAME/, 'paths.js 必须导出 APP_NAME')
 

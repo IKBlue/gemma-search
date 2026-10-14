@@ -13,8 +13,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { INDEX_STATES, deriveIndexState, needsScanToDecide } from '../src/renderer/src/utils/index-state.js';
-import { ACTION_GROUPS, buildItemActions, groupActions, reencodeBadge } from '../src/renderer/src/utils/item-actions.js';
+import { INDEX_STATES, deriveIndexState, needsScanToDecide } from '../src/renderer/src/utils/index-state.ts';
+import { ACTION_GROUPS, buildItemActions, groupActions, reencodeBadge } from '../src/renderer/src/utils/item-actions.ts';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 

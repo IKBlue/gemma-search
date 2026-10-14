@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 
 import {
   PHASES, initialTasks, reduceEvent, phaseLabel, progressPercent, etaText, outcomeSummary, startLocal,
-} from '../src/renderer/src/store/tasks.js';
+} from '../src/renderer/src/store/tasks.ts';
 
 const progress = (over = {}) => ({
   type: 'index.progress', jobId: 'j-1', libId: 'L1',

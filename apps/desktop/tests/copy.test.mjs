@@ -27,7 +27,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { maskComments } from './helpers/source-scan.mjs';
-import { normalizeMessage, autoDismissMs } from '../src/renderer/src/hooks/useToast.js';
+import { normalizeMessage, autoDismissMs } from '../src/renderer/src/hooks/useToast.ts';
 
 const SRC = fileURLToPath(new URL('../src/renderer/src/', import.meta.url));
 
@@ -35,7 +35,7 @@ function walk(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) return walk(p);
-    return /\.(jsx|js)$/.test(e.name) ? [p] : [];
+    return /\.(jsx|js|ts|tsx)$/.test(e.name) ? [p] : [];   // 全量 TS 迁移：扫描面必须含 .ts/.tsx
   });
 }
 const rel = (p) => p.replace(/\\/g, '/').split('/src/renderer/src/')[1];
@@ -78,7 +78,7 @@ test('CP-2 ⭐ 非注释代码里不得出现 `**加粗**`（V-40：会按字面
  *    而且**豁免必须仍然命中**（见 CP-3 末尾）—— 不命中的豁免会让白名单慢慢烂掉。
  */
 const EXEMPT_FILES = new Map([
-  ['hooks/useToast.js',
+  ['hooks/useToast.ts',
     '`normalizeMessage` 里那两个字符串**就是守卫本身**：它要判断输入是不是 "undefined"/"NaN" 才好挡掉。'
     + '这是"合法用途"而不是"用户可见文案"，且同文件 CP-0 已断言 show() 必经该归一化。'],
 ]);
@@ -120,7 +120,7 @@ test('CP-4 ⭐ 错误提示不自动消失，且走 `alert` 而不是 `status`�
   assert.doesNotMatch(toastSrc, /role="status"/, '不许退回恒 `role="status"`');
 
   // ③ 正向面：`useToast.show` 必须真的用这条策略（否则上面测的是没人用的函数）
-  const hookSrc = maskComments(fs.readFileSync(path.join(SRC, 'hooks', 'useToast.js'), 'utf8'));
+  const hookSrc = maskComments(fs.readFileSync(path.join(SRC, 'hooks', 'useToast.ts'), 'utf8'));
   assert.match(hookSrc, /autoDismissMs\(t, ms\)/, '`show()` 必须走 `autoDismissMs`');
 });
 
@@ -128,7 +128,7 @@ test('CP-4 ⭐ 错误提示不自动消失，且走 `alert` 而不是 `status`�
 test('CP-0 自检：扫描面覆盖到东西、且 `show` 真的用了 `normalizeMessage`', () => {
   const files = walk(SRC);
   assert.ok(files.length >= 40, `渲染层文件数 ${files.length} 偏少，扫描面可能坏了`);
-  const toastRaw = fs.readFileSync(path.join(SRC, 'hooks', 'useToast.js'), 'utf8');
+  const toastRaw = fs.readFileSync(path.join(SRC, 'hooks', 'useToast.ts'), 'utf8');
   // ⚠️⚠️ 必须断言**确切的调用表达式**，不能只断言"文件里出现过 normalizeMessage(msg)" ——
   //    后者会被**函数定义本身**（`export function normalizeMessage(msg) {`）满足，
   //    于是把调用点改回 `String(msg)` 也照样绿。**这是双向验证当场抓出来的剧场断言**

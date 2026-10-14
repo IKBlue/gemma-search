@@ -11,7 +11,7 @@
 import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { invoke, onEvent, normalizeError, hasBridge, platform } from '../src/renderer/src/adapter/api.js'
+import { invoke, onEvent, normalizeError, hasBridge, platform } from '../src/renderer/src/adapter/api.ts'
 
 /** 造一个可控的假 bridge；`reply` 可以返回信封、抛异常、或返回垃圾 */
 function fakeBridge(reply) {
