@@ -7,6 +7,8 @@
 //
 // 这是**被删守卫丢掉的 `verify_renderer_dom.mjs` §8（首启向导 7 条）**的替代，
 // 而且更强：那套是 jsdom + 假 bridge，这里是真 Electron + 真 preload + 真 IPC。
+import fs from 'node:fs'
+
 import { test, expect } from '@playwright/test'
 
 import { launchWithoutLibrary, launchWithLibrary } from './helpers/app.mjs'
@@ -60,6 +62,11 @@ test('E1-c 界面上有真实的库来源证据（侧栏显示库根，不是"�
     const win = await firstWindow(app)
     // 侧栏的"当前图库"显示的是主进程解析出来的 root ⇒ 证明 IPC 真的通了、配置真的读到了
     await expect(win.locator('.side-root')).toContainText('lib-mini', { timeout: 15_000 })
+    // ⚠️⭐ 2026-10-15（T-43 / F-2）：**只断文本会假绿** —— 夹具路径写错时它的 basename 仍然是
+    //    `lib-mini`，这条断言照样通过（当时实测：27 条全绿，而那个目录根本不存在）。
+    //    要证明「真的读到了库」，判据必须落到磁盘上。这是 F-2 的直接回归防线。
+    expect(fs.existsSync(libRoot) && fs.statSync(libRoot).isDirectory(),
+      `侧栏显示的库根在磁盘上不存在（或不是目录）：${libRoot}`).toBe(true)
     console.log('  [E1-c] 侧栏库根 =', await win.locator('.side-root').innerText(), '· 期望含', libRoot)
   } finally {
     await app.close()

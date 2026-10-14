@@ -1,0 +1,43 @@
+{
+  "library": "lib-mini",
+  "purpose": "E2E「有库」场景的最小夹具库（只读；真实可解码的 1×1 图片 + 真 ZIP）",
+  "generatedBy": "T-43（assert-worker）· 确定性配方：1×1 JPEG/PNG + stored ZIP",
+  "note": "本库**没有索引**（.gs-index.bin），需要\"有结果\"的 spec 用 GEMMA_FAKE=1（见 routing.spec.mjs:51）。",
+  "counts": {
+    "images": 4,
+    "archives": 2,
+    "paired": 2
+  },
+  "files": [
+    {
+      "relPath": "VR/VR-101.jpg",
+      "size": 160,
+      "sha1": "4069e1dcbcc63bb1cb63881e01136d1140be7a48"
+    },
+    {
+      "relPath": "VR/VR-101.zip",
+      "size": 149,
+      "sha1": "bd50e66fa8da31e4d0542aac097621ac0c48a422"
+    },
+    {
+      "relPath": "VR/VR-102.jpg",
+      "size": 160,
+      "sha1": "4069e1dcbcc63bb1cb63881e01136d1140be7a48"
+    },
+    {
+      "relPath": "CR/CR-201.png",
+      "size": 69,
+      "sha1": "e1af3a7ee13a5d52a01ced37e5ede24cf1d53737"
+    },
+    {
+      "relPath": "CR/CR-201.zip",
+      "size": 149,
+      "sha1": "aba757e0b197c36cbf02c3ea30f021175bd14044"
+    },
+    {
+      "relPath": "CR/CR-202.jpg",
+      "size": 160,
+      "sha1": "4069e1dcbcc63bb1cb63881e01136d1140be7a48"
+    }
+  ]
+}

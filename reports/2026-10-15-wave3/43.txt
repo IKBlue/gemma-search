@@ -1,0 +1,354 @@
+# T-43 证据 · e2e 夹具路径不存在（F-2）⇒ 一批 spec 跑在空库上
+
+> 日期：2026-10-15 · 执行：assert-worker（共享任务板 task-43） · 仓库根 = D:/USERS/Desktop/Agent/gemma-search
+> 环境：Windows / PowerShell · Node 24 · Playwright（真 Electron 窗口）
+
+## 0. 结论（三句话）
+
+1. **缺陷成立**：`apps/desktop/e2e/helpers/app.mjs:23` 的 `FIXTURE_LIB` 指向 `apps/desktop/e2e/fixtures/lib-mini`，
+   该目录**当时不存在**（仓库根只有 `fixtures/lib-a`）。⇒ `launchWithLibrary()` 把 `GEMMA_LIB_ROOT` 指到空路径，
+   而界面照样进主界面、这批 spec **照样全绿**（见 §3 BEFORE：27 passed / EXIT=0）。
+2. **已修**：补出 `apps/desktop/e2e/fixtures/lib-mini`（4 张**真图** + 2 个**真 ZIP** + manifest），
+   并在 helper 与 gate spec 各加一条**能红**的防线（见 §6）。选 lib-mini 而非 lib-a 的理由见 §1。
+3. **修完 0 条测试由绿变红**（见 §5）。原因不是"防线空转"，而是**这批 spec 根本不读库内容** ——
+   它们依赖的只是"门禁判定为有库"（`utils/gate.ts:34-35` 只看 `libraries.length`）。**唯一**靠错误路径
+   才绿的是 `gate` E1-c：它断的是"侧栏显示库根"，而那条不存在的路径 basename 正好是 `lib-mini`。
+
+## 1. 决策：补 `lib-mini`，**不**改指 `fixtures/lib-a`
+
+理由（都有出处）：
+
+| # | 理由 | 出处 |
+|---|---|---|
+| 1 | `gate` E1-c 的期望字符串**写死了 `lib-mini`**；改指 lib-a 就必须改这条断言 —— 而它正是本事故的现场证据（它把不存在的路径当"证据"打印并通过），改它会把"哪条绿是空的"抹掉 | `apps/desktop/e2e/gate.spec.mjs:62`（改动前） |
+| 2 | `fixtures/lib-a` 的自我定位是**写操作/故障注入**夹具（"合成字节，非真图"），被事务测试复制使用；把只读 UI spec 接到写夹具上 = 两件事耦合 | `fixtures/lib-a/manifest.json:3` · `packages/engine/tests/transactions.test.mjs:4,24` |
+| 3 | lib-a 是**合成字节**；本仓库已有实测教训："假字节会让 `thumb://` 解码失败(415)，那会让结果区看起来是坏的" ⇒ 该用**真图** | `apps/desktop/e2e/m0-real.spec.mjs:14-15,37-39` |
+| 4 | 名字/意图本来就对得上：helper 常量叫 `lib-mini`，`routing.spec.mjs` 的注释把它叫"迷你夹具库" | `helpers/app.mjs:23` · `routing.spec.mjs:51` |
+
+### 1.1 "这批 spec 需要几条素材才不算空转" —— 如实说：**一条都不需要**
+
+我逐条查了这 27 条（§3/§4 的那批）到底消费什么，结论是它们**不读库内容**：
+
+- 筛选胶囊 `CHIPS` 是**硬编码**的 ⇒ a11y E5-a / styles E4-d,e 断的 VR/CR 胶囊不来自库：`renderer/src/store/search.ts:19-20`。
+- 主进程 `indexStatus` 是**零参**方法、读的是已注册索引，与库目录内容无关：`main/index.ts:689-690`。
+- `confirm-dialog` 与 `uiux-p0` 的结果来自**打桩的 IPC handler**（`helpers/engine-stub.mjs` 的 `searchOnce()`），不是库：`confirm-dialog.spec.mjs:38,46` · `uiux-p0.spec.mjs:16,25`。
+- 其余（routing / a11y / styles / window-security / activity / tasks）只断界面结构、导航、样式与"如实报错"状态。
+⇒ 所以"素材条数"**不是**这批断言会不会空转的判据；真正空转的是**路径不存在**这件事。
+
+仍然给 4 张图 + 2 个包（不是 0），理由有二：① "有库"场景应当**真的是个库**；② 防止将来有人加一条读内容的断言时又是空的绿。
+防线阈值取 `MIN_FIXTURE_IMAGES = 3`（当前 4 张）。
+
+## 2. 缺陷本体（file:line）
+
+- `apps/desktop/e2e/helpers/app.mjs:23`：`FIXTURE_LIB = new URL("../fixtures/lib-mini", import.meta.url)` ⇒ 解析到 `apps/desktop/e2e/fixtures/lib-mini`。
+- 该目录**不存在**（`apps/desktop/e2e/fixtures/**` 为空；仓库根只有 `fixtures/lib-a`）。
+- `helpers/app.mjs:87` 把它当 `GEMMA_LIB_ROOT` 传下去；`main/index.ts` 的 `libraryConfig` 按 `library-config.ts:313-319` 无条件接受非空 env。
+- 门禁判据只看长度：`renderer/src/utils/gate.ts:34-35` `libraries.length > 0 ? "app" : "wizard"` ⇒ **进主界面**。
+- `library-config.ts:394-399` **其实有**存在性检查，但只 push 一条 warning（见 §8）。
+
+## 3. BEFORE（夹具不存在 · 干净一轮）
+
+命令：`npm run e2e -- a11y.spec.mjs routing.spec.mjs styles.spec.mjs item-detail.spec.mjs gate.spec.mjs`
+out/ 指纹：65e386b4f23f0ad9d2ba60ff92c8c56edf9557b7d8ab2cfac9a3a7e5243164e9（**跑前跑后逐字节一致** ⇒ 本轮有效）
+
+```text
+﻿
+> gemma-search@0.1.0 e2e
+> playwright test -c apps/desktop/e2e/playwright.config.mjs a11y.spec.mjs routing.spec.mjs styles.spec.mjs item-detail.spec.mjs gate.spec.mjs
+
+
+Running 27 tests using 1 worker
+
+node.exe : (node:24596) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+所在位置 行:1 字符: 1
++ & "D:\Program Files\nodejs/node.exe" "D:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ((node:24596) Wa... env being set.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  1 apps\desktop\e2e\a11y.spec.mjs:18:1 › E5-a ⭐ Chip 暴露 `aria-pressed`，且点击后真的翻转（不是只改 class） (6.9s)
+  ok  2 apps\desktop\e2e\a11y.spec.mjs:41:1 › E5-b ⭐ 侧栏导航暴露 `aria-current="page"`，且跟着路由走 (6.9s)
+  ok  3 apps\desktop\e2e\a11y.spec.mjs:63:1 › E5-c 空闲时**不渲染**确认弹窗（破坏性操作的确认框不该常驻） (6.7s)
+  ok  4 apps\desktop\e2e\a11y.spec.mjs:77:1 › E5-d 图标按钮有可读名字（无障碍名字不是只有图标） (6.8s)
+  ok  5 apps\desktop\e2e\gate.spec.mjs:15:1 › E1-a ⭐ 一个库都没有 ⇒ 显示首启向导，且**不显示**检索界面 (12.4s)
+  ok  6 apps\desktop\e2e\gate.spec.mjs:44:1 › E1-b 有库 ⇒ 进检索界面，且**不显示**向导 (6.7s)
+  [E1-c] 侧栏库根 = D:\USERS\Desktop\Agent\gemma-search\apps\desktop\e2e\fixtures\lib-mini · 期望含 D:\USERS\Desktop\Agent\gemma-search\apps\desktop\e2e\fixtures\lib-mini
+  ok  7 apps\desktop\e2e\gate.spec.mjs:57:1 › E1-c 界面上有真实的库来源证据（侧栏显示库根，不是"未配置"） (8.7s)
+  ok  8 apps\desktop\e2e\item-detail.spec.mjs:24:1 › E9-a ⭐ 显示大图 + 元数据 + **两条绝对路径**（P3c 的核心验收） (6.7s)
+  ok  9 apps\desktop\e2e\item-detail.spec.mjs:60:1 › E9-b ⭐ 索引状态：正常条目「已编码」；盘上没了的是「已从索引移除」 (6.7s)
+  ok 10 apps\desktop\e2e\item-detail.spec.mjs:83:1 › E9-c ⭐ 动作四分区**都在**，且每个按钮都带「需重编码 / 不重编码」角标（UI-REVIEW:236-237） (6.7s)
+  ok 11 apps\desktop\e2e\item-detail.spec.mjs:113:1 › E9-d ⭐ 没有后端的动作**禁用且写明原因**（不许静默点不动） (6.7s)
+  ok 12 apps\desktop\e2e\item-detail.spec.mjs:137:1 › E9-e ⭐ 「检查变更」跑一次 scan ⇒ 被外部改过的条目变成「待重编码」 (6.8s)
+  ok 13 apps\desktop\e2e\item-detail.spec.mjs:157:1 › E9-f 未知 uid ⇒ 如实报错，不白屏（错误码要露出来） (6.6s)
+  ok 14 apps\desktop\e2e\routing.spec.mjs:15:1 › E2-a 默认落在搜索页（hash 为空即 `/`） (11.9s)
+  ok 15 apps\desktop\e2e\routing.spec.mjs:29:1 › E2-b ⭐ 侧栏点「索引任务」⇒ 真的导航，hash 与界面都变 (6.9s)
+  ok 16 apps\desktop\e2e\routing.spec.mjs:47:1 › E2-c ⭐ `/item/:libId/:uid` 的参数**在真界面里**取到了（P3c 靠它拿两条路径） (6.6s)
+  ok 17 apps\desktop\e2e\routing.spec.mjs:70:1 › E2-c2 `/item` 用错的 uid ⇒ 如实报错（参数**真的**被送到了引擎，不是被忽略） (9.9s)
+  ok 18 apps\desktop\e2e\routing.spec.mjs:83:1 › E2-d 未知 hash ⇒ 回搜索页（不白屏） (6.7s)
+  ok 19 apps\desktop\e2e\routing.spec.mjs:99:1 › E2-e 返回搜索页（从任务页导航回去） (9.5s)
+  ok 20 apps\desktop\e2e\routing.spec.mjs:124:1 › E6-a ⭐ 真窗口 DOM 里没有 `<a>` 嵌在 `<button>` 里（T2 修的那 4 处） (6.7s)
+  ok 21 apps\desktop\e2e\routing.spec.mjs:145:1 › E6-b ⭐ 返回控件是**链接**（语义正确 + 只有一个可聚焦元素） (7.0s)
+  ok 22 apps\desktop\e2e\routing.spec.mjs:165:1 › E6-c ⭐ 窗口标题随路由变（修前：三条路由共用一个标题） (6.8s)
+  [E4-a] 计算样式 = {"bg":"rgb(255, 255, 255)","color":"rgb(29, 29, 31)","radius":"8px","minH":"44px","padTop":"8px","padRight":"12px","fontSize":"13px","fontWeight":"600","borderWidth":"1px","borderColor":"rgb(229, 229, 234)","width":"94.625px","height":"44px"}
+  [E4-a] 令牌     = {"--radius-sm":"8px","--touch-min":"44px","--space-2":"8px","--space-3":"12px","--type-caption":"13px","--color-bg-elevated":"#ffffff","--color-text-primary":"#1d1d1f","--color-separator-subtle":"#e5e5ea"}
+  ok 23 apps\desktop\e2e\styles.spec.mjs:35:1 › E4-a ⭐ 迁移后 Button(default) 的每个视觉值都仍落在**设计令牌**上 (6.7s)
+  [E4-b] primary = rgb(0, 113, 227) / rgb(255, 255, 255) · 令牌 = {"--color-accent":"#0071e3","--color-on-accent":"#ffffff"}
+  ok 24 apps\desktop\e2e\styles.spec.mjs:69:1 › E4-b ⭐ Button(primary) 仍是强调色填充 + 反白文字（--color-accent / --color-on-accent） (6.7s)
+  [E4-c] icon = 36px × 36px · radius = 10px · 令牌 = {"--control-icon-btn":"36px","--radius-md":"10px","--color-text-secondary":"#6e6e73"}
+  ok 25 apps\desktop\e2e\styles.spec.mjs:89:1 › E4-c ⭐ Button(icon) 仍是 36×36 方形（--control-icon-btn / --radius-md） (6.7s)
+  [E4-d] chip = {"bg":"rgb(255, 255, 255)","color":"rgb(110, 110, 115)","radius":"999px","minH":"32px","padTop":"8px","padRight":"16px","fontSize":"13px","fontWeight":"400","borderWidth":"1px","borderColor":"rgb(229, 229, 234)","width":"52.0625px","height":"33px"} · 令牌 = {"--radius-pill":"999px","--type-caption":"13px","--color-text-secondary":"#6e6e73"}
+  ok 26 apps\desktop\e2e\styles.spec.mjs:110:1 › E4-d ⭐ Chip 仍是胶囊（--radius-pill / --control-chip-padding / 32px 高） (8.1s)
+  [E4-e] 点击前 = rgb(255, 255, 255) rgb(110, 110, 115) → 点击后 = rgb(29, 29, 31) rgb(255, 255, 255)
+  ok 27 apps\desktop\e2e\styles.spec.mjs:134:1 › E4-e ⭐ Chip 选中态：底色变主文字色、文字反白（迁移前 .chip.active 的等价物） (6.9s)
+
+  27 passed (3.4m)
+EXIT=0
+
+```
+
+⭐ 关键证据（就在这轮的原始输出里）：E1-c **打印出那条不存在的路径，然后通过了**。
+
+## 4. AFTER（夹具存在 + 新防线 · 干净一轮）
+
+同一命令；`out/` 指纹 58d199345b690d7e92684ff35619f8617105b626eae23ea6b54d54d20c5e7bf0（跑前跑后一致 ⇒ 有效）
+
+```text
+﻿
+> gemma-search@0.1.0 e2e
+> playwright test -c apps/desktop/e2e/playwright.config.mjs a11y.spec.mjs routing.spec.mjs styles.spec.mjs item-detail.spec.mjs gate.spec.mjs
+
+
+Running 27 tests using 1 worker
+
+node.exe : (node:27156) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+所在位置 行:1 字符: 1
++ & "D:\Program Files\nodejs/node.exe" "D:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ((node:27156) Wa... env being set.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  1 apps\desktop\e2e\a11y.spec.mjs:18:1 › E5-a ⭐ Chip 暴露 `aria-pressed`，且点击后真的翻转（不是只改 class） (7.0s)
+  ok  2 apps\desktop\e2e\a11y.spec.mjs:41:1 › E5-b ⭐ 侧栏导航暴露 `aria-current="page"`，且跟着路由走 (6.9s)
+  ok  3 apps\desktop\e2e\a11y.spec.mjs:63:1 › E5-c 空闲时**不渲染**确认弹窗（破坏性操作的确认框不该常驻） (6.7s)
+  ok  4 apps\desktop\e2e\a11y.spec.mjs:77:1 › E5-d 图标按钮有可读名字（无障碍名字不是只有图标） (6.6s)
+  ok  5 apps\desktop\e2e\gate.spec.mjs:17:1 › E1-a ⭐ 一个库都没有 ⇒ 显示首启向导，且**不显示**检索界面 (7.1s)
+  ok  6 apps\desktop\e2e\gate.spec.mjs:46:1 › E1-b 有库 ⇒ 进检索界面，且**不显示**向导 (6.7s)
+  [E1-c] 侧栏库根 = D:\USERS\Desktop\Agent\gemma-search\apps\desktop\e2e\fixtures\lib-mini · 期望含 D:\USERS\Desktop\Agent\gemma-search\apps\desktop\e2e\fixtures\lib-mini
+  ok  7 apps\desktop\e2e\gate.spec.mjs:59:1 › E1-c 界面上有真实的库来源证据（侧栏显示库根，不是"未配置"） (6.6s)
+  ok  8 apps\desktop\e2e\item-detail.spec.mjs:24:1 › E9-a ⭐ 显示大图 + 元数据 + **两条绝对路径**（P3c 的核心验收） (6.7s)
+  ok  9 apps\desktop\e2e\item-detail.spec.mjs:60:1 › E9-b ⭐ 索引状态：正常条目「已编码」；盘上没了的是「已从索引移除」 (6.7s)
+  ok 10 apps\desktop\e2e\item-detail.spec.mjs:83:1 › E9-c ⭐ 动作四分区**都在**，且每个按钮都带「需重编码 / 不重编码」角标（UI-REVIEW:236-237） (6.7s)
+  ok 11 apps\desktop\e2e\item-detail.spec.mjs:113:1 › E9-d ⭐ 没有后端的动作**禁用且写明原因**（不许静默点不动） (6.7s)
+  ok 12 apps\desktop\e2e\item-detail.spec.mjs:137:1 › E9-e ⭐ 「检查变更」跑一次 scan ⇒ 被外部改过的条目变成「待重编码」 (6.8s)
+  ok 13 apps\desktop\e2e\item-detail.spec.mjs:157:1 › E9-f 未知 uid ⇒ 如实报错，不白屏（错误码要露出来） (6.7s)
+  ok 14 apps\desktop\e2e\routing.spec.mjs:15:1 › E2-a 默认落在搜索页（hash 为空即 `/`） (8.1s)
+  ok 15 apps\desktop\e2e\routing.spec.mjs:29:1 › E2-b ⭐ 侧栏点「索引任务」⇒ 真的导航，hash 与界面都变 (6.8s)
+  ok 16 apps\desktop\e2e\routing.spec.mjs:47:1 › E2-c ⭐ `/item/:libId/:uid` 的参数**在真界面里**取到了（P3c 靠它拿两条路径） (6.7s)
+  ok 17 apps\desktop\e2e\routing.spec.mjs:70:1 › E2-c2 `/item` 用错的 uid ⇒ 如实报错（参数**真的**被送到了引擎，不是被忽略） (6.6s)
+  ok 18 apps\desktop\e2e\routing.spec.mjs:83:1 › E2-d 未知 hash ⇒ 回搜索页（不白屏） (6.6s)
+  ok 19 apps\desktop\e2e\routing.spec.mjs:99:1 › E2-e 返回搜索页（从任务页导航回去） (6.9s)
+  ok 20 apps\desktop\e2e\routing.spec.mjs:124:1 › E6-a ⭐ 真窗口 DOM 里没有 `<a>` 嵌在 `<button>` 里（T2 修的那 4 处） (6.7s)
+  ok 21 apps\desktop\e2e\routing.spec.mjs:145:1 › E6-b ⭐ 返回控件是**链接**（语义正确 + 只有一个可聚焦元素） (6.9s)
+  ok 22 apps\desktop\e2e\routing.spec.mjs:165:1 › E6-c ⭐ 窗口标题随路由变（修前：三条路由共用一个标题） (6.8s)
+  [E4-a] 计算样式 = {"bg":"rgb(255, 255, 255)","color":"rgb(29, 29, 31)","radius":"8px","minH":"44px","padTop":"8px","padRight":"12px","fontSize":"13px","fontWeight":"600","borderWidth":"1px","borderColor":"rgb(229, 229, 234)","width":"94.625px","height":"44px"}
+  [E4-a] 令牌     = {"--radius-sm":"8px","--touch-min":"44px","--space-2":"8px","--space-3":"12px","--type-caption":"13px","--color-bg-elevated":"#ffffff","--color-text-primary":"#1d1d1f","--color-separator-subtle":"#e5e5ea"}
+  ok 23 apps\desktop\e2e\styles.spec.mjs:35:1 › E4-a ⭐ 迁移后 Button(default) 的每个视觉值都仍落在**设计令牌**上 (6.7s)
+  [E4-b] primary = rgb(0, 113, 227) / rgb(255, 255, 255) · 令牌 = {"--color-accent":"#0071e3","--color-on-accent":"#ffffff"}
+  ok 24 apps\desktop\e2e\styles.spec.mjs:69:1 › E4-b ⭐ Button(primary) 仍是强调色填充 + 反白文字（--color-accent / --color-on-accent） (6.7s)
+  [E4-c] icon = 36px × 36px · radius = 10px · 令牌 = {"--control-icon-btn":"36px","--radius-md":"10px","--color-text-secondary":"#6e6e73"}
+  ok 25 apps\desktop\e2e\styles.spec.mjs:89:1 › E4-c ⭐ Button(icon) 仍是 36×36 方形（--control-icon-btn / --radius-md） (6.7s)
+  [E4-d] chip = {"bg":"rgb(255, 255, 255)","color":"rgb(110, 110, 115)","radius":"999px","minH":"32px","padTop":"8px","padRight":"16px","fontSize":"13px","fontWeight":"400","borderWidth":"1px","borderColor":"rgb(229, 229, 234)","width":"52.0625px","height":"33px"} · 令牌 = {"--radius-pill":"999px","--type-caption":"13px","--color-text-secondary":"#6e6e73"}
+  ok 26 apps\desktop\e2e\styles.spec.mjs:110:1 › E4-d ⭐ Chip 仍是胶囊（--radius-pill / --control-chip-padding / 32px 高） (6.6s)
+  [E4-e] 点击前 = rgb(255, 255, 255) rgb(110, 110, 115) → 点击后 = rgb(29, 29, 31) rgb(255, 255, 255)
+  ok 27 apps\desktop\e2e\styles.spec.mjs:134:1 › E4-e ⭐ Chip 选中态：底色变主文字色、文字反白（迁移前 .chip.active 的等价物） (6.8s)
+
+  27 passed (3.1m)
+EXIT=0
+
+```
+
+## 5. 绿→红清单：**0 条**
+
+| 轮次 | 结果 | EXIT |
+|---|---|---|
+| BEFORE（夹具不存在） | 27 passed / 0 failed | 0 |
+| AFTER（夹具存在） | 27 passed / 0 failed | 0 |
+
+**没有一条测试由绿变红。** 逐条判断（题面要求的分类）：
+
+- **"断言本来就空转"**：只有 `gate` E1-c 属于这一类 —— 它的绿**确实**依赖了错误路径（basename 恰好是 `lib-mini`）。
+  我没有"修断言让它继续绿"，而是**加了第二个断言**（库根必须在磁盘上真的存在），见 §6；原断言保留（它证明的是 IPC→侧栏接线，仍然有效）。
+- **其余 26 条**：既不是空转也不是回归 —— 它们从来就不消费库内容（§1.1 的出处）。夹具路径从"不存在"变成"存在"，对它们**可观察行为没有变化**。
+- **0 条真回归**：没有任何一条因为这次改动而失败。
+
+⚠️ 两点如实说明：① BEFORE 与 AFTER 两轮的 `out/` 指纹不同 —— 因为两轮之间 storage-worker 的 `build:unpack`（经我放行）重建了产物；两轮**各自内部**指纹一致，且两轮都全绿，故不影响本结论。② 本卡没有对"全量 68 条"取得干净结果（§7.2）。
+
+## 6. 新防线**能红**（自证；这是本卡的核心防线）
+
+做了两件事，都可单独变红：
+
+**(a) `launchWithLibrary()` 硬失败**（`apps/desktop/e2e/helpers/app.mjs`）：夹具目录不存在、或图数 < `MIN_FIXTURE_IMAGES`(3) ⇒ 直接抛错，不再静默把 env 指向空路径。
+
+**(b) `gate` E1-c 加"库根真的在磁盘上"断言**（`apps/desktop/e2e/gate.spec.mjs`）：
+`expect(fs.existsSync(libRoot) && fs.statSync(libRoot).isDirectory(), ...).toBe(true)`。
+
+自证方法：把夹具目录临时改名（模拟 F-2 复现）⇒ 跑 gate ⇒ 期望**响亮地红** ⇒ 改名复原 ⇒ 期望绿。
+
+### 6.1 夹具缺失（期望红）
+```text
+﻿
+> gemma-search@0.1.0 e2e
+> playwright test -c apps/desktop/e2e/playwright.config.mjs gate.spec.mjs
+
+
+Running 3 tests using 1 worker
+
+node.exe : (node:20420) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+所在位置 行:1 字符: 1
++ & "D:\Program Files\nodejs/node.exe" "D:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ((node:20420) Wa... env being set.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 1 apps\desktop\e2e\gate.spec.mjs:17:1 › E1-a ⭐ 一个库都没有 ⇒ 显示首启向导，且**不显示**检索界面 (7.1s)
+  x  2 apps\desktop\e2e\gate.spec.mjs:46:1 › E1-b 有库 ⇒ 进检索界面，且**不显示**向导 (1ms)
+(node:29088) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  x  3 apps\desktop\e2e\gate.spec.mjs:59:1 › E1-c 界面上有真实的库来源证据（侧栏显示库根，不是"未配置"） (4ms)
+
+
+  1) apps\desktop\e2e\gate.spec.mjs:46:1 › E1-b 有库 ⇒ 进检索界面，且**不显示**向导 ──────────────────────────────
+
+    Error: E2E 夹具库不存在：D:\USERS\Desktop\Agent\gemma-search\apps\desktop\e2e\fixtures\lib-mini（「有库」场景会静默退化成空库 ⇒ 断言是空的绿）
+
+       at helpers\app.mjs:111
+
+      109 |   const images = countFixtureImages(FIXTURE_LIB)
+      110 |   if (!fs.existsSync(FIXTURE_LIB) || !fs.statSync(FIXTURE_LIB).isDirectory()) {
+    > 111 |     throw new Error(`E2E 夹具库不存在：${FIXTURE_LIB}（「有库」场景会静默退化成空库 ⇒ 断言是空的绿）`)
+          |           ^
+      112 |   }
+      113 |   if (images < MIN_FIXTURE_IMAGES) {
+      114 |     throw new Error(`E2E 夹具库 ${FIXTURE_LIB} 里只有 ${images} 张图（要求 ≥ ${MIN_FIXTURE_IMAGES}）—— 空的「有库」场景没有意义`)
+        at launchWithLibrary (D:\USERS\Desktop\Agent\gemma-search\apps\desktop\e2e\helpers\app.mjs:111:11)
+        at D:\USERS\Desktop\Agent\gemma-search\apps\desktop\e2e\gate.spec.mjs:47:34
+
+    Error Context: apps\desktop\test-results\gate-E1-b-有库-⇒-进检索界面，且-不显示-向导\error-context.md
+
+  2) apps\desktop\e2e\gate.spec.mjs:59:1 › E1-c 界面上有真实的库来源证据（侧栏显示库根，不是"未配置"） ───────────────────────
+
+    Error: E2E 夹具库不存在：D:\USERS\Desktop\Agent\gemma-search\apps\desktop\e2e\fixtures\lib-mini（「有库」场景会静默退化成空库 ⇒ 断言是空的绿）
+
+       at helpers\app.mjs:111
+
+      109 |   const images = countFixtureImages(FIXTURE_LIB)
+      110 |   if (!fs.existsSync(FIXTURE_LIB) || !fs.statSync(FIXTURE_LIB).isDirectory()) {
+    > 111 |     throw new Error(`E2E 夹具库不存在：${FIXTURE_LIB}（「有库」场景会静默退化成空库 ⇒ 断言是空的绿）`)
+          |           ^
+      112 |   }
+      113 |   if (images < MIN_FIXTURE_IMAGES) {
+      114 |     throw new Error(`E2E 夹具库 ${FIXTURE_LIB} 里只有 ${images} 张图（要求 ≥ ${MIN_FIXTURE_IMAGES}）—— 空的「有库」场景没有意义`)
+        at launchWithLibrary (D:\USERS\Desktop\Agent\gemma-search\apps\desktop\e2e\helpers\app.mjs:111:11)
+        at D:\USERS\Desktop\Agent\gemma-search\apps\desktop\e2e\gate.spec.mjs:60:43
+
+    Error Context: apps\desktop\test-results\gate-E1-c-界面上有真实的库来源证据（侧栏显示库根，不是-未配置-）\error-context.md
+
+  2 failed
+    apps\desktop\e2e\gate.spec.mjs:46:1 › E1-b 有库 ⇒ 进检索界面，且**不显示**向导 ───────────────────────────────
+    apps\desktop\e2e\gate.spec.mjs:59:1 › E1-c 界面上有真实的库来源证据（侧栏显示库根，不是"未配置"） ────────────────────────
+  1 passed (7.9s)
+EXIT=1
+
+```
+### 6.2 复原后（期望绿）
+```text
+﻿
+> gemma-search@0.1.0 e2e
+> playwright test -c apps/desktop/e2e/playwright.config.mjs gate.spec.mjs
+
+
+Running 3 tests using 1 worker
+
+node.exe : (node:29172) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+所在位置 行:1 字符: 1
++ & "D:\Program Files\nodejs/node.exe" "D:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ((node:29172) Wa... env being set.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 1 apps\desktop\e2e\gate.spec.mjs:17:1 › E1-a ⭐ 一个库都没有 ⇒ 显示首启向导，且**不显示**检索界面 (7.1s)
+  ok 2 apps\desktop\e2e\gate.spec.mjs:46:1 › E1-b 有库 ⇒ 进检索界面，且**不显示**向导 (6.6s)
+  [E1-c] 侧栏库根 = D:\USERS\Desktop\Agent\gemma-search\apps\desktop\e2e\fixtures\lib-mini · 期望含 D:\USERS\Desktop\Agent\gemma-search\apps\desktop\e2e\fixtures\lib-mini
+  ok 3 apps\desktop\e2e\gate.spec.mjs:59:1 › E1-c 界面上有真实的库来源证据（侧栏显示库根，不是"未配置"） (6.6s)
+
+  3 passed (20.9s)
+EXIT=0
+
+```
+⇒ 防线确实能红：`2 failed / 1 passed / EXIT=1`，失败原因就是那句可读的错误。**空库绿再也不会静默发生。**
+
+## 7. 作废的两轮（规则 #12：`out/` 是 e2e 正在读的对象）
+
+### 7.1 第一轮 before —— **作废**
+`npm run e2e -- <同样 5 个文件>` 首跑：25 passed / 2 failed（routing E6-a/E6-b，均为 `electron.launch` **30s 超时**，不是断言失败）。
+原因：storage-worker 的 `build:unpack`（内含一次 build）与这轮重叠，`out/` 指纹中途由 `28649d554e73…` 变成 `65e386b4f23f…`。
+storage-worker 已主动承认并书面确认；Lead 立了纪律 #12。⇒ 该轮通过/失败**都不算数**，已用 §3 重跑。
+
+### 7.2 全量 68 条 —— **作废**（且**未**重跑）
+在拿到 §3/§4 干净结果后，我用剩余冻结窗口跑了一次 `npm run e2e`（全量）。跑到第 47 条时发现 `out/` 于 16:48:22 被**另一次**构建重写（三份产物 mtime 全部前移），按规则 #12 判定**作废**，随即终止该 job。
+终止时的部分输出（仅供追溯，**不作为证据**）：
+```text
+Running 68 tests using 1 worker
+  ok 42 … routing E2-d / ok 43 E2-e / ok 44 E6-a / ok 45 E6-b / ok 46 E6-c / ok 47 smoke E0
+（已请求取消；此后未再重跑 —— 所有者已下令收工，且全量不在本卡验收范围内）
+```
+
+## 8. item 2 评估：`library-config` 对不存在的 `GEMMA_LIB_ROOT` —— **未改一行**
+
+⚠️ 与任务前提有出入，如实更正：**它不是"不做存在性校验"**，而是"**校验了，但只记 warning，且没人显示**"。
+
+事实链（file:line）：
+1. `main/library-config.ts:313-319`：`GEMMA_LIB_ROOT` 非空 ⇒ 直接当库（不查存在性）。
+2. `main/library-config.ts:394-399`：解析完之后**逐个** `fs.existsSync(l.root)`，不存在就 `warnings.push("库根不存在：…（盘符变了或盘未挂载？）")`。
+3. `main/index.ts:370` 把它写进日志 `[cfg][warn]`；`main/index.ts:604` 又把 `warnings` 原样返回给渲染层。
+4. 但**用户看不到**：`renderer/src/hooks/useLibraryConfig.ts:65-67` 只 `console.log` 一句"· N 条警告"；
+   `renderer/src/pages/FirstRunWizard.tsx:86-88` 会渲染 warnings，**但向导只在"一个库都没有"时出现** —— 恰是本例不走的分支；
+   `renderer/src/pages/DiagnosticsPage.tsx:102,156-172` 只用 `resolveLibrary(configData)` 显示当前库根，**不渲染 warnings**。
+⇒ **"静默当有库"发生在判定层（`utils/gate.ts:34-35`）与显示层，不在解析层。**
+
+改动的**影响面**（先知道再决定）：`apps/desktop/e2e/health.spec.mjs:197` **故意**用 `GEMMA_LIB_ROOT: "X:\\fake"`（不存在）来进入"有库"分支跑它的装桩场景 —— 一旦"库根不存在 ⇒ 不算库"，这条 spec 会掉进首启向导而失败；`library-config.ts:14` 也记着"仓里 7 个守卫/tools 都用这个惯例"。
+
+我的建议（**低风险优先，等你裁定；本卡一行未改**）：
+- ✅ **A（推荐）只改"显示"**：在应用外壳把 `warnings` 露出来（例如侧栏"当前图库"旁一行，或诊断页加一格）。语义不变、不碰 gate、不动 health.spec。
+- ❌ **B 改 `decideGate`（不存在 ⇒ 判成没库）**：用户可能只是移动盘没插 —— 那会把他的库注册降级成首启向导，并直接打破 health.spec 的装桩前提。属产品决策。
+- ❌ **C 在 `library-config` 里拒绝**：同 B 的破坏面，且与 `library-config.ts:394` 现有注释"如实报，但不在这里判失败"冲突。
+
+## 9. 改动清单 · 校验 · 回滚
+
+**新增**：`apps/desktop/e2e/fixtures/lib-mini/`（7 个文件）
+```
+CR/CR-201.png   (真 PNG 1×1)      CR/CR-201.zip   (真 ZIP, stored)
+CR/CR-202.jpg   (真 JPEG 1×1)     VR/VR-101.jpg   (真 JPEG 1×1)
+VR/VR-101.zip   (真 ZIP, stored)  VR/VR-102.jpg   (真 JPEG 1×1)
+manifest.json
+```
+图片用**应用自己的解码器**（sharp）验过可解码：`sharp metadata()` ⇒ `jpeg 1x1` ×3 · `png 1x1` ×1。
+
+**修改**：
+- `apps/desktop/e2e/helpers/app.mjs`：`+import { IMG_EXT }`（复用引擎唯一扩展名表，P1）· `+MIN_FIXTURE_IMAGES=3` · `+countFixtureImages()` · `launchWithLibrary()` 开头加硬失败守卫。
+- `apps/desktop/e2e/gate.spec.mjs`：`+import fs`；E1-c 增加"库根在磁盘上真的存在"断言。
+- `reports/2026-10-15-wave3/43.txt`（本文件；**任务书指定路径，但越出我的写入范围**，特此声明）。
+
+**回滚**：删 `apps/desktop/e2e/fixtures/lib-mini/`；`helpers/app.mjs` 与 `gate.spec.mjs` 让 Lead 从版本库 HEAD 取回（本轮改动**未提交**）。
+全程**未跑任何 git 命令**；临时物都在 `data/_t43/`（含各轮原始日志与 out/ 指纹），可随时删。
+
+## 10. 未决 / 待裁定
+
+1. **lib-mini 是否入库**：我按 `fixtures/lib-a` 的先例当作"该入库"（否则 CI/别人的机器上又是空库）。若所有者不想入库，替代方案是改指 `fixtures/lib-a` + 改 E1-c 的期望串（代价见 §1）。
+2. **`MIN_FIXTURE_IMAGES = 3` 是我选的口径**（当前 4 张）。要更严（例如要求 ≥1 组配对）请给指令。
+3. **全量 e2e 无干净结果**（§7.2）：受影响的那 27 条有干净的前后对照；全量需要在一次**冻结 out/** 的窗口里重跑（≈8 分钟），我按所有者"收工"指令没有重跑。
+4. **item 2 一行未改**，等 §8 的裁定（A/B/C）。

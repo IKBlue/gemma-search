@@ -17,10 +17,33 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { IMG_EXT } from '../../../../packages/engine/src/fingerprint.ts'
+
 import { launchApp } from './launch.mjs'
 
 /** 夹具库（**不是**本机真实库 —— E2E 不该依赖 `G:\model`） */
 export const FIXTURE_LIB = fileURLToPath(new URL('../fixtures/lib-mini', import.meta.url))
+
+/**
+ * 夹具库里**至少**要有几张图，才算「有库」场景成立。
+ *
+ * 为什么这条必须存在（T-43 / F-2）：夹具目录不存在时，过去 `launchWithLibrary()` 照样
+ * 把 `GEMMA_LIB_ROOT` 指过去、界面照样进主界面、这批 spec **照样全绿** —— 「有库」场景
+ * 退化成了空库而没有任何人知道。所以「夹具有几张图」必须可断言。
+ */
+export const MIN_FIXTURE_IMAGES = 3
+
+/** 递归数夹具库里的图片（扩展名判据用引擎的 `IMG_EXT` —— 不留第二份扩展名列表，P1） */
+function countFixtureImages(root) {
+  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) return 0
+  let n = 0
+  for (const ent of fs.readdirSync(root, { withFileTypes: true })) {
+    const p = path.join(root, ent.name)
+    if (ent.isDirectory()) n += countFixtureImages(p)
+    else if (IMG_EXT.has(path.extname(ent.name).toLowerCase())) n += 1
+  }
+  return n
+}
 
 /** 建一个临时目录（调用方负责在 finally 里删） */
 function tmpDir(tag) {
@@ -76,6 +99,21 @@ export async function launchWithoutLibrary() {
  * 用 `GEMMA_LIB_ROOT` 指到**夹具目录**（第 ① 条），不依赖本机真实库。
  */
 export async function launchWithLibrary() {
+  // ⚠️ 2026-10-15（T-43 / F-2）：夹具目录**必须真的存在且有图**，否则本函数会静默把
+  //    `GEMMA_LIB_ROOT` 指向一个不存在的路径 —— 而 `library-config` 对不存在只是**一条 warning**，
+  //    `decideGate()`（utils/gate.ts:34）又只看 `libraries.length` ⇒ 界面照样进主界面，
+  //    这批 spec **在「空库」上跑还是全绿**。实测（2026-10-15）：FIXTURE_LIB 曾指向
+  //    `e2e/fixtures/lib-mini`（当时不存在），27 条 spec 25 passed / 2 failed（那 2 条是并发构建
+  //    导致的 electron.launch 超时），且 gate E1-c 把那条**不存在的路径**当「证据」打印出来并通过了。
+  //    ⇒ 在这里**硬失败**：把「夹具没了」变成响亮的红，而不是又一片空的绿。
+  const images = countFixtureImages(FIXTURE_LIB)
+  if (!fs.existsSync(FIXTURE_LIB) || !fs.statSync(FIXTURE_LIB).isDirectory()) {
+    throw new Error(`E2E 夹具库不存在：${FIXTURE_LIB}（「有库」场景会静默退化成空库 ⇒ 断言是空的绿）`)
+  }
+  if (images < MIN_FIXTURE_IMAGES) {
+    throw new Error(`E2E 夹具库 ${FIXTURE_LIB} 里只有 ${images} 张图（要求 ≥ ${MIN_FIXTURE_IMAGES}）—— 空的「有库」场景没有意义`)
+  }
+
   const userData = tmpDir('userdata')
   const dataDir = tmpDir('data')
   const cfgPath = writeBareConfig(userData, dataDir)
