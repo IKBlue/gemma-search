@@ -1,6 +1,7 @@
 # 应用主体（Electron）
 
-> 状态：**现行** · 最后核对：2026-10-12 · 权威范围：`apps/desktop/src/` 的模块职责与就地说明
+> 状态：**现行** · 最后核对：**2026-10-14** · 权威范围：`apps/desktop/src/` 的模块职责与就地说明
+> ⚠️ 本轮校正了 §1 目录树与 §6 的 4 条过期欠账（typecheck / 技术栈 / D2 / F-01 —— 后两者**已修**）；当前事实以 [`docs/PROJECT-INFO.md`](../../../docs/PROJECT-INFO.md) 为准
 >
 > 位置变更：本文原在 `src/README.md`，2026-10-12 的 monorepo 重构（`docs/MIGRATION-PLAN.md`）
 > 把 `src/` 整体搬到了 `apps/desktop/src/`。**内容已按新布局校正**。
@@ -14,15 +15,25 @@ apps/desktop/src/
 ├── main/             主进程（Node 环境）
 │   ├── index.mjs       组装引擎 · 只开 engine:invoke/engine:event 两条 IPC · thumb:// 协议 · 窗口姿态
 │   ├── encoder.mjs     编码器端口（ONNX + WebGPU，BMP 回退）—— 引擎只声明"要一个能编码的端口"
+│   ├── ports.mjs       注入引擎的能力端口（shell.showItemInFolder，F-01）
+│   ├── library-config.mjs 库根 / 取件目录四路解析 + userData 注册表
+│   ├── thumb-url.mjs   thumb:// 形状解析 + 尺寸白名单 + 失败状态码映射
+│   ├── window-security.mjs 来源判定 / 新窗口 / 导航三个决策
 │   └── log.mjs         日志（**必须写文件**，见 §3）+ 仓库根探测（标记式，源码态/构建态通吃）
 ├── preload/index.js    白名单桥：只暴露 invoke / onEvent / platform（**不暴露 ipcRenderer**）
 ├── renderer/           渲染进程（沙箱）
 │   ├── index.html      CSP + 挂载点 #root（DOM 结构由 React 生成）
 │   ├── src/main.jsx    React 入口（挂载 + 加载令牌与样式）
 │   ├── src/renderer.css 界面样式（**只消费 `var(--token)`**，不写死颜色）
-│   ├── src/App.jsx     检索页入口（当前只有 `<SearchPage />`）
-│   ├── src/pages/      页面 · src/search/ 检索相关组件 · src/layout/ 外壳 · src/hooks/ 状态
-│   └── src/ui/         10 个自研通用组件
+│   ├── src/App.jsx     应用根：只挂 `<LibraryGate />`（有库进路由，无库进首启向导）
+│   ├── src/adapter/    全应用**唯一** `window.api` 入口（解包信封、永不抛、userMessage 恒非空）
+│   ├── src/store/      Zustand：search.js（检索 + 取件确认状态机）· tasks.js（进度事件归约，纯函数）
+│   ├── src/router/     paths.js（路径与页面名唯一来源）· index.jsx（组件映射 + 启动期断言）
+│   ├── src/hooks/      useEngine（invoke / 事件订阅 / indexStatus）· useLibraryConfig · useToast
+│   ├── src/utils/      gate · index-state · item-actions · format · useDocumentTitle
+│   ├── src/pages/      6 个页面：LibraryGate · FirstRunWizard · SearchPage · ItemPage · TasksPage · ActivityPage
+│   ├── src/styles/     tailwind.css（`@theme inline` 只映射令牌，不复制值）
+│   └── src/ui/         12 个自研通用组件（含 ConfirmDialog · cn.js）
 └── shared/ipc.ts    IPC 契约唯一来源（zod 白名单 + 方法名）—— 主进程与渲染进程共用
 ```
 
@@ -113,20 +124,20 @@ F12 可开 DevTools（生产态也保留，理由见 `docs/spec/SPEC-security.md
 
 | # | 事项 | 现状 | 何时 |
 |---|---|---|---|
-| 1 | `npm run typecheck` | **刻意没有这个脚本**：迁移期是普通 JS/JSX，开 `checkJs` 会报 **356 条**错误（其中 node 侧 230；`noImplicitAny` 家族 197）。撒 `any` 只是把红灯涂绿。tsconfig 已写好，转 TS 时接上 | TS 迁移（分两步：先契约层，再渲染层热点） |
-| 2 | 技术栈 | 实际是 **JS/JSX + 手写 CSS + 自研 `ui/`**；**Tailwind / shadcn/ui / zustand / Radix / Lucide / react-virtual 均未接入**（实测 0 import）。文档原先承诺的那一套**已按实际撤回**，见 `docs/design/DESIGN-tokens.md` §11「已否决」 | — |
+| 1 | `npm run typecheck` | ✅ **已有脚本（T1，2026-10-13），EXIT=0** —— 但**只覆盖 `.ts`**（唯一有内容的来源是 `src/shared/ipc.ts`；两个 tsconfig 的 `checkJs` 仍为 `false`）。⇒ **不得声称"全局类型检查通过"**；打开 `checkJs` 的真实规模是渲染层 148 错 / 主进程侧 472 错 | 覆盖 `.js/.jsx/.mjs` 是 T2–T4 之后的更大工程（**不是漏了脚本**） |
+| 2 | 技术栈 | ✅ **T1–T5 已落地（2026-10-13）**：**Tailwind** 生成层（`styles/tailwind.css` + `@tailwindcss/vite`）· **Zustand**（`store/search.js`）· **React Router 7**（hash 路由 4 条）· **Radix**（AlertDialog 确认框 · Slot 的 `asChild`）· `clsx`+`tailwind-merge` 收口为 `ui/cn.js`。**Lucide / react-virtual 已从依赖中删除**（T4 依赖清账：零 import 19 → 0）；仍留在手写 CSS 的是 114 条旧规则，逐族迁移中。全文见 `docs/PROJECT-INFO.md` | 剩余手写规则逐族迁 Tailwind |
 | 3 | 打包（asar / 原生 `.node` / 图标） | `electron-builder.yml` 只保证形状；`asarUnpack` 未按实测补；图标仍是脚手架默认 | P6 |
 | 4 | 打包态 `data/` 落在 asar 内 | `log.mjs` 会**打印警告**而不是假装没事；需改 `app.getPath('userData')` | P6 |
 | 5 | `app/` 旧外壳 | 已归档到 `docs/archive/legacy/app-shell-20261010/`；`start:legacy` 脚本已删（理由见 §2） | — |
 | 6 | CSP 只设了 `meta`，没设响应头 | `docs/spec/SPEC-security.md` §5 要求两者都设；打包态是 `file://`，`onHeadersReceived` 根本不触发，所以不能只在 dev 加个假的 | P6 定方案 |
-| 7 | **库根配置缺口（D2）** | 主进程仍从 `config.json` / `GEMMA_CONFIG` 读库根，而**该文件已不在仓库里**；找不到时静默用空库 → 开箱即得 `LIB_NOT_FOUND`。**未修** | 见 `AGENTS.md` §7.2 |
-| 8 | **`reveal` 未接线（F-01）** | 主进程**从未注入 `shell` 端口**，引擎在无 `shell` 时仍返回 `ok({revealed:true})`（静默假成功）。要求见 `docs/spec/CONTRACT-engine-v1.md` §2.4 | 见 `AGENTS.md` §7.2 |
+| 7 | ~~**库根配置缺口（D2）**~~ | ✅ **已修（2026-10-12）**：库按**四条优先级**解析（`GEMMA_LIB_ROOT` → `userData/library-registry.json` → `config.json` → **已有索引自举**）⇒ 有索引即零配置可用；无库时界面走**首启向导**。实现 `main/library-config.mjs`，测试 `apps/desktop/tests/library-config.test.mjs`（14 条） | — |
+| 8 | ~~**`reveal` 未接线（F-01）**~~ | ✅ **已修（2026-10-12）**：`main/ports.mjs` 注入 `shell.showItemInFolder`；引擎在端口缺失/形状不对时返回 **`PORT_MISSING`**，绝不 `ok`。⚠️ 能力边界：`showItemInFolder` 返回 void、不报失败 ⇒ 文案只能写「已请求…（系统未回报结果）」。见 `docs/spec/CONTRACT-engine-v1.md` §2.4 | — |
 
 ## 7. 仍未验证的（**不声称可用**）
 
 - [ ] 冷启动 ≤5 s（**未计时**）
 - [ ] 打包态（asar）内的 WebGPU 与真实 `thumb://` 取图（P6）
-- [ ] **本次 monorepo 重构后的 Electron 实跑**（重构只改路径与构建配置；§5 的证据采于重构之前）
+- [x] **本次 monorepo 重构后的 Electron 实跑** —— ✅ 2026-10-14：`npm run e2e` **62 passed**（真启动 Electron；含出窗、路由、窗口安全、样式令牌、确认框、模拟模式四页）
 - [x] 产品态（`file://`）能出窗 —— 2026-10-10 实跑
 - [x] 渲染层是 React 并已挂载 —— 2026-10-10 实跑
 - [x] WebGPU 在 Electron 内能起来 —— 2026-10-10 实跑

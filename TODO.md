@@ -84,9 +84,9 @@
 
 **目标栈**：Electron · React · **TypeScript** · **shadcn/ui** · **Tailwind CSS** · **Zustand** · **React Router**
 
-**实测现状**（`grep` + `package.json`）：
+**迁移前实测现状**（2026-10-13 的 `grep` + `package.json`）—— **这是历史记录，别读成现状**：
 
-| 项 | 现状 |
+| 项 | 迁移前现状 |
 |---|---|
 | Electron · React | ✅ 已在用（React 是**普通 JS/JSX，不是 TS**） |
 | TypeScript | ⚠️ `typescript ^7.0.2` 已装，**渲染层/主进程全是 `.js`/`.jsx`/`.mjs`**；两个 tsconfig 的 `checkJs` **都关着** |
@@ -95,9 +95,13 @@
 | Zustand | ⚠️ `zustand ^5.0.15` 已装，**零 import**（状态现为本地 hooks） |
 | React Router | ❌ **未安装**（7 项里唯一要新增依赖的） |
 
-**⚠️ `npx tsc --noEmit` 目前是「假绿」**（EXIT=0 / 0 错误，因为 `checkJs` 关着）。
+> **现状（2026-10-14）**：**T1–T5 已全部完成** —— 见下方逐条完成记录。一句话版：Tailwind 生成层已接线 ·
+> Zustand 与 React Router 真接入 · `cn()` 收口 · 依赖清账（"已装零 import" 19 → 0，`lucide-react` / `@tanstack/react-virtual` **已删**）·
+> `npm run typecheck` 门禁存在且 EXIT=0（**只覆盖 `.ts`**）。⇒ 下表只作**迁移前的基线**保留。
+
+**⚠️ 关于类型门禁（迁移期的结论，仍然成立）**：`npx tsc --noEmit` 曾因 `checkJs` 关着而**「假绿」**（EXIT=0 / 0 错误）。
 临时打开 `checkJs` 后的**真实规模**：渲染层 **148** 错 · 主进程侧（含 `packages/engine/src` + `tools/`）**472** 错。
-⇒ **在 T1 完成前，不得声称"类型检查通过"。**
+⇒ **门禁只覆盖 `.ts`，永远不得声称"全局类型检查通过"。**
 
 **已拆成串行任务**（顺序不可乱；因为 `package.json` 与 `renderer/` 是共享写入面）：
 
@@ -318,7 +322,7 @@
 | B-2-2 | **D8 多库注册表未持久化** | 只有「从配置派生单库」（`packages/engine/src/library.mjs`）；真正的多库注册表是 **P5**，**无任何持久化** | ☐ 未开工 |
 | B-2-3 | **未实现的契约方法** | 现在**只有一处清单**：`packages/engine/src/engine.mjs` 的 **`UNIMPLEMENTED_METHODS`** = `ingest` · `mutate` · `transactions` · `indexStart` · `indexCancel` · `indexResume`（主进程直接 import，统一返回「这个功能还没做好。」）。契约形状已冻结 → `docs/spec/CONTRACT-engine-v1.md` §2.0/§2.12。<br>⚠️ **注意方法数从"四个"变成了"六个"**：P3d 实现过程中补了 `transactions`（契约 §2.11）与 `indexResume` 的白名单登记 —— 它们**在此之前连"被拒绝"都算不上**（`indexResume` 会被当成"未登记的方法"）。 | ☐ 未开工（P4/P5） |
 | B-2-4 | ~~**P3c / P3d 两个页面**~~ | ✅ **已完成（2026-10-13）**：`pages/ItemPage.jsx`（P3c）· `pages/TasksPage.jsx` + `pages/ActivityPage.jsx`（P3d）。<br>**前置**：契约 §8 的**模拟模式**此前完全缺失 ⇒ P3c/P3d 的验收本不可复跑，同日补齐（`fixtures/sample-index.json` + `fake.mjs` + `GEMMA_FAKE=1`）。<br>**证据**：E2E **E8**(6) + **E9**(6) + **E10**(6) + **E11**(6)；单测 `item-actions`(10) · `task-store`(13) · 引擎 `fake`(22)。<br>⚠️ **如实标注两处未验**：① 「取消在边界生效」与「ETA 误差 <30%」是在**模拟模式**下验的，真实 `indexStart` 未接线；② 详情页的「重新编码这一条」「替换预览图」两个按钮**契约里没有对应方法** ⇒ 禁用并写明原因（不是坏掉）。 | ☑ 已完成 |
-| B-2-5 | **未接线的依赖** | `@tanstack/react-virtual`（浏览整库 3594 条时需要）· `lucide-react` 等 —— 见 B-1 的"依赖清账" | ☐ 随 `task-20` |
+| B-2-5 | **未做的虚拟滚动（不是"未接线的依赖"）** | ⚠️ **原写「`@tanstack/react-virtual` / `lucide-react` 等未接线」已过期**：T4 依赖清账时二者因**零 import 被删除**（见 B-1），已不在 `package.json` 里。**真正缺的是功能**：浏览整库 3594 条需要虚拟滚动，当前 `search/Gallery.jsx` 未实现 | ☐ 未开工（原状态写「随 `task-20`」，而 task-20 已完成 ⇒ **指针已过期，本轮更正**） |
 | B-2-6 | **P3c/P3d 用到的三条新契约面**（2026-10-13 新增，**均已进契约文档**） | ① `itemPaths`（§2.2a，只读；P3c 的"两条绝对路径"）② `transactions`（§2.11，只读；操作记录的数据源，依据 `SPEC-transactions.md:229`）③ `mutate` 的 `uid` 对 `undo` 放宽为可选（§2.7）。<br>三条都是 **§9.1 口径的兼容改动**（新增 / 放宽）。⚠️ **真实模式实现仍未接线**（除 `itemPaths`：它已真实现）。 | ☐ 实现待 P4/P5 |
 
 ### B-3 未验证的能力（**不得声称可用**）
@@ -463,7 +467,7 @@ error during build: Error: spawn EPERM
 |---|---|---|
 | ~~B-6-1~~ | ~~**独立 Agent 复核（宪章 §0 硬要求）**~~ **✅ 已取消（2026-10-14 所有者指令）** | 该要求已从 `AGENTS.md` §0 **移除** ⇒ 本项**不再适用**（原记录：本轮发起后被取消、未做）。历史文档仍会提到它 —— 见 `AGENTS.md` §0 的说明 |
 | B-6-2 | ✅ **审查产物与改动已入库** | 4 个审查产物（`违规的UI.md` · `docs/audit/UIUX-APPLE-STYLE-AUDIT.md` · `docs/design/UI-KIT.md` · `docs/design/ui-kit/{build.mjs,kit-data.json}`）与全部改动**已随本次提交入库并推送**（见 `git log`）。⚠️ `docs/design/ui-kit/index.html`（1.2 MB 派生物）**按设计不入库** —— `.gitignore` 有理由，且已实测可由 `node docs/design/ui-kit/build.mjs` 逐字节重建 |
-| B-6-3 | **V-04 未核对** | `data-tone` 是否在界面输出、CSS 是否有对应规则 —— 🔸 **本轮没查**，别当成已修 |
+| B-6-3 | ✅ **V-04 已核对（2026-10-14）—— 结论：未修** | `data-tone` **确实输出**（全仓唯一一处：`pages/ItemPage.jsx:55`，与 `data-state` 写同一行 `<span className="tag" …>` 上）；但 **CSS 里没有任何 `[data-tone]` / `[data-state]` 选择器** —— `renderer.css` 只有 `.tone-*` 前景色（:141-143）与 `.tag.VR/.CR/.CRVR` 分类色（:277-279）。⇒ 索引状态四档**仍只靠文字区分**，V-04 的原始问题（四档徽标颜色相同）**未被修复**。修法：给 `[data-state]` 补四档规则（或复用 `.tone-*`）并加断言 | ☐ 未修（本轮只做核对，**别当成已修**） |
 | B-6-4 | **审计 P1/P2 的其余条目** | V-09 · V-10 · V-11 · V-12 · V-13 · V-14 · V-18–V-27 · V-29–V-39 · **V-41** —— 逐条见仓库根台账与报告 §13 |
 | B-6-5 | **V-41 刻意不做成断言** | 审计把它归 P2 且写明"多为**登记决定**"；做成断言只会逼出"关掉"或"堆白名单"（本仓库反复栽过）。这是**决定**，不是漏了 |
 | B-6-6 | **审计 §14 的未覆盖项** | 打包态与冷启动 · 真实检索质量与缩略图内容 · **读屏实机**（结论基于 `aria-*` 存在性，**不是**读屏实测）· 系统级偏好真窗口 · 高 DPI —— **均未验证，不得声称已验** |
@@ -493,7 +497,7 @@ error during build: Error: spawn EPERM
 | **B-7-6** | **契约 §2.0 有一行是错的**：`CONTRACT-engine-v1.md:105` 把 `thumbPath` 列为「✅ 已实现」，而全仓代码**搜不到它** | 全仓 grep：仅本文档与 `docs/archive/`；实际走 `thumb://` 协议（`main/index.mjs` 的 `protocol.handle('thumb')` + `PhotoCard.jsx:34`） | ✅ §2.0 移出「已实现」行 · §2.3 加「已被协议取代」标注 · §4 表同步 |
 | **B-7-7** | **V-43 / V-44 已修但没进台账**（台账自称「唯一详表」，原审查 42 条） | `TODO.md` B-6 表 + `tokens.css:57` · `renderer.css:309` · `contrast.test.mjs:113-120` | ✅ 台账补 **V-43 / V-44**（含判据 / 复现 / 验收）；统计 **42 → 44 条**（Medium 22 → 24）；原审计报告**保持 42 条冻结快照**并在 `PROJECT-INFO.md` 注明 |
 | **B-7-8** | **文档引用解不开**：76 份 `.md` / 204 条内部链接里，**56 条**按文件相对解算失败（其中 **8 条**两种口径都死，全在 `docs/audit/`）—— 根因是「根相对」写法不带前导 `/` 在 GitHub 上点不开 | 死链自检（口径见下） | ✅ 56 条全部改为可解算形式（带前导 `/` 的仓库根相对）；`AGENTS.md` §6.1 写明形式与**自检口径**。**修后实测死链 0** |
-| **B-7-9** | 就地 README 过期：`apps/desktop/src/README.md:116-117`「刻意没有 typecheck 脚本 / Tailwind·shadcn·zustand·Radix 均未接入」· `renderer/README.md:31` 仍指已删除的 `hooks/useSearch.js` | `package.json` · `store/search.js` | ☐ **未修**（`PROJECT-INFO.md` 附录 A 的 A5/A6 已登记；本轮范围外，**别当成已修**） |
+| **B-7-9** | 就地 README 过期：`apps/desktop/src/README.md` 的 §6 欠账表（typecheck「刻意没有」· 技术栈「均未接入」· **D2 未修** · **F-01 未修**）与 `renderer/README.md` 的组件树（仍指已删除的 `hooks/useSearch.js` 与 `ui/cx`，App.jsx 写「当前只有检索一页」） | `package.json` · `store/search.js` · `router/paths.js` | ✅ **已修（2026-10-14 补）**：`src/README.md` 更正 §1 目录树 + §6 四条（typecheck / 技术栈 / **D2 已修** / **F-01 已修**）+ §7 重构后实跑（e2e **62 passed**）；`renderer/README.md` 组件树按现状重写（adapter · store · router · utils · styles · 6 个页面） |
 | **B-7-10** | `PROJECT-INFO.md` 自己的两处小错：索引构建写「11 个 `.mjs`」（实 12）· 头部写「工作树 `ac97978`，`git status` 干净」 | 静态计数 · `git status` | ✅ 已改（12 个；头部改为 `082e0d6`） |
 
 **死链自检口径**（只读、无依赖；已写进 `AGENTS.md` §6.1）：遍历所有 `.md`，对每条 `](…)` 先按**文件相对**解算、失败再按**仓库根**（前导 `/`）解算，两处都不存在即死链。

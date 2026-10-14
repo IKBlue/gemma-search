@@ -23,16 +23,26 @@ apps/desktop/src/renderer/src/renderer.css     渲染层样式（只消费 var(-
 
 ```
 src/
-├── main.jsx                    入口：挂载 + 按序引入样式
-├── App.jsx                     应用根（当前只有检索一页）
-├── renderer.css                渲染层追加样式
+├── main.jsx                    入口：挂载 + 按序引入 tokens.css → tailwind.css → renderer.css
+├── App.jsx                     应用根：只挂 <LibraryGate />（有库 ⇒ AppShell + 路由；无库 ⇒ 首启向导）
+├── renderer.css                手写层（114 条规则，逐族迁 Tailwind）
+├── styles/tailwind.css         生成层入口：@theme inline 只映射令牌（不复制值，不引 preflight）
+├── adapter/api.js              ★ 全应用唯一 window.api 入口（解包信封 · userMessage 恒非空 · 永不抛 · 不 import React）
+├── store/                      Zustand（vanilla create ⇒ 可在纯 Node 里单测）
+│   ├── search.js               检索状态 + 取件确认状态机（requestCollect / cancelCollect / confirmCollect）
+│   └── tasks.js                进度事件归约 reduceEvent（纯函数）+ PHASES / progressPercent / etaText
+├── router/                     路径与页面名的唯一来源
+│   ├── paths.js                纯数据（PATHS / LABELS / itemPath），无 JSX ⇒ node:test 能用 matchRoutes() 真解算
+│   └── index.jsx               组件映射（4 条 hash 路由）
 ├── hooks/                      状态与 IPC（与界面无关）
-│   ├── useEngine.js                window.api 唯一入口 · indexStatus · 事件订阅
-│   ├── useSearch.js                检索状态机（参数/分类/排序/IPC/错误/提示/console 证据）
-│   └── useToast.js                 轻提示
+│   ├── useEngine.js                invoke / 事件订阅 / indexStatus
+│   ├── useLibraryConfig.js         库从哪来 + 首启向导的 pickDir / addLibrary
+│   └── useToast.js                 轻提示（错误 toast 不自动消失）
+├── utils/                      领域判断（不写进 .jsx —— .jsx 在 node:test 里加载不了）
+│   ├── gate.js · index-state.js · item-actions.js · format.js · useDocumentTitle.js
 ├── ui/                         与业务无关的原语
 │   ├── Button · Chip · Tag · Score · SearchBox · Field · Progress
-│   ├── Metric · Toast · cx
+│   ├── Metric · Toast · ConfirmDialog（Radix AlertDialog）· cn.js（twMerge(clsx(…)) —— 唯一一份 class 合并）
 ├── layout/                     外壳与容器
 │   ├── AppShell(.app) · Sidebar(.sidebar + Brand/Nav/NavItem/NavLabel/SideNote)
 │   ├── Main(.main) · Topbar(.topbar) · PageHead(.page-head)
@@ -40,7 +50,12 @@ src/
 │   ├── SearchPanel(.panel) · MetricsRow(.metrics) · Gallery(.gallery)
 │   ├── PhotoCard(.photo-card) · SearchSidebar(侧栏内容)
 └── pages/
-    └── SearchPage.jsx          把上面三者缝成一页
+    ├── LibraryGate.jsx         有库 / 无库 / 加载 三态（判定抽在 utils/gate.js ⇒ 可单测）
+    ├── FirstRunWizard.jsx      无库时选目录（UI 只吃 props）
+    ├── SearchPage.jsx          检索页（把 search/ 的组件缝成一页）
+    ├── ItemPage.jsx            图片详情（P3c）
+    ├── TasksPage.jsx           索引任务（P3d）
+    └── ActivityPage.jsx        操作记录（P3d）
 ```
 
 ## 界面上**没编造数据**
