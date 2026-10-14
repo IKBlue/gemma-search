@@ -1,0 +1,142 @@
+================================================================================
+T-19 证据 · 性能基线（真机 · 真库 3594 + 真索引 768 维 + 真模型，**非 fake / 非打包态**）
+任务板 id: task-32   执行: db-worker   日期: 2026-10-15
+测量时间：本机 2026-10-14 07:29 与 07:30（UTC 时间戳，日志里就是这两个）
+===============================================================================
+
+【结论表（两次连续运行，数字几乎重合 ⇒ 可当基线）】
+| 指标 | run 1 | run 2 |
+|---|---|---|
+| 冷启动 · launch() 返回（harness 口径） | 395 ms | 410 ms |
+| 冷启动 · 首窗口 + domcontentloaded | 688 ms | 663 ms |
+| 冷启动 · 主界面 #query 可见 | 963 ms | 876 ms |
+| 冷启动 · app ready（应用日志口径） | 62 ms | 61 ms |
+| 冷启动 · 窗口已创建 | 160 ms | 196 ms |
+| 冷启动 · 引擎阶段完成 | 136 ms | 171 ms |
+| 冷启动 · **库就绪**（indexStatus ok） | 769 ms | 682 ms |
+| 冷启动 · **编码器就绪**（载入完成） | 2797 ms | 2730 ms |
+| 文本检索 · 首次（含模型载入） | 2056 ms | 2075 ms |
+| 文本检索 · 稳态 P50 / P95 / max | 52.7 / 61.9 / 78.0 ms | 51.0 / 68.5 / 74.1 ms |
+| 图像检索 · 首次 | 1496 ms | 1473 ms |
+| 图像检索 · 稳态 P50 / P95 / max | 1480.1 / 1535.8 / 1548.3 ms | 1486.9 / 1541.3 / 1549.6 ms |
+| 内存峰值 · 主进程 Browser | 2394956 KB ≈ **2.28 GiB** | 2397432 KB ≈ 2.29 GiB |
+| 内存峰值 · 渲染进程 Tab | 105972 KB ≈ **103 MiB** | 105736 KB ≈ 103 MiB |
+| 内存峰值 · GPU | 148844 KB ≈ 145 MiB | 148620 KB ≈ 145 MiB |
+| 内存峰值 · Utility | 52984 KB ≈ 52 MiB | 52448 KB ≈ 51 MiB |
+| 渲染进程 JS 堆（used） | 9.5 MB | 9.5 MB |
+| 编码器 | device=cpu · effectiveProvider=**cpu** · 自报载入 1.8s | 同左 |
+| pageerror | 0 | 0 |
+
+【测的环境（每条结论都只在这个环境下成立）】
+· 硬件：11th Gen Intel Core i7-11700K @ 3.60GHz · 16 逻辑核 · 55.8 GB RAM · win32 x64。
+· 模式：**真实模式**（GEMMA_FAKE 未设）· 设备 **CPU**（config.device=cpu；本轮**没有**测 webgpu/Vulkan）。
+· 库：data/libraries/L1 的**仓库内副本**（3594 条 · 768 维 · 索引 11042105 字节）· 非打包态（跑 out/ 产物）。
+· 模型：model-cache/onnx/embeddinggemma-2/daa72c…/fp32（meta.json 里的 revision）。
+· 并发：测量前后确认**没有别的重活**（队友全部 inactive；测量前后各查一次进程表）。
+
+【取数方法（别人可复跑）】
+1) 冷启动分段：**读应用自己的日志** data/_app.log 的时间戳（log.ts 每次启动会重写该文件 ⇒ 一次一跑）。
+   里程碑行（都能 grep 到）：
+     [..] === gemma-search 启动 ===        ← 日志首行（≈ 进程起：导入 log.ts 即写）
+     [..] app ready
+     [..] 窗口已创建 → out\renderer\index.html   / 启动流程完成（窗口已创建）
+     [..] 引擎阶段完成
+     [..] invoke indexStatus <n>ms → ok     ← **库就绪**
+     [..] 载入完成 1.8s · 请求=cpu · 实际=cpu · 已验证 EP=cpu   ← **编码器就绪**
+   每段 = 该行时间戳 − 首行时间戳（HH:MM:SS.mmm 解析成毫秒）。
+   ⚠️ 口径说明：首行只是"进程起"的**代理**（真实进程创建 → 日志首行之间还有 Electron 引导时间，测不到）；
+      另一条 harness 口径（launch() 返回 / 首窗口 / #query 可见）用 performance.now() 量，两条都列在表里。
+2) 检索延迟：真窗口里通过 preload 桥逐次调用
+     await win.evaluate(() => window.api.invoke('search', { mode:'text', text:'坦克 装甲车', topK:50 }))
+   计时含 **IPC + zod 校验 + 引擎（编码 + 3594×768 点积 + 排序）**；用 performance.now() 前后差。
+   交叉核对：日志里同一次运行的 'invoke search <n>ms → ok' 条数 = 42（1 首次文本 + 20 文本 + 1 首次图像 + 20 图像），
+   与应用日志逐条一致。
+3) 内存：主进程 app.getAppMetrics()（Electron 自带 workingSetSize / **peakWorkingSetSize**）；
+   渲染 JS 堆用 performance.memory。peak 是**进程生命周期峰值**，不是采样曲线。
+4) 一次完整测量脚本：node data/_t19/perf.mjs（工作目录 data/_t19/work，跑完自动清理；本证据的两行就是两次运行）。
+
+【原始输出】
+
+--- run 1（node data/_t19/perf.mjs）
+[perf] .gs.db 就绪：dbCount = 3594
+[perf] 图像检索用的素材 = CR+VR\ID-10083808.jpg · uid = 8a70380a9575
+[perf] harness：launch() 返回 = 395 ms · firstWindow+domcontentloaded = 688 ms
+[perf] harness：主界面（#query）可见 = 963 ms
+[perf] 库就绪（indexStatus healthy）：libs = [{"libId":"L1","indexed":3594,"encoded":3594,"dim":768,"healthy":true,"failed":null}]
+[perf] 首次检索（含编码器载入）= 2056 ms · ok = true · 结果 = 50
+[perf] 文本检索 20 次： {"n":20,"min":49.4,"p50":52.7,"p95":61.9,"max":78,"mean":55.2}
+[perf] 文本检索逐次(ms)： 61.9, 58.8, 61.3, 60.0, 52.6, 50.2, 49.4, 78.0, 54.7, 52.2, 53.9, 49.5, 51.7, 52.7, 53.2, 52.4, 51.7, 51.8, 54.5, 54.0
+[perf] 首次图像检索 = 1496 ms · 结果 = 50
+[perf] 图像检索 20 次： {"n":20,"min":1450.1,"p50":1480.1,"p95":1535.8,"max":1548.3,"mean":1486.5}
+[perf] 内存 metrics = [{"type":"Browser","pid":13056,"workingSetKb":2394952,"peakWorkingSetKb":2394956,"cpuPercent":0},
+  {"type":"GPU","pid":25648,"workingSetKb":132720,"peakWorkingSetKb":148844,"cpuPercent":0},
+  {"type":"Utility","pid":23884,"workingSetKb":52932,"peakWorkingSetKb":52984,"cpuPercent":0},
+  {"type":"Tab","pid":19964,"workingSetKb":105152,"peakWorkingSetKb":105972,"cpuPercent":0}]
+[perf] 渲染进程 JS 堆 = {"jsHeapUsedMb":9.5,"jsHeapTotalMb":9.5}
+[perf]   进程起（日志首行）        0 ms · [07:29:09.219] === gemma-search 启动 ===
+[perf]   app ready            62 ms · [07:29:09.281] app ready
+[perf]   窗口已创建             160 ms · [07:29:09.379] 窗口已创建 → out\renderer\index.html
+[perf]   启动流程完成            162 ms · [07:29:09.381] 启动流程完成（窗口已创建）
+[perf]   引擎阶段完成            136 ms · [07:29:09.355] 引擎阶段完成
+[perf]   库就绪（indexStatus ok） 769 ms · [07:29:09.988] invoke indexStatus 196ms → ok
+[perf]   编码器就绪（载入完成）    2797 ms · [07:29:12.016] 载入完成 1.8s · 请求=cpu · 实际=cpu · 已验证 EP=cpu
+[perf] 编码器相关日志 = [07:29:10.241] resize_compat 已安装（kernel=pil-like…） || [07:29:10.247] 设备决策：请求=cpu · 实际=cpu ·
+  已验证 EP=cpu · 请求 cpu ⇒ 使用 CPU（transformers 的 cpu -> "cpu" 映射；u2 实测只有 CPUExecutionProvider） ||
+  [07:29:12.016] 载入完成 1.8s · 请求=cpu · 实际=cpu · 已验证 EP=cpu
+[perf] invoke 序列 = invoke libraryConfig 2ms → ok || invoke indexStatus 196ms → ok || invoke indexStatus 0ms → ok ||
+  invoke search 2039ms → ok || invoke search 51ms → ok || invoke search 44ms → ok … 共 42 条 invoke search
+[perf] pageerror = []
+
+--- run 2（同一条命令，紧接着再跑一次）
+[perf] harness：launch() 返回 = 410 ms · firstWindow+domcontentloaded = 663 ms · 主界面可见 = 876 ms
+[perf] 首次检索（含编码器载入）= 2075 ms · 结果 = 50
+[perf] 文本检索 20 次： {"n":20,"min":49,"p50":51,"p95":68.5,"max":74.1,"mean":54.8}
+[perf] 文本检索逐次(ms)： 66.6, 60.6, 68.5, 53.9, 52.4, 49.0, 61.3, 74.1, 50.6, 50.2, 49.1, 52.9, 54.3, 49.9, 50.6, 49.2, 49.6, 51.0, 51.5, 50.8
+[perf] 首次图像检索 = 1473 ms · 结果 = 50
+[perf] 图像检索 20 次： {"n":20,"min":1445,"p50":1486.9,"p95":1541.3,"max":1549.6,"mean":1493.3}
+[perf] 内存 metrics（峰值）= Browser 2397432 KB · GPU 148620 KB · Utility 52448 KB · Tab 105736 KB
+[perf]   库就绪 682 ms（invoke indexStatus 122ms → ok）· 编码器就绪 2730 ms（载入完成 1.8s · 已验证 EP=cpu）
+[perf] pageerror = []
+
+【解读（哪些是数字、哪些是解读，分开写）】
+· 数字：**库就绪 < 1 秒**（682–769 ms）；**编码器在第一次检索时才载入**（自进程起 2730–2797 ms，其中模型 1.8s）——
+  所以模型载入**不在启动路径上**（引擎侧是懒加载，见 buildEngine 的注释）。
+· 数字：文本检索稳态 **P50 ≈ 51–53 ms · P95 ≈ 62–69 ms · max ≤ 78 ms**（含 IPC + 文本编码 + 3594×768 点积 + 排序）。
+· 数字：图像检索稳态 **P50 ≈ 1.48 s**，是文本的 **≈28 倍**（视觉塔在 CPU 上跑）。
+  解读：这在 CPU 上是**固有的模态差异**；它对 UX 有直接影响（转圈/取消/进度提示），也是 SPEC §7 阈值要分开写模态的原因。
+  本轮**没有**测 GPU（device=cpu），所以不能据此判断 GPU 下的图像检索。
+· 数字：主进程工作集峰值 **≈2.28–2.29 GiB**（ONNX fp32 双塔 + ORT 运行时 + 11 MB 索引 + Node）。
+  解读：这是**单次运行的单点**，不是泄漏结论 —— 要断言"不泄漏"必须做多次载入/卸载或长时间运行，本轮没做。
+· 数字：渲染进程 ≈103 MiB（JS 堆只用 9.5 MB），GPU 进程 ≈145 MiB，Utility ≈52 MiB。
+
+【**不测**什么（写明留给谁）】
+· **打包态**（安装包 / asar / 程序目录 models/）—— 留给 T-22；本轮跑的是 out/ + node_modules/electron。
+· **别的库规模**（只测了 3594 条 · 768 维）—— 10 万级分块/多库合并的延迟不在本轮。
+· **低端机 / 其他 CPU·GPU** —— 本轮只有这一台 i7-11700K + CPU provider。
+· **GPU（webgpu/Vulkan）路径与 effectiveProvider 的 GPU 分支** —— 未测；日志里那条"设备决策"只覆盖 cpu 分支。
+· **冷盘启动**（文件系统缓存是热的：本机刚跑过多次）—— 表里的冷启动是"应用冷启动"，不是"从冷盘启动"。
+· **内存泄漏/长时间运行** —— 只做了单点峰值，没做重复载入或小时级运行。
+· **缩略图协议的取图延迟**（real thumb:// 生成）—— 本轮没有单独计时（M0 那条 e2e 里能看到它工作）。
+· **并发/多库合并检索**的时间 —— 单库单请求。
+
+【环境说明（哪些是环境、哪些是产品）】
+· 库根用**仓库内副本** data/_t19/...：本会话沙箱把 electron.exe 的写限制在仓库内（TASKS §5）。
+  这是**环境限制**，对延迟量级的影响应当很小（同一块盘，且索引/条目都在本地），但严格说不是"用户的 G:\model"。
+· 检索计时走的是 **preload 桥 + IPC**（renderer↔main），不含 React 渲染与 store 更新 ——
+  它测的是"引擎+传输"，不是"用户看到结果"的端到端（后者可用 E2E 的观感数字，但那是另一条口径）。
+· 图像检索用的素材是一条**真 1×1 JPEG**（编码路径完全真实：解码 → 预处理(seq=140) → 视觉塔 → 768 维），
+  但图像内容不代表真实素材 ⇒ **时延量级可用，不能据此评价图像检索质量**。
+· 每个进程都会打一条 "(node) ExperimentalWarning: SQLite …"（T-03 已判可接受，引用既有证据）。
+
+【未决 / 交接】
+1) SPEC §6/§7 的阈值填表（谁负责：所有者/Lead）—— 本轮的实测值可直接作为 CPU 档的候选阈值；
+   建议**文本与图像分开写**（差 28 倍，合成一个阈值必然误判）。
+2) GPU 档的性能与 effectiveProvider 的 GPU 分支：T-19 的后续或专门任务（需要能起 webgpu 的环境）。
+3) 打包态冷启动：T-22。4) 内存长效行为（泄漏）：需要单独的长跑任务。
+5) 测量脚本是**临时物**（data/_t19/perf.mjs，跑完已按写入范围清理）；若要把"可复跑"固化下来，
+   建议下一手把它搬进 apps/desktop/e2e/ 或 tools/ 并写进任务书（现在它只活在证据里）。
+
+【回滚方式】
+· 本任务**没有改任何产品代码**（零文件修改）：只新增了临时测量脚本 data/_t19/perf.mjs 与本证据文件。
+· 临时物已清理：data/_t19 已删除；data/_esbuild-tmp 是构建/E2E 的 TEMP 落点（data/_* 属 gitignore 的本机临时物）。
+===============================================================================
