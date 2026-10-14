@@ -45,6 +45,18 @@ const rel = (f) => path.relative(RENDERER, f).split(path.sep).join('/')
 const topDir = (f) => rel(f).split('/')[0]
 const read = (f) => fs.readFileSync(f, 'utf8')
 
+/**
+ * `window.api` 的机械判据。
+ *
+ * `\??` 是 2026-10-15 补的：window ?. api（防御式可选链）与 window.api 是同一个违例，
+ * 旧判据漏掉它 ⇒ 有人在 UI 层写 window?.api.invoke(...) 时断言会**静默放行**（注入实测见报告）。
+ */
+const WINDOW_API = /window\s*\??\.\s*api/g
+
+/** 扫描面里的扩展名集合 —— 用来证明 walk() 真的覆盖了全量 TS 迁移后的布局（见 L1/L2/L6 自检） */
+const exts = (files) => new Set(files.map((f) => path.extname(f)))
+const hasExt = (files, e) => exts(files).has(e)
+
 /** 在**代码**里找模式，返回 `文件:行` 列表 */
 function offenders(files, re) {
   const out = []
@@ -57,12 +69,17 @@ function offenders(files, re) {
 test('L1 ⭐ `window.api` 只允许出现在 `adapter/` 里（全应用唯一接触点）', () => {
   const files = allFiles()
   assert.ok(files.length > 0, '扫不到渲染层文件 ⇒ 路径写错了，检查本身失效')
+  // ⚠️ 扫描面自检（2026-10-15 补）：迁移后布局是 .ts/.tsx。若 walk() 的扩展名过滤只覆盖其中一个，
+  //    扫描面**看起来还活着**（另一个扩展名仍有文件）却漏掉大半 ⇒ 断言部分空转。
+  //    这与 styles T2 是同一形态，所以两种扩展名都必须真的出现在扫描面里（注入实测见报告）。
+  assert.ok(hasExt(files, '.ts') && hasExt(files, '.tsx'),
+    `扫描面必须同时含 .ts 与 .tsx，实际只有：${[...exts(files)].sort().join(' ')}`)
 
-  const hits = offenders(files, /window\s*\.\s*api/g)
+  const hits = offenders(files, WINDOW_API)
   const bad = hits.filter((h) => !h.startsWith(ADAPTER_DIR + '/'))
 
   assert.deepEqual(bad, [],
-    `这些地方直接碰了 window.api，必须改走 adapter/api.js：\n    ${bad.join('\n    ')}`)
+    `这些地方直接碰了 window.api，必须改走 adapter/api.ts：\n    ${bad.join('\n    ')}`)
   assert.ok(hits.length > 0, 'Adapter 自己也该有 window.api —— 一处都没有说明扫描失效')
 })
 
@@ -71,8 +88,11 @@ test('L1 ⭐ `window.api` 只允许出现在 `adapter/` 里（全应用唯一接
 test('L2 ⭐ UI 层（pages/layout/ui/search）零 `window.api`', () => {
   const files = allFiles().filter((f) => UI_DIRS.includes(topDir(f)))
   assert.ok(files.length > 0, `UI 层一个文件都扫不到 ⇒ 目录名改了？`)
+  // UI 层全量迁移后是 .tsx（+ 少量 .ts）；两者缺一都说明扫描面失配（否则本断言会部分空转）
+  assert.ok(hasExt(files, '.tsx') && hasExt(files, '.ts'),
+    `UI 层扫描面必须同时含 .tsx 与 .ts，实际只有：${[...exts(files)].sort().join(' ')}`)
 
-  const bad = offenders(files, /window\s*\.\s*api/g)
+  const bad = offenders(files, WINDOW_API)
   assert.deepEqual(bad, [], `UI 层不得直接碰 window.api（它连 Adapter 都不该碰）：\n    ${bad.join('\n    ')}`)
 })
 
@@ -96,7 +116,7 @@ test('L3 ⭐ UI 层不得直接 import Adapter（协议细节归 Operation 层�
 test('L4 Operation 层（hooks/store/utils）零 `window.api`', () => {
   const files = allFiles().filter((f) => OPERATION_DIRS.includes(topDir(f)))
   assert.ok(files.length > 0, 'Operation 层一个文件都扫不到 ⇒ 目录名改了？')
-  const bad = offenders(files, /window\s*\.\s*api/g)
+  const bad = offenders(files, WINDOW_API)
   assert.deepEqual(bad, [], `Operation 层必须经 Adapter，不得自己碰 window.api：\n    ${bad.join('\n    ')}`)
 })
 
@@ -123,15 +143,35 @@ test('L5 Adapter 不 import React（纯传输层，这样才能被 node:test 直
  *   最后这条检查会被人关掉。所以收紧成"运算符必须紧挨着 userMessage"。
  *
  * ✅ 两个方向都断言（见 L6b）：真的兜底要抓到，同行的无关 `||` 要放过。
+ *
+ * ⚠️ **2026-10-15 第二次修正（防"空气断言"）**：旧判据漏掉**括号包住的左侧操作数**，
+ *   而那个形态恰恰是本仓库历史上真实存在的复制写法（adapter/api.ts 头注释原话：
+ *   "各写各的 (r.error && r.error.userMessage) || 默认文案"）。
+ *   实测（注入 pages/SearchPage.tsx，见 reports/2026-10-15-wave3/07a.txt）：
+ *     return (r.error && r.error.userMessage) || 默认文案 ⇒ 旧判据 0 命中、L6 全绿 ——
+ *     防线看着在，实际放行。现在左侧允许"同一行内的一串 )/} 与空白"，
+ *   右侧仍然只允许**紧贴的属性链**（否则会把同行无关的 || 算进来，见 L6b）。
  */
-const USERMSG_FALLBACK = /userMessage\s*(\|\||\?\?)|(\|\||\?\?)\s*[\w.?[\]]*userMessage/g
+const USERMSG_FALLBACK =
+  /\buserMessage\b(?:\s*(?:\|\||\?\?)|[)\]}\t ]*(?:\|\||\?\?))|(?:\|\||\?\?)\s*[\w.?[\]]*userMessage\b/g
 
 test('L6 ⭐ 用户文案兜底只允许在 Adapter 里出现一次（P2 的机械判据）', () => {
   const files = allFiles()
-  const bad = offenders(files, USERMSG_FALLBACK)
-    .filter((h) => !h.startsWith(ADAPTER_DIR + '/'))
+  // 扫描面自检：空集 ⇒ 下面的 deepEqual(bad, []) 恒真（这正是"空气断言"的形态）
+  assert.ok(files.length > 0, '扫不到渲染层文件 ⇒ 路径/扩展名失配，本断言会空转')
+  assert.ok(hasExt(files, '.ts') && hasExt(files, '.tsx'),
+    `扫描面必须同时含 .ts 与 .tsx，实际只有：${[...exts(files)].sort().join(' ')}`)
+
+  const hits = offenders(files, USERMSG_FALLBACK)
+  const bad = hits.filter((h) => !h.startsWith(ADAPTER_DIR + '/'))
   assert.deepEqual(bad, [],
-    `兜底文案（userMessage 的 \`||\` / \`??\` 兜底）只该在 adapter/api.js 里出现一次：\n    ${bad.join('\n    ')}`)
+    `兜底文案（userMessage 的 \`||\` / \`??\` 兜底）只该在 adapter/api.ts 里出现一次：\n    ${bad.join('\n    ')}`)
+
+  // "只有一份"还必须有**存在性**这一半：全仓一处都扫不到 ⇒ 判据与真实代码失配，断言会变成"永远绿"。
+  // 注：这里只断"至少一份且在 Adapter"，**不数 Adapter 内部的条数** —— Adapter 内多一个合法的 || 表达式
+  // 不代表出现了第二份用户可见文案，数条数只会制造假阳性（L6b 整段注释讲的就是假阳性的代价）。
+  assert.ok(hits.length > 0,
+    '全仓找不到任何 userMessage 兜底 ⇒ 判据与代码失配，本断言在空转（必须红）')
 })
 
 test('L6b ⭐⭐ 判据本身要准：真兜底抓到、同行无关的 `||` 放过（否则会逼人不写注释）', () => {
@@ -142,6 +182,12 @@ test('L6b ⭐⭐ 判据本身要准：真兜底抓到、同行无关的 `||` 放
   assert.equal(hits("const m = '默认' || e.userMessage\n"), 1, '反向写法同样是兜底')
   assert.equal(hits("const m = e.userMessage ?? '默认'\n"), 1, '`??` 也是兜底')
   assert.equal(hits("show(res.error.userMessage || res.error.message)\n"), 1, '链式取属性也要抓到')
+  // ⭐ 2026-10-15 补：**括号包住的左侧** —— 历史真实形态，旧判据在这里漏报（注入实测全绿）
+  assert.equal(hits("const m = (r.error && r.error.userMessage) || '默认文案'\n"), 1,
+    '`(…userMessage) || 默认` 正是 adapter/api.ts 头注释里记的那批复制写法')
+  assert.equal(hits("const m = (res.error?.userMessage) ?? '失败'\n"), 1, '可选链 + 括号同样要抓到')
+  assert.equal(hits("const m = ((e.userMessage)) || 'x'\n"), 1, '多重右括号也要抓到')
+  assert.equal(hits("const m = e.userMessage\n  || '默认'\n"), 1, '跨行写法不能被漏掉')
 
   // ② 同行但**无关**的 `||` —— 必须放过（旧判据在这里误报，实测踩过）
   assert.equal(hits('show(r.ok ? `已重试 ${OP_TEXT[tx.op] || tx.op}` : r.error.userMessage, tone)\n'), 0,
@@ -159,9 +205,13 @@ test('L7 ⭐ 检查**能红**：给 UI 层喂一行 window.api，L1/L2 必须报
   // 不真的改磁盘文件：用同一套扫描逻辑在**内存里**跑一遍，证明它会命中。
   // （真·双向验证见回报：往 FirstRunWizard 注入一行 window.api.invoke ⇒ npm test 失败。）
   const injected = `export default function X() {\n  return window.api.invoke('search', {})\n}\n`
-  const hits = findInCode(injected, /window\s*\.\s*api/g)
+  const hits = findInCode(injected, WINDOW_API)
   assert.equal(hits.length, 1, '注入的违例必须被扫到，否则 L1/L2 是空断言')
 
+  // ⭐ 2026-10-15 补：防御式可选链（window?.api）同样是违例 —— 旧判据会漏掉它
+  assert.equal(findInCode("const r = window?.api?.invoke('search', {})\n", WINDOW_API).length, 1,
+    'window?.api 也是违例：UI 层仍然拿得到 bridge')
+
   // 反向：同一行放进注释里就不该命中（否则检查会满屏假阳性，最后被人关掉）
-  assert.equal(findInCode('// 改走 window.api\n', /window\s*\.\s*api/g).length, 0)
+  assert.equal(findInCode('// 改走 window.api\n', WINDOW_API).length, 0)
 })

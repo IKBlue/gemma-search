@@ -37,7 +37,7 @@
 | ☑ **T-05**（**完成 2026-10-14**） | 全量 TypeScript：tsconfig 严格、渲染 `.tsx`、`npm run typecheck` 必绿 | 注入一个类型错误 ⇒ **门禁变红**；还原 ⇒ 绿。✅ 全仓已转：engine 13 · indexer 12 · main/preload 8 · renderer 45（29 `.tsx` + 16 `.ts`），`src` 下 `.mjs/.js` 残留 **0**；四道门禁全绿（`npm test` **314/0/1** · 两个 tsc 工程 EXIT=0 · `build` EXIT=0 · **全量 e2e 62 passed / 7.3 min**）；**类型门禁能红已实测**：注入 `const x: number = 's'` ⇒ `TS2322` + EXIT=1，还原 ⇒ EXIT=0。过程中抓到并修掉一条**真回归**（encoder 漏 `await model.forward`，见证据 `README-encoder-regression.md`）。证据 `reports/2026-10-14-ts-wave1/` | T-01 | 全仓 |
 | **T-06** | Tailwind + shadcn/ui 接入（按需 `npx shadcn@latest add`）；令牌仍只在 `tokens.css`；`cn()` 唯一 | 生成类可用；渲染层零写死色值；**不预装未用到的原语** | T-05 | `renderer/` |
 | **T-07** | 分层断言（Adapter 唯一入口 / UI 零 `window.api` / 文案兜底一份）移植到 TS | 三个断言各自**注入违例能变红** | T-05 | `apps/desktop/tests/` |
-| **T-08** | IPC 契约重列：16 个既有 + 文档类新方法；zod + 信封；preload 暴露面不变 | 未登记方法被拒；契约与 SPEC §5 一致 | T-05 | `shared/ipc.ts` · `main/` |
+| **T-08** | IPC 契约核对：16 个既有方法（**审计结果：10 个已实现 · 6 个是诚实桩**）；zod + 信封；preload 暴露面不变。**文档类新方法归 P7 门控**（F7 没语料就不开工），本任务只做既有 16 个的核对与断言 | 未登记方法被拒（真跑一次）；契约与 SPEC §5 逐条一致；6 个桩的方法名保持「未实现」而不是假装能跑 | T-05 | `shared/ipc.ts` · `main/` |
 | **T-09** | ESLint + Prettier | 一条命令检查全仓；不产生新的门禁噪声 | T-05 | 根配置 |
 | **T-10** | 单实例锁 + 窗口尺寸 / 位置记忆 | 第二次启动不新开窗口且聚焦已有窗口 | T-04 | `src/main/` |
 
@@ -139,5 +139,8 @@
 3. **不自动 push**；不自动提交未验证的改动。
 4. 证据是交付物的一部分：`reports/` 里的原始输出比「已完成」三个字有用得多。
 5. **动了编码路径而没重跑 T-00 基线 ⇒ 该任务视为未完成**。
+6. **同一时刻只允许一个人跑 `npm test`** —— 事务套件用共享临时目录 `data/_txn-test`，并行跑会撞 `ENOTEMPTY`（2026-10-14 实测，重跑即绿）。多 worker 并行时请排队。
+7. **注入违例实验后恢复文件，禁止用 `git checkout -- <file>`** —— 会把仓库里其它未提交改动一起还原（2026-10-14 因此丢过一次修复）。先复制到 `data/_*`，再从副本写回并校验。
+8. **改 `packages/indexer/**` 或 `main/encoder.*` ⇒ 先确认护栏本身能跑**（它的 import 目标是硬编码路径，改名会让它先炸），再跑护栏并把原始输出附进提交。
 
 *本文件与实现不一致时：先确认哪个是对的，再改另一方。*
