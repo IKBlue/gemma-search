@@ -1,0 +1,134 @@
+================================================================================
+T-22a 证据 · 打包态**只读**验收（electron-builder --dir 未打包产物 + 真的跑起来）
+任务板 id: task-34   执行: db-worker   日期: 2026-10-15
+写入范围: data/_t22（临时物）· reports/（证据）—— **零产品代码改动**
+===============================================================================
+
+【一句话结论】
+打包产物**能起来、能检索、能取件、能取图**（Q3–Q5 全部通过）；但打包态有**两处真问题**：
+**① 不设 GEMMA_APP_LOG 时主进程日志静默丢失**（Q1）；**② asar 里塞进了 3.16 GB model-cache + 177 MB .npm-cache**
+（与配置自己的注释、SPEC-app §3 的 NSIS ~2 GB 上限直接冲突）。
+
+【怎么打的包（可复跑）】
+1) npm run build（三端产物 out/；沙箱里 TEMP 需指到仓库内）
+2) npx electron-builder --dir -c data/_t22/eb-dir.json
+   其中 data/_t22/eb-dir.json = 仓库 electron-builder.yml 的**同样排除清单** + 三处仅为在本沙箱出产物而加的东西：
+     · electronDist: <仓库>/node_modules/electron/dist   ← 见下面「环境限制①」
+     · directories.output: data/_t22/dist                 ← 落在我自己的写入范围内
+     · win.signAndEditExecutable: false                   ← 见下面「环境限制②」
+   结果：data/_t22/dist/win-unpacked/（gemma-search.exe 246 MB · resources/app.asar **3,685,390,481 B**）
+3) 跑：node data/_t22/run-packed.mjs / run-packed2.mjs / run-packed3.mjs
+   （用 @playwright/test 的 _electron 启动**打包后的 exe**，env 指夹具库 + 真模型 + 仓库内 userData）
+
+⚠️ 环境限制①：electron-builder 默认要**联网下载** Electron 发行包，本环境到 github.com 超时
+   （实测 connect ETIMEDOUT 20.205.243.166:443）⇒ 改用 electronDist 指向仓库里已装好的 node_modules/electron/dist。
+   这是**环境限制**（无网），与产品无关。
+⚠️ 环境限制②：关闭 signAndEditExecutable 是为了不触发 winCodeSign 下载/签名。后果：**这个产物的
+   代码签名与 VERSIONINFO/图标没有被 rcedit 编辑**。所以本轮**不能**对"签名/图标/版本信息"下任何结论（也没打算下）。
+⚠️ 环境限制③：沙箱把 electron.exe 的写限制在仓库内、AppData EPERM ⇒ userData 必须显式
+   --user-data-dir=<仓库>/data/_t22/userdata。真实用户的默认 userData（%APPDATA%）在打包态是否可用，**本轮未测**。
+
+【Q1 · asar 下的仓库根解析（含日志落点与警告）】
+结论：**ROOT 解成了 asar 路径**（不是 exe 目录、也不是什么"仓库根"），**asar 警告打了**；
+      但**默认日志目标不可写，且失败被静默吞掉** ⇒ 不设 GEMMA_APP_LOG 时**一条日志都没有**。
+
+原始输出（run 1，主进程事实）：
+{ "isPackaged": true,
+  "appPath": "...\\data\\_t22\\dist\\win-unpacked\\resources\\app.asar",
+  "exePath": "...\\dist\\win-unpacked\\gemma-search.exe",
+  "resourcesPath": "...\\dist\\win-unpacked\\resources",
+  "execDir": "...\\dist\\win-unpacked" }
+应用自己的日志（设了 GEMMA_APP_LOG=<仓库>/data/_t22/packed-app.log 才拿得到）：
+  [07:44:39.285] 日志文件 = D:\...\data\_t22\packed-app.log
+  [07:44:39.286] 应用根 = D:\...\dist\win-unpacked\resources\app.asar
+  [07:44:39.286] !! 注意：应用根落在 asar 内（HERE=...\app.asar\out\main），data/ 无法写入 —— 打包态需要改用 userData（P6）
+代码事实（log.ts:61/63/66/111/116-117）：
+  ROOT = GEMMA_ROOT || detectRepoRoot(HERE) || FALLBACK_ROOT
+  → 打包态的 app.asar **内**带着仓库根那份 package.json（它声明了 workspaces）⇒ detectRepoRoot 把 asar 认成了仓库根。
+  LOG_FILE = <ROOT>/data/_app.log ⇒ 打包态 = <asar>/data/_app.log（asar 只读、且该目录不存在）
+  mkdirSync / writeFileSync / appendFileSync **全在 try/catch 里静默失败**（那里是"日志写不了不是致命错误"的刻意设计）。
+
+「静默丢失」的**正面实测**（run 2 的 B 段：**不设** GEMMA_APP_LOG）：
+  B) 不设 GEMMA_APP_LOG 时应用**确实起来了** = {"ui":true,"apiKeys":["invoke","onEvent","platform"]}
+  B) 仓库 data/_app.log mtime 变了没 = **false**（before=1791963422891.2205 after=1791963422891.2205）
+  B) <asar>/data/_app.log 存在 = false
+  ⇒ 应用正常运行、界面正常，但**没有任何日志留下**。这是打包态的**产品级问题**（P6 该修：默认落到 userData）。
+附带一条正面的：PACKED=true 时 assertRootOnce() 会**跳过**"ROOT 可疑"的自检（log.ts:86），
+  改由上面那条 asar 警告负责 —— 机制按设计工作，没有误报。
+
+【Q2 · 模型搜索在打包态（程序目录 models/ 相对谁）】
+结论：**程序目录 = exe 所在目录**（index.ts:247-255 的 app.isPackaged ? dirname(app.getPath('exe')) : ROOT），
+      **不是 asar 内**；T-04/T-17 的四段搜索顺序在打包态**逐字成立**。**正面实测**（run 3）：
+  [存储] 模型 = ...\dist\win-unpacked\models（来源：程序目录 models/）
+  [存储] 模型搜索命中： ...\dist\win-unpacked\models （来源：app）
+  （做法：在 exe 旁造 models/onnx/model.onnx —— 假文件，只为看"命中"；跑完已删）
+run 1/2（config 里给了 onnx_model_dir）：
+  [存储] 模型 = <仓库>\model-cache\...\fp32（来源：用户指定）· 模型搜索命中：…（来源：user）
+  [存储]   2. 程序目录 models/ = ...\dist\win-unpacked\models ⇒ 目录不存在
+  [存储]   3. userData models/  = ...\_t22\userdata\models ⇒ 目录不存在
+  [存储]   4. 既有模型缓存目录（model-cache） = ...\win-unpacked\resources\model-cache\onnx\embeddinggemma-2 ⇒ 不存在
+⚠️ 顺带发现（**产品级**）：第 4 条算出来的是 <resources>/model-cache（ROOT=asar ⇒ ROOT/../model-cache），
+   而 asar **里面**确实躺着一份 3.16 GB 的 model-cache/ —— 那份**永远搜不到**（在归档里），既是死重量又误导排查。
+
+【Q3 · 存储落点（.gs-* 与 userData 回退）在打包态】
+结论：**库根 .gs-* 在打包态可用**（本次库根可写 ⇒ 就走库根本身）；.gs.db + .gs-index.bin 都真的被用上，
+      indexStatus healthy 3594/3594 dim=768；取件真写出了文件。
+原始输出：
+  [存储] 库 L1：声明库根 = ...\data\_t22\lib
+  [存储] 库 L1：落点 = ...\data\_t22\lib（用库根本身）；为什么 = 库根可写（写探测：目录可写…）
+  [存储] 库 L1：索引 …\.gs-index.bin · 元数据 …\.gs.db · 事务日志 …\.gs-journal
+  indexStatus = {"libId":"L1","indexed":3594,"encoded":3594,"dim":768,"healthy":true,
+                 "storage":{"layout":"library-root","indexExists":true,"dbExists":true}, …}
+  打包态取件 = {"ok":true,"succeeded":1,"files":["ID-10083808.rar"]}
+⚠️ **未实测**：库根**不可写**时的 <userData>/libraries/<libId> 回退分支（要造 ACL 拒绝的目录，超出"只读验收"范围）。
+⚠️ **未实测**：默认 data/_app.log 能否写 —— 打包态 ROOT=asar，它**不能**（见 Q1）；本轮是靠 GEMMA_APP_LOG 重定向。
+
+【Q4 · 界面起得来】
+结论：✅ 窗口起来、主界面 #query 可见、preload **恰好三键**、require/process 都是 undefined、**pageerror = 0**。
+原始输出：
+  问题4 preload = {"type":"object","keys":["invoke","onEvent","platform"],"require":"undefined","process":"undefined"}
+  打包产物启动 OK · 用时 379 ms（另一次 2533 ms）
+  pageerror = []（run 1 与 run 2 两次都是 0）
+  打包态检索 = {"ok":true,"n":5,"top":"7251fa882ae6","tookMs":2009}
+
+【Q5 · 真实取图（thumb://）在打包态】
+结论：✅ **能取到**（界面真正的方式：img src=thumb://…）。@256 与 @512 都解码成功，主进程日志两条"生成成功"。
+⚠️ 方法学纠正（值得记）：第一版我用 fetch('thumb://…') 测，得到的是
+   "Failed to fetch" + 渲染层 CSP 报错 "Refused to connect because it violates the document's Content Security Policy"
+   —— 那是**我的测法**撞了 connect-src（应用自己从来不 fetch thumb://，它用 img 标签）。
+   换成 img 之后：@256 ⇒ {"ok":true,"naturalWidth":1,"naturalHeight":1}（素材是我落的真 1×1 JPEG）；
+   @512 ⇒ 同上。main 日志：
+     thumb 库 id 映射 [["l1","L1"]]        ← Chromium 把 host 小写成 l1，主进程还原回 L1（大小写不是问题）
+     thumb 请求 L1 8a70380a9575 256 → 缓存未命中：ENOENT ⇒ 重新生成 → thumb 生成成功 … 256 1x1→1x1 285
+     thumb 请求 L1 8a70380a9575 512 → 同上 → 生成成功 … 512
+   ⇒ thumb:// 协议、白名单、缓存、缩略图生成在**打包态**逐条可用。
+
+【产品级发现（与 5 个问题并列，建议进 T-22 的待修清单）】
+asar 顶层条目（我直接解析 asar 头部得到，按体积降序）：
+  model-cache/      3160.5 MB   ← **不该进包**
+  node_modules/      479.6 MB
+  .npm-cache/        177.5 MB   ← **本机 npm 缓存，纯垃圾，不该进包**
+  out/                 1.3 MB   ← 应用本体（正常）
+  tsconfig.*.tsbuildinfo 0.2 MB ← 构建中间物
+  fixtures/ · package.json · LICENSE · 根 md 文件（很小）
+  apps/ packages/ data/ reports/ ⇒ 已按 files 清单正确排除 ✅
+问题：electron-builder.yml 的 files 清单**没有排除 model-cache/（配置注释却写着"模型与索引不进安装器"）**，
+      也没有排除 .npm-cache/ 与 *.tsbuildinfo ⇒ 未打包产物 3.69 GB；照此打 NSIS 会**远超 SPEC-app §3 说的 ~2 GB 上限**。
+      修法（留给 T-22 正式任务，本轮不改配置文件）：files 加 '!model-cache/*' · '!.npm-cache/*' · '!*.tsbuildinfo'。
+另一条：程序目录 models/ 与 userData models/ 是**预期**的用户自备模型位置；而 asar 里那份 model-cache
+      既搜不到（在归档内）又占 3.16 GB —— 两条合起来说明"模型不进包"目前**只是注释，不是事实**。
+
+【不测什么（写明留给后续）】
+· 代码签名 / 证书 / 时间戳 —— 未测（本轮还刻意关掉了 signAndEditExecutable）。
+· 安装器（NSIS）/ 卸载 / 快捷方式 / 开始菜单 —— 未测（本轮只做 --dir 未打包产物）。
+· 干净机器安装（无 node_modules、无仓库）· 首次运行向导 · 自动更新 —— 未测。
+· 真实用户默认 userData（%APPDATA%，本沙箱 EPERM）—— 未测。
+· 库根不可写的 userData 回退分支 —— 未测（见 Q3）。
+· 图标 / VERSIONINFO / 产品名元数据 —— 本轮被 signAndEditExecutable=false 跳过，**未测**。
+· 多库、其他库规模、GPU —— 同 T-19 的边界，不在这里重复。
+
+【回滚方式】
+· **零产品代码改动**：本轮只写了 data/_t22/**（临时物）与 reports/2026-10-15-wave3/22a.txt。
+· 临时物已清理：data/_t22（含 3.69 GB 的 dist/win-unpacked）已删除 —— 需要时按上面「怎么打的包」两条命令可复现。
+· 未跑 git（AGENTS P7）。
+===============================================================================
