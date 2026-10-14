@@ -1,9 +1,9 @@
 # 违规的 UI —— Apple Style 桌面程序审查台账
 
 > **这是什么**：2026-10-13 对 `gemma-search` 桌面应用当前 4 条路由 + 首启向导做的一次 Apple Style（**桌面程序**口径）全维审查里，**逐条可复现的违规台账**。
-> **这不是什么**：**不是行动清单**。要做什么、什么顺序，唯一出处仍是根目录 `TODO.md`（`AGENTS.md` §4）。本文件是**审查证据快照**；是否把条目并进 `TODO.md` 由所有者决定。
+> **这不是什么**：**不是行动清单**。要做什么、什么顺序，唯一出处仍是根目录 `TODO.md`（`AGENTS.md` §7.1）。本文件是**审查证据快照**；是否把条目并进 `TODO.md` 由所有者决定。
 >
-> **位置例外（显式登记）**：本文件位于**仓库根**，是所有者本轮明确指示，与 `AGENTS.md` §6「仓库根只放 `AGENTS.md` · `README.md` · `TODO.md`」冲突。登记在此，避免后来者以为是纪律漏洞。
+> **位置例外（显式登记）**：本文件位于**仓库根**，是所有者本轮明确指示，与 `AGENTS.md` §4「仓库根只放 `AGENTS.md` · `README.md` · `TODO.md`」冲突。登记在此，避免后来者以为是纪律漏洞。
 > **详细论证与整改优先级** → `docs/audit/UIUX-APPLE-STYLE-AUDIT.md`（下称**报告**）。本文件是违规的**唯一详表**，报告只引用 `V-nn` 编号，不重复列。
 
 - 审查日期：2026-10-13 · 被审产物：`out/`（构建于 2026-10-13T06:35:04Z，**晚于**最新渲染层源码 06:35:01Z ⇒ 截图与代码同版）
@@ -16,7 +16,7 @@
 |---|---|
 | Apple HIG | Sidebars · Buttons（normal / primary / **destructive**）· Toolbars（统一标题栏）· Windows（恢复尺寸与位置）· Menus · Materials（Reduce Transparency）· Motion（Reduce Motion）· Color（语义色 / 深色模式 / 不硬编码色值）· Typography · Layout · Progress indicators（determinate / indeterminate）· Feedback · Lists and tables · Loading · Writing |
 | W3C WCAG 2.2 | SC 1.4.3 Contrast Minimum (AA, 正文 4.5:1) · 1.4.11 非文字 3:1 (AA) · 1.4.13 (AA) · 2.1.1 (A) · 2.2.1 (A) · 2.4.3 (A) · 2.4.7 (AA) · 2.4.11 (AA) · 2.5.5 (AAA, 44px) · 2.5.8 (AA, 24px) · 3.3.1 (A) · 4.1.2 (A) · 4.1.3 (AA) |
-| 项目自有 | `docs/design/UI-REVIEW-and-migration.md` §6（流程 1–4 与键盘要求）· `--touch-min:44px`（`tokens.css:63`）· `AGENTS.md` §3（类名走令牌阶梯、颜色不许写死、不写任意值） |
+| 项目自有 | `docs/design/UI-REVIEW-and-migration.md` §6（流程 1–4 与键盘要求）· `--touch-min:44px`（`tokens.css:63`）· `AGENTS.md` §1 S7（类名走令牌阶梯、颜色不许写死、不写任意值） |
 
 **严重度**（沿用已冻结的 `docs/audit/01-acceptance-criteria.md` §3 口径）：`Score = 影响面(1–3) × 触发可能性(1–3)`。
 影响面 3 = 主任务路径或全应用 · 2 = 单页或单类状态 · 1 = 局部装饰；触发 3 = 必现 · 2 = 常态会出现 · 1 = 边缘。
@@ -154,7 +154,7 @@
 
 ### V-12 · Medium（2×3=6）· 主进程硬编码色值与第二份窗口标题
 - **事实**：`apps/desktop/src/main/index.mjs:473` `backgroundColor: '#f5f5f7'` 是令牌之外**唯一**的色值字面量（`apps/desktop/tests/styles.test.mjs` 的 T1 只扫渲染层，所以没拦住）；深色外观下建窗瞬间会闪一下浅色。`:474` 的 `title` 是第二份文案，与 `router/paths.js` 的 `APP_NAME` 与 `LABELS` 重复（`dom-validity.test.mjs` 的 V4 同样只查渲染层）。
-- **判据**：`AGENTS.md` §3「颜色不许写死」；HIG › **Dark Mode**（不应有浅色闪屏）。
+- **判据**：`AGENTS.md` §1 S7「颜色不许写死」；HIG › **Dark Mode**（不应有浅色闪屏）。
 - **建议**：窗口底色从令牌派生，或按 `nativeTheme.shouldUseDarkColors` 二选一；标题初值从共享常量取。
 - **验收**：全仓在 `apps/desktop/src/main` 下扫色值字面量为 0，或在文档里登记唯一例外。
 
@@ -188,7 +188,7 @@
 
 ### V-17 · Medium（1×3=3）· 错误色类不是合法 Tailwind 类
 - **事实**：`pages/ActivityPage.jsx:144` 用了 `text-err`，而 `styles/tailwind.css` 的 `@theme` 里没有 `--color-err` ⇒ **该类不会被生成**，标题保持默认色。
-- **判据**：`AGENTS.md` §3（颜色用映射好的语义别名）；WCAG 2.2 SC 1.4.3。
+- **判据**：`AGENTS.md` §1 S7（颜色用映射好的语义别名）；WCAG 2.2 SC 1.4.3。
 - **建议**：改用已注册的语义色（`--color-critical` 已映射，可直接用 `text-critical`）。
 
 ### V-18 · Medium（2×2=4）· 进度事件逐条弹 toast
@@ -358,6 +358,6 @@
 
 - 生成时间：2026-10-13（Asia/Shanghai）
 - 被审产物：`out/` 构建于 2026-10-13T06:35:04Z；截图写入于 06:51–06:52Z —— **晚于**构建，也与最新源码同版
-- 结论效期：**以本次 HEAD 为准**。改代码后请按上面的"复现命令清单"重跑，不要沿用旧结论（`AGENTS.md` §5.3：无归档证据 = 门禁未通过）。
+- 结论效期：**以本次 HEAD 为准**。改代码后请按上面的"复现命令清单"重跑，不要沿用旧结论（`AGENTS.md` §3 规范 1：无归档证据 = 门禁未通过）。
 
 *本文件与报告编号一一对应；报告只引用编号，不复制本表。*

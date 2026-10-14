@@ -327,7 +327,7 @@ new BrowserWindow({
 > `verify_renderer_styles` / `smoke_app` / `verify-doc-refs` 的地方，那些守卫**已按所有者指令移除**
 > （原件备份在 `data/_removed-guards-backup/`）。文中的"有自动化/由它断言"一律**不再成立**；
 > 现存守卫只剩 `verify_encoder_path` 与 `check_search`，且两者都需要模型与已注册索引（沙箱跑不动）。
-> 详见 [`AGENTS.md`](../AGENTS.md) §5.2 的"移除的代价"。
+> 详见 [`TODO.md`](../TODO.md) B-4 的"移除的代价"。
 
 ## 8. 权限测试用例（**P2 验收必须全过**）
 
@@ -339,7 +339,7 @@ new BrowserWindow({
 > ⇒ **现在只剩纯逻辑单测**：`apps/desktop/tests/permissions.test.mjs`（13 条）· `window-security.test.mjs`（10 条）· 引擎安全单测。
 > ⇒ **「接线接上了没有」这一层不再有任何自动化**。这是移除守卫生成的**已知代价**（`TODO.md` B-4）。
 > **不要把"单测通过"读成"应用真的接上了"** —— F-01 那种"引擎能力对、应用没接"的坑，正是这一层要抓的。
-> ⚠️ （历史）凡读**构建产物**的断言（`verify_app_build` / `verify_main_wiring` / `verify_renderer_dom`）都**依赖一次成功的 `npm run build`**（见 `AGENTS.md` §5.1 的环境限制）—— **这三条已移除**。
+> ⚠️ （历史）凡读**构建产物**的断言（`verify_app_build` / `verify_main_wiring` / `verify_renderer_dom`）都**依赖一次成功的 `npm run build`**（见 `TODO.md` B-5-3 的环境限制）—— **这三条已移除**。
 >
 > 覆盖**现在只剩两处**（另加引擎单测）：
 > - `apps/desktop/tests/permissions.test.mjs` —— 纯函数边界（IPC 参数校验、`thumb://` 形状）

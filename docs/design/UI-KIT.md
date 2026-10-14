@@ -21,7 +21,7 @@
 ## 2. 数据来源与授权边界
 
 - 来源：一份**外部解包的 Apple UI Kit**（Sketch 文件格式 v100+，实为 ZIP：`document.json` / `meta.json` / `pages/*.json` / `images/` / `fonts/`）。
-  路径**不写进仓库**（`AGENTS.md` §7 禁止本机绝对路径），由 `--kit` 参数或 `MACOS_UIKIT_DIR` 环境变量传入。
+  路径**不写进仓库**（`AGENTS.md` §6.5 禁止本机绝对路径），由 `--kit` 参数或 `MACOS_UIKIT_DIR` 环境变量传入。
 - 抽取到的版本信息见下方生成区块的"数据源"行（Sketch 版本 / appVersion / build）——**引用本文数值时必须带上这一行**。
 - **授权边界（硬）**：kit 内嵌的 SF 字体与图形**不得再分发**。本文与 `index.html` 只保存**数值、名称与自绘色块**，不含任何 Apple 二进制资产。
 - 同理，`index.html` **不内嵌 SF 字体**：本机（Windows）没有 SF Pro，字号示例会用回退字体渲染 —— **字号是准的，字形不是**。

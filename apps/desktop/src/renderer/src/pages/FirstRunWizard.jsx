@@ -11,7 +11,7 @@
 //   · 错误文案**一律用主进程给的 `userMessage`**，不在这里自编 ——
 //     界面与主进程各说一套正是本项目在消灭的病（"同一件事两处说法"）。
 //
-// 分层（AGENTS.md §0.1，2026-10-13 修正）：本组件是 **UI 层**。
+// 分层（AGENTS.md §2）：本组件是 **UI 层**。
 // 它**原先直接调了 `window.api` 两次**（`libraryPickDir` / `libraryAdd`）—— 那是三层违例：
 //   UI 既不该碰 `window.api`，也不该碰 Adapter（协议细节归 Operation）。
 // 现在两个操作由 `hooks/useLibraryConfig.js`（Operation 层）通过 props 注入：

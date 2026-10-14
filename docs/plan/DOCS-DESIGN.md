@@ -19,7 +19,7 @@
 > `verify_renderer_styles` / `smoke_app` / `verify-doc-refs` 的地方，那些守卫**已按所有者指令移除**
 > （原件备份在 `data/_removed-guards-backup/`）。文中的"有自动化/由它断言"一律**不再成立**；
 > 现存守卫只剩 `verify_encoder_path` 与 `check_search`，且两者都需要模型与已注册索引（沙箱跑不动）。
-> 详见 [`AGENTS.md`](../AGENTS.md) §5.2 的"移除的代价"。
+> 详见 [`TODO.md`](../TODO.md) B-4 的"移除的代价"。
 
 ## 1. 分层架构（已落地）
 
@@ -209,7 +209,7 @@
 | 唯一来源 | `packages/design-tokens/tokens.css`（`docs/design/DESIGN-tokens.md` §10 的可执行版） |
 | 消费方式 | `apps/desktop/src/renderer/src/renderer.css` **只消费 `var(--*)`**：不写死颜色、间距只用 `--space-*`、字号只用 `--type-*` |
 | 跨界引用 | `apps/desktop/src/renderer/src/main.jsx` 直接 import 跨出 renderer root 的 `tokens.css`——**不复制第二份**，避免两份漂移 |
-| 检查 | ~~`tools/verify_renderer_styles.mjs` + `tools/verify_renderer_dom.mjs`~~ ⚠️ **该守卫已于 2026-10-13 按所有者指令移除** ⇒ 改由 **`npm test` 断言**承担（见 `task-19`）；现存守卫只剩 `verify_encoder_path` / `check_search`（见 `AGENTS.md` §5.2） |
+| 检查 | ~~`tools/verify_renderer_styles.mjs` + `tools/verify_renderer_dom.mjs`~~ ⚠️ **该守卫已于 2026-10-13 按所有者指令移除** ⇒ 改由 **`npm test` 断言**承担（见 `task-19`）；现存守卫只剩 `verify_encoder_path` / `check_search`（见 `AGENTS.md` §3） |
 | 令牌清单 | 颜色（Apple 语义色系）· 字号阶梯（`--type-*`）· 8pt 间距（`--space-*`）· 圆角 · 阴影 · `--touch-min:44px` |
 
 > **Apple 风格符合度的逐项对差**不在本文——见 [`../audit/UIUX-AUDIT.md`](../audit/UIUX-AUDIT.md)（宪章②产出物）。

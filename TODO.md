@@ -10,10 +10,10 @@
 > | 什么顺序、什么算做完、验收阈值 | [`docs/plan/ROADMAP.md`](docs/plan/ROADMAP.md) · [`docs/spec/SPEC-acceptance.md`](docs/spec/SPEC-acceptance.md) |
 > | 历史欠账台账（已清 / 未清逐条） | [`docs/DEBT-CLEANUP.md`](docs/DEBT-CLEANUP.md) |
 >
-> ⚠️ **本文件只记"动作与证据"，不记"架构与规范"** —— 那两样在 `AGENTS.md`。
+> ⚠️ **本文件只记"动作、证据、教训"**，不记"架构与规范" —— 规范在 [`AGENTS.md`](AGENTS.md)，事实与现状在 [`docs/PROJECT-INFO.md`](docs/PROJECT-INFO.md)。
 > ⚠️ 每条都要带 `文件:行号` 或可复跑的命令；**无证据的写【判断，非实测】**。
 >
-> 最后核对：2026-10-13
+> 最后核对：2026-10-14（本轮：重建 B-4 · C 节补 F-01 文案边界与扫描器两条坑 · B-5-3 留档门禁原始输出）
 
 ---
 
@@ -333,6 +333,41 @@
 | B-3-6 | **模拟模式的真实边界（2026-10-13 新增，务必别含糊）** | `GEMMA_FAKE=1` 下 E8–E11 证明的是「**接线通 + 界面能渲染全部状态**」，**不是**检索质量、**不是**编码正确性。假进度、假事务、假路径都来自 `fixtures/sample-index.json`。凡引用 E8–E11 的结论，都要同时说明这一点。 |
 | B-3-7 | **取消"边界生效"与 ETA 精度** | 在**模拟模式**下验过（E10-d：取消后 `done` 停在中途、`< 30`）；**真实 `indexStart` 未接线** ⇒ 真机上的取消延迟与 ETA 误差**仍未实测**（ROADMAP 写的是"误差 <30%"、"最多 2 s 收尾"）。 |
 
+### B-4 被移除的 6 个守卫（**代价与逐条归属** —— 唯一权威）
+
+> 所有者指令（2026-10-13）：「仅保留 `verify_encoder_path` + `check_search`，其余全部移除」。
+> 被移除的 6 个：`verify_app_build` · `verify_main_wiring` · `verify_renderer_dom` · `verify_renderer_styles` · `smoke_app` · `verify-doc-refs`。
+> **原件已备份在 `data/_removed-guards-backup/`**（含从未提交的 `verify_main_wiring.mjs` —— 不在备份里就永久丢失）。
+> **恢复方式**：拷回 `tools/` + 还原 `package.json` 的 `smoke` 脚本。
+>
+> ⚠️ **引用本表时不要读成"现在全都没有"**：移除当天（2026-10-13）又接入了 Playwright（`npm run e2e`），
+> 把**渲染层与真窗口那一层**补了回来，而且比原来强（原来 `verify_main_wiring` 用的是**假 `electron`**，现在是真的）。
+> 「现在谁负责」一列是最新的。
+
+| 能力 | 原本由谁提供 | 移除后的状态 | 现在谁负责 |
+|---|---|---|---|
+| 出窗能力 | `smoke_app` | 无 | ✅ **E2E E0**（真启动 + 读真窗口，非白屏、0 控制台错误） |
+| preload 暴露面 / S9 渲染进程 Node 能力 | `verify_app_build` | 无 | ✅ **E2E E0** —— 在真窗口里读真的 `window.api`（恰好三键），不再是产物文本断言 |
+| 首启向导真界面（D2） | `verify_renderer_dom` | 无 | ✅ **E2E E1** |
+| S11/S12 窗口安全**真行为** | `verify_main_wiring` | 无 | ✅ **E2E E3**（比原来的假 `electron` 强） |
+| S13 iframe 来源校验 | `verify_main_wiring` | 无 | ❌ **仍无**（E2E 里可以造 iframe，尚未做）—— 见 B-3-4 |
+| 路由真导航 | `verify_renderer_dom` | 无 | ✅ **E2E E2** |
+| ⭐ **接线在行为上是否活着** | `verify_main_wiring` | 无 | ⚠️ **只剩纯逻辑单测**：F-01 `reveal` 由引擎单测 + `ports.test.mjs` 覆盖，**行为层无证据** |
+| 分层 / 文案收敛 / 路由表 / 门禁判定 | 无（原本靠人看） | 无 | ✅ **`npm test`**（`layering.test.mjs` L1–L7 等断言，2026-10-13 新增 49 条） |
+| 结果区 UI（结果卡 / 取件确认 / 档位渲染 / 定位失败文案） | `verify_renderer_dom` | 无 | ✅ **E2E E7**（靠**主进程 IPC 打桩**摆脱模型依赖，在真窗口里跑真组件） |
+| **真实检索质量 / 缩略图内容** | — | 无 | ❌ **仍无** —— 要真模型 + 已注册索引（见 B-3）；打桩测的是**接线与界面**，不是编码质量 |
+| 样式与令牌纪律 + F-02 界面自算阈值 | `verify_renderer_styles` | 无 | ✅ **2026-10-13（T3）已接回**：`styles.test.mjs` 的 T1/T1c/T2/T2b（双向验证过）+ E2E E4 |
+| 产物形状（ESM/CJS · external · CSP · preload） | `verify_app_build` | 无 | ❌ **仍无** |
+| 打包态 / 冷启动计时 | — | 无 | ❌ **仍无**（P6 的 G-E1）—— 见 B-3-1 / B-3-2 |
+| 文档引用解算 + 根目录纪律 | `verify-doc-refs` | 无 | ❌ **仍无**（只能靠人看；2026-10-14 `AGENTS.md` 改版后另有「旧编号映射表」需人工维护） |
+
+**现存 2 个守卫都能启动，但本沙箱跑不动**（需模型目录 + 已注册索引）⇒
+**"守卫全绿"在本环境已无法验证**，不要声称验证过。
+⇒ **本仓库唯一可跑的自动化门禁是 `npm test`**（2026-10-14 实测 **313** 条纯逻辑单测）。
+原本考虑过写 `npm run verify` 把这两个守卫串起来，**已否决**（两个都跑不动，加了也只是空壳）。
+
+---
+
 ### B-5 门禁自身的可靠性（2026-10-13 —— **已定位并修复，但教训要留**）
 
 > ⚠️ **为什么单独立一节**：这一节记的不是产品缺陷，而是**门禁自己曾经不可靠**。
@@ -358,28 +393,32 @@
 | c | **"偶发失败"先当 bug 查，别当噪音** | 这条故障被"单独跑能过"掩盖了三轮。**拿到完整的错误块**（而不是 grep 一行）才看见真因 —— `strict mode violation` 那几个字一直在输出里。 |
 | d | **不许用 `retries` 把它盖住** | 重试会让 flake 静默消失，与本仓库"断言必须能红"的口径直接冲突。 |
 
-> ⚠️ **先读这段**：下表是**移除当时**的缺口清单。**同一天又接入了 Playwright（`npm run e2e`，13 条）**，
-> 把**渲染层与真窗口那一层**补了回来（而且比原来强：原来 `verify_main_wiring` 用的是**假 `electron`**）。
-> **逐条"现在谁负责"见 `AGENTS.md` §5.2 的对照表** —— 那里是最新的，本表保留为"当时失去了什么"的记录。
-> ⇒ **引用本表时不要读成"现在全都没有"**。
+#### B-5-3 · 环境限制与门禁实测留档（2026-10-14）
 
-> 所有者指令「仅保留 `verify_encoder_path` + `check_search`」。原件已备份在
-> `data/_removed-guards-backup/`（**含从未提交的 `verify_main_wiring.mjs`**，不在备份里就永久丢失）。
-> 恢复：拷回 `tools/` + 还原本文件 B-4 提到的 `package.json` 脚本。
+**① `npm test` 的那 1 条跳过 = 环境限制，不是通过。** 本环境无法创建**文件**符号链接（`EPERM`：目录联接能建，文件符号链接不能）。该条断言的是「库内指向库外的符号链接必须被拒」，在能建链接的机器上会真跑（`packages/engine/tests/security.test.mjs` ④）。
 
-| 失去的能力 | 原本由谁提供 | 后果 |
-|---|---|---|
-| 构建产物形状（ESM/CJS · external · CSP · preload 暴露面） | `verify_app_build` | 产物形状**零检查** |
-| ⭐ **接线在行为上是否活着** | `verify_main_wiring` | F-01 `reveal` 静默假成功 · S11/S12/S13 · `thumb://` 状态码 **不再有行为证据** |
-| 渲染层真跑（jsdom） | `verify_renderer_dom` | 首启向导 · F-01 文案 · F-02 档位 · S10 XSS **零检查** |
-| 样式纪律 + F-02 界面自算阈值 | `verify_renderer_styles` | ✅ **2026-10-13（T3）已接回**：`apps/desktop/tests/styles.test.mjs` 的 T1/T1c（色值唯一 + @theme 只许 var()）与 T2/T2b（阈值常量 + Score 消费 band）。**双向验证过**（注入色值/阈值都会变红） |
-| 真启动 Electron | `smoke_app` | "能不能出窗"**无法回答** |
-| 文档引用解算 + 根目录纪律 | `verify-doc-refs` | 死链接与根目录堆积**无检查** |
+> 历史（2026-10-12，D2 修复的连带效果）：原先还有**两条永久跳过**，因为测试自己直读已删除的 `config.json` 拿库根；改为**与生产同序**的解析（环境变量 → `config.json` → **索引自举**）后，两条**都真的跑起来了** ⇒ 跳过数 **3 → 1**，通过数 **65 → 79**。**这不是"把测试改绿"**：库根来自索引元数据（生产实际来源），断言内容一个字没放松。
 
-**现存 2 个守卫都能启动，但本沙箱跑不动**（需模型目录 + 已注册索引）⇒
-**"守卫全绿"在本环境已无法验证**，不要声称验证过。
-⇒ **本仓库唯一可跑的自动化门禁是 `npm test`**（113 条纯逻辑单测）。原本考虑过写 `npm run verify` 把这两个守卫串起来，
-**已否决**（两个都跑不动，加了也只是空壳）。
+**② 受限沙箱里的 `npm run build` 会失败，且失败点在加载配置之前**：
+
+```text
+failed to load config from electron.vite.config.mjs
+error during build: Error: spawn EPERM
+    at ensureServiceIsRunning (node_modules/esbuild/lib/main.js:1978:29)
+    at bundleConfigFile (node_modules/electron-vite/dist/chunks/lib.js:1710:26)
+```
+
+根因：esbuild 用 **piped stdio spawn 一个常驻服务进程**，受限沙箱不允许 ⇒ **这是环境限制，不是配置或代码问题**（连配置文件都还没加载到）。✅ **2026-10-12 已在提权下实际跑通**（EXIT=0，`out/{main,preload,renderer}` 三端齐备）。
+
+**③ 本轮门禁实测原始输出（2026-10-14）** —— `AGENTS.md` 只留**期望值**，证据与分解留在这里：
+
+- `npm test`：`tests 313 · pass 312 · fail 0 · skipped 1`（EXIT=0，`duration_ms` ≈ 15.8 s）。
+  逐文件分解：引擎 **148** = engine 33 + fake 22 + index 18 + security 16 + uid 7 + transactions 24 + transactions-recovery 14 + transactions-fault-injection 10 + transactions-write-path 4；
+  桌面 **165** = 原 152 + **contrast 4** + **copy 5** + **style-contract 4**。
+- `npm run typecheck`：EXIT=0（⚠️ **只覆盖 `.ts`**，当前唯一有内容的来源是 `shared/ipc.ts` —— 见 B-1 的 T1 记录）。
+- `npm run e2e`：**本轮未复跑**（需能出窗的环境 + 提权）⇒ 静态计数 **62 条**（12 个 spec 文件，含 `uiux-p0.spec.mjs` E12 的 6 条）；最后一次实测仍是 2026-10-13 的 **`56 passed`**。
+
+
 
 ---
 
@@ -422,7 +461,7 @@
 
 | # | 项 | 说明 |
 |---|---|---|
-| B-6-1 | ⛔ **独立 Agent 复核（宪章 §0 硬要求）** | **未做** —— 本轮发起后被取消。复核者必须**自己跑命令、回原文件核对**，不得只读结论；结论要归档 |
+| ~~B-6-1~~ | ~~**独立 Agent 复核（宪章 §0 硬要求）**~~ **✅ 已取消（2026-10-14 所有者指令）** | 该要求已从 `AGENTS.md` §0 **移除** ⇒ 本项**不再适用**（原记录：本轮发起后被取消、未做）。历史文档仍会提到它 —— 见 `AGENTS.md` §0 的说明 |
 | B-6-2 | ✅ **审查产物与改动已入库** | 4 个审查产物（`违规的UI.md` · `docs/audit/UIUX-APPLE-STYLE-AUDIT.md` · `docs/design/UI-KIT.md` · `docs/design/ui-kit/{build.mjs,kit-data.json}`）与全部改动**已随本次提交入库并推送**（见 `git log`）。⚠️ `docs/design/ui-kit/index.html`（1.2 MB 派生物）**按设计不入库** —— `.gitignore` 有理由，且已实测可由 `node docs/design/ui-kit/build.mjs` 逐字节重建 |
 | B-6-3 | **V-04 未核对** | `data-tone` 是否在界面输出、CSS 是否有对应规则 —— 🔸 **本轮没查**，别当成已修 |
 | B-6-4 | **审计 P1/P2 的其余条目** | V-09 · V-10 · V-11 · V-12 · V-13 · V-14 · V-18–V-27 · V-29–V-39 · **V-41** —— 逐条见仓库根台账与报告 §13 |
@@ -443,13 +482,13 @@
 
 ## C. 已修但**别改回去**（防回归清单）
 
-> 这些不是 TODO，是**改相邻代码时的地雷**。完整边界说明见 `AGENTS.md` §7。
+> 这些不是 TODO，是**改相邻代码时的地雷**。完整边界说明见 `AGENTS.md` §7.2。
 
 | # | 已修的缺陷 | 改什么会踩到 | 谁在锁 |
 |---|---|---|---|
-| C-1 | **F-01 · `reveal` 静默假成功** —— 引擎在无 `shell` 端口时**曾返回 `ok({revealed:true})`** | 动 `packages/engine/src/engine.mjs` 的 `reveal` 分支，或 `main/index.mjs` 的 `shell:` 注入 | 引擎 +5 条单测 · 端口本体 +4 条（⚠️ 原本的**行为层**锁定已随 `verify_main_wiring` 移除） |
+| C-1 | **F-01 · `reveal` 静默假成功** —— 引擎在无 `shell` 端口时**曾返回 `ok({revealed:true})`**。修复后：端口缺失/形状不对一律返回 **`PORT_MISSING`**（绝不 `ok`），且顺序是**先确认文件在盘上、再调端口**。<br>⚠️ **能力边界**：`shell.showItemInFolder` **返回 void、不报告失败** ⇒ 成功文案只能写「已请求在资源管理器中定位（系统未回报结果）」，**不许写「已定位」** | 动 `packages/engine/src/engine.mjs` 的 `reveal` 分支，或 `main/index.mjs` 的 `shell:` 注入 | 引擎 +5 条单测 · 端口本体 +4 条 · `search-store.test.mjs` **Z10**（文案断言）；⚠️ **行为层**锁定已随 `verify_main_wiring` 移除（见 B-4） |
 | C-2 | **F-02 · 界面自算分数阈值** —— `ui/Score.jsx` 曾硬编码 `0.97/0.93`，导致**每次检索全被标成"较弱"** | 动 `ui/Score.jsx` 的 `band` 来源 | 原样式守卫**已移除** ⇒ 现在**只剩渲染层单测**，改的时候特别小心 |
-| C-3 | **D2 · 库根配置** —— 曾只从 `config.json` 读 | 动 `main/library-config.mjs` 的四条优先级 | `apps/desktop/tests/library-config.test.mjs`（12 条） |
+| C-3 | **D2 · 库根配置** —— 曾只从 `config.json` 读，于是"有索引但没配置文件"的机器开箱即得 `LIB_NOT_FOUND`。现在按**四条优先级**解析：① `GEMMA_LIB_ROOT` ② `userData/library-registry.json` ③ `config.json`（兼容回退，**不要求用户去配**）④ **从已有索引 `data/libraries/*/meta.json` 自举**（`meta` 里本就存着 `lib_id` + `lib_root`）⇒ **有索引即零配置可用**；无库时界面走**首启向导**而不是裸报错 | 动 `main/library-config.mjs` 的解析链 | `apps/desktop/tests/library-config.test.mjs`（**14** 条：原 12 + T5-D 新增 2） |
 | C-4 | **F-04 · 取件白名单为空** —— `collect.dirs` 曾恒为 `{}` | 见 A-3（改硬编码时**别让它变空**） | 同上 12 条 |
 | C-5 | **R-3 · `band` 原型键** —— `bandOf` 曾用 `BANDS[mode]`，`mode='toString'` 会命中原型 | 动 `engine.mjs` 的 `bandOf` | 引擎单测（`Object.hasOwn`） |
 | C-6 | **`thumb://` 状态码映射** —— 曾把"形状错"也返回 404，§3 要求 **400** | 动 `thumb-url.mjs` 的 `thumbFailureStatus` | `apps/desktop/tests/permissions.test.mjs`「S6」 |
@@ -458,6 +497,7 @@
 | C-9 ⭐ | **`mutate` 的 `uid` 曾对 `undo` 也必填** —— 而契约 §2.7 写明 undo 由 `params.txId` 定位 ⇒ 操作记录页的「回退」被 `BAD_REQUEST` 拦掉、状态不变（E11-d 抓到） | 动 `shared/ipc.ts` 的 `mutate` schema | `permissions.test.mjs` **S15**（**双向都断言**：undo 不该要 uid、其余 op 必须带。两个方向各注入一次都验过会红） |
 | C-10 ⭐ | **L6 的判据曾太松** —— 旧正则"同一行里有 `\|\|` 就算"，把 `show(r.ok ? \`…${OP_TEXT[tx.op] \|\| tx.op}\` : r.error.userMessage)` 误判成文案兜底。假阳性的代价是逼人不敢写注释、不敢同行用 `\|\|`，最后检查会被关掉 | 动 `layering.test.mjs` 的 `USERMSG_FALLBACK` | `layering.test.mjs` **L6b**（真兜底抓到 / 同行无关的 `\|\|` 放过 / 注释里的不算） |
 | C-11 ⭐ | **两个"剧场断言"（自证伪）** —— ① `T2`（`done` 单调不减）原先断的是**最终值**，而"最后一条事件胜出"本来就会给出那个值 ⇒ **拆掉守卫照样通过**；② 我第一版给 `mockComments` 写的 S13/S14 用的是 `colors()`（保留字符串内容）⇒ 失步在它眼里**看不见**。**两次都是"注入缺陷 → 没变红"才发现的。** | 写任何新断言时 | 已修正：`T2` 改断**中间态**；`S13/S14` 改断在 `maskNonCode` 上。**教训：新断言必须做一次"拆掉防线"的验证** |
+| C-12 ⭐ | **扫描/改写源码时的两条坑**（原记在旧 `AGENTS.md` 的「已知边界」表，2026-10-14 迁到这里）<br>① **必须先剥注释** —— 源码/产物里**保留行注释**，直接匹配会命中被注释掉的接线，而"注释掉一行"正是禁用接线的常见手法；剥注释器还必须**认识正则字面量**（含引号的正则如 `/["']/g` 会让朴素实现误入字符串模式 ⇒ 被注释的接线重新可匹配，差分实测证实）。<br>② **必须取"调用点的实参"** —— 引擎函数签名里写着形参 `shell = null`，若按"第一个 `createEngine(`"取，会取到**函数声明**，"接线有没有接上"就永远为真。<br>⚠️ **不能用 `esbuild.transform` 代替剥注释器** —— 它在受限沙箱 `spawn EPERM`（见 B-5-3），会让守卫整体失效 | 写任何"扫源码找接线 / 找违例"的断言或工具时 | `apps/desktop/tests/helpers/source-scan.mjs` · `source-scan.test.mjs` **S1–S16b** |
 
 ---
 

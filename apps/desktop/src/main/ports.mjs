@@ -1,6 +1,6 @@
 // apps/desktop/src/main/ports.mjs —— 外壳注入给引擎的能力端口
 //
-// 为什么单独一个模块：引擎是**传输无关**的（`AGENTS.md` §2），它不 import `electron`，
+// 为什么单独一个模块：引擎是**传输无关**的（`AGENTS.md` §1 S5），它不 import `electron`，
 // 而是声明"我需要一个能定位文件的东西"，由外壳注入。当前只有 `reveal` 需要端口。
 //
 // 为什么构造函数**接收 `shell` 而不是自己 import**：这样它能在 `node:test` 里被直接测，

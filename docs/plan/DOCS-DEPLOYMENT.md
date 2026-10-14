@@ -104,7 +104,7 @@ config.json 不存在
 | **无库时** | 界面显示**首启向导**（选文件夹 → 写注册表），不是裸 `LIB_NOT_FOUND` |
 
 实现 `apps/desktop/src/main/library-config.mjs`；测试 `apps/desktop/tests/library-config.test.mjs`（12 条）
-+ `tools/verify_renderer_dom.mjs` §8（7 条）—— **⚠️ 该守卫已于 2026-10-13 移除**，界面侧的向导验证现在没有自动化。定性见 [`../audit/AUDIT-FINAL.md`](../audit/AUDIT-FINAL.md) 与 `AGENTS.md` §7。
++ `tools/verify_renderer_dom.mjs` §8（7 条）—— **⚠️ 该守卫已于 2026-10-13 移除**，界面侧的向导验证现在没有自动化。定性见 [`../audit/AUDIT-FINAL.md`](../audit/AUDIT-FINAL.md) 与 `AGENTS.md` §7.2。
 **仍然断的**：`loadConfig()` 本身没删（它是第③层），只是不再是主来源；`P5` 的真·多库注册表 CRUD 仍欠。
 
 ---

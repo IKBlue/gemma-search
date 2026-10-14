@@ -515,7 +515,7 @@ reports/
 > `verify_renderer_styles` / `smoke_app` / `verify-doc-refs` 的地方，那些守卫**已按所有者指令移除**
 > （原件备份在 `data/_removed-guards-backup/`）。文中的"有自动化/由它断言"一律**不再成立**；
 > 现存守卫只剩 `verify_encoder_path` 与 `check_search`，且两者都需要模型与已注册索引（沙箱跑不动）。
-> 详见 [`AGENTS.md`](../AGENTS.md) §5.2 的"移除的代价"。
+> 详见 [`TODO.md`](../TODO.md) B-4 的"移除的代价"。
 
 ## 10. 待办：技术栈对齐（TypeScript + Tailwind CSS + shadcn/ui + Zustand + React Router）
 
@@ -527,7 +527,7 @@ reports/
 >
 > ⚠️ 这两个确认**推翻了此前三处明文约束**，因此按 §9 变更控制同步：
 > `docs/spec/SPEC-app.md` §2（样式行）· `docs/design/DESIGN-tokens.md` §11（附录从"已否决"改为"迁移对照"）·
-> `AGENTS.md` §3（样式纪律）与 §5.2（守卫清单 —— ⚠️ 该守卫**已于 2026-10-13 移除**，样式检查改由 **T3 的 `npm test` 断言**承担）。
+> `AGENTS.md` §1 S7（样式纪律）与 §3（守卫清单 —— ⚠️ 该守卫**已于 2026-10-13 移除**，样式检查改由 **T3 的 `npm test` 断言**承担）。
 > **在 §10.3 第 4 步真的落地之前，新组件仍按手写 CSS + `var(--*)` 写** —— 同一时刻两套规则并存只会更乱。
 
 ### 10.1 逐项现状（**实测**，非记忆；grep `package.json` + 渲染层 import）
@@ -615,7 +615,7 @@ reports/
 | 任务 | 对应 §10.3 的步骤 | 前置 |
 |---|---|---|
 | `task-17` **T1** 类型门禁：契约边界先转 TS（修 P1 假绿） | 第 1–2 步 | — |
-| `task-21` **T5** 三层架构落地（Adapter 唯一入口 + P1/P2/P3 + **分层守卫**） | 见 `AGENTS.md` §0.1 | task-17 |
+| `task-21` **T5** 三层架构落地（Adapter 唯一入口 + P1/P2/P3 + **分层守卫**） | 见 `AGENTS.md` §2 | task-17 |
 | `task-18` **T2** Zustand 接管状态 + React Router 接管多页 | 第 3 步 | task-21 |
 | `task-19` **T3** Tailwind 接管样式生成层（含**重写**样式守卫） | 第 4 步 | task-18 |
 | `task-20` **T4** shadcn/ui 按需接入 + 依赖清账 | 第 5–6 步 | task-19 |
@@ -624,5 +624,5 @@ reports/
 > T2/T3/T4 会继续往 UI 里加 `window.api` 直调（`AGENTS.md` §0.1 已实测 **3 个文件、7 处**违例）。
 > **先把唯一入口建好，后面几步才不用回头改。**
 
-按 `AGENTS.md` §0 第 1 条，**每一步完成后都要有独立 Agent 复核**（本仓库这套流程已经抓到过
+按 `AGENTS.md` §0 第 1 条，**每一步完成后都要按事先写好的验收标准逐条实测**（本仓库这套流程已经抓到过
 "抽了函数但调用点零断言""守卫的文本断言可被 `false &&` 绕过"这类问题，代价很真实）。

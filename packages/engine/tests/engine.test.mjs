@@ -386,7 +386,7 @@ test('PORT_MISSING 的用户文案存在，且不含任何绝对路径', () => {
   const msg = USER_MESSAGE[ERR.PORT_MISSING];
   assert.equal(typeof msg, 'string');
   assert.ok(msg.length > 0, '有用户文案');
-  // 文案会被界面显示、可能被截图外发 ⇒ 不得含本机路径（AGENTS.md §7）
+  // 文案会被界面显示、可能被截图外发 ⇒ 不得含本机路径（AGENTS.md §6.5）
   assert.ok(!/[A-Za-z]:[\\/]/.test(msg), `文案里不该有盘符路径：${msg}`);
   assert.ok(!msg.includes('\\\\'), `文案里不该有 UNC 路径：${msg}`);
 });

@@ -97,8 +97,8 @@ node tools\check_search.mjs               # 检索端到端自查（向量模式
   ⚠️ 在 agent 沙箱内 `npm run e2e` **需要提权**（Chromium 进程沙箱起不来 ⇒ 启动助手已带 `--no-sandbox`）；普通终端直接跑。
 - 现存守卫**只剩上面 2 个**（其余 6 个已按所有者指令移除，原件备份在 `data/_removed-guards-backup/`）——
   这两个都需要模型目录与已注册索引，**在 agent 沙箱里跑不动**；
-  「移除后失去了什么 / 2026-10-13 又补回了哪一部分」见 [`AGENTS.md`](AGENTS.md) §5.2 的对照表。
-- 期望值、前置条件、以及「守卫证明不了什么」，见 [`AGENTS.md`](AGENTS.md) §5。
+  「移除后失去了什么 / 2026-10-13 又补回了哪一部分」见 [`TODO.md`](TODO.md) B-4 的对照表。
+- 期望值、前置条件、以及「守卫证明不了什么」，见 [`AGENTS.md`](AGENTS.md) §3。
 - 若「Electron 起不来」需要定性：`tools\probe_electron_start\`（最小 Electron 探针 + 判读表）。
 - **无归档证据 = 门禁未通过**：结论要落到 `reports/G-<字母>-<日期>/`，协议见 [`reports/README.md`](reports/README.md)。
 
@@ -113,7 +113,7 @@ node tools\check_search.mjs               # 检索端到端自查（向量模式
 > 又因为 `out/` **不进 git**（新克隆里不存在），所以 `verify_app_build.mjs` / `verify_renderer_dom.mjs` / `smoke_app.mjs`
 > 这三条**依赖 `out/` 的检查，必须先成功跑过一次 `npm run build`**，否则会报「找不到 `out/main/index.js`」。
 >
-> 口径：这与 [`AGENTS.md`](AGENTS.md) §5.1 记的「本环境无法创建文件符号链接（`EPERM`）→ 符号链接用例跳过」**并列**，都属**环境限制**，不是产品缺陷。
+> 口径：这与 [`AGENTS.md`](AGENTS.md) §3 记的「本环境无法创建文件符号链接（`EPERM`）→ 符号链接用例跳过」**并列**，都属**环境限制**，不是产品缺陷。
 > 仍然**未验证**：`smoke_app.mjs`（真启动 Electron 出窗）· 打包态 · 冷启动计时 · 真实 `thumb://` 取图。
 
 ---

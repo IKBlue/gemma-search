@@ -86,7 +86,7 @@ npm run build                             # 期望：out/{main,preload,renderer}
 
 ```
 
-**只有 1 项跳过**，原因是环境限制（详见 [`AGENTS.md`](AGENTS.md) §5.1）：
+**只有 1 项跳过**，原因是环境限制（详见 [`AGENTS.md`](AGENTS.md) §3）：
 
 1. 本环境无法创建**文件**符号链接（`EPERM`）→ 那条「库内指向库外的符号链接必须被拒」跳过（目录联接能建，文件符号链接不能）。在能建链接的机器上会真跑。
 
@@ -106,7 +106,7 @@ npm run build                             # 期望：out/{main,preload,renderer}
 ```powershell
 
 > 已按所有者指令移除**（原件备份在 `data/_removed-guards-backup/`）。上面只列现存的两个 —— 这两个都需要
-> 模型目录与已注册索引，**在 agent 沙箱里跑不动**；移除的代价见 [`AGENTS.md`](../AGENTS.md) §5.2。
+> 模型目录与已注册索引，**在 agent 沙箱里跑不动**；移除的代价见 [`TODO.md`](../TODO.md) B-4。
 node packages/indexer/src/build_index_onnx.mjs --model <ONNX 模型目录> --lib <素材库根> `
      --out data/idx-full --seq 140 --device webgpu --lib-id L1
 ```

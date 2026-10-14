@@ -1,12 +1,12 @@
 // apps/desktop/tests/layering.test.mjs —— 三层架构的**机械检查**（进 `npm test`，不是守卫）
 //
-// 为什么要有它：`AGENTS.md` §0.1 的三层架构此前是**纯纪律** —— 靠人看。本仓库已被独立复核否过三次，
+// 为什么要有它：`AGENTS.md` §2 的四层架构此前是**纯纪律** —— 靠人看。本仓库已被独立复核否过三次，
 // 每一次的根因都是"抓不到回归的检查等于没有检查"。所以规则的机械部分必须上断言。
 //
 // ⚠️ 口径（所有者 2026-10-13）：**不新建守卫**（`tools/verify_*.mjs`），改成 `npm test` 里的断言。
 //    这不是变通 —— 仓库已有先例：`permissions.test.mjs` 就是靠读源码断言"该模块不 import `fs`"。
 //
-// 规则来源（`AGENTS.md` §0.1 的三层架构表）：
+// 规则来源（`AGENTS.md` §2 的分层表）：
 //   UI(组件) ──> Operation(store/composable/utils) ──> Adapter(唯一 invoke 入口) ──> repo/service
 //   · Adapter 是**全应用唯一**碰 `window.api` 的地方
 //   · UI 层（pages/layout/ui/search）**不得**碰 `window.api`，也**不得**直接 import Adapter
@@ -23,7 +23,7 @@ import { findInCode } from './helpers/source-scan.mjs'
 
 const RENDERER = fileURLToPath(new URL('../src/renderer/src', import.meta.url))
 
-/** UI 层目录（`AGENTS.md` §0.1 的表格） */
+/** UI 层目录（`AGENTS.md` §2 的表格） */
 const UI_DIRS = ['pages', 'layout', 'ui', 'search']
 /** Operation 层目录 */
 const OPERATION_DIRS = ['hooks', 'store', 'utils']

@@ -173,7 +173,7 @@
 > `verify_renderer_styles` / `smoke_app` / `verify-doc-refs` 的地方，那些守卫**已按所有者指令移除**
 > （原件备份在 `data/_removed-guards-backup/`）。文中的"有自动化/由它断言"一律**不再成立**；
 > 现存守卫只剩 `verify_encoder_path` 与 `check_search`，且两者都需要模型与已注册索引（沙箱跑不动）。
-> 详见 [`AGENTS.md`](../AGENTS.md) §5.2 的"移除的代价"。
+> 详见 [`TODO.md`](../TODO.md) B-4 的"移除的代价"。
 
 ## 4. 技术选型：提议的 5 项增补 —— **实际只采纳了 2 项**
 
@@ -294,7 +294,7 @@
 > **守卫的更替（2026-10-13 二次更替）**：本节原写的 `tools/verify_tokens.py`（以及文档侧那个
 > `tools/verify_docs.py`）都**随 Python 档退役被删**；随后的 7 个 Node 守卫里有 5 个（含
 > `verify_renderer_styles`）**已于 2026-10-13 按所有者指令移除**。
-> **现存只有 2 个**：`verify_encoder_path` · `check_search`（见 `AGENTS.md` §5.2），且本机都跑不动。
+> **现存只有 2 个**：`verify_encoder_path` · `check_search`（见 `AGENTS.md` §3），且本机都跑不动。
 > **"改样式后必跑" = `npm test`**（样式纪律已做成其中的断言，见 `task-19`）。
 
 ### 8.2 一处需要你定的冲突：侧栏深浅

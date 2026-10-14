@@ -1,6 +1,6 @@
 // useEngine —— 渲染进程访问主进程能力的 Operation 层入口
 //
-// 分层（AGENTS.md §0.1）：UI ──> **Operation（本文件）** ──> Adapter（`../adapter/api.js`）──> 主进程。
+// 分层（AGENTS.md §2）：UI ──> **Operation（本文件）** ──> Adapter（`../adapter/api.js`）──> 主进程。
 // 本文件**不再直接碰 `window.api`** —— 那是 Adapter 的唯一职责（2026-10-13 迁移）。
 //
 // 此前这里自己解一遍信封（`!r.ok` / `r.error || {userMessage:'读取失败'}` / `catch → '调用异常'`），

@@ -5,7 +5,7 @@
 //   而 P3c/P3d 需要"从结果卡点进详情再返回，筛选与结果还在"。状态必须**离开组件**。
 //   `hooks/useSearch.js` 已被**删除**（不是留着当包装）—— 同一件事不留两份实现（P1）。
 //
-// 分层（`AGENTS.md` §0.1）：本文件是 **Operation 层** —— 它调 Adapter（不做协议细节），
+// 分层（`AGENTS.md` §2）：本文件是 **Operation 层** —— 它调 Adapter（不做协议细节），
 //   并且**不依赖 React**（Zustand 的 vanilla store 在纯 Node 里就能跑 ⇒ 可单测）。
 //
 // ⚠️ 提示文案（toast）**不进 store**：它是 UI 关切。动作把它当参数收（`run(onToast)`），

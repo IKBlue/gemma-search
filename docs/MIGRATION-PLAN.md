@@ -73,7 +73,7 @@ gemma-search/
 > ① **补上 `docs/plan/`**（原 §1 漏列，与 §1.1/§3 自相矛盾）；
 > ② `spike/` · `static/` · `archive/` 不是"并列顶层目录"，它们**已被移进 `docs/archive/`**
 > （`docs/archive/{spike,prototype,legacy}`），所以从顶层树里去掉；
-> ③ `tests/` **当前不存在**（只在 `AGENTS.md` §2 里作为未来位置登记），原计划把它画成顶层目录是错的。
+> ③ `tests/` **当前不存在**（只在 `AGENTS.md` §4 里作为未来位置登记），原计划把它画成顶层目录是错的。
 > 另：根目录**只有** `AGENTS.md` + `README.md` 两份 `.md`（`verify-doc-refs` 实测越界 0）。
 
 ### 1.1 三份根文档 → 两份
@@ -167,14 +167,14 @@ const ALLOWED_ROOT = new Set(['AGENTS.md', 'README.md']);
 
 | # | 发现 | 处置 |
 |---|---|---|
-| **B-1** | `reports/README.md` 是**现行权威文件**（`AGENTS.md` §3/§4 指它），但迁移完全没碰它 ⇒ 里面 5 条命令**全部不可执行**（`.venv` / `quality_*.py` / `onnx-spike/` / `TASK-PLAN` / `G:\model`） | ✅ **Lead 已重写该文件**：「复现一遍 G-B」整节标为**已作废**并说明为什么不可复算；阈值与协议保留；去掉硬编码 `G:\model` |
+| **B-1** | `reports/README.md` 是**现行权威文件**（`AGENTS.md` §4/§7.1 指它），但迁移完全没碰它 ⇒ 里面 5 条命令**全部不可执行**（`.venv` / `quality_*.py` / `onnx-spike/` / `TASK-PLAN` / `G:\model`） | ✅ **Lead 已重写该文件**：「复现一遍 G-B」整节标为**已作废**并说明为什么不可复算；阈值与协议保留；去掉硬编码 `G:\model` |
 | **B-2** | `apps/desktop/src/README.md` 的模块位置说明与磁盘**相反**（称 `encoder.mjs`「逐字一致 / 路径深度未变」、称两个关键件「仍在 `onnx-spike/`」「这一轮刻意不动」、称 `start:legacy` 仍可跑） | ✅ **Lead 已整体重写该文件**（它记的是更早一次 `app/`→`src/` 迁移，已被两次取代） |
 | R-1 | `npm ls --depth=0` 实为 **EXIT=1 + 4 个 `invalid`**，任务口径只查 UNMET 会**掩盖非 0 退出** | ✅ 交付说明改用 `npm ci --dry-run`（EXIT=0）作为强证据；`invalid` 经隔离复现判为 **npm 11.9 假阴性** |
 | R-2 | 6 条死引用的根因**不是同一类**：`REVIEW-UIUX-AUDIT.md:432` 的 `materials.md` 是**中文散文里的文档名**（不在 URL、不在反引号里），另 5 条才是裸 URL 末段 | ✅ 本文件与交付说明改为「**两类**：散文裸写文件名 + 外部 URL 末段」 |
 | R-3 | 3 个包 manifest 的**注释示例**用了错误的 3 级相对深度（那些文件距根实为 **2 级**）；真实 import 全部正确 | ✅ Lead 已改 3 处注释并加「相对深度别照抄」的警告 |
 | R-4 | 「**0 内容改动**」**只在 `--cached` 层成立**：`git diff -M HEAD` = 149 files / 1613+ / 1930− | ✅ 已限定作用域（本表第 P1 行措辞是「`--cached` 层的搬运」；全仓改动量见交付说明） |
 | R-5 | `log.mjs` 的**兜底**仍按层级数 `..`，只对构建态正确（源码态会落到 `<根>/apps/desktop`） | ✅ Lead 已加注释说明「这是**故意**的吵一声」；正常两态走标记式探测，走不到兜底 |
-| 更正 | `AGENTS.md` §5.1 称 2/3 两个 skip 是「**死引用，会永久跳过**」——**错**：真正缺的只有 `config.json`；`data/baseline-v1.json` **是被 git 跟踪的** | ✅ 已发回 `docs-guide` 更正为「**D2 处置后可复活**」 |
+| 更正 | `AGENTS.md` §3 称 2/3 两个 skip 是「**死引用，会永久跳过**」——**错**：真正缺的只有 `config.json`；`data/baseline-v1.json` **是被 git 跟踪的** | ✅ 已发回 `docs-guide` 更正为「**D2 处置后可复活**」 |
 
 **验证者如实登记的 limits（未验证，不得替它放行）**：`npm run build`（esbuild `spawn EPERM`，失败于 `loadConfigFromFile` **配置尚未求值**，故不能归因于配置内容）· `out/` 三端齐备性 · `verify_app_build` · `verify_renderer_dom` · `smoke_app` · `verify_encoder_path`（⇒ **`encoder.mjs` 的 BMP 修复未获运行时证实**，只核了 diff 与代码事实）· `check_search` · 真实 `npm ci` · 打包态。
 
@@ -234,7 +234,7 @@ const ALLOWED_ROOT = new Set(['AGENTS.md', 'README.md']);
 1. **`npm test`** → `tests 68 · pass 65 · fail 0 · skipped 3`（与重构前逐项一致）— ✅ **已达成**
 2. **四个守卫 EXIT=0**：`verify_app_build` · `verify_renderer_styles` · `verify_renderer_dom` · （`verify-doc-refs` 的**两类已知误报**除外，且根目录越界必须为 0）
    — ✅ **已达成**：`verify_app_build` **EXIT=0** · `verify_renderer_dom` **EXIT=0** · `verify_renderer_styles` **EXIT=0**；
-   `verify-doc-refs` **根目录越界 0**、死引用 6（**两类误报**：外部 URL 末段 5 条 + 中文散文里裸写的文档名 1 条，均见 `AGENTS.md` §6）
+   `verify-doc-refs` **根目录越界 0**、死引用 6（**两类误报**：外部 URL 末段 5 条 + 中文散文里裸写的文档名 1 条，均见 `AGENTS.md` §6.2）
 3. **`npm run build`** 成功，且 `out/{main,preload,renderer}` 三端产物齐备 — ✅ **已达成**
    （2026-10-12 提权实测 EXIT=0：`out/main/index.js` 49.49 kB · `out/main/chunks/{bmp_decode,encoder}-*.js` ·
    `out/preload/index.cjs` 0.82 kB · `out/renderer/index.html` 1.15 kB + assets 25.50 kB css / 673.37 kB js。
@@ -246,7 +246,7 @@ const ALLOWED_ROOT = new Set(['AGENTS.md', 'README.md']);
 8. 未 `git commit`、未 push、未改 `data/` 索引 — ✅ **已达成**（本文件为重构当时的记录；其后所有者授权提交并推送，见交付说明）
 9. **（补充）`npm ci --dry-run`** → **EXIT=0**（锁文件与 manifests 一致；此前的 `package-lock.json` 是单包形态，会让 `npm ci` 失败）
 
-> **DoD 现已全绿**（`verify-doc-refs` 的 6 条死引用是**两类已记录误报**，见 `AGENTS.md` §6）。
+> **DoD 现已全绿**（`verify-doc-refs` 的 6 条死引用是**两类已记录误报**，见 `AGENTS.md` §6.2）。
 > 仍**未验证**的是 `smoke_app.mjs`（真启动 Electron 出窗）与打包态 —— 属「未做的门禁」，不属本轮 DoD。
 
 > **DoD 未全绿的项只有一类：`npm run build` 及其两条下游检查。** 这是**环境限制**，不是重构结果。
@@ -263,6 +263,6 @@ const ALLOWED_ROOT = new Set(['AGENTS.md', 'README.md']);
 | electron-vite 默认把产物写到工程根的 `out/`，现在工程根变成 `apps/desktop/` | `electron.vite.config.mjs` **显式设 `build.outDir`** 指向 `<仓库根>/out`，保持守卫与 `electron-builder.yml` 的假设不变 | ✅ 三段 outDir 实测为绝对路径 `<根>/out/*`；另**必须**显式给 renderer 的 `rollupOptions.input`（否则默认探测落空 → 构建失败） |
 | npm workspaces 引入后 `npm install` 行为变化 | ~~本环境不重跑 install~~ → 实测**必须跑一次**：`--package-lock-only` 只为锁文件补上 4 个 workspace 条目，但**不建符号链接** ⇒ `npm ls`/`npm ci` 仍失败 | ✅ 已跑 `npm install --ignore-scripts --cache .npm-cache`（沙箱禁写全局 npm cache）→ 4 个 Junction 建好 |
 | 搬 `tests/` 到 `packages/engine/tests/` 会让 `npm test` 的 glob 失配 | `package.json` 脚本同步改 `packages/engine/tests/*.test.mjs`，并在 P2 立刻跑 | ✅ `tests 68 · pass 65 · fail 0 · skipped 3` |
-| **（新发现）`npm run build` 在本沙箱内无法执行** | 提权后可执行 | ✅ **已解决**：2026-10-12 提权跑通，EXIT=0，三端齐备；两条依赖 `out/` 的守卫首次获得判定。**但边界仍成立** —— 无提权的受限环境仍会 `spawn EPERM`（见 `AGENTS.md` §5.1） |
+| **（新发现）`npm run build` 在本沙箱内无法执行** | 提权后可执行 | ✅ **已解决**：2026-10-12 提权跑通，EXIT=0，三端齐备；两条依赖 `out/` 的守卫首次获得判定。**但边界仍成立** —— 无提权的受限环境仍会 `spawn EPERM`（见 `TODO.md` B-5-3） |
 | **（新发现）`npm ci` 曾经必然失败** | 根锁文件是单包形态（无 workspace 条目） | ✅ 已用 `npm install --package-lock-only` 重新生成（649 → 663 条，含 4 个 `@gemma-search/*`） |
 | 文档重构面大（13 份 + 新增），容易再生矛盾 | P3/P4 完成后由**独立验证者**用「全仓 grep + 逐条 D1-D14 复查」验收 |

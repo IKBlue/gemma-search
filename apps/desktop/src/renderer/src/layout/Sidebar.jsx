@@ -46,7 +46,7 @@ export function NavItem({ icon, children, active = false, disabled = false, titl
         //    `cn(true, false)` === `''`（clsx 对布尔参数的处理）⇒ 整式**恒为 `undefined`**
         //    ⇒ NavLink 拿不到任何 class ⇒ **侧栏当前页在视觉上完全不可见**（真窗口实测 3 条路由一致：
         //    `navActiveClass = null`、`backgroundColor = rgba(0,0,0,0)`）。
-        //    现在写"**互斥**"形态（`AGENTS.md` §3：修饰态写互斥不写叠加），并把 `active` 作为**对象键**传，
+        //    现在写"**互斥**"形态（`AGENTS.md` §6.3：修饰态写互斥不写叠加），并把 `active` 作为**对象键**传，
         //    这样"要不要这个类"由 clsx 决定，不再靠 `||` 和布尔参数打架。
         //
         // ⚠️⚠️ **注意这一行与上面注释里的写法**：注入器/脚本类工具改这里时**必须先用

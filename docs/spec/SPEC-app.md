@@ -3,7 +3,7 @@
 > 状态：**现行**（已批准，执行到 P3）
 > 最后核对：2026-10-12
 > 权威范围：应用技术栈与目录结构 · 目标与成功标准 · 边界
-> 本文档是"我们造什么、为什么、怎么算做完"的依据；**技术栈表以实际实现为准**（权威关系见 `AGENTS.md` §4）。
+> 本文档是"我们造什么、为什么、怎么算做完"的依据；**技术栈表以实际实现为准**（权威关系见 `AGENTS.md` §7.1）。
 
 ---
 
@@ -131,20 +131,20 @@ npm run dev:restricted / start:restricted # 受限环境（Chromium 沙箱起不
 node packages/indexer/src/build_index_onnx.mjs --model <ONNX 模型目录> --lib <素材库根> `
      --out data/idx-full --seq 140 --device webgpu --lib-id L1
 
-# 守卫（全部只读；期望值与前置条件见 AGENTS.md §5）
+# 守卫（全部只读；期望值与前置条件见 AGENTS.md §3）
 node tools/verify_encoder_path.mjs --model <ONNX 模型目录>   # 编码路径（跑真实推理）
 node tools/check_search.mjs               # 检索端到端自查（需查询向量）
 ```
 
 > 已按所有者指令移除**（原件备份在 `data/_removed-guards-backup/`）。上面只列现存的两个 —— 这两个都需要
-> 模型目录与已注册索引，**在 agent 沙箱里跑不动**；移除的代价见 [`AGENTS.md`](../AGENTS.md) §5.2。
+> 模型目录与已注册索引，**在 agent 沙箱里跑不动**；移除的代价见 [`TODO.md`](../TODO.md) B-4。
 
 > 日志：主进程 + 渲染进程诊断都写 `data\_app.log`（GUI 子系统没有 stdout）。
-> 前后端命令口径的完整版（含每个守卫的前置条件与"证明不了什么"）见 `AGENTS.md` §5 与 `README.md` §2。
+> 前后端命令口径的完整版（含每个守卫的前置条件与"证明不了什么"）见 `AGENTS.md` §3 与 `README.md` §2。
 
 ## 5. Project Structure
 
-> **2026-10-12 按 monorepo 布局重写**（目录结构已冻结，见 `docs/MIGRATION-PLAN.md` §1）。每个顶层目录的职责与「能不能改 / 进不进 git」见 `AGENTS.md` §2。
+> **2026-10-12 按 monorepo 布局重写**（目录结构已冻结，见 `docs/MIGRATION-PLAN.md` §1）。每个顶层目录的职责与「能不能改 / 进不进 git」见 `AGENTS.md` §4。
 
 ```
 gemma-search/

@@ -269,7 +269,7 @@ export default function TasksPage() {
               <div className="panel mt-4" data-testid="tasks-empty-hint">
                 {/* ⚠️ **这段文案刻意不抄引擎那句原文，也不列出"哪几个方法没实现"** —— 两条理由都是实测教训：
                     ① **不许在界面里硬编码"哪些方法没实现"**：那是一份会漂移的清单，唯一来源是引擎的
-                       `UNIMPLEMENTED_METHODS`（`AGENTS.md` §7）。界面靠"点一下看引擎怎么答"就够了。
+                       `UNIMPLEMENTED_METHODS`（`TODO.md` B-2-3）。界面靠"点一下看引擎怎么答"就够了。
                     ② **抄那句话会把自动化测垮**：E2E 的 `E10-f` 用 toast 的文案做判据，界面里再出现一遍
                        同样的字 ⇒ Playwright 匹配到 2 个元素（strict mode 报错）；更糟的是 toast 还没挂上时
                        它只匹配到这一段 ⇒ **断言假绿**（2026-10-13 实测：全套挂 2/3 次、单独跑却"通过"）。 */}

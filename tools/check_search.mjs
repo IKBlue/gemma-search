@@ -11,7 +11,7 @@
 //
 // 为什么库根**必须显式给**、且没有默认值：本检查会把索引里的 relPath 拼到库根上，
 // 核对"第一条的图在磁盘上真的存在"。写死一个库根（例如某台机器的路径）会**静默**
-// 核对到别的目录 —— 检查"通过"了，它核对的却不是你的库。见 AGENTS.md §7
+// 核对到别的目录 —— 检查"通过"了，它核对的却不是你的库。见 TODO.md C-12
 //「不把本机绝对路径写进代码」。同类做法见 tools/verify_encoder_path.mjs 的 --model。
 import fs from 'node:fs';
 import path from 'node:path';

@@ -30,7 +30,7 @@ apps/desktop/src/
 
 | 件 | 实际位置 | 为什么在别处 |
 |---|---|---|
-| 引擎 | `packages/engine/` | **传输无关、零第三方依赖**（`AGENTS.md` §2）——它必须能被脱离 Electron 单独测试 |
+| 引擎 | `packages/engine/` | **传输无关、零第三方依赖**（`AGENTS.md` §1 S5）——它必须能被脱离 Electron 单独测试 |
 | 编码兼容层 / BMP 解码 / 索引构建 | `packages/indexer/src/` | 索引构建、查询、应用三条路径**共用同一份实现**，不能只放在应用里 |
 | 视觉令牌 | `packages/design-tokens/tokens.css` | **唯一来源**，由 `renderer/src/main.jsx` 直接 import |
 
@@ -72,7 +72,7 @@ npm run build
 > ⚠️ **顺序不能反**：在**无提权的受限沙箱**（例如某些 CI / 容器）里 `npm run build` 仍会失败
 > （esbuild 常驻服务 `spawn EPERM`，**失败点在加载配置之前**）—— 环境限制，不是配置问题。
 > 又因 `out/` **不进 git**（新克隆里不存在），上面两条守卫**必须先成功 build 一次**才有意义，
-> 否则会报「找不到 `out/main/index.js`」。详见 `AGENTS.md` §5.1。
+> 否则会报「找不到 `out/main/index.js`」。详见 `AGENTS.md` §3。
 
 > ℹ️ **历史记录注（2026-10-13）**：本文中出现的 `verify_app_build` / `verify_main_wiring` /
 > `verify_renderer_dom` / `verify_renderer_styles` / `smoke_app` / `verify-doc-refs` **均已于 2026-10-13
@@ -119,8 +119,8 @@ F12 可开 DevTools（生产态也保留，理由见 `docs/spec/SPEC-security.md
 | 4 | 打包态 `data/` 落在 asar 内 | `log.mjs` 会**打印警告**而不是假装没事；需改 `app.getPath('userData')` | P6 |
 | 5 | `app/` 旧外壳 | 已归档到 `docs/archive/legacy/app-shell-20261010/`；`start:legacy` 脚本已删（理由见 §2） | — |
 | 6 | CSP 只设了 `meta`，没设响应头 | `docs/spec/SPEC-security.md` §5 要求两者都设；打包态是 `file://`，`onHeadersReceived` 根本不触发，所以不能只在 dev 加个假的 | P6 定方案 |
-| 7 | **库根配置缺口（D2）** | 主进程仍从 `config.json` / `GEMMA_CONFIG` 读库根，而**该文件已不在仓库里**；找不到时静默用空库 → 开箱即得 `LIB_NOT_FOUND`。**未修** | 见 `AGENTS.md` §7 |
-| 8 | **`reveal` 未接线（F-01）** | 主进程**从未注入 `shell` 端口**，引擎在无 `shell` 时仍返回 `ok({revealed:true})`（静默假成功）。要求见 `docs/spec/CONTRACT-engine-v1.md` §2.4 | 见 `AGENTS.md` §7 |
+| 7 | **库根配置缺口（D2）** | 主进程仍从 `config.json` / `GEMMA_CONFIG` 读库根，而**该文件已不在仓库里**；找不到时静默用空库 → 开箱即得 `LIB_NOT_FOUND`。**未修** | 见 `AGENTS.md` §7.2 |
+| 8 | **`reveal` 未接线（F-01）** | 主进程**从未注入 `shell` 端口**，引擎在无 `shell` 时仍返回 `ok({revealed:true})`（静默假成功）。要求见 `docs/spec/CONTRACT-engine-v1.md` §2.4 | 见 `AGENTS.md` §7.2 |
 
 ## 7. 仍未验证的（**不声称可用**）
 

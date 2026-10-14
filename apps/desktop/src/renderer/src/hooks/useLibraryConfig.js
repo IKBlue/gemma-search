@@ -7,7 +7,7 @@
 // 主进程返回的 `libraries` / `warnings` / `diagnostics` **一律原样透出，不做过滤**：
 // 它们就是排障的第一手材料（也同步写在 data/_app.log 里）。
 //
-// 分层（AGENTS.md §0.1）：本文件是 **Operation 层**。原先 `pages/FirstRunWizard.jsx` 是 **UI 层**，
+// 分层（AGENTS.md §2）：本文件是 **Operation 层**。原先 `pages/FirstRunWizard.jsx` 是 **UI 层**，
 // 却直接调了 `window.api` 两次（`libraryPickDir` / `libraryAdd`）—— 那是三层违例，
 // 也违反了"UI 不得碰 Adapter"。现在这两个操作收到这里，向导回归纯 UI（只吃 props）。
 import { useCallback, useEffect, useState } from 'react'

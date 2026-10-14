@@ -49,7 +49,7 @@ if (!MODEL || !fs.existsSync(MODEL)) {
 }
 // 素材库根：与上面的 --model **同构** —— 命令行 > 环境变量 > 明确报错，**不给默认值**。
 // 原先这里写死了一个本机绝对路径：用户忘了给 --lib 时它会**静默**拿那个路径去拼索引里的
-// relPath 核对文件 —— 核对的是别的目录，却报"通过"。见 AGENTS.md §7
+// relPath 核对文件 —— 核对的是别的目录，却报"通过"。见 TODO.md C-12
 //「不把本机绝对路径写进代码」。同类做法见 tools/check_search.mjs 的 --lib。
 if (!LIB || !fs.existsSync(LIB)) {
   console.error('用法: node tools/verify_encoder_path.mjs --model <ONNX 模型目录> --lib <素材库根> [--index data/idx-full-v2]');
