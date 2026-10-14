@@ -1,0 +1,129 @@
+================================================================================
+T-12a 证据 · 索引落点 + 原子写入 + 校验后读取（模块与单测，**未接线**）
+任务板 id: task-21   执行: db-worker   日期: 2026-10-15
+依赖: T-03（node:sqlite spike）· T-04（storage-roots.ts 的 GS_INDEX_NAME）
+写入范围: apps/desktop/src/main/index-file.ts · apps/desktop/tests/index-location.test.mjs
+===============================================================================
+
+【结论】
+· 新增 apps/desktop/src/main/index-file.ts（330 行）：indexPathFor / assertWritableGsPath /
+  writeIndexAtomically / readIndexFile。
+· 单测：node --test apps/desktop/tests/index-location.test.mjs ⇒ 10 tests / pass 10 / fail 0 / skipped 0 / EXIT=0
+· npx tsc --noEmit -p tsconfig.node.json ⇒ EXIT=0
+· **未接线**（按任务书）：没有改任何既有文件、没有 import 进 index.ts 的启动流程，e2e/fixtures 不受影响。
+· ⚠️ 全量门禁（npm test / build / e2e）未跑 —— 你正在跑全量 e2e，且 TASKS §3.6 规定同一时刻只允许一个人跑 npm test。
+
+【改了哪些文件】
+新增：
+  apps/desktop/src/main/index-file.ts           330 行  落点 + 原子写入 + 校验后读取（纯模块、可注入 fs、不 import electron）
+  apps/desktop/tests/index-location.test.mjs     372 行  L1–L8 十条用例
+未改：**零个既有文件**。GS_INDEX_NAME 从 storage-roots.ts 引进（不另定义一份文件名，P1）。
+
+【实现要点（为什么这么写）】
+1) 落点：indexPathFor(root) = path.join(path.resolve(root), GS_INDEX_NAME) —— 文件名**只有一份来源**
+   （storage-roots.ts:49 的 '.gs-index.bin'），本模块不写第二遍字面量。
+2) 原子写入：库根内临时名 <库根>/.gs-index.bin.tmp-<pid>-<seq> → 写 + **fsync** → （默认）五道校验 → rename 覆盖。
+   · 为什么 fsync 写进端口契约：rename 之前数据必须真落盘，否则掉电会留下"名字对、内容是半截"的索引 ——
+     那正是原子写入要防的东西。
+   · 为什么 rename 之前要校验（默认开，validateBeforeRename=false 可关）：rename 是本模块**唯一不可逆**的一步；
+     拿引擎的五道校验验过临时文件再覆盖，就能做到"宁可不写，也不用一份坏 buffer 盖掉好索引"。
+     代价是多读一遍 11 MB，相对一次索引构建可忽略。
+3) 读取：**复用引擎 readIndexBin**（五道：MAGIC / footer 解析 / footer.complete / count-dim 一致 / sha1）。
+   本模块不碰字节格式，也不做"轻量版校验"（第二份解析 = P1；轻量版会让"损坏"退化成"看起来还行"）。
+   失败抛的是**引擎的 EngineError**（INDEX_MISSING / INDEX_CORRUPT）原样透传 —— code 与 userMessage 归引擎契约，
+   这里包一层只会逼调用方再映射回去。
+4) 只写 .gs-*：assertWritableGsPath 机械拦住两件事 —— 目标必须是库根的**直接子项**（所以 ../ 穿越与子目录都被拒），
+   且名字必须匹配 .gs-（点前缀 + 至少一个字符 + 不含路径分隔符）。写入前对目标与临时名各断言一次。
+5) **不建库根**（你的 U6 裁定）：库根不存在就报 INDEX_WRITE_FAILED，不顺手 mkdir。
+6) 错误码：INDEX_ROOT_REQUIRED / INDEX_BYTES_REQUIRED / INDEX_PATH_OUTSIDE_GS / INDEX_WRITE_FAILED；
+   失败消息里**必须**带临时文件的清理留痕（'已清理临时文件 …' 或 '⚠️ 临时文件未能删除 …'）。
+7) 0 字节与非法类型在**写之前**就拒（INDEX_BYTES_REQUIRED）：0 字节文件必然过不了五道校验，
+   别给它机会先盖掉一份好索引。
+8) fs 走可注入端口 IndexFs（5 个能力）；读路径固定用真实 fs（解析与校验都在引擎里，注入没有意义）。
+
+【原始证据】
+
+--- ① 单测（命令 + 输出全文尾部）
+$ node --test apps/desktop/tests/index-location.test.mjs
+✔ L1 indexPathFor：<库根>/.gs-index.bin；空库根 ⇒ INDEX_ROOT_REQUIRED (2.9312ms)
+✔ L2 ⭐ 命名约束：只允许库根的**直接子项**且名字是 .gs-*（素材路径一律拒） (1.662ms)
+✔ L3 ⭐ 原子写入 + 读回：真实索引字节往返，count/dim/header 与引擎直接读原文件一致 (530.5424ms)
+✔ L4a ⭐ 坏 buffer 不许覆盖好索引：校验不过 ⇒ 报错 + 清理临时文件 + 旧索引原样 (324.7019ms)
+✔ L4b ⭐ rename 失败（目标被目录占着）⇒ 报错 + 清理临时文件 + 不动那个目录 (231.9388ms)
+✔ L4c：连临时文件都删不掉 ⇒ 理由里必须留痕（不许静默留着） (1.854ms)
+✔ L5 ⭐ 写入只碰 .gs-*：素材的数量/内容/mtime 一个字都不许变 (322.8378ms)
+✔ L6 readIndexFile：不存在 ⇒ 引擎 INDEX_MISSING；损坏 ⇒ 引擎 INDEX_CORRUPT（原样透传，不包一层） (3.6757ms)
+✔ L7 ⭐ 拒绝 0 字节与非 Uint8Array：不许用"空索引"盖掉好索引 (283.3324ms)
+✔ L8 ⭐ 库根不存在 ⇒ 报错，不顺手创建（U6：静默建空库根 = 幽灵库） (0.5248ms)
+ℹ tests 10 / pass 10 / fail 0 / cancelled 0 / skipped 0 / duration_ms 1826.2109   EXIT=0
+（skipped=0 ⇒ L3/L4a/L4b/L5/L7 都**真的**用了仓库里 11 MB 的真实 index.bin 当夹具，不是跳过）
+
+--- ② 类型门禁
+$ npx tsc --noEmit -p tsconfig.node.json
+TSC_EXIT=0
+
+--- ③ 真实库实况（临时脚本 data/_t11/index-evidence.mjs，跑完已删；库根 = 仓库内 data/_t11/index-evidence/）
+$ node data/_t11/index-evidence.mjs
+输入：真实索引 = index.bin 11042105 字节；临时库根 = …\data\_t11\index-evidence
+落点 indexPathFor = …\.gs-index.bin | 临时前缀 = .gs-index.bin.tmp- | 常量名 = .gs-index.bin
+写入前 listing = CR, VR | 素材摘要 = 99a7c93261fe4855bb279a867f3ce8b0362683ce
+writeIndexAtomically -> {
+ "path": "…\index-evidence\.gs-index.bin",
+ "tempPath": "…\index-evidence\.gs-index.bin.tmp-15416-1",
+ "bytes": 11042105,
+ "validated": true,
+ "count": 3594,
+ "dim": 768,
+ "reason": "索引已原子写入 …\.gs-index.bin：11042105 字节（五道校验通过：count=3594 dim=768）；临时文件 …已 rename 过去（目标名上不会出现半截文件）"
+}
+写入后 listing = .gs-index.bin, CR, VR | 素材摘要 = 99a7c93261fe4855bb279a867f3ce8b0362683ce   ← **素材摘要不变**
+readIndexFile -> {"path":"…\.gs-index.bin","count":3594,"dim":768,"bytes":11042105}
+header 与引擎直接读原文件一致 = true
+坏 buffer（校验不过） -> code=INDEX_WRITE_FAILED :: 写出的索引没通过五道校验 ⇒ **放弃覆盖原索引**（原索引原样保留）：MAGIC 不符：实际 7468697320697320，期望 4753494458000001。已清理临时文件 …\.gs-index.bin.tmp-15416-2
+0 字节 -> code=INDEX_BYTES_REQUIRED :: 拒绝写 0 字节索引：那会把一份好索引变成一个必然损坏的文件
+rename 失败 -> code=INDEX_WRITE_FAILED :: rename 覆盖失败：…（EPERM: operation not permitted, rename '….tmp-15416-3' -> '…\.gs-index.bin'）。已清理临时文件 …\.gs-index.bin.tmp-15416-3
+rename 失败后临时文件残留 = []
+（坏 buffer 被拒之后）索引仍可读 = 3594
+失败之后 listing = .gs-index.bin, CR, VR | 素材摘要 = 99a7c93261fe4855bb279a867f3ce8b0362683ce
+node = v24.14.0
+EXIT=0
+（要点：① 写入前后**素材摘要完全相同**；② 坏 buffer 的报错正文是**引擎**的 MAGIC 不符 —— 证明校验真的是引擎的五道，
+  不是这里另写的"轻量校验"；③ 两类失败都留下了"已清理临时文件"；④ 失败之后索引仍然可读 3594）
+
+--- ④ 夹具为什么用真实 index.bin
+· 自己在测试里拼 GSIDX 字节 = 在测试里实现第二份格式（P1），而且拼错了会让测试自证自话。
+· packages/indexer/src/build_index_onnx.ts 里确实有 writeIndexBin，但该文件**没有任何 export、顶层就跑 main()**，
+  导入它会真的开始构建索引 ⇒ 不能用。
+  ⇒ 夹具 = 仓库里真实存在的 data/libraries/L1/index.bin（11042105 字节，count=3594 dim=768）；
+    坏夹具 = 同一份字节的首字节篡改 / 纯文本 / 截断到 8 字节，都不需要知道格式细节。
+
+【这条测试**证明不了**什么（如实写）】
+· 不证明"掉电时一定安全"：fsync + rename 是**正确的做法**，但本机没有断电注入，测不了断电语义。
+  能证明的是：目标名上永远只出现完整文件（临时名 → rename），以及失败路径不留临时文件。
+· 不证明真实磁盘满（ENOSPC）：没有可靠的造盘满手段；写入失败那条分支是用注入 fs 的 L4c 覆盖的（校验失败 + unlink 失败）。
+· 不涉及**谁来生成**索引字节：本模块只管"把给定字节原子地放到库根"。索引内容的构建属 packages/indexer（T-13/T-16）。
+· 未接线 ⇒ 启动流程/界面还不认识这个模块（T-15/T-16 负责）。
+
+【环境说明（哪些是环境、哪些是产品）】
+· 本会话沙箱把 electron.exe 的写限制在仓库工作目录内，G:\\model 与 AppData 一律 EPERM（TASKS §5）。
+  临时库根**故意**落在仓库内 data/_t11/index-location-test-<pid>/（after() 整目录删除）与 data/_t11/index-evidence/（已删）。
+  真实索引夹具是仓库内副本，只读。这是环境限制不是产品落点；产品落点由 T-04 storage-roots.ts 给。
+· Windows 上实测 fs.renameSync(file → 已存在的目录) 抛 EPERM（本轮实测，用于 L4b 的确定性 rename 失败），
+  所以那条失败分支用的是**真实 fs**，不是假 fs。
+· 两个 node：run_code 进程内 v24.18.1，pwsh/PATH 里 v24.14.0（证据 ③ 末尾）。单测与 tsc 都走 PATH 的 v24.14.0。
+
+【未决 / 交接】
+1) 给 T-15/T-16（接线方）：入口是 writeIndexAtomically(libraryRoot, bytes) / readIndexFile(libraryRoot)。
+   库根可写性与 userData 回退判断**不在这里**（T-04 的 resolveLibraryStorage().root/index）；
+   本模块不建库根，库根不存在会报 INDEX_WRITE_FAILED（消息里带原因）。
+2) readIndexFile 抛的是引擎的 EngineError（INDEX_MISSING / INDEX_CORRUPT），接线方直接按 code 分流即可
+   （USER_MESSAGE 里已有"索引文件已损坏，需要重建"）。
+3) 临时名用 <pid>-<seq>，同进程内不会撞名；跨进程也不会（pid 不同）。若将来要跨机器并发写同一个库根，
+   需要在接线层加锁（本模块不做锁）。
+4) 全量门禁 / build / e2e 未跑。
+
+【回滚方式】
+· 新增文件（删掉即可）：apps/desktop/src/main/index-file.ts · apps/desktop/tests/index-location.test.mjs · 本证据文件。
+· **没有改任何既有文件**，所以不需要回退其它东西；GS_INDEX_NAME 是**引**进 storage-roots.ts 的，没动那个文件。
+· 未跑 git（AGENTS P7）；临时库 data/_t11/index-location-test-* 与 data/_t11/index-evidence* 已全部清理（data/_t11 现为空）。
+===============================================================================
