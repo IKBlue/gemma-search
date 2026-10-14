@@ -1,0 +1,310 @@
+W1-C · 渲染层 Operation 层 .js/.jsx → .ts/.tsx（task-3）
+日期 2026-10-14 · 类型：**本轮实测** · 执行者：renderer-migrator（teammate）
+值守范围（写入范围）：apps/desktop/src/renderer/src/{adapter,store,hooks,utils,router}/**
+
+================================================================
+0. 结论速览
+================================================================
+① 13 个文件全部转 .ts/.tsx；范围内**零 .js/.jsx 残留**
+② `npx tsc --noEmit -p tsconfig.web.json` → **EXIT=0**
+③ `npm run build` → **EXIT=0**（out/main · out/preload · out/renderer 三端齐备）
+④ `npm test` 失败文件的**全集** = 侦察时预报的 A/B/C 清单（10 个测试文件 / 12 条），
+   **无任何新增失败类型** ⇒ 满足 W1-C 门禁口径（见 §9）
+⑤ 行为等价性独立验证：把 10 个真实测试文件原样搬到 scratch 跑 → **100/100 pass, EXIT=0**（§7）
+⑥ ⚠️ 本轮最值钱的一条实测：**Node 24 不把 `./x.js` 映射到 `x.ts`，Vite 7 会**（§4）
+   —— 这条直接决定渲染层相对 import 该不该带显式扩展名。
+
+================================================================
+1. 改了哪些文件（13 个）
+================================================================
+原地改名 + 严格类型化（保留逐字行为，不引入 any / 逃逸注释）：
+
+  adapter/api.ts                  全应用唯一 window.api 接触点；invoke<D>(method: MethodName, params)
+  store/tasks.ts                  reduceEvent 纯函数；zustand create<TaskStore>() 柯里化
+  store/search.ts                 检索状态 + 破坏性操作「请求→确认」两段式
+  hooks/useToast.ts               提示归一化 + 不自动消失策略
+  hooks/useEngine.ts              Operation 层入口（useEngine / useEngineEvents / useIndexStatus）
+  hooks/useLibraryConfig.ts       库配置 + 首启向导两个操作
+  utils/gate.ts                   向导 vs 应用 判定
+  utils/useDocumentTitle.ts       窗口标题
+  utils/format.ts                 humanSize / humanTime
+  utils/index-state.ts            索引状态四档
+  utils/item-actions.ts           动作四分区
+  router/paths.ts                 路由表唯一来源（RouteKey 字面量联合）
+  router/index.tsx                路由装配（范围内唯一 .tsx）
+
+对应的 13 个 .js/.jsx 已删除。
+
+关键类型决策（都不是 any）：
+  · Adapter 的 method 吃契约类型 `MethodName`（`import type` from shared/ipc.ts）—— 单一来源，
+    未登记方法在类型上就通不过；响应 data 由调用点用 `invoke<D>` 声明，不声明就取不到字段。
+  · `declare global { interface Window { api?: RendererBridge } }` 只出现在 adapter/api.ts ——
+    与「唯一接触点」同一条纪律：`window.api` 的类型也不在第二处重述。
+  · 收窄替代断言：`catch (e)` 下用 `(e as {message?: unknown})` 收窄；`Boolean(item) && item.x`
+    这类旧写法改成早返回（对 object|null|undefined 语义等价，下面 §7 用原断言证明了等价）。
+
+================================================================
+2. 基线（改动前，原始输出）
+================================================================
+$ npx tsc --noEmit -p tsconfig.web.json
+EXIT=0
+
+$ npm test
+ℹ tests 313
+ℹ pass 311
+ℹ fail 1
+ℹ skipped 1
+EXIT=1
+
+⚠️ 那 1 条 fail **不是 W1-C 的**：
+  apps/desktop/tests/deps.test.mjs:92 D-C 断言里还写着 packages/indexer/src/bmp_decode.mjs，
+  而 W1-B（core-migrator）彼时已把它改成 .ts。Lead 随后在
+  reports/2026-10-14-ts-wave1/README-lead-sync.md 同步了该路径。
+⇒ 全员共用一个工作区，任何"基线"读数都要标注同窗口的其他写入者。
+
+================================================================
+3. 验收命令 + 原始输出
+================================================================
+原始文件：data/_w1c/final-tsc.txt · data/_w1c/final-npmtest.txt · data/_w1c/final-build.txt
+
+3.1 类型门禁 —— 通过
+$ npx tsc --noEmit -p tsconfig.web.json
+（无输出）
+EXIT=0
+
+3.2 构建 —— 通过
+$ $env:TEMP=<repo>\data\_w1c\tmp; $env:TMP=$env:TEMP; npm run build
+vite v7.3.7 building ssr environment for production...
+✓ 17 modules transformed.
+out/main/chunks/bmp_decode-CrjD8y7P.js   1.83 kB
+out/main/chunks/encoder-DqZ6ggTh.js      7.93 kB
+out/main/index.js                       94.55 kB
+✓ built in 223ms
+vite v7.3.7 building ssr environment for production...
+✓ 1 modules transformed.
+out/preload/index.cjs  0.85 kB
+✓ built in 9ms
+vite v7.3.7 building client environment for production...
+✓ 254 modules transformed.
+../../../../out/renderer/index.html                     1.15 kB
+../../../../out/renderer/assets/index-BlzNWBUm.css     48.62 kB
+../../../../out/renderer/assets/index-CS193Ns0.js   1,160.08 kB
+✓ built in 1.90s
+EXIT=0
+
+（关于 `$env:TEMP=`：默认 TEMP 下构建会因沙箱拒删 esbuild 临时文件而失败，见 §6。）
+
+3.3 `npm test` —— 失败项 = 预报清单，**无新增失败类型**
+$ npm test
+ℹ tests 253
+ℹ pass 240
+ℹ fail 12
+ℹ skipped 1
+EXIT=1
+
+失败条目的**全集**（逐条归类到侦察时的 A/B/C 清单）：
+  apps\desktop\tests\adapter.test.mjs       :: 文件级 ERR_MODULE_NOT_FOUND: adapter/api.js       [A]
+  apps\desktop\tests\copy.test.mjs          :: 文件级 ERR_MODULE_NOT_FOUND: hooks/useToast.js     [A]
+  apps\desktop\tests\gate.test.mjs          :: 文件级 ERR_MODULE_NOT_FOUND: utils/gate.js         [A]
+  apps\desktop\tests\item-actions.test.mjs  :: 文件级 ERR_MODULE_NOT_FOUND: utils/index-state.js  [A]
+  apps\desktop\tests\router.test.mjs        :: 文件级 ERR_MODULE_NOT_FOUND: router/paths.js       [A]
+  apps\desktop\tests\search-store.test.mjs  :: 文件级 ERR_MODULE_NOT_FOUND: store/search.js       [A]
+  apps\desktop\tests\task-store.test.mjs    :: 文件级 ERR_MODULE_NOT_FOUND: store/tasks.js        [A]
+  apps\desktop\tests\dom-validity.test.mjs  :: V4  ENOENT router/paths.js                          [B]
+  apps\desktop\tests\layering.test.mjs      :: L1 / L4 / L5（walk 只收 .js/.jsx 的自检）            [C]
+  apps\desktop\tests\style-contract.test.mjs:: SC-0（渲染层文件数 29 < 40）                        [C]
+
+⇒ 12/12 条都能归到 A/B/C；**0 条新类型**。
+（另注：本轮中途 packages/engine/tests 也曾红过一阵 —— 那是 W1-B 在途写入，收尾时已消失，
+  不再出现在上面这份全集里。）
+
+3.4 残留与护栏（原始输出）
+$ Get-ChildItem -Path 'apps\desktop\src\renderer\src' -Recurse -Include *.ts,*.tsx |
+    Where-Object { $_.FullName -match '\\(adapter|store|hooks|utils|router)\\' } | % { $_.FullName }
+apps\desktop\src\renderer\src\adapter\api.ts
+apps\desktop\src\renderer\src\hooks\useEngine.ts
+apps\desktop\src\renderer\src\hooks\useLibraryConfig.ts
+apps\desktop\src\renderer\src\hooks\useToast.ts
+apps\desktop\src\renderer\src\router\index.tsx
+apps\desktop\src\renderer\src\router\paths.ts
+apps\desktop\src\renderer\src\store\search.ts
+apps\desktop\src\renderer\src\store\tasks.ts
+apps\desktop\src\renderer\src\utils\format.ts
+apps\desktop\src\renderer\src\utils\gate.ts
+apps\desktop\src\renderer\src\utils\index-state.ts
+apps\desktop\src\renderer\src\utils\item-actions.ts
+apps\desktop\src\renderer\src\utils\useDocumentTitle.ts
+
+$ Get-ChildItem -Path 'apps\desktop\src\renderer\src' -Recurse -Include *.js,*.jsx |
+    Where-Object { $_.FullName -match '\\(adapter|store|hooks|utils|router)\\' }
+（无输出）                                  ← 范围内零 .js/.jsx 残留
+
+$ <上面 13 个文件> | Select-String -Pattern 'as any|@ts-ignore|@ts-expect-error|@ts-nocheck' |
+    Measure-Object | % { 'escape-hatch hits=' + $_.Count }
+escape-hatch hits=0
+
+（另：全仓 grep '\bany\b' / 'as any' / '@ts-ignore' / '@ts-expect-error' / '@ts-nocheck'
+  在渲染层范围内均为 0 命中。）
+
+================================================================
+4. 关键实测发现 —— 决定 import 规格串怎么写
+================================================================
+4.1 Node 24 ESM **不**把 `./x.js` 映射到 `x.ts`；Vite 7 **会**
+
+Node 探针（scratch：同目录只有 x.ts，无 x.js）：
+$ node imp.mjs      # import { v } from "./x.js"
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\...\x.js' imported from ...\imp.mjs
+    at finalizeResolution (node:internal/modules/esm/resolve:275:11)
+    code: 'ERR_MODULE_NOT_FOUND'
+$ node imp2.mjs     # import { v } from "./x.ts"
+RESOLVED_TS 42
+$ node -v
+v24.14.0
+
+Vite 7 源码（node_modules/vite/dist/node/chunks/config.js:32898-32913）：
+    const knownTsOutputRE = /\.(?:js|mjs|cjs|jsx)$/;
+    const isPossibleTsOutput = (url) => knownTsOutputRE.test(url);
+    function tryCleanFsResolve(file, options, tryIndex = true, skipPackageJson = false) {
+        ...
+        const possibleJsToTs = isPossibleTsOutput(file);
+        if (possibleJsToTs || options.extensions.length || tryPrefix) {
+            if (isDirectory(dirPath)) {
+                if (possibleJsToTs) {
+                    const fileExt = path.extname(file);
+                    const fileName = file.slice(0, -fileExt.length);
+                    if (res = tryResolveRealFile(fileName + fileExt.replace("js", "ts"), preserveSymlinks)) return res;
+                    if (fileExt === ".js" && (res = tryResolveRealFile(fileName + ".tsx", preserveSymlinks))) return res;
+                }
+        ...
+
+⇒ Vite 的判据是 **specifier 长什么样**，与 importer 是不是 TS **无关**。
+  所以范围外 pages/*.jsx 里的 `from '../store/tasks.js'` 在 Vite 下能解析到 store/tasks.ts
+  （构建实测：client environment ✓ 254 modules transformed）。
+⇒ 但 `node:test` 直接加载时不行。⇒ **范围内相对 import 必须写显式 `.ts`**，
+  这与 tsconfig.node.json 的注释「Node ESM 必须写显式扩展名 ⇒ .ts 之间只能 import './x.ts'」、
+  以及仓内既有 `apps/desktop/tests/permissions.test.mjs:23 → '../src/shared/ipc.ts'` 完全一致。
+  tsconfig.web.json 的 `allowImportingTsExtensions: true` 已由 Lead 就位（本轮核对时已在）。
+
+4.2 我第一版按「import 规格串逐字不动」写，被 4.1 打回，已改
+  修正为显式 .ts 的 7 处导入：
+    adapter/api.ts              '../../../shared/ipc' → '.ts'
+    store/search.ts             '../adapter/api' → '.ts'（值 + 类型各一处）
+    hooks/useEngine.ts          '../adapter/api' ×2 → '.ts'；'../../../shared/ipc' → '.ts'
+    hooks/useLibraryConfig.ts   '../adapter/api' → '.ts'
+    utils/useDocumentTitle.ts   '../router/paths' → '.ts'
+    utils/item-actions.ts       './index-state' → '.ts'
+    router/index.tsx            './paths' → '.ts'
+  改后：范围内相对 `.js` specifier = **0 条**（剩余 32 条全在范围外，见 §8.2）。
+  证据：改前 MODE B harness 里 item-actions / search-store 因
+        `Cannot find module '.../utils/index-state.js' imported from .../utils/item-actions.ts'` 加载失败；
+        改后（下述 §7 MODE B）100/100 全绿。
+
+================================================================
+5. 环境问题（是环境，不是产品）—— 必读
+================================================================
+`npm run build` 在**默认 TEMP** 下会失败：
+    error during build:
+    [vite:esbuild-transpile] remove C:\Users\ADMINI~1\AppData\Local\Temp\esbuild-<hash>: Access is denied.
+    at ...\vite\node_modules\esbuild\lib\main.js:1001:38
+把 TEMP/TMP 指到仓库内可写目录后 **EXIT=0**，三端产物齐备（§3.2）。
+判据：
+  · 失败点在 **254 modules 全部 transform 成功之后**的临时文件清理步骤，不是模块解析、不是类型；
+  · 同一现象在改动**前**也会出现（本轮最初那次 `npm run build`，未改任何文件时，同样是这一条）；
+  · 与 §4 的探针同一根因：该沙箱下 esbuild 在系统临时目录**删除**自己的临时文件被拒。
+⇒ 属沙箱/环境限制，**不要**固化 `$env:TEMP` 进产品配置；复跑构建时临时指定即可。
+
+================================================================
+6. 行为等价性验证 —— 为什么敢说"不只是类型过了"
+================================================================
+测试侧因为改名 + Node 不做 .js→.ts 映射而**整体加载不了**，等于这批模块**暂时没有测试在跑**。
+所以额外做了一次独立验证：
+
+  把 10 个真实测试文件**逐字复制**到 scratch（data/_w1c/harness/，已 gitignore），
+  只做两件事：①相对路径重定位；②`.js`→`.ts` 规格串（= 模式 A）
+  模式 B 再加一件事：把 `walk()` 的扩展名过滤从 `\.(js|jsx)$` 加宽到含 `.ts|.tsx`。
+  **断言本身一个字都没改。**
+
+$ node --test --test-isolation=none "data/_w1c/harness/B-*.test.mjs"
+ℹ tests 100
+ℹ pass 100
+ℹ fail 0
+ℹ skipped 0
+EXIT=0
+
+$ node --test --test-isolation=none "data/_w1c/harness/A-*.test.mjs"
+ℹ tests 100
+ℹ pass 94
+ℹ fail 6
+EXIT=1
+6 条全部是**纯"扫描面"自检**，与行为无关：
+  copy.test.mjs            CP-0（files.length 29 < 40）· CP-3（EXEMPT key 因 walk 收不到 .ts 而"已不命中"）
+  layering.test.mjs        L1 / L4 / L5（walk 只收 .js/.jsx ⇒ 扫不到 adapter/ 与 Operation 层）
+  style-contract.test.mjs  SC-0（files.length 29 < 40）
+
+覆盖到的真实断言（模式 B 全绿）：adapter A1–A11 · gate · item-actions IA* · router R1–R3（matchRoutes 真解算）·
+search-store Z*（含「取消 ⇒ 零 IPC」）· task-store（含 done 单调不减、failed 不静默）·
+copy CP-1/CP-4 · dom-validity V4 · layering L1–L7 · style-contract SC-0–SC-3 · source-scan S1–S6。
+
+⇒ 结论：**W2-TESTS 只需两件事就能全绿** ——
+  ①这 10 个文件的 import 规格串 `.js` → `.ts`；
+  ②三个 `walk()` 的 `\.(js|jsx)$` 过滤加宽到含 `.ts|.tsx`（阈值 >=40 会自然恢复：29 + 13 = 42）。
+  **无需改任何断言。**
+
+复跑配方（scratch，不进库；如未重建 harness 请按上面两句话重建）：
+  node --test --test-isolation=none "data/_w1c/harness/B-*.test.mjs"
+
+================================================================
+7. 范围外影响（**我没有越界**，逐条交出去）
+================================================================
+7.1 交 W2-TESTS（task-5；Lead 已登记）
+  A 类 · 测试直接 import 我的模块（Node 解析失败，7 个文件 9 条）：
+     adapter.test.mjs:14 · task-store.test.mjs:14 · search-store.test.mjs:15 · copy.test.mjs:30 ·
+     gate.test.mjs:13 · item-actions.test.mjs:16,17 · router.test.mjs:14
+  B 类 · 按路径读源码：
+     dom-validity.test.mjs:84        读 router/paths.js  → router/paths.ts
+     copy.test.mjs:81                EXEMPT key 'hooks/useToast.js' → 'hooks/useToast.ts'
+     copy.test.mjs:123,131           读 hooks/useToast.js → hooks/useToast.ts
+  C 类 · 按扩展名扫，收不到 .ts（三处 walk 过滤）：
+     layering.test.mjs:38      /\\.(js|jsx)$/
+     style-contract.test.mjs:36 /\\.(jsx|js)$/
+     copy.test.mjs:38          /\\.(jsx|js)$/
+     ⇒ 三处都要加宽到含 `.ts|.tsx`；连带 `files.length >= 40` 自检自然恢复。
+
+7.2 交 W2-UI（pages / layout / ui / search）—— 不阻塞构建，但会失真
+  这 4 个目录里仍有 **32 条**相对 import 写 `.js`（指向我已改名的 .ts）。Vite 能解析、
+  `npm run build` EXIT=0（§3.2 的 254 modules 就是证据），但**读代码时会指向不存在的文件**；
+  另有若干注释里的旧文件名。列清单：
+  $ grep -rn "from '\..*\.js'" apps/desktop/src/renderer/src/{pages,layout,ui,search}
+    例：pages/TasksPage.jsx:32-36 · pages/SearchPage.jsx:14-22 · pages/ItemPage.jsx:33-40 ·
+        pages/LibraryGate.jsx:26,27 · pages/ActivityPage.jsx:33-37 · search/SearchPanel.jsx:6 ·
+        search/PhotoCard.jsx:17 · ui/Score.jsx:22 · ui/Button.jsx:29 · ui/Chip.jsx:21 ·
+        ui/ConfirmDialog.jsx:44 · layout/Sidebar.jsx:7
+  （注意 `ui/*.jsx` 里的 `'./cn.js'` 指向的还是 .js —— 那属于 W2-UI 自己那波。）
+
+7.3 不需要 Lead 动根配置
+  `allowImportingTsExtensions: true` 与 `include` 里的 `apps/desktop/src/shared/**/*` 都已在位
+  （后者正是 Lead 在收到我的侦察回报后加的）。
+
+================================================================
+8. 未决问题 / 已知偏差
+================================================================
+8.1 测试目前对这批模块**零覆盖** —— 这是改名波次的固有代价，不是本任务的偏差。
+    已用 §6 的 scratch harness 补上证据；正式覆盖由 W2-TESTS 恢复。
+8.2 `npm test` 总数从 313 掉到 253：因为 7 个测试文件**加载失败**（整文件不计入），
+    不是删了测试。W2-TESTS 修好 import 后应回到 ≥313。
+8.3 §5 的 TEMP 沙箱问题会一直影响"默认门禁命令"的构建。建议 Lead 在最终验收时
+    显式指定 TEMP，或在报告里标注为环境限制（本轮已在 §5 写明是环境）。
+8.4 本文件未覆盖：E2E（`npm run e2e`）。W1-C 的门禁口径（§9）不含 E2E；
+    §7.1 的 dom-validity/路由类断言已由 harness 覆盖到行为层。
+
+================================================================
+9. 本轮 W1-C 门禁口径（Lead 2026-10-14 调整，逐条对照）
+================================================================
+① `npx tsc --noEmit -p tsconfig.web.json` EXIT=0                     → ✅（§3.1）
+② `npm test` 失败项**全部**属于 A/B/C/D、不出现新的失败类型             → ✅（§3.3，12/12 归类）
+③ 范围内零 .js 残留                                                    → ✅（§3.4）
+（全量 `npm test` 313/312/0/1 由 W2-TESTS 收口后恢复 —— 见 §7.1。）
+
+—— 原始输出文件（scratch，gitignored）：data/_w1c/final-{tsc,npmtest,build}.txt ·
+   data/_w1c/harness-{A,B}.txt · data/_w1c/npmtest-after.txt
+   （data/_w1c/tmp/ 是 §3.2 构建时临时指定的 TEMP 目录，已清理；复跑构建时重建即可。）

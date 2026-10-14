@@ -1,7 +1,7 @@
 # TASKS.md · 任务书
 
 > 现在做什么。**动作与证据的唯一出处**；顺序以 [/PLAN.md](/PLAN.md) 为准，行为以 [/SPEC.md](/SPEC.md) 为准。
-> 最后核对：**2026-10-14（复核修订；同日完成 `T-00` 编码护栏与 `T-01` router 8 spike —— 证据在 `reports/`）**
+> 最后核对：**2026-10-14（同日完成 `T-00` 编码护栏 · `T-01`/`T-02`/`T-03` 三个 spike · `T-05` 全量 TypeScript —— 证据在 `reports/`）**
 
 ## 0. 怎么用
 
@@ -34,7 +34,7 @@
 | ☑ **T-02**（**完成 2026-10-14**） | **spike · radix-ui 统一包**：用它替换 `@radix-ui/react-alert-dialog` / `@radix-ui/react-slot`，删分散包 | 确认框与按钮行为不变（焦点 / ESC / 焦点归还仍达标）；依赖数下降。✅ **实测**：`npm test` 313/312/0/1 · `build` EXIT=0（chunk −12.7 KB）· E2E 15 passed；**过程中抓到并修掉 `<Slot>`→`<Slot.Root>` 的 React #130 白屏**，证据 `reports/2026-10-14-radix-ui-spike/` | — | `package.json` · `ui/` |
 | ☑ **T-03**（**完成 2026-10-14**） | **spike · node:sqlite**：在**真 Electron 主进程**内建表 / 写入 / 删除重建；确认实验性告警可接受。✅ **真主进程实测 PASS**（`process.type=browser` · `node:sqlite` 可用 · WAL · 删除重建 OK），证据 `reports/2026-10-14-sqlite-spike/` | 三件事都成功；落点符合 SPEC §3 | — | `src/main/` |
 | **T-04** | 存储根解析：程序目录 `models/` · 库根 `.gs-*` · 不可写时回退 userData 并**打印当前落点** | 三种情形各跑一次，落点正确且日志可读 | T-03 | `src/main/` |
-| **T-05** | 全量 TypeScript：tsconfig 严格、渲染 `.tsx`、`npm run typecheck` 必绿 | 注入一个类型错误 ⇒ **门禁变红**；还原 ⇒ 绿 | T-01 | 全仓 |
+| ☑ **T-05**（**完成 2026-10-14**） | 全量 TypeScript：tsconfig 严格、渲染 `.tsx`、`npm run typecheck` 必绿 | 注入一个类型错误 ⇒ **门禁变红**；还原 ⇒ 绿。✅ 全仓已转：engine 13 · indexer 12 · main/preload 8 · renderer 45（29 `.tsx` + 16 `.ts`），`src` 下 `.mjs/.js` 残留 **0**；四道门禁全绿（`npm test` **314/0/1** · 两个 tsc 工程 EXIT=0 · `build` EXIT=0 · **全量 e2e 62 passed / 7.3 min**）；**类型门禁能红已实测**：注入 `const x: number = 's'` ⇒ `TS2322` + EXIT=1，还原 ⇒ EXIT=0。过程中抓到并修掉一条**真回归**（encoder 漏 `await model.forward`，见证据 `README-encoder-regression.md`）。证据 `reports/2026-10-14-ts-wave1/` | T-01 | 全仓 |
 | **T-06** | Tailwind + shadcn/ui 接入（按需 `npx shadcn@latest add`）；令牌仍只在 `tokens.css`；`cn()` 唯一 | 生成类可用；渲染层零写死色值；**不预装未用到的原语** | T-05 | `renderer/` |
 | **T-07** | 分层断言（Adapter 唯一入口 / UI 零 `window.api` / 文案兜底一份）移植到 TS | 三个断言各自**注入违例能变红** | T-05 | `apps/desktop/tests/` |
 | **T-08** | IPC 契约重列：16 个既有 + 文档类新方法；zod + 信封；preload 暴露面不变 | 未登记方法被拒；契约与 SPEC §5 一致 | T-05 | `shared/ipc.ts` · `main/` |

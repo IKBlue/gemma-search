@@ -1,0 +1,232 @@
+W2-UI · 渲染层 UI 层 + 入口 .jsx/.js → .tsx/.ts（task-4）
+日期 2026-10-14 · 类型：**本轮实测** · 执行者：ui-migrator（teammate）
+写入范围（task-4 声明）：apps/desktop/src/renderer/src/**
+
+================================================================
+0. 结论速览（先说清楚「我改了什么、验了什么、没验什么」）
+================================================================
+① 29 个文件全部转 .tsx/.ts；范围内**零 .js/.jsx 残留**
+② 范围内相对 import 共 117 条，**全部写显式扩展名**（.ts/.tsx/.css）；相对 `.js` 残留 = 0
+③ `npx tsc --noEmit -p tsconfig.web.json` → **EXIT=0**
+④ `npm run build`（TEMP 指向仓库内）→ **EXIT=0**，out/main · out/preload · out/renderer 三端齐备
+⑤ `npm test` → 304 tests / 292 pass / **11 fail** / 1 skipped；
+   11 条失败**逐条**归到 task-5 的「测试侧按旧文件名读/扫」清单（B/C 类），**0 条新类型、0 条行为失败**
+⑥ `npm run e2e`（额外跑的行为证据，非 task-4 的验收项）→ **62 passed / 0 failed (7.7m)**
+⑦ 逃逸写法（any / as any / @ts-ignore / @ts-expect-error / @ts-nocheck）在范围内 = **0 命中**
+
+本轮四项计数（task-4 回报格式第 ④ 项）
+  · 范围内 .js/.jsx 残留          = 0
+  · 范围内相对 .js/.jsx import    = 0（全部 117 条相对 import 都带显式 .ts/.tsx/.css）
+  · 新增 .ts/.tsx                 = 29 改名 + 3 新增（search/types.ts · ui/types.ts · global.d.ts）
+  · 修改的既有文件                = 5（router/index.tsx · hooks/useEngine.ts · hooks/useLibraryConfig.ts）
+                                    + 1 跨范围（renderer/index.html）
+
+⚠️ 一条**跨范围**改动（唯一一条，必须记）：`apps/desktop/src/renderer/index.html`
+   的渲染入口 `<script src="/src/main.jsx">` → `main.tsx`。它**不在** task-4 声明的写入范围内，
+   但入口改名后不改它就**构建必红**（Vite 按 index.html 的 script src 找入口）。属于「改名必然连带」，
+   已在回报里单独列给 Lead；除此之外没有碰 tsconfig / package.json / electron.vite.config.mjs / tests / e2e。
+
+================================================================
+1. 改了哪些文件
+================================================================
+1.1 原地改名 + 严格类型化（29 个，逐字保留行为与注释，只加类型）
+  main.jsx                → main.tsx                 渲染入口；import.meta.glob 改 './pages/*.tsx' / './ui/*.tsx'
+  App.jsx                 → App.tsx
+  ui/cn.js                → ui/cn.ts                 cn(...inputs: ClassValue[]): string
+  ui/Button.jsx           → ui/Button.tsx            VariantProps<typeof button> 派生 variant/size 联合
+  ui/Chip.jsx             → ui/Chip.tsx
+  ui/ConfirmDialog.jsx    → ui/ConfirmDialog.tsx     useRef<HTMLElement|null> + instanceof 收窄（不写断言）
+  ui/Field.jsx            → ui/Field.tsx             多态 as：FieldProps<T extends ElementType>
+  ui/Metric.jsx           → ui/Metric.tsx
+  ui/Progress.jsx         → ui/Progress.tsx
+  ui/SearchBox.jsx        → ui/SearchBox.tsx         forwardRef<HTMLInputElement, SearchBoxProps>
+  ui/Score.jsx            → ui/Score.tsx
+  ui/Tag.jsx              → ui/Tag.tsx
+  ui/Toast.jsx            → ui/Toast.tsx
+  layout/AppShell.jsx     → layout/AppShell.tsx
+  layout/Main.jsx         → layout/Main.tsx
+  layout/PageHead.jsx     → layout/PageHead.tsx
+  layout/Sidebar.jsx      → layout/Sidebar.tsx       NavLink 的 ({isActive}) 回调保留原式
+  layout/Topbar.jsx       → layout/Topbar.tsx
+  search/Gallery.jsx      → search/Gallery.tsx
+  search/MetricsRow.jsx   → search/MetricsRow.tsx
+  search/PhotoCard.jsx    → search/PhotoCard.tsx     archive: unknown ⇒ 组件内 archiveOf() 窄化一次
+  search/SearchPanel.jsx  → search/SearchPanel.tsx
+  search/SearchSidebar.jsx→ search/SearchSidebar.tsx
+  pages/ActivityPage.jsx  → pages/ActivityPage.tsx   op/state 查表前一律 typeof 守卫（不靠 String() 兜底）
+  pages/FirstRunWizard.jsx→ pages/FirstRunWizard.tsx
+  pages/ItemPage.jsx      → pages/ItemPage.tsx       item 非空靠**控制流**收窄（见 §3.3）
+  pages/LibraryGate.jsx   → pages/LibraryGate.tsx    configSource 注入点保留（测试假源用）
+  pages/SearchPage.jsx    → pages/SearchPage.tsx
+  pages/TasksPage.jsx     → pages/TasksPage.tsx      unknown 字段一律 narrow 后再渲染
+  对应的 29 个 .js/.jsx 已删除（逐个 unlink，见 §5 残留实测）
+
+1.2 新增 4 个文件
+  search/types.ts         检索区组件的**最小 props 形状**（SearchItem / SearchError / SearchErrorish）
+  ui/types.ts             UI 层共享 props 形状（UiAttrs 等）
+  global.d.ts             CSS 副作用 import 声明 + Vite `import.meta.glob` 的环境声明
+                          （不是逃逸：声明与真实实现一一对应，注释里写明各自为什么）
+
+1.3 修改的既有文件 5 个（都在渲染层内，除 1.4）
+  router/index.tsx                ../pages/*.tsx 显式扩展名（原写 .jsx；Vite 能解析、node:test 不能）
+  hooks/useEngine.ts              ① invoke 保留泛型 D（与 adapter 的 invoke<D> 同口径）
+                                  ② LibStatus 补 root? / compat?（**补声明**，不是新契约）
+  hooks/useLibraryConfig.ts       LibraryConfigData 补 registryPath?（同上；向导要显示落点）
+  ui 层以外零改动
+
+1.4 ⚠️ 跨范围 1 个文件（唯一）
+  apps/desktop/src/renderer/index.html
+    `src="/src/main.jsx"` → `src="/src/main.tsx"`；注释里的文件名同步。
+    为什么必须改：Vite 的 renderer 入口就是 index.html 的 script src。改成 .tsx 后不改它，
+    构建会找不到入口（`input 为空 → 构建直接失败`）。这与 preload 从 index.js 转 index.ts 时
+    Lead 同步 electron.vite.config.mjs 的 input 是同一类连带改动。
+
+================================================================
+2. 验收命令 + 原始输出
+================================================================
+原始输出文件（scratch，gitignored）：data/_w2ui/{tsc,build,npmtest}.txt · data/_w2ui/e2e.txt
+
+2.1 类型门禁 —— 通过
+$ npx tsc --noEmit -p tsconfig.web.json
+（无输出）
+EXIT=0
+
+2.2 构建 —— 通过
+$ $env:TEMP=(Join-Path $PWD 'data/_w2ui-tmp'); $env:TMP=$env:TEMP; npm run build
+vite v7.3.7 building ssr environment for production...
+✓ 17 modules transformed.
+out/main/index.js                       96.10 kB
+✓ built in 235ms
+vite v7.3.7 building ssr environment for production...
+✓ 1 modules transformed.
+out/preload/index.cjs  0.85 kB
+✓ built in 11ms
+vite v7.3.7 building client environment for production...
+✓ 254 modules transformed.
+../../../../out/renderer/index.html                     1.15 kB
+../../../../out/renderer/assets/index-BlzNWBUm.css     48.62 kB
+../../../../out/renderer/assets/index-DBlQNfHr.js   1,162.22 kB
+✓ built in 1.95s
+EXIT=0
+（16 条 `(!) … is dynamically imported … but also statically imported` 是 import.meta.glob 的**既有**警告，
+  改动前就有；不是本轮的回归，也不影响产物。）
+
+2.3 `npm test` —— 失败项 = task-5 的测试侧旧文件名，**无新增失败类型**
+$ npm test
+ℹ tests 304
+ℹ pass 292
+ℹ fail 11
+ℹ skipped 1
+EXIT=1
+
+失败条目全集（逐条给出根因 → 归类）
+  copy.test.mjs:116   ENOENT ui/Toast.jsx                → [B] 按路径读源码（文件改名）
+  copy.test.mjs:144   「扫描面应包含 .jsx」               → [C] walk 自检（扫描面里已无 .jsx）
+  deps.test.mjs:110   「ui/ 下应只有 cn.js」实得 [cn.ts] → [D] 断言里写死了旧文件名
+  deps.test.mjs:121   ENOENT ui/cn.js                    → [B]
+  deps.test.mjs:130   ENOENT ui/Chip.jsx                 → [B]
+  deps.test.mjs:135   ENOENT ui/ConfirmDialog.jsx        → [B]
+  deps.test.mjs:144   ENOENT pages/SearchPage.jsx        → [B]
+  dom-validity:69     ENOENT ui/Button.jsx               → [B]
+  dom-validity:90     ENOENT pages/SearchPage.jsx        → [B]
+  style-contract:192  豁免键 search/SearchPanel.jsx|auto 已不命中 → [B] 豁免键写的是旧文件名
+  styles.test.mjs:28  ERR_MODULE_NOT_FOUND ui/cn.js      → [A+.ts] 测试侧静态 import 旧文件名（同 A 类，只是目标是 .ts）
+  ⇒ 11/11 全部是「测试侧引用旧文件名」；**没有任何一条是行为/逻辑失败**。
+  ⇒ A/B/C/D 四类的**同一根因**（.js/.jsx → .ts/.tsx 改名），只是 task-5 的清单里没有逐条列全。
+
+⚠️ 同窗口的其他写入者：本轮跑测试时 `apps/desktop/tests/**` 已**正在被 task-5 的 owner 改动**
+   （adapter/router/gate/item-actions/search-store/task-store 的 import 已改成 .ts，layering/style-contract/copy 的 walk
+    已加宽到 .ts/.tsx）。所以这批读旧文件名的失败**正是 task-5 收尾时该消掉的那一批**；
+   上面 11 条是我这个时间窗的**快照**，不代表最终数。
+
+2.4 `npm run e2e`（额外行为证据，非 task-4 验收项）
+$ npm run e2e
+62 passed (7.7m)
+EXIT=0
+  ⇒ 覆盖：启动/门禁向导(gate 3) · 导航(routing 9) · 窗口安全(window-security 4) · 样式令牌(stYLES 5) ·
+    模拟模式(fake-mode 6) · 详情页(item-detail 6) · 确认弹窗与焦点归还(confirm-dialog 6) ·
+    操作记录(activity 1) · 索引任务(tasks 6) · V-28/V-01(uiux-p0 6) · 冒烟(smoke 1)
+  ⇒ 重点：**E7-d（焦点归还）· E7-b（焦点陷阱）· E12-c（侧栏 active 类）· E10-e（GPU 回退显示）**
+    这几条正是「只有真窗口能证」的行为，全部通过 ⇒ 类型化没有改变运行时行为。
+
+================================================================
+3. 类型化时真踩到的三个坑（都靠控制流解决，没有用断言换绿灯）
+================================================================
+3.1 CSS 副作用 import 与 import.meta.glob 没有类型（TS2882 / TS2339）
+    前者：`import './renderer.css'`；后者：Vite 的 `import.meta.glob`。
+    ⇒ 在 `global.d.ts` 里声明两者（类型与真实实现一一对应）。
+    ⚠️ 没有选「改 tsconfig 关掉这条检查」：根配置归 Lead，且关检查等于把门禁调松。
+
+3.2 store 的类型比真实数据**窄**（LibStatus 缺 root/compat、LibraryConfigData 缺 registryPath）
+    这两个字段主进程一直在给（界面一直在读），只是上一版类型没声明。转 TSX 后 TS 把它们当错误。
+    ⇒ 在 Operation 层**补声明**（不是新契约）：类型不得比真实数据窄，否则会逼调用点写断言。
+
+3.3 ItemPage 的 `item` 收窄：三元链里 TS 收窄不了 `data.item`
+    `item` 来自 `const item = data.item`，在同一个 return 的三元链里，TS **不会**把 `item` 收窄成非空
+    ⇒ 下面 20+ 个 `item.x` 全报 TS18047。
+    ⇒ 解法是**控制流**：把三个「不渲染主体」的条件提成早返回（loading / error / item === null），
+      三块 JSX 与原实现**逐字相同**，只是从三元链里提出来。
+    ⚠️ 试过的错误解法（记下来免得后人重踩）：① `item!`/`as` 断言 —— 属于换绿灯，禁止；
+      ② `let item` —— 会失去 const 收窄，反而更糟。
+
+3.4 unknown 字段的渲染：一律 narrow 后再显示
+    store 的 `deviceFallback` / `resumeNote` / `outcome.error` / `failure.error` 都是 `unknown`。
+    ⇒ 写了 `text()` / `fallbackFrom|To|Reason()` / `outcomeErrorText()` / `asFailed()` 这类**显式窄化**，
+      并把「引擎没给」如实写出来 —— 不用 `String(x)` 把 undefined 变成字面量 'undefined' 弹给用户
+      （那正是 Apple Style 审查 V-42 的成因，`hooks/useToast.ts` 的注释里记着）。
+
+================================================================
+4. 我没碰的（范围外，交出去）
+================================================================
+· tsconfig*.json / package.json / electron.vite.config.mjs —— 一律没动（根配置归 Lead）。
+· apps/desktop/tests/** 与 apps/desktop/e2e/** —— 一律没动（task-5 的写入范围）。
+  本轮实测发现 task-5 的「已知清单」**不全**：除 dom-validity/copy/layering/style-contract 外，
+  还有 deps.test.mjs（4 条路径读 + 1 条断言字面量）与 styles.test.mjs（static import ui/cn.js + 路径读 Score.jsx/main.jsx）。
+  逐条清单见 §2.3。
+· 未跑 `npm run typecheck`（= node 工程 + web 工程）：node 侧包含 main/preload/engine/indexer，
+  归各 wave 的 owner；我只跑本任务的 web 工程（§2.1）。
+
+================================================================
+5. 残留与护栏（原始输出）
+================================================================
+$ Get-ChildItem apps/desktop/src/renderer/src -Recurse -Include *.js,*.jsx
+（无输出）                                    ← 范围内 .js/.jsx 残留 = 0
+
+$ 解析范围内 117 条相对 import 的规格串
+范围内相对 import 总数 = 117
+无显式 .ts/.tsx/.css 扩展名的相对 import = 0
+. js/.jsx 结尾的相对 import = 0
+
+$ 全渲染层（含 index.html）grep '\.jsx?["\']'
+只剩 1 处，且**在注释里**（main.tsx:46 引用被删除的守卫用法说明）—— 不影响解析。
+
+$ grep 逃逸写法（范围 29+4 个 .ts/.tsx）
+any / as any / @ts-ignore / @ts-expect-error / @ts-nocheck 命中 = 0
+
+$ 产物核对
+out/renderer/index.html                     1.15 kB
+out/renderer/assets/index-BlzNWBUm.css     48.62 kB
+out/renderer/assets/index-DBlQNfHr.js   1,162.22 kB
+$ Select-String out/renderer/assets/*.js -Pattern 'confirm-dialog','card-detail-link','phase-bar','job-compat','action-groups','item-missing'
+每个标记各 1 处命中 ⇒ UI 契约挂点（E2E/守卫用的 data-testid）在产物里都在。
+
+================================================================
+6. 未决 / 需要 Lead 或 task-5 处理
+================================================================
+6.1 task-5 的测试侧清单要**加两类**（我在 §2.3 给了逐条行号）：
+    · deps.test.mjs:110 断言字面量 'cn.js' → 'cn.ts'；:121 ui/cn.js→cn.ts；:130 Chip.jsx→Chip.tsx；
+      :135 ConfirmDialog.jsx→ConfirmDialog.tsx；:144 pages/SearchPage.jsx→SearchPage.tsx
+    · styles.test.mjs:28 `import ... from '../src/renderer/src/ui/cn.js'` → cn.ts；
+      :107 ui/Score.jsx→Score.tsx；:140 src/main.jsx→main.tsx（T4 那条 tailwind 顺序断言）
+    · style-contract.test.mjs:170 EXEMPT 键 'search/SearchPanel.jsx|auto' → 'search/SearchPanel.tsx|auto'
+    · copy.test.mjs:116 ui/Toast.jsx→Toast.tsx；:144 的「扫描面应包含 .jsx」自检要改成 .tsx
+    （copy.test.mjs:81/123/131、dom-validity:84 已由 task-5 改到 .ts —— ✅ 已核销）
+6.2 task-5 收尾后，`npm test` 总数应≥313（本轮 304 的差额来自上面这批文件的加载/断言失败与自检失败）。
+6.3 `styles.test.mjs` 的 walk 只收 `.js|.jsx|.css`（:42）与 `.js|.jsx`（:96）—— 转 .tsx 后这两条检查
+    会**静默变成 0 文件扫描**（恒绿）。这是「检查失去覆盖」，不是红灯；建议 task-5 把这两处的名字面
+    加宽到 .ts/.tsx（与 layering/style-contract/copy 的三处 walk 同类）。
+6.4 e2e 全量已跑（62 passed），但 **e2e 与本任务并行时 task-5 也在改 tests/**；若最终验收要在
+    「全绿 npm test」之后重跑，请以 Lead 的最终一次为准。
+
+—— 原始输出文件（scratch，gitignored）：data/_w2ui/tsc.txt · data/_w2ui/build.txt · data/_w2ui/npmtest.txt ·
+   data/_w2ui/e2e.txt · data/_w2ui-npmtest-raw.txt · data/_w2ui-npmtest-raw2.txt · data/_w2ui-tmp/（构建临时 TEMP）

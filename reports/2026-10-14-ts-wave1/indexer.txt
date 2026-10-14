@@ -1,0 +1,221 @@
+# W1-B2 · packages/indexer/src strict 类型清零 · 证据
+# worker: indexer-migrator · 任务板 task-8 · 日期 2026-10-14
+# 写入范围：packages/indexer/src/**（本任务唯一改动目录）
+
+====================================================================
+## 0. 结论摘要
+====================================================================
+· strict 错误 264 -> 0（命令与原始输出见 §1）
+· 12 个既有 .ts 全部清零；新增 2 个纯类型文件（third_party_types.ts / bmp-js.d.ts），零运行时导出
+· 未引入 any / as any / @ts-ignore / @ts-expect-error（§2；仅剩 resize_compat.ts 里一条改动前既有的 JSDoc）
+· npm test：当前 304/302/0/1（唯一失败在 renderer 迁移中的文件，与本任务无关；§3.1）
+· npm run build：EXIT=0，三端产物齐备（§3.2）
+· 编码护栏：官方脚本被两处范围外问题挡住（§4.1）；改用 indexer 自己的编码路径复跑，
+  「北欧吊灯」Top-5 = 0.7855 / 0.7852 / 0.7836 / 0.7756 / 0.7751 —— 与期望值完全一致（§4.2）
+
+====================================================================
+## 1. 自检（硬门禁）：必须无输出
+====================================================================
+命令:
+  node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "$env:TEMP\tsbi_indexer.tsbuildinfo" 2>&1 | Select-String "packages/indexer"
+
+修改前（基线，2026-10-14 12:12）: 264 行（分布：build_index_onnx 60 · check_resize_golden 34 ·
+  resize_compat 33 · test_mismatch 25 · diagnose_resize_kernel 24 · spike_device 24 · encode_queries 20 ·
+  probe_proc_shape 17 · spike_onnx 12 · bmp_decode 9 · verify_bmp2 6）
+
+修改后（最终，同一命令）: 输出为空。原始过程与输出:
+  PS> node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "$env:TEMP\tsbi_indexer.tsbuildinfo" 2>&1 | Out-File "$env:TEMP\indexer_tsc.txt"
+  PS> (Get-Content "$env:TEMP\indexer_tsc.txt" | Select-String "packages/indexer").Count
+  0
+  PS> node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "$env:TEMP\tsbi_indexer.tsbuildinfo" 2>&1 | Select-String "packages/indexer" | Measure-Object -Line | Select-Object -ExpandProperty Lines
+  0
+
+====================================================================
+## 2. 禁用项审计（any / as any / @ts-ignore / @ts-expect-error）
+====================================================================
+命令: grep -n "\bany\b|@ts-ignore|@ts-expect-error|as any" packages/indexer/src
+结果（全仓 indexer 源码，仅命中 1 处，且在注释里）:
+  packages/indexer/src/resize_compat.ts:68
+    " * @param {{kernel?: string, RawImage?: any, logger?: Function}} [opts]"
+说明: 这是改动前就存在的 JSDoc 注释（原文第 41 行），本任务未改注释 => 不是本轮引入。
+      除此之外 indexer 源码里没有 any / as any / @ts-ignore / @ts-expect-error。
+
+类型专用 import 全部写成 import type（grep "^import " 逐一核对）:
+  third_party_types.ts:14  import type { AutoModel, ImageProcessor } from "@huggingface/transformers"
+  resize_compat.ts:30 / diagnose_resize_kernel.ts:24  import type { ResizeOptions } from "sharp"
+  build_index_onnx.ts:24,25,26  import type { Processor } / { Dirent } / third_party_types
+  encode_queries.ts:22 / diagnose_resize_kernel.ts:25 / probe_proc_shape.ts:4 / spike_device.ts:11 /
+  spike_onnx.ts:15 / test_mismatch.ts:14  import type { ... } from "./third_party_types.ts"
+相对 import 一律保留 .ts 扩展名；未新增依赖；未改任何导出名与签名（resize_compat / bmp_decode 的导出面原样保留）。
+
+====================================================================
+## 3. 门禁
+====================================================================
+--- 3.1 npm test ---
+命令: npm test   （exit 1）
+原始摘要:
+  i tests 304
+  i suites 0
+  i pass 302
+  i fail 1
+  i cancelled 0
+  i skipped 1
+  i todo 0
+  i duration_ms 17656.3833
+唯一失败项（与本任务无关，属 task-4/task-5 渲染层迁移进行中）:
+  x apps\desktop\tests\styles.test.mjs (0.1347ms)
+    Error [ERR_MODULE_NOT_FOUND]: Cannot find module
+    "apps/desktop/src/renderer/src/ui/cn.js" imported from apps/desktop/tests/styles.test.mjs
+（全量输出里 grep "indexer" 无任何命中 => 没有失败项与 packages/indexer 相关）
+注: 目标 313/312/0/1 是全波次收口后的口径；此刻 total=304 是因为 renderer 侧测试仍在迁移中。
+
+--- 3.2 npm run build ---
+命令: $env:TEMP = (Join-Path $PWD "data/_esbuild-tmp"); npm run build
+原始尾部:
+  ../../../../out/renderer/index.html                     1.15 kB
+  ../../../../out/renderer/assets/index-BlzNWBUm.css     48.62 kB
+  ../../../../out/renderer/assets/index-DBlQNfHr.js   1,162.22 kB
+  ✓ built in 1.94s
+  EXIT=0
+产物核对: out/main/index.js=True · out/preload/index.cjs=True · out/renderer/index.html=True
+
+====================================================================
+## 4. 编码护栏（AGENTS §4 硬性要求）
+====================================================================
+--- 4.1 官方命令：被两处本任务范围外的问题挡住 ---
+命令（任务书原文）:
+  node tools/verify_encoder_path.mjs --model "<model-cache .../fp32>" --lib "G:\model"
+结果: FAIL / EXIT=1，失败点全部在本任务范围之外:
+
+  (a) tools/verify_encoder_path.mjs:80 仍 import "apps/desktop/src/main/encoder.mjs"，该文件已被
+      W2-MAIN 迁移改名为 encoder.ts => ERR_MODULE_NOT_FOUND（tools/ 不在我的写入范围）。
+  (b) 把脚本逐字复制到 data/_idxguard/ 并把 encoder.mjs 字符串替换成 encoder.ts 后重跑:
+      [OK  ] createEncoder 成功  device=webgpu loadMs=2330
+      [OK  ] resize_compat 已安装  kernel=pil-like rawImage=_RawImage   <- 本任务的模块工作正常
+      [FAIL] encodeImage 抛错 VR\ID-15602395.jpg  输出里既无 sentence_embedding 也无 last_hidden_state：
+             input_ids,attention_mask,pixel_values,image_position_ids,num_soft_tokens_per_image
+      [FAIL] BMP 回退编码不抛错 VR\ID-12089794.jpg （同上）
+      根因（apps/desktop/src/main/encoder.ts，属 task-6 范围）:
+        :186  const emb = pickEmbedding(inputs);        // encodeText
+        :192  const emb = pickEmbedding(inputs);        // encodeImage
+      这两处漏了 await model.forward(inputs) —— 喂进 pickEmbedding 的是处理器输出、不是模型输出，
+      所以 keys 正好是处理器那 5 个键（input_ids/attention_mask/pixel_values/image_position_ids/
+      num_soft_tokens_per_image）。原 encoder.mjs 是 pickEmbedding(await model.forward(inputs))。
+      我的改动不可能造成它: 报错对象是 model.forward 的返回值，而 packages/indexer 只提供
+      installResizeCompat / assertResizeCompatInstalled / selfTestResizeCompat（三者都报 OK）。
+
+--- 4.2 indexer 侧等价复跑（绕开 encoder.ts 的 bug，直接跑本包自己的编码路径）---
+命令 A（本包查询编码器，与索引同一套预处理）:
+  node packages/indexer/src/encode_queries.ts --model "<model-cache .../fp32>" --in data/_idxguard/q.json --out data/_idxguard/v.json --device webgpu
+原始输出:
+  [enc] 查询 1 条（文本 1 · 图像 0）
+  [enc] 模型载入完成（seq=140 · device=webgpu）
+  [enc] BMP 布局自检通过（6 像素）
+  [enc] resize_compat 已安装（kernel=pil-like，替代 upstream affine-bicubic）
+  [enc] 重采样兼容层自检通过（kernel=pil-like）
+  [enc] 已写 data/_idxguard/v.json（dim=768 · embedding=sentence_embedding）
+  EXIT=0
+
+命令 B（与护栏第 3 节同算法：点积排序，读 data/idx-full-v2 的真实索引）:
+  node data/_idxguard/top5.mjs
+原始输出:
+  query_dim=768 index_dim=768 count=3594
+    0.7855  CR\ID-633419997.jpg
+    0.7852  VR\ID-15588806.jpg
+    0.7836  VR\ID-723604.jpeg
+    0.7756  VR\ID-115822915.jpg
+    0.7751  VR\ID-1112089406.jpg
+  top1_minus_11th=0.0120
+  EXIT=0
+
+对照期望值 0.7855 / 0.7852 / 0.7836 / 0.7756 / 0.7751 —— 逐位一致。
+结论: 本任务的类型化没有对编码/重采样/解码路径造成任何数值变化（类型改动会被 Node 类型剥离抹掉，
+      唯二语义行是 catch 里 unknown 的收窄，只在"非 Error 抛出"这一不可达分支上与旧行为不同）。
+
+====================================================================
+## 5. 改了哪些文件（全部在 packages/indexer/src/**）
+====================================================================
+修改（12 个既有 .ts，共 264 条错误清零）:
+  bmp_decode.ts 9 · build_index_onnx.ts 60 · check_resize_golden.ts 34 · diagnose_resize_kernel.ts 24
+  encode_queries.ts 20 · probe_proc_shape.ts 17 · resize_compat.ts 33 · spike_device.ts 24
+  spike_onnx.ts 12 · test_mismatch.ts 25 · verify_bmp2.ts 6
+新增（2 个，纯类型）:
+  third_party_types.ts: 用声明合并补 @huggingface/transformers 缺的运行时字段
+    (Processor.image_seq_length · ImageProcessor.max_soft_tokens/image_seq_length + 字符串索引 ·
+     PretrainedConfig.audio_config/vision_config)，并给出 ModelDtype / ModelDevice /
+     ImageProcessorConfigView / TensorView / ModelOutputView 等视图类型；零值导出。
+  bmp-js.d.ts: bmp-js 无类型声明的环境模块声明（必须是"非模块"的 .d.ts，否则 TS2665）。
+关键点:
+  · resize_compat.ts / bmp_decode.ts 的导出名与签名原样保留（主进程编码路径直接 import 它们）。
+  · 未新增依赖；未改 tsconfig / package.json / engine / apps / tools；未改任何既有注释与逻辑。
+  · 类型缺口一律用"声明合并 / 视图类型 / 必要的非空断言"解决，没有用 any 换绿灯。
+
+====================================================================
+## 6. 未决 / 阻塞
+====================================================================
+1. [范围外 · 阻塞护栏] tools/verify_encoder_path.mjs:80 与 :175 仍写 encoder.mjs —— 需 tools/ 所有者
+   （Lead）改成 encoder.ts 后官方护栏才可运行。
+2. [范围外 · 阻塞护栏] apps/desktop/src/main/encoder.ts:186/192 漏 await model.forward(inputs)，
+   导致文本/图像/回退三条编码全部抛错。修掉这两行后护栏应能 1:1 复现 §4.2 的 Top-5。
+   另注: encoder.ts:129 有一处 as unknown as Parameters<typeof installResizeCompat>[0]，
+   是当时的临时断言（注释写明"等 W1-B2 补完类型后即可删"）—— 现在签名已接受 logger 函数，可删。
+3. [范围外] npm test 当前 304/302/0/1: 唯一失败是 apps/desktop/tests/styles.test.mjs 找不到
+   renderer/src/ui/cn.js（task-4 渲染层迁移进行中）；indexer 侧零失败。
+4. task-8 暂留 in_progress: 本任务交付物（strict 0 错误 + build 绿 + 证据归档）已完成，
+   但验收口径里的 npm test 313/312/0/1 与 护栏 PASS 依赖上面 1-3 的收口。
+（=> 见 §7：两处阻塞已由 Lead 修复，本节已被收口复跑覆盖。）
+====================================================================
+## 7. 收口复跑（2026-10-14，Lead 修复两处阻塞之后）
+====================================================================
+Lead 已修:
+  · tools/verify_encoder_path.mjs -> encoder.ts（并加了防复发断言）
+  · apps/desktop/src/main/encoder.ts:186/192 恢复 pickEmbedding(await model.forward(inputs))，删掉临时 as unknown as
+  · 新增 apps/desktop/tests/encoder-call-site.test.mjs（已双向验证：抹掉 await 立刻变红）
+
+--- 7.1 官方编码护栏（命令与原始输出）---
+命令:
+  node tools/verify_encoder_path.mjs --model "<model-cache .../fp32>" --lib "G:\model"
+原始输出:
+  [OK  ] createEncoder 成功  device=webgpu loadMs=2273
+  [OK  ] resize_compat 已安装  kernel=pil-like rawImage=_RawImage
+  索引 3594 条 · dim 768 · compat onnx-community/embeddinggemma-2-ONNX|daa72c...|fp32|2|140|768|l2|mean_soft_tokens
+  [OK  ] encodeImage <-> 索引行  VR\ID-15602395.jpg  cos=1.000000  size=33460870B src=native
+  [OK  ] encodeImage <-> 索引行  VR\ID-12089794.jpg  cos=1.000000  size=1821918B src=bmp-fallback
+  [OK  ] 真的走了 BMP 回退（source=bmp-fallback）  VR\ID-12089794.jpg  source=bmp-fallback
+  [OK  ] BMP 回退向量维度 == 索引维度  VR\ID-12089794.jpg  768 vs 768
+  [OK  ] 文本向量已 L2 归一  ||v||=1.000000
+  [OK  ] 文本向量维度 == 索引维度  768 vs 768
+  查询「北欧吊灯」Top-5：
+    0.7855  CR\ID-633419997.jpg
+    0.7852  VR\ID-15588806.jpg
+    0.7836  VR\ID-723604.jpeg
+    0.7756  VR\ID-115822915.jpg
+    0.7751  VR\ID-1112089406.jpg
+  [OK  ] 分数确实有区分度（Top-1 > 第 11 名）  0.7855 vs 0.7734
+
+  结论：PASS（产品编码路径在这台机器上自洽）
+  EXIT=0
+=> Top-5 与期望值逐位一致；resize_compat 与 BMP 回退两条断言都过。
+
+--- 7.2 npm test ---
+命令: npm test
+原始摘要:
+  tests 315 · suites 0 · pass 314 · fail 0 · cancelled 0 · skipped 1 · todo 0 · duration_ms 10713
+  EXIT=0
+（总数由 313 -> 315 是因为 Lead 新增了 encoder-call-site.test.mjs；口径 = 全绿 + 跳过 1）
+grep "indexer" 零命中（indexer 侧无失败项）。
+
+--- 7.3 tsc 自检（本任务硬门禁）---
+命令（任务书原文，独立 tsBuildInfoFile 避免与其他 worker 抢 tsbuildinfo）:
+  node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "$env:TEMP\tsbi_indexer.tsbuildinfo" 2>&1 | Select-String "packages/indexer"
+结果: packages/indexer 0 行（本条在任何一次运行里都成立）。
+环境注记（非类型问题）: 收口时该命令在 %TEMP% 写 tsbuildinfo 被拒 ——
+  error TS5033: Could not write file ...\Temp\tsbi_indexer.tsbuildinfo: Access is denied  => 进程 EXIT=1。
+  同一路径前几轮可用，属环境/ACL 抖动，不是类型错误（indexer 错误行数仍为 0）。
+把 tsBuildInfoFile 放到仓库内后:
+  node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "data/_esbuild-tmp/tsbi_indexer.tsbuildinfo"
+  => EXIT=0 · 总输出 0 行（整个 node 工程干净，indexer 0 行）
+
+--- 7.4 task-8 收口判据 ---
+自检 0 行 OK · npm test 全绿(314 pass / 0 fail / 1 skip) OK · npm run build EXIT=0 OK · 官方护栏 PASS OK
+
