@@ -44,10 +44,14 @@ import path from 'node:path';
 //    本模块只是把同一个常量接到"落点说明"里，不重新定义（P1）。
 import { STAGING_DIRNAME } from '../../../../packages/engine/src/transactions/steps.ts';
 
-/** 库根下的点前缀命名空间（SPEC §2 的布局图，逐字对齐） */
-export const GS_INDEX_NAME: string = '.gs-index.bin';
-export const GS_DB_NAME: string = '.gs.db';
-export const GS_JOURNAL_NAME: string = '.gs-journal';
+// 库根下的点前缀命名空间（SPEC §2 的布局图）—— **名字的唯一来源在引擎侧**
+// （`packages/engine/src/gs-names.ts`）：扫描器在引擎里、落点解析在主进程里，两边必须用**同一份**名字与判据；
+// 各写一份正是 P1 的复发形态，而 2026-10-15 的 U11（`.gs.db` 不匹配 `.gs-` 前缀）就是两处判据同时踩的坑。
+// 反向依赖（engine → main）会成环、也会破坏「引擎可脱离 Electron 单独测试」⇒ 唯一实现落引擎侧。
+import {
+  GS_INDEX_NAME, GS_DB_NAME, GS_JOURNAL_NAME, GS_WRITE_PROBE_PREFIX,
+} from '../../../../packages/engine/src/gs-names.ts';
+export { GS_INDEX_NAME, GS_DB_NAME, GS_JOURNAL_NAME };
 
 /** 模型目录名 */
 export const MODELS_DIRNAME: string = 'models';
@@ -60,8 +64,8 @@ export const MODEL_MARKER_REL: string = path.join('onnx', 'model.onnx');
 /** 回退 userData 时的库子目录名（与 data/libraries/<libId>/ 同形） */
 export const USERDATA_LIBS_DIRNAME: string = 'libraries';
 
-/** 写探测文件的点前缀（落在 .gs- 命名空间内，见文件头的理由） */
-const PROBE_PREFIX: string = '.gs-write-probe-';
+/** 写探测文件的点前缀（落在 .gs- 命名空间内；名字的唯一来源同上，本文件不再写第二份字面量） */
+const PROBE_PREFIX: string = GS_WRITE_PROBE_PREFIX;
 
 /** 探测文件名的去重序号（同进程内多次探测不重名） */
 let probeSeq = 0;

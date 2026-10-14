@@ -1,42 +1,22 @@
-// apps/desktop/src/main/gs-names.ts —— 库根"保留命名空间"的**唯一判据**
+// apps/desktop/src/main/gs-names.ts —— 库根「保留命名空间」判据的**主进程入口**
 //
-// 什么算"我们自己的东西"（扫描器要跳过、重建不许碰、素材摘要要排除）：
-//   · `.gs-*`（`.gs-index.bin` · `.gs-journal` · `.gs-staging` · `.gs-write-probe-*` …）
-//   · `.gs.db` **及其边车** `.gs.db-wal` / `.gs.db-shm` / `.gs.db-journal`
-//   · staging 目录（名字的唯一来源是引擎的 STAGING_DIRNAME）
+// ⚠️ 判据与名字的**唯一实现**在引擎侧：`packages/engine/src/gs-names.ts`。
+//    为什么不是这里：main → engine 是本仓库既有的依赖方向（main 早就 import 了引擎的 STAGING_DIRNAME），
+//    反向 import 会成环，也会破坏「引擎可脱离 Electron 单独测试」这条硬约束（AGENTS §1）。
+//    本文件**只做 re-export**，不许再长出第二份实现
+//    —— `apps/desktop/tests/gs-names-single-source.test.mjs` 会在你写第二份时当场变红。
 //
-// ⚠️ **为什么不能只判断 `.gs-` 前缀**（2026-10-15 T-15a 实测踩到，两处症状都出现了）：
-//     `.gs.db` 的第 4 个字符是 **`.`** 不是 `-` ⇒ `'.gs.db'.startsWith('.gs-') === false`，
-//     它的三个边车同样不匹配。只按 `.gs-` 过滤会：
-//       ① 让扫描器把 `.gs.db` 当成素材（F5 体检会把它报成"有包无图 / 零字节"这类假发现）；
-//       ② 让"重建前后素材摘要一致"的机械断言把 SQLite 的 WAL 变化算成"素材被改了"（H11/H12 实测红）。
-//     ⇒ 判据必须**逐字对齐 SPEC §2 的布局图**，而不是望文生义地看前缀。
+// 历史（2026-10-15，TASKS §4 的 U11）：这里曾有一份同义实现，与引擎侧各自踩到
+// 「`'.gs.db'.startsWith('.gs-') === false` ⇒ `.gs.db` 家族被当成素材 / WAL 变化被当成素材被改」。
+// 两路独立撞上同一个洞 ⇒ 判据收敛成一份，而不是各修各的。
 //
-// 常量（文件名）的唯一来源仍是 storage-roots.ts：本模块只**引**它们，不重新定义（P1）。
 // 本模块不 import electron；不读写任何文件。
-
-import { STAGING_DIRNAME } from '../../../../packages/engine/src/transactions/steps.ts';
-import { GS_DB_NAME } from './storage-roots.ts';
-
-/** `.gs-*` 名字（前缀后必须真的还有名字 —— 光一个 `.gs-` 不是文件名） */
-export function isGsNamespaceName(name: unknown): boolean {
-  return typeof name === 'string' && name.length > '.gs-'.length && name.startsWith('.gs-');
-}
-
-/** `.gs.db` 家族：主文件与它的 -wal / -shm / -journal 边车 */
-export function isGsDbName(name: unknown): boolean {
-  return typeof name === 'string' && (name === GS_DB_NAME || name.startsWith(GS_DB_NAME + '-'));
-}
-
-/**
- * 这个名字是不是库根的保留名（⇒ 不是素材）。
- *
- * 用途：扫描器跳过、写入约束、素材摘要排除 —— 三处都该用它，不各写一份（AGENTS P1）。
- */
-export function isReservedLibraryName(name: unknown): boolean {
-  if (typeof name !== 'string' || name === '') return false;
-  if (isGsNamespaceName(name)) return true;
-  if (isGsDbName(name)) return true;
-  if (name === STAGING_DIRNAME) return true;
-  return false;
-}
+export {
+  isGsNamespaceName,
+  isGsDbName,
+  isReservedLibraryName,
+  GS_INDEX_NAME,
+  GS_DB_NAME,
+  GS_JOURNAL_NAME,
+  GS_WRITE_PROBE_PREFIX,
+} from '../../../../packages/engine/src/gs-names.ts';
