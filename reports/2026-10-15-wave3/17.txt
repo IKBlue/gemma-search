@@ -171,3 +171,38 @@ U3 modelCache 作为第四位进了 MODEL_SEARCH_ORDER —— 这是"收敛"的�
 · encoder.ts：去掉 deviceRequested/deviceFallback 字段与赋值（回退行为本身不变）。
 · 核对：npm run typecheck · npm test · node tools/verify_encoder_path.mjs --model <model> --lib G:\model
 ================================================================================
+
+================================================================================
+T-17 补记 · U1 裁定：(A) 批准渲染层**一行**例外 —— GPU 回退要能被界面看到
+（Lead 2026-10-15 裁定；只允许改 SearchPage.tsx 那一处文案分支）
+================================================================================
+改动（apps/desktop/src/renderer/src/pages/SearchPage.tsx，只有这一处 + 类型字段）：
+  · PageEvent 增加 deviceFallback?: {...} | null（事件里本就有，类型补齐）
+  · encoder.ready 的提示：
+      有 deviceFallback ⇒ 「模型就绪 · cpu（GPU 不可用，已回退）· Ns」
+      没有             ⇒ 原文案「模型就绪 · cpu · Ns」不变
+  · 没有新增第二份兜底文案（错误兜底仍在 Adapter）；没有碰别的渲染层文件。
+
+--- 命令 1 · npm test
+  ℹ tests 474
+  ℹ pass 473
+  ℹ fail 0
+  ℹ cancelled 0
+  ℹ skipped 1
+--- 命令 2 · npm run e2e -- smoke.spec.mjs m0-real.spec.mjs
+  Running 2 tests using 1 worker
+  [M0] 控制台错误（未落素材的那些缩略图 415 属夹具现象）= ["Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)"]
+    2 passed (7.8s)  ⚠️ 那一串 415 是**夹具现象**（M0 只落了搜索结果里的几条素材），不是产品缺陷；该用例只硬断言"没有真 JS 异常"。
+
+--- 命令 3 · tsc 两工程
+  TSC_NODE=0（输出 0 行）· TSC_WEB=0（输出 0 行）
+
+--- 未决（U1 已闭环，剩 U2 在 task-30）
+  U2「上报 webgpu 但 GPU 被禁用仍能跑」已由 Lead 单开 task-30 做**只读核查**；本任务不顺手改。
+  在 task-30 有结论前，"回退分支真的会触发"仍然**没有端到端实测**（我试了 --disable-gpu / --disable-webgpu 都没逼出来），
+  本证据只证明：**一旦发生回退，界面会显示**（那一行）且事件/日志都带上事实。
+
+--- 回滚（U1 这一行）
+  SearchPage.tsx：把 encoder.ready 的 show(...) 恢复成单行原文案，并删掉 PageEvent.deviceFallback。
+  核对：npx tsc --noEmit -p tsconfig.web.json · npm run e2e -- smoke.spec.mjs m0-real.spec.mjs
+================================================================================

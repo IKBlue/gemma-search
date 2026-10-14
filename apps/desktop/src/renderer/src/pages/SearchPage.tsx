@@ -27,6 +27,8 @@ import { useDocumentTitle } from '../utils/useDocumentTitle.ts'
 type PageEvent = {
   type: string
   device?: string
+  /** T-17：GPU→CPU 回退的**事实**（有值就说明发生过回退，不是用户自己选的 cpu） */
+  deviceFallback?: { from?: string; to?: string; reason?: string } | null
   loadMs?: number
   message?: string
   done?: number
@@ -73,7 +75,13 @@ export default function SearchPage() {
     if (!e.type) return
     if (e.type === 'encoder.ready') {
       setDevice(e.device || '')
-      show(`模型就绪 · ${e.device} · ${((e.loadMs ?? 0) / 1000).toFixed(1)}s`)
+      // T-17 / 契约 §3「GPU 回退不静默」：**回退过就要说出口**。
+      // 只显示 cpu 的话用户看不出"这是回退"（可能是他自己在设置里选的 cpu）。
+      // ⚠️ 这里只做这一句提示，不新增第二份兜底文案 —— 错误兜底仍在 Adapter。
+      const ms = ((e.loadMs ?? 0) / 1000).toFixed(1)
+      show(e.deviceFallback
+        ? `模型就绪 · ${e.device}（GPU 不可用，已回退）· ${ms}s`
+        : `模型就绪 · ${e.device} · ${ms}s`)
     } else if (e.type === 'encoder.failed') {
       setDevice('')
       show(`模型载入失败：${e.message}`, 'err')
