@@ -1,0 +1,109 @@
+================================================================================
+T-22b 证据 · 两个打包阻断项（① 打包后零日志 ② 包体 3.69 GB）—— **一次打包同时验四项**
+任务板 id: task-35   执行: db-worker   日期: 2026-10-15
+改动：apps/desktop/src/main/log.ts（日志落点 + 失败可见）· electron-builder.yml（**只加 files 三条**）·
+      apps/desktop/tests/log-fallback.test.mjs（新，2 条）· 证据本文件
+===============================================================================
+
+【结论表（一次 packaging --dir 同时验收）】
+| 验收项 | 修前（T-22a 实测） | 修后（本轮实测） |
+|---|---|---|
+| ① **包体** asar 物理体积 | 3,685,390,481 B = 3.43 GiB | **184,661,813 B = 176.1 MB**（−95.0%） |
+| ① 构成 | model-cache 3160.5 MB + node_modules 479.6 MB + .npm-cache 177.5 MB | node_modules + out 1.3 MB（**model-cache / .npm-cache / tsbuildinfo 都不在 header 里**） |
+| ② **默认配置下打包 exe 的日志** | **不存在**（ROOT=asar ⇒ 目标不可写，静默失败） | **存在**：<userData>/logs/app.log · 58 行 · 7630 B（前几行见下） |
+| ③ 窗口/preload 三键/pageerror=0 | ✅ | ✅ 不回归（keys=["invoke","onEvent","platform"] · pageerror=[]） |
+| ④ thumb:// 取图 | ✅（T-22a） | ✅ 不回归（@256 naturalWidth/Height=1，主日志"thumb 生成成功"） |
+| 附带：写不进去必须**可见** | ❌ 静默 | ✅ stderr+stdout 各一行 + logStatus()（打包 exe 直捕 + 单测双证） |
+| 附带：单测/类型 | — | npm test 486/485 pass/0 fail/1 skip · tsc node+web EXIT=0 |
+
+【① 包体：改法与原始输出】
+改法：electron-builder.yml 的 files 段加三条（**只动 files 段**，Lead 授权的窄例外；其余配置一行没碰）：
+  - '!model-cache/*'   ← 3160.5 MB，配置注释一直写着"模型与索引不进安装器"，但清单从没排过它
+  - '!.npm-cache/*'    ← 177.5 MB，本机 npm 缓存
+  - '!*.tsbuildinfo'   ← 构建中间物
+打包命令（可复跑）：npm run build → node data/_t22/mk-config.mjs → npx electron-builder --dir -c data/_t22/eb-dir.json
+  （eb-dir.json 由**仓库 electron-builder.yml** 经 js-yaml 读入后加三处沙箱覆盖生成：electronDist 本地 · output 在写入范围内 ·
+    win.signAndEditExecutable=false；**不手抄 files 清单**，避免两份定义。mk-config 打印的生效清单已含上面三条。）
+原始输出：
+  [v22b] ① asar 体积 = 184661813 B = 176.1 MB
+  [v22b-2] asar 物理体积 = 184661813 B = 176.1 MB · 叶文件数 = 4255 · unpacked = 45 · link = 0
+  [v22b-2] 按顶层分组的叶节点字节和 = 504399065 B = 481.0 MB（差值 304.9 MB = 45 个 unpacked 条目，
+           内容在 app.asar.unpacked/ 里，**不在 asar 文件内**）
+  [v22b-2]    node_modules 479.6 MB · out 1.3 MB · fixtures/根 md/package.json/LICENSE 各 ~0 MB
+  [v22b-2] 关键项在不在 header 里：model-cache = false · .npm-cache = false · tsbuildinfo = (无)
+整包体积（同一产物）：app.asar 176.1 MB + app.asar.unpacked 306.0 MB + gemma-search.exe 246.3 MB + 其余 Electron 运行文件
+  ⇒ win-unpacked 合计 **849.8 MB**（891,046,684 B）。
+⚠️ 如实说清：**没有**降到"安装器预算"以内 —— 这是**未打包产物**（含整套 Electron 运行时与 306 MB 原生模块）；
+   NSIS 压缩后的安装器体积**本轮没测**（不做安装器，见"不测"）。
+⚠️ app.asar.unpacked 306 MB 是 electron-builder 自动解包的原生模块（.node 等，45 个）；T-22a 当时没有量这一项，本报告只给数字、不声称"变没变"。
+
+【② 打包后零日志：改法与原始输出】
+改法（apps/desktop/src/main/log.ts）：
+  · 日志目标改成三级：GEMMA_APP_LOG 覆盖 > **打包态 <userData>/logs/app.log** > <ROOT>/data/_app.log（源码/构建态）。
+  · userData 用**惰性** createRequire('electron').app.getPath('userData') 取：只在 PACKED（HERE 含 app.asar）时尝试，
+    这样 log.ts 仍能被 node:test 直接加载、且它的副作用仍早于任何可能抛错的导入（顶层 import electron 会同时破坏这两条）。
+  · 三处写失败（mkdir/writeFile/appendFile）从静默 catch 改成 noteFailure(e)：
+    记 logStatus()（ok/failures/error/packed，**N7 诊断面板就是读这个**）+ 首次失败**绕开 log() 自身**直写 stderr 与 stdout 各一行
+    （不能用 log() 报，它正要写那个失败的文件 —— 会递归）；永不抛。
+验收原始输出（**默认配置：不设 GEMMA_APP_LOG**）：
+  [v22b] ② 默认日志文件 = ...\data\_t22\userdata\logs\app.log
+  [v22b]    存在 = true · 行数 = 58 · 字节 = 7630
+  [v22b]    | [07:51:38.308] === gemma-search 启动 ===
+  [v22b]    | [07:51:38.310] electron 44.7.0 · chrome 152.0.7977.130 · node 24.21.0
+  [v22b]    | [07:51:38.310] 日志文件 = D:\...\data\_t22\userdata\logs\app.log
+  [v22b]    | [07:51:38.310] 日志落点来源 = 打包态 <userData>/logs · PACKED = true
+  [v22b]    | [07:51:38.310] 应用根 = D:\...\dist\win-unpacked\resources\app.asar
+  [v22b]    | [07:51:38.311] !! 注意：应用根落在 asar 内（HERE=...\app.asar\out\main），data/ 无法写入 —— 打包态需要改用 userData（P6）
+  （注意最后那条 asar 警告**仍然保留** —— 它现在不再代表"日志丢了"，而是解释 ROOT 为什么是 asar；去掉会丢信息。）
+
+【③ 写不进去**必须可见**：两条独立证据】
+(a) 打包 exe **直接 spawn**（不经 Playwright，stdio 全捕获），把 GEMMA_APP_LOG 指到"父路径是一个文件"的位置：
+  [v22b-2] 捕获到的行数 = 69
+  [v22b-2] | [gemma-search] !! 日志写入失败：Error: EEXIST: file already exists, mkdir 'D:\...\data\_t22\not-a-dir'
+           （stderr 与 stdout 各出现一次 ⇒ 两条通道都试过；这是**唯一**一条不经 log() 的输出）
+  同一进程里后续日志行照常出现（应用没被拖垮）✓
+(b) 单测 apps/desktop/tests/log-fallback.test.mjs（2/2 通过）：
+  ✔ L1 非打包态默认日志落点 = <ROOT>/data/_app.log，且写得进去
+  ✔ L2 写不进去 ⇒ **可见**：logStatus() 报错 + stderr/stdout 上有大声一行（不许静默吞掉）
+   L2 断言：LOG_FILE 覆盖优先 · logStatus().ok=false · failures>=1 · error 非空 · 捕获文本含"日志写入失败"与"packed=" ·
+            再写一行仍然不抛
+  $ node --test apps/desktop/tests/log-fallback.test.mjs ⇒ tests 2 / pass 2 / fail 0 · EXIT=0
+
+【④ 不回归（同一次打包产物上跑）】
+  [v22b] ③ 不回归：preload = {"keys":["invoke","onEvent","platform"],"require":"undefined","process":"undefined"} · pageerror = []
+  [v22b]    indexStatus = {"libId":"L1","indexed":3594,"encoded":3594,"dim":768,"healthy":true}
+  [v22b]    检索 = {"ok":true,"n":5} · 取件 = {"ok":true,"n":1}
+  [v22b] ④ thumb://@256 = {"ok":true,"w":1,"h":1}
+  [v22b]    thumb 相关日志 = ["thumb:// 已注册","thumb 库 id 映射 [[l1,L1]]","thumb 请求 L1 8a70380a9575 256",
+                            "thumb 缓存未命中 缓存未命中：ENOENT ⇒ 重新生成","thumb 生成成功 L1 8a70380a9575 256 1x1→1x1 285"]
+另加一条非打包态回归（源码/构建态日志落点没被改坏 + 窗口正常）：
+  $ npx playwright test -c apps/desktop/e2e/playwright.config.mjs smoke.spec.mjs ⇒ 1 passed (2.2s) · EXIT=0
+  （[E0] window.api keys = ["invoke","onEvent","platform"] · 控制台错误 = 0）
+
+【门禁】
+  npm test ⇒ tests 486 / pass 485 / fail 0 / skipped 1（既有那一条）· NPM_TEST_EXIT=0
+  npx tsc --noEmit -p tsconfig.node.json ⇒ NODE_TSC_EXIT=0 · -p tsconfig.web.json ⇒ WEB_TSC_EXIT=0
+  npm run build ⇒ BUILD_EXIT=0（三端产物齐）
+
+【踩到的坑（写下来防后来人）】
+· 我在 log.ts 的注释里写了 **userData** 后面紧跟 /logs —— 块注释里的那两个字符（星号+斜杠）**提前终止了注释**，
+  tsc 直接爆一串 TS1127/TS1434（"Invalid character"），位置还指到注释行上。这是第二次被"注释里的符号"咬
+  （上一次是模板字符串里的反引号）。
+· Playwright 的 electron.launch **接管不到启动最早期**的 stdout（announce 发生在 import 期，晚挂的监听器收不到），
+  所以"失败可见"的打包态证据改用**直接 spawn** 捕获 stdio；单测那一路（L2）是确定性的，两条都留了。
+
+【不测什么（写明留给后续）】
+· 安装器（NSIS）/ 卸载 / 签名 / 时间戳 / 图标 / VERSIONINFO —— 未测（本任务只做 --dir；本轮仍关着 signAndEditExecutable）。
+· 干净机器安装 · 首次运行向导 · 自动更新 —— 未测。
+· **真实用户默认 userData（%APPDATA%）**：本沙箱 AppData EPERM，userData 必须 --user-data-dir=<仓库>。
+  所以"打包态日志落 userData"这条**在本沙箱是用显式 userData 覆盖验的**；默认 %APPDATA% 路径**未测**（同 T-22a 的边界）。
+· NSIS 压缩后的安装器体积 —— 未测（只报了未打包产物的 849.8 MB）。
+· app.asar.unpacked 306 MB 的**必要性/可否裁剪** —— 未评估（那是 T-22 正式的包体优化话题）。
+· 库根不可写的 userData 回退分支 —— 仍未测（同 T-22a）。
+
+【回滚方式】
+· 代码回滚：log.ts 去掉 PACKED_USER_DATA/packedUserDataDir/LOG_FILE 三级逻辑、logStatus()/announceLogFailure()/noteFailure()
+  与三处 catch 的 noteFailure 调用（恢复成静默 catch）；electron-builder.yml 删掉 files 里那三条与注释；
+  删 apps/desktop/tests/log-fallback.test.mjs 与本证据文件。
+· 未跑 git（AGENTS P7）；临时物 data/_t22（含 849.8 MB 产物与全部脚本）已删除。
+===============================================================================

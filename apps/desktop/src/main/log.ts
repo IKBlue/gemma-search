@@ -12,6 +12,7 @@
 // 2026-10-14：本文件由 log.mjs 转为 .ts（全量 TypeScript 的第一块）。
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const HERE: string = path.dirname(fileURLToPath(import.meta.url));
@@ -58,12 +59,45 @@ function detectRepoRoot(start: string): string | null {
 /** 兜底：**只在标记探测完全失败时**才用（多半是打包态 —— 那时根本没有"仓库根"）。 */
 const FALLBACK_ROOT: string = path.resolve(HERE, '..', '..');
 
-export const ROOT: string = process.env.GEMMA_ROOT || detectRepoRoot(HERE) || FALLBACK_ROOT;
-
-export const LOG_FILE: string = process.env.GEMMA_APP_LOG || path.join(ROOT, 'data', '_app.log');
-
 /** 打包态：本模块在 app.asar 内运行（与 ROOT 解成什么无关，看 HERE 这个事实） */
 const PACKED: boolean = HERE.includes('app.asar');
+
+/**
+ * 打包态的日志目录 = Electron 的 userData/logs（userData 是 Electron 保证可写的那个目录）。
+ *
+ * ⚠️ 为什么不能用 ROOT：打包态 ROOT 会解成 **asar 内的路径**（asar 里那份 package.json 声明了
+ *    workspaces ⇒ detectRepoRoot 认了它），往它下面写必然失败 ⇒ 打包后**一条日志都没有**。
+ *    这是 T-22a 第一次真打包抓到的 P0（实测：仓库 data/_app.log mtime 不变、asar 下也没有文件）。
+ * ⚠️ 为什么不在顶层 import electron：本文件必须能被 node:test 直接加载（那里没有 electron），
+ *    而且它的副作用要**早于任何可能抛错的导入**执行 —— 顶层 import electron 会把这两条都破坏。
+ *    所以只在 PACKED 时惰性 require 一次；解析不出来就回落旧行为，并由 announceFailure() **大声报**。
+ * ⚠️ app.getPath('userData') 在 app ready 之前就可读（Electron 文档口径），此处正是那个时机。
+ */
+function packedUserDataDir(): string | null {
+  if (!PACKED) return null;
+  try {
+    const req = createRequire(import.meta.url);
+    const el = req('electron') as { app?: { getPath?: (name: string) => string } };
+    const p = el && el.app && typeof el.app.getPath === 'function' ? el.app.getPath('userData') : '';
+    return typeof p === 'string' && p ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 打包态解析到的 userData（解析不出来 = null ⇒ 回落 <ROOT>/data 并报错） */
+const PACKED_USER_DATA: string | null = packedUserDataDir();
+
+export const ROOT: string = process.env.GEMMA_ROOT || detectRepoRoot(HERE) || FALLBACK_ROOT;
+
+/**
+ * 日志文件：显式覆盖 > 打包态 <userData>/logs/app.log > <ROOT>/data/_app.log（源码/构建态）。
+ * ⚠️ 打包态**绝不**落 asar 内 —— 那正是 T-22a 抓到的 P0。
+ */
+export const LOG_FILE: string = process.env.GEMMA_APP_LOG
+  || (PACKED && PACKED_USER_DATA
+    ? path.join(PACKED_USER_DATA, 'logs', 'app.log')
+    : path.join(ROOT, 'data', '_app.log'));
 
 const stamp = (): string => new Date().toISOString().slice(11, 23);
 
@@ -104,23 +138,70 @@ function assertRootOnce(): void {
   log('!'.repeat(82));
 }
 
+/** 日志写入状态：**诊断面板 N7 要显示它** —— 打包态写不进去时不许"看起来正常"（T-22a 的 P0） */
+export interface LogStatus {
+  file: string;
+  dir: string;
+  ok: boolean;
+  failures: number;
+  error: string | null;
+  packed: boolean;
+}
+let logOk = true;
+let logFailures = 0;
+let logError: string | null = null;
+let failureAnnounced = false;
+
+/** 读当前日志落点与写入状态（N7 用；也可用于测试断言"失败可见"） */
+export function logStatus(): LogStatus {
+  return { file: LOG_FILE, dir: path.dirname(LOG_FILE), ok: logOk, failures: logFailures, error: logError, packed: PACKED };
+}
+
+/**
+ * 第一次写失败时**绕开 log() 自身**大声报一次（stderr + stdout 直写）。
+ *
+ * 为什么不只记状态：打包态是 GUI 子系统程序，用户看不到 stderr/stdout 时，
+ * "日志写不了"会被当成"应用没启动" —— 必须至少有一个不沉默的通道（N7 之后补界面显示）。
+ * 也**不能**用 log() 报，它自己正要写那个失败的文件（会递归）。
+ */
+export function announceLogFailure(err: unknown): void {
+  if (failureAnnounced) return;
+  failureAnnounced = true;
+  const msg = '[gemma-search] !! 日志写入失败：' + fmt(err) + ' · 目标 = ' + LOG_FILE
+    + ' · packed=' + String(PACKED) + ' · 后续仍会尝试写入；诊断面板可读 logStatus()';
+  try { process.stderr.write(msg + '\n'); } catch { /* GUI 子系统可能没有 stderr */ }
+  try { process.stdout.write(msg + '\n'); } catch { /* 同上 */ }
+}
+
+/** 记一次写失败：状态 + 大声报一次（永不抛） */
+function noteFailure(err: unknown): void {
+  logOk = false;
+  logFailures += 1;
+  logError = fmt(err);
+  announceLogFailure(err);
+}
+
 /** 写一行日志：文件 + stdout，两边都失败也不能让应用崩。 */
 export function log(...args: unknown[]): void {
   assertRootOnce();                    // ← 首次调用即自检（递归安全：标志已先置位）
   const line = `[` + stamp() + `] ` + args.map(fmt).join(' ') + '\n';
-  try { fs.appendFileSync(LOG_FILE, line, 'utf8'); } catch { /* 日志写不了不是致命错误 */ }
+  try { fs.appendFileSync(LOG_FILE, line, 'utf8'); } catch (e) { noteFailure(e); }
   try { process.stdout.write(line); } catch { /* GUI 子系统没有 stdout */ }
 }
 
 // ---------------------------------------------------------------- 初始化
-try { fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true }); } catch { /* ignore */ }
-try { fs.writeFileSync(LOG_FILE, '', 'utf8'); } catch { /* ignore */ }
+// ⚠️ 写不进去**必须可见**：T-22a 实测打包态这三处静默失败 ⇒ 零日志而界面一切正常（P0）。
+//    现在失败会记进 logStatus() 并大声报一次（见 announceLogFailure）。
+try { fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true }); } catch (e) { noteFailure(e); }
+try { fs.writeFileSync(LOG_FILE, '', 'utf8'); } catch (e) { noteFailure(e); }
 
 log('=== gemma-search 启动 ===');
 log('electron', process.versions.electron, '· chrome', process.versions.chrome, '· node', process.versions.node);
 log('ELECTRON_RUN_AS_NODE =', JSON.stringify(process.env.ELECTRON_RUN_AS_NODE ?? null));
 log('argv =', JSON.stringify(process.argv.slice(1)));
 log('日志文件 =', LOG_FILE);
+log('日志落点来源 =', process.env.GEMMA_APP_LOG ? 'GEMMA_APP_LOG 覆盖'
+  : (PACKED && PACKED_USER_DATA ? '打包态 <userData>/logs' : '<ROOT>/data'), '· PACKED =', PACKED);
 log('应用根 =', ROOT);
 if (PACKED || LOG_FILE.includes('app.asar')) {
   log('!! 注意：应用根落在 asar 内（HERE=' + HERE + '），data/ 无法写入 —— 打包态需要改用 userData（P6）');
