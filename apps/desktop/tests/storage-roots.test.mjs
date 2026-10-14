@@ -16,13 +16,15 @@ import path from 'node:path';
 import {
   resolveModels, resolveStorageRoots, resolveLibraryStorage, probeWritable, describeStorageRoots,
   GS_INDEX_NAME, GS_DB_NAME, GS_JOURNAL_NAME, MODELS_DIRNAME, MODEL_MARKER_REL,
-  MODEL_SEARCH_ORDER, modelSearchOrderText,
+  MODEL_SEARCH_ORDER, modelSearchOrderText, findModelCacheDir,
 } from '../src/main/storage-roots.ts';
 
 /** 期望的搜索顺序（SPEC §2，2026-10-14 所有者授权：显式覆盖优先）。
  *  ⚠️ 所有者看过界面后**可能改回**旧顺序 —— 那时候只需要改 storage-roots.ts 里的
- *     MODEL_SEARCH_ORDER 一行 + 下面这一行期望值，其它用例（都是按"谁赢"写的，不写死次序）不用动。 */
-const EXPECTED_ORDER = ['user', 'app', 'userData'];
+ *     MODEL_SEARCH_ORDER 一行 + 下面这一行期望值，其它用例（都是按"谁赢"写的，不写死次序）不用动。
+ *  第四位 modelCache 不在 SPEC §2 的三条里：它是本机既有 model-cache 布局，T-17 收敛时
+ *  **把它放进同一份顺序**（而不是在 index.ts 里再写一遍扫描），否则就会丢位置或者多一份顺序。 */
+const EXPECTED_ORDER = ['user', 'app', 'userData', 'modelCache'];
 
 // 用固定的假路径（不碰真机）；Windows 形态，因为本项目只在 Windows 上跑。
 const APP = 'C:\\gs\\app';
@@ -54,6 +56,14 @@ function memFs(init) {
       if (denied.has(d)) throw mkErr('EPERM', p);
       files.add(p);
       writes.push(p);
+    },
+    /** 列目录（模型缓存那一位要在 <rev>/fp32 里挑；与真 fs 的语义一致：不存在就抛 ENOENT） */
+    readdirSync: (p) => {
+      if (!dirs.has(p)) throw mkErr('ENOENT', p);
+      const out = new Set();
+      for (const d of dirs) if (path.dirname(d) === p) out.add(path.basename(d));
+      for (const f of files) if (path.dirname(f) === p) out.add(path.basename(f));
+      return [...out];
     },
     mkdirSync: (p) => { mkdirs.push(p); dirs.add(p); },
     unlinkSync: (p) => { if (!files.has(p)) throw mkErr('ENOENT', p); files.delete(p); unlinks.push(p); },
@@ -162,12 +172,92 @@ test('M8 用户指定目录**存在但里面没有模型** ⇒ 不停下，继�
 
 test('M9 ⭐ 顺序**只有一处常量**：候选次序、日志文案、指引文案都从 MODEL_SEARCH_ORDER 派生', () => {
   assert.deepEqual([...MODEL_SEARCH_ORDER], EXPECTED_ORDER, '改顺序只该改 storage-roots.ts 的那一行 + 这里的期望值');
-  assert.equal(modelSearchOrderText(), '用户指定 → 程序目录 models/ → userData models/');
+  assert.equal(modelSearchOrderText(), '用户指定 → 程序目录 models/ → userData models/ → 既有模型缓存目录（model-cache）');
 
+  // 四位来源**都可用**时，实际次序必须逐位等于常量（少一位就说明有人在别处改了顺序）
   const userDir = 'E:\\my-models';
-  const f = memFs({ dirs: [APP, UD, userDir] });
-  const r = resolveModels({ appDir: APP, userDataDir: UD, userModelDir: userDir, fs: f });
+  const cacheBase = 'D:\\cache';
+  const cacheRev = path.join(cacheBase, 'onnx', 'embeddinggemma-2', 'rev-a');
+  const cacheFp32 = path.join(cacheRev, 'fp32');
+  const f = memFs({
+    dirs: [APP, UD, userDir, cacheBase, path.join(cacheBase, 'onnx'), path.join(cacheBase, 'onnx', 'embeddinggemma-2'), cacheRev, cacheFp32],
+    files: [modelMarker(cacheFp32)],
+  });
+  const r = resolveModels({ appDir: APP, userDataDir: UD, userModelDir: userDir, modelCacheDir: cacheBase, fs: f });
   assert.deepEqual(r.searched.map((c) => c.source), [...MODEL_SEARCH_ORDER], '实际搜索次序必须等于常量');
+});
+
+// ============================================================ ①c 既有 model-cache 布局（第四位）
+
+test('MC1 只有既有 model-cache 有模型 ⇒ 命中它，来源标 modelCache', () => {
+  const cacheBase = 'D:\\cache';
+  const cacheRev = path.join(cacheBase, 'onnx', 'embeddinggemma-2', 'rev-a');
+  const cacheFp32 = path.join(cacheRev, 'fp32');
+  const f = memFs({
+    dirs: [APP, UD, cacheBase, path.join(cacheBase, 'onnx'), path.join(cacheBase, 'onnx', 'embeddinggemma-2'), cacheRev, cacheFp32],
+    files: [modelMarker(cacheFp32)],
+  });
+  const r = resolveModels({ appDir: APP, userDataDir: UD, modelCacheDir: cacheBase, fs: f });
+
+  assert.equal(r.found, cacheFp32);
+  assert.equal(r.source, 'modelCache');
+  assert.equal(r.searched.length, 3, '没给用户指定 ⇒ app / userData / modelCache 三位');
+  assert.equal(r.searched[2].source, 'modelCache');
+  // modelCache 是**我们的缓存目录**，不能当成"建议把模型放这儿"
+  assert.equal(r.installDir, null, 'modelCache 不该出现在 installDir 里');
+});
+
+test('MC2 顺序最后：程序目录 与 model-cache 都有模型 ⇒ 程序目录赢', () => {
+  const appModels = path.join(APP, MODELS_DIRNAME);
+  const cacheBase = 'D:\\cache';
+  const cacheRev = path.join(cacheBase, 'onnx', 'embeddinggemma-2', 'rev-a');
+  const cacheFp32 = path.join(cacheRev, 'fp32');
+  const f = memFs({
+    dirs: [APP, appModels, UD, cacheBase, path.join(cacheBase, 'onnx'), path.join(cacheBase, 'onnx', 'embeddinggemma-2'), cacheRev, cacheFp32],
+    files: [modelMarker(appModels), modelMarker(cacheFp32)],
+  });
+  const r = resolveModels({ appDir: APP, userDataDir: UD, modelCacheDir: cacheBase, fs: f });
+
+  assert.equal(r.found, appModels);
+  assert.equal(r.source, 'app');
+  // 没给用户指定 ⇒ 次序是 app(1) / userData(2) / modelCache(3)；两份都要被找过并记为命中
+  assert.deepEqual(r.searched.map((c) => c.source), ['app', 'userData', 'modelCache']);
+  assert.equal(r.searched.find((c) => c.source === 'modelCache').valid, true, '缓存那份仍然要被找过并记为命中（不是没看见）');
+});
+
+test('MC3 model-cache 里没有可用 revision ⇒ 不算命中，理由说清扫过几个', () => {
+  const cacheBase = 'D:\\cache';
+  const cacheRev = path.join(cacheBase, 'onnx', 'embeddinggemma-2', 'rev-a');
+  const f = memFs({
+    dirs: [APP, UD, cacheBase, path.join(cacheBase, 'onnx'), path.join(cacheBase, 'onnx', 'embeddinggemma-2'), cacheRev],
+  });
+  const r = resolveModels({ appDir: APP, userDataDir: UD, modelCacheDir: cacheBase, fs: f });
+
+  assert.equal(r.found, null);
+  assert.equal(r.searched[2].source, 'modelCache');
+  assert.equal(r.searched[2].valid, false);
+  assert.match(r.searched[2].reason, /扫过 1 个 revision/);
+});
+
+test('MC4 findModelCacheDir：跳过没有 marker 的 revision；读不动就如实说，不抛', () => {
+  const base = 'D:\\cache';
+  const root = path.join(base, 'onnx', 'embeddinggemma-2');
+  const a = path.join(root, 'rev-a', 'fp32');
+  const b = path.join(root, 'rev-b', 'fp32');
+  const f = memFs({ dirs: [base, path.join(base, 'onnx'), root, path.join(root, 'rev-a'), a, path.join(root, 'rev-b'), b], files: [modelMarker(b)] });
+  const hit = findModelCacheDir(base, f);
+  assert.equal(hit.dir, b, 'rev-a 没有模型 ⇒ 应当取 rev-b');
+  assert.match(hit.note, /找到/);
+
+  assert.equal(findModelCacheDir('', f).dir, null);
+  assert.equal(findModelCacheDir('Z:\\nope', f).dir, null);
+  assert.match(findModelCacheDir('Z:\\nope', f).note, /不存在/);
+
+  // 列目录失败（权限/坏盘）：不抛，理由里带原始错误码
+  const bad = { ...f, readdirSync: () => { throw mkErr('EPERM', root); } };
+  const r2 = findModelCacheDir(base, bad);
+  assert.equal(r2.dir, null);
+  assert.match(r2.note, /EPERM/);
 });
 
 test('M5 目录存在但没有 onnx/model.onnx ⇒ **不算命中**', () => {

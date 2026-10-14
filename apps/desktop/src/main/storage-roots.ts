@@ -82,6 +82,8 @@ let probeSeq = 0;
 export interface StorageFs {
   existsSync(p: string): boolean;
   isDirectory(p: string): boolean;
+  /** 列目录名（模型缓存那一位要在 <rev>/fp32 里挑可用的那个；失败要由实现自己吞掉或抛） */
+  readdirSync(p: string): string[];
   writeFileSync(p: string, data: string): void;
   mkdirSync(p: string): void;
   unlinkSync(p: string): void;
@@ -93,6 +95,7 @@ export const NODE_FS: StorageFs = {
   isDirectory: (p: string): boolean => {
     try { return fs.statSync(p).isDirectory(); } catch { return false; }
   },
+  readdirSync: (p: string): string[] => fs.readdirSync(p),
   writeFileSync: (p: string, data: string): void => { fs.writeFileSync(p, data, 'utf8'); },
   mkdirSync: (p: string): void => { fs.mkdirSync(p, { recursive: true }); },
   unlinkSync: (p: string): void => { fs.unlinkSync(p); },
@@ -164,8 +167,13 @@ function existenceOnlyProbe(dir: string, fsImpl: StorageFs): WriteProbe {
 
 // ---------------------------------------------------------------- ① 模型落点
 
-/** 模型候选来自 SPEC §2 的哪一位 */
-export type ModelSource = 'app' | 'userData' | 'user';
+/**
+ * 模型候选来自哪一位。
+ * ⚠️ 第四位 `modelCache` **不在 SPEC §2 的三条里** —— 它是本机既有的 model-cache 布局
+ * （`<cache>/onnx/embeddinggemma-2/<rev>/fp32`）。收敛 P1 债时**不能顺手把它删掉**：
+ * 那会把用户"现在就能用"的模型弄丢（收敛 ≠ 删位置）。它的位置由 MODEL_SEARCH_ORDER 统一管。
+ */
+export type ModelSource = 'app' | 'userData' | 'user' | 'modelCache';
 
 /** 一个模型搜索候选（**每个都留痕**，"找过哪些路径"就是靠它报出来的） */
 export interface ModelCandidate {
@@ -206,6 +214,8 @@ export interface ResolveModelsOptions {
   userDataDir?: string | null;
   /** 用户在设置里指定的模型目录（config.json 的 onnx_model_dir） */
   userModelDir?: string | null;
+  /** 既有 model-cache 的**基目录**（config.model_cache 或 <程序目录>/../model-cache）；缺省 = 跳过这一位 */
+  modelCacheDir?: string | null;
   fs?: StorageFs;
 }
 
@@ -214,6 +224,7 @@ const MODEL_SOURCE_LABEL: Record<ModelSource, string> = {
   user: '用户指定',
   app: '程序目录 models/',
   userData: 'userData models/',
+  modelCache: '既有模型缓存目录（model-cache）',
 };
 
 /**
@@ -224,17 +235,50 @@ const MODEL_SOURCE_LABEL: Record<ModelSource, string> = {
  *    别在任何别处再写第二份顺序（P1）。
  *
  * 2026-10-14 所有者授权调整（SPEC §2，挂"待界面复核"）：**显式覆盖优先**
- * ⇒ 用户在设置里指定的路径 → 程序目录 models/ → userData models/。
+ * ⇒ 用户在设置里指定的路径 → 程序目录 models/ → userData models/ →（最后）既有 model-cache 布局。
+ *
+ * ⚠️ 第四位 `modelCache`：本机既有的模型就放在那里（`<程序目录>/../model-cache/onnx/…`）。
+ *    它是**兜底**而不是"该放模型的地方"，所以排在最后；但不放进这个常量里，
+ *    就会出现"第二份候选顺序"（P1）——那正是 T-17 要收掉的债。
  */
-export const MODEL_SEARCH_ORDER: readonly ModelSource[] = Object.freeze(['user', 'app', 'userData']);
+export const MODEL_SEARCH_ORDER: readonly ModelSource[] = Object.freeze(['user', 'app', 'userData', 'modelCache']);
 
 /** 顺序的人读串（日志与指引都用它；**从 MODEL_SEARCH_ORDER 派生**，不另写一份） */
 export function modelSearchOrderText(): string {
   return MODEL_SEARCH_ORDER.map((s) => MODEL_SOURCE_LABEL[s]).join(' → ');
 }
 
+/**
+ * 在**既有 model-cache 布局**里找第一个可用模型：`<base>/onnx/embeddinggemma-2/<rev>/fp32/onnx/model.onnx`。
+ *
+ * 为什么这段放在这里而不是 index.ts：`<rev>/fp32` 这个形状与 `onnx/model.onnx` 这个判据
+ * **必须只有一份**（T-17 收敛：不许再有第二份"像不像模型目录"的判据）。index.ts 只提供**基目录**。
+ *
+ * @returns dir = 找到的 fp32 目录（找不到是 null）；note = 人读理由（进日志/指引）
+ */
+export function findModelCacheDir(base: string, fsImpl: StorageFs = NODE_FS): { dir: string | null; note: string } {
+  const root = path.join(base, 'onnx', 'embeddinggemma-2');
+  if (!base) return { dir: null, note: '没有配置模型缓存目录' };
+  if (!fsImpl.existsSync(root)) return { dir: null, note: '缓存目录不存在：' + root };
+  let revs: string[];
+  try {
+    revs = fsImpl.readdirSync(root);
+  } catch (e) {
+    return { dir: null, note: '缓存目录读不动：' + root + '（' + codeOf(e) + '）' };
+  }
+  for (const rev of revs) {
+    const d = path.join(root, rev, 'fp32');
+    if (fsImpl.existsSync(path.join(d, MODEL_MARKER_REL))) {
+      return { dir: d, note: '缓存里找到 ' + MODEL_MARKER_REL + '（' + d + '）' };
+    }
+  }
+  return { dir: null, note: '扫过 ' + revs.length + ' 个 revision，都没有 ' + MODEL_MARKER_REL + '（' + root + '）' };
+}
+
 /** 缺模型时的明确指引（T-17 的输入：能报出找过哪些路径 + 不假装可用） */
-function buildModelGuidance(appDir: string, userDataDir: string | null, searched: ModelCandidate[]): string {
+function buildModelGuidance(
+  appDir: string, userDataDir: string | null, modelCacheDir: string | null, searched: ModelCandidate[],
+): string {
   const lines: string[] = [];
   lines.push(`未找到 ONNX 模型（搜索顺序取自 SPEC §2：${modelSearchOrderText()}）。`);
   lines.push('已经找过：');
@@ -247,8 +291,10 @@ function buildModelGuidance(appDir: string, userDataDir: string | null, searched
       lines.push('  · 在设置里指定模型目录（config.json 的 onnx_model_dir）—— 显式指定，**优先级最高**');
     } else if (source === 'app') {
       lines.push(`  · ${path.join(appDir, MODELS_DIRNAME, MODEL_MARKER_REL)}`);
-    } else if (userDataDir) {
-      lines.push(`  · ${path.join(userDataDir, MODELS_DIRNAME, MODEL_MARKER_REL)}`);
+    } else if (source === 'userData') {
+      if (userDataDir) lines.push(`  · ${path.join(userDataDir, MODELS_DIRNAME, MODEL_MARKER_REL)}`);
+    } else if (source === 'modelCache' && modelCacheDir) {
+      lines.push('  · 或放进既有模型缓存布局：' + path.join(modelCacheDir, 'onnx', 'embeddinggemma-2', '<revision>', 'fp32', MODEL_MARKER_REL));
     }
   }
   lines.push('放好后重启应用即可重试。');
@@ -269,7 +315,8 @@ export function resolveModels(opts: ResolveModelsOptions): ModelResolution {
   const userModelDir = (opts.userModelDir ?? '').trim();
 
   // 候选 = 顺序常量 × 当前可用的来源。order 是它在**实际搜索次序**里的位置（1 起）。
-  const plan: Array<{ order: number; source: ModelSource; label: string; dir: string }> = [];
+  const modelCacheDir = (opts.modelCacheDir ?? '').trim();
+  const plan: Array<{ order: number; source: ModelSource; label: string; dir: string; note?: string }> = [];
   for (const source of MODEL_SEARCH_ORDER) {
     if (source === 'app') {
       plan.push({ order: plan.length + 1, source, label: MODEL_SOURCE_LABEL[source], dir: path.join(opts.appDir, MODELS_DIRNAME) });
@@ -277,8 +324,18 @@ export function resolveModels(opts: ResolveModelsOptions): ModelResolution {
       if (userDataDir) {
         plan.push({ order: plan.length + 1, source, label: MODEL_SOURCE_LABEL[source], dir: path.join(userDataDir, MODELS_DIRNAME) });
       }
-    } else if (userModelDir) {
-      plan.push({ order: plan.length + 1, source, label: MODEL_SOURCE_LABEL[source], dir: path.resolve(userModelDir) });
+    } else if (source === 'user') {
+      if (userModelDir) {
+        plan.push({ order: plan.length + 1, source, label: MODEL_SOURCE_LABEL[source], dir: path.resolve(userModelDir) });
+      }
+    } else if (modelCacheDir) {
+      // 这一位不是一个固定目录：要在 <cache>/onnx/embeddinggemma-2/<rev>/fp32 里找出可用的那个
+      const hit = findModelCacheDir(modelCacheDir, fsImpl);
+      plan.push({
+        order: plan.length + 1, source, label: MODEL_SOURCE_LABEL[source],
+        dir: hit.dir ?? path.join(modelCacheDir, 'onnx', 'embeddinggemma-2'),
+        note: hit.note,
+      });
     }
   }
 
@@ -288,11 +345,13 @@ export function resolveModels(opts: ResolveModelsOptions): ModelResolution {
     const probe: WriteProbe = exists
       ? probeWritable(c.dir, fsImpl)
       : { writable: false, code: 'ENOENT', reason: `目录不存在：${c.dir}` };
-    const reason = !exists
-      ? `没有这个目录（${c.dir}）`
-      : valid
-        ? `命中：含 ${MODEL_MARKER_REL}（${c.dir}）`
-        : `目录存在但没有 ${MODEL_MARKER_REL}（${c.dir}）`;
+    const reason = c.note
+      ? c.note
+      : !exists
+        ? `没有这个目录（${c.dir}）`
+        : valid
+          ? `命中：含 ${MODEL_MARKER_REL}（${c.dir}）`
+          : `目录存在但没有 ${MODEL_MARKER_REL}（${c.dir}）`;
     return {
       order: c.order,
       source: c.source,
@@ -307,14 +366,16 @@ export function resolveModels(opts: ResolveModelsOptions): ModelResolution {
   });
 
   const hit = searched.find((c) => c.valid) ?? null;
-  const firstWritable = searched.find((c) => c.writable) ?? null;
+  // ⚠️ installDir（"建议把模型放哪"）**排除 modelCache**：那是我们自己的缓存目录，
+  //    不是让用户放模型的地方（放那儿下次被清缓存就没了）。
+  const firstWritable = searched.find((c) => c.writable && c.source !== 'modelCache') ?? null;
 
   return {
     found: hit ? hit.dir : null,
     source: hit ? hit.source : null,
     installDir: firstWritable ? firstWritable.dir : null,
     searched,
-    guidance: hit ? '' : buildModelGuidance(opts.appDir, userDataDir, searched),
+    guidance: hit ? '' : buildModelGuidance(opts.appDir, userDataDir, modelCacheDir || null, searched),
   };
 }
 
@@ -473,6 +534,8 @@ export interface ResolveStorageRootsOptions {
   /** library-config.ts 解析出的库列表（空/缺省 = 还没有库） */
   libraries?: LibraryRootInput[];
   userModelDir?: string | null;
+  /** 既有 model-cache 的基目录（config.model_cache 或 <程序目录>/../model-cache） */
+  modelCacheDir?: string | null;
   probeWrites?: boolean;
   fs?: StorageFs;
 }
@@ -493,7 +556,10 @@ export function resolveStorageRoots(opts: ResolveStorageRootsOptions): StorageRo
   const userDataDir = opts.userDataDir ?? null;
   const probeWrites = opts.probeWrites !== false;
 
-  const models = resolveModels({ appDir: opts.appDir, userDataDir, userModelDir: opts.userModelDir, fs: fsImpl });
+  const models = resolveModels({
+    appDir: opts.appDir, userDataDir,
+    userModelDir: opts.userModelDir, modelCacheDir: opts.modelCacheDir, fs: fsImpl,
+  });
 
   const libs = opts.libraries ?? [];
   const libraries = libs.map((l) => resolveLibraryStorage(l, { userDataDir, probeWrites, fs: fsImpl }));

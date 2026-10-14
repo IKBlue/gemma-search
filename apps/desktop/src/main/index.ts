@@ -31,13 +31,15 @@ import { CH_INVOKE, CH_EVENT, validateCall, METHOD_NAMES } from '../shared/ipc.t
 import type { Envelope, MethodName, Req } from '../shared/ipc.ts';
 import { resolveLibraries, loadRegistry, saveRegistry, normalizeLibraries, registryPath } from './library-config.ts';
 import type { MainConfig, ResolveLibrariesResult } from './library-config.ts';
-import { resolveStorageRoots, describeStorageRoots, probeWritable } from './storage-roots.ts';
+import { resolveStorageRoots, describeStorageRoots, probeWritable, resolveModels } from './storage-roots.ts';
+import type { ModelResolution } from './storage-roots.ts';
 import { decideWindowBounds, readSavedBounds, persistBounds } from './window-state.ts';
 import type { BoundsDecision } from './window-state.ts';
 import { createRevealPort } from './ports.ts';
 import { createLibraryResolverPort, createStoragePorts } from './storage-ports.ts';
 import type { StoragePorts } from '../../../../packages/engine/src/storage-ports.ts';
-import { parseThumbUrl, createLibIdResolver, thumbFailureStatus } from './thumb-url.ts';
+import { parseThumbUrl, createLibIdResolver } from './thumb-url.ts';
+import { thumbCachePath, readCachedThumb, writeCachedThumb, thumbServeStatus } from './thumb-cache.ts';
 import {
   isTrustedSender as isTrustedSenderImpl,
   decideWindowOpen,
@@ -208,17 +210,28 @@ function librariesResolved(): ResolveLibrariesResult {
 /** 注册表变了（libraryAdd）后让解析结果与引擎一起失效重建 */
 function invalidateLibraries(): void { RESOLVED = null; engine = null; }
 
-/** 模型目录：config 指定，或从 model_cache 下按 revision 找 fp32。 */
-function resolveModelDir(): string | null {
-  if (config.onnx_model_dir && fs.existsSync(config.onnx_model_dir)) return config.onnx_model_dir;
-  const base = path.join(config.model_cache || path.join(ROOT, '..', 'model-cache'),
-                         'onnx', 'embeddinggemma-2');
-  if (!fs.existsSync(base)) return null;
-  for (const rev of fs.readdirSync(base)) {
-    const d = path.join(base, rev, 'fp32');
-    if (fs.existsSync(path.join(d, 'onnx', 'model.onnx'))) return d;
-  }
-  return null;
+/**
+ * 模型搜索 —— **唯一实现是 storage-roots.ts**（T-17 收敛）。
+ *
+ * 这里只做"把四个输入喂进去"：程序目录 / userData / 用户指定（config.onnx_model_dir）/
+ * 既有 model-cache 基目录。**顺序与"像不像模型目录"的判据都不在本文件** ——
+ * 原先那个 `resolveModelDir()` 自带一份 model_cache 扫描 + 一份 onnx/model.onnx 判据，
+ * 与 storage-roots 的 MODEL_SEARCH_ORDER 构成两处实现（P1），且它不认「程序目录 models/」，
+ * 导致"把模型放进程序目录"实际不通（T-04c 实跑坐实）。
+ */
+function modelCacheBase(): string {
+  return typeof config.model_cache === 'string' && config.model_cache
+    ? config.model_cache
+    : path.join(ROOT, '..', 'model-cache');
+}
+
+function resolveModel(): ModelResolution {
+  return resolveModels({
+    appDir: storageAppDir(),
+    userDataDir: USER_DATA_DIR,
+    userModelDir: typeof config.onnx_model_dir === 'string' ? config.onnx_model_dir : null,
+    modelCacheDir: modelCacheBase(),
+  });
 }
 
 // ---------------------------------------------------------------- 存储落点（T-04 · SPEC §2）
@@ -227,11 +240,9 @@ function resolveModelDir(): string | null {
 // 没有一处能回答"现在落在哪、为什么"。解析逻辑全在 `storage-roots.ts`（可 node:test），
 // 这里**只接线 + 打日志**。
 //
-// ⚠️ 只记录，**不改任何既有行为**：
-//    · 库从哪来 = library-config.ts 的四条路（GEMMA_LIB_ROOT / 注册表 / config / 索引自举）；
-//    · 模型实际用哪个仍由 resolveModelDir() 决定 —— 它还多认一条 model_cache 路径，
-//      那条路径不在 SPEC §2 的搜索顺序里，收敛是 T-17（main/encoder.*）的事。
-//      两处并列打出来，就是为了**不把差异藏起来**。
+// ⚠️ 库从哪来 = library-config.ts 的四条路（GEMMA_LIB_ROOT / 注册表 / config / 索引自举）。
+// T-17 起：**模型搜索也只剩这一处**（resolveModel → storage-roots.resolveModels），
+// 落点、顺序、判据、"为什么"全在同一份实现里，日志直接打印它的结果。
 function storageAppDir(): string {
   try {
     // 打包态：exe 所在目录就是 SPEC §2 的「程序目录」（models/ 放它下面）；
@@ -251,11 +262,14 @@ function logStorageRoots(): void {
       libraries: r.libraries.map((l) => ({ libId: l.libId, root: l.root })),
       // 「用户指定」这一位 = config.json 既有的 onnx_model_dir（没有就跳过这一位）
       userModelDir: typeof config.onnx_model_dir === 'string' ? config.onnx_model_dir : null,
+      // 第四位 = 既有 model-cache 布局（本机现在就是靠它跑起来的，不能丢）
+      modelCacheDir: modelCacheBase(),
     });
     log('[存储] ======== 本次启动的落点 ========');
     for (const line of describeStorageRoots(roots)) log('[存储]', line);
+    // 编码器实际用哪个 = 同一份解析结果（T-17 收敛后不再有第二条路）
     log('[存储] 编码器实际将使用的模型目录 =',
-        resolveModelDir() ?? '(无 —— 检索会以 MODEL_MISSING 失败，不给假结果)');
+        roots.models.found ?? '(无 —— 检索会以 MODEL_MISSING 失败，不给假结果)');
   } catch (e) {
     // 落点解析失败不许拦住启动：库根是坏盘 / 权限不足时，应用更要把话说清楚再继续。
     log('!! 存储落点解析失败（不影响启动）:', stackText(e));
@@ -358,12 +372,22 @@ function buildEngine(): ResolveLibrariesResult {
 async function ensureEncoder(): Promise<Encoder> {
   if (encoder) return encoder;
   if (encoderError) throw encoderError;
-  const modelDir = resolveModelDir();
+  // T-17：模型搜索只有一处（resolveModel → storage-roots.resolveModels），
+  // 找不到时把它的**可读指引**当错误文案 —— 说清找过哪些路径、该放哪儿、怎么重试。
+  const resolution = resolveModel();
+  const modelDir = resolution.found;
   if (!modelDir) {
-    encoderError = Object.assign(new Error('未找到 ONNX 模型目录（config.onnx_model_dir / model_cache）'),
-                                 { code: 'MODEL_MISSING' });
+    const guidance = resolution.guidance || '未找到 ONNX 模型目录';
+    encoderError = Object.assign(new Error(guidance), { code: 'MODEL_MISSING' });
+    log('!! 未找到模型 ⇒ 检索会以 MODEL_MISSING 失败（**不显示假结果**）：');
+    for (const line of guidance.split('\n')) log('   ', line);
+    // ⚠️ 这条也要发事件：原先的 MODEL_MISSING 是 throw 在 try **之前**，
+    //    于是界面**一个提示都收不到**（只有主进程日志知道），用户只看到"搜不出东西"。
+    //    契约 §3「不静默」：缺模型必须让界面说得出口。
+    emit({ type: 'encoder.failed', message: guidance, code: 'MODEL_MISSING' });
     throw encoderError;
   }
+  log('模型搜索命中：', modelDir, '（来源：' + (resolution.source ?? '?') + '）');
   try {
     // **动态导入**：编码器模块图会拉 `@huggingface/transformers` + 原生 onnxruntime。
     // 若它载入失败（原生模块缺失、路径不对…），动态导入才**catch 得到** ——
@@ -373,7 +397,20 @@ async function ensureEncoder(): Promise<Encoder> {
     //    这里用断言保留同一行为 —— 不改写成"非法值就回退 webgpu"的静默降级。
     const device = (config.device || 'webgpu') as 'webgpu' | 'cpu';
     encoder = await createEncoder({ modelDir, seq: 140, device, log });
-    emit({ type: 'encoder.ready', device: encoder.device, loadMs: encoder.loadMs });
+    // T-17：回退要**说出口**。encoder 自己知道 requested/actual/原因，
+    // 这里把它一并交给界面（并同步写一条显眼日志）——契约 §3「GPU 回退不静默」。
+    if (encoder.deviceFallback) {
+      const f = encoder.deviceFallback;
+      log('!! GPU 回退：' + f.from + ' → ' + f.to + '（原因：' + f.reason + '）—— 检索仍可用，但会慢一些');
+    } else if (encoder.deviceRequested !== encoder.device) {
+      // 理论上到不了：只有在 createEncoder 里发生回退时两者才会不同。
+      log('!! 设备与请求不一致（requested=' + encoder.deviceRequested + ' actual=' + encoder.device + '）');
+    }
+    emit({
+      type: 'encoder.ready', device: encoder.device, loadMs: encoder.loadMs,
+      deviceRequested: encoder.deviceRequested,
+      deviceFallback: encoder.deviceFallback,
+    });
     return encoder;
   } catch (e) {
     encoderError = e;
@@ -547,7 +584,8 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'thumb', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
 
-const THUMB_DIR: string = path.join(DATA_DIR, 'thumbs');
+// 缩略图缓存落点已收进 `thumb-cache.thumbCachePath`（**唯一实现**，P1）——
+// 这里不再保留第二份路径拼法（两份迟早漂移，而缓存路径漂移＝缓存静默失效）。
 
 // ⚠️ 形状解析、尺寸白名单**与失败状态码映射**已抽到 `main/thumb-url.ts`
 // （SPEC-security §8 的 S4–S6）。抽出去的理由只有一个：`index.ts` import 了 electron，
@@ -576,41 +614,49 @@ async function canonicalLibId(host: string): Promise<string> {
 async function handleThumb(request: Request): Promise<Response> {
   // thumb://L1/<uid>@256  → host=libId, pathname=/<uid>@256
   const p = parseThumbUrl(request.url);
-  // ⚠️ **顺序是契约**：先判形状（400），再判库（404）。写成
-  // `thumbFailureStatus(p.ok ? 400 : p.status, libId)` 会让形状错也返回 404 ——
-  // 实测被 `tools/verify_main_wiring.mjs`（**已移除 2026-10-13**） 抓到（调用真实产物，`@999` 回了 404 而非 §3 要求的 400）。
+  // ⚠️ **顺序是契约**：先判形状（400），再判库（404），再看引擎是否就绪（503）。
+  // 这三步与后面"取路径失败 / 解码失败"的映射**统一收在 `thumb-cache.thumbServeStatus`**
+  // （表在该模块文件头；逐行有用例钉住）。写成 `thumbFailureStatus(p.ok ? 400 : p.status, libId)`
+  // 会让形状错也返回 404 —— 实测被 `tools/verify_main_wiring.mjs`（**已移除 2026-10-13**）抓到。
   const libId = p.ok ? await canonicalLibId(p.rawHost) : '';
-  const status = thumbFailureStatus({ shapeOk: p.ok, libId });
-  // `!p.ok` 是类型收窄用的等价条件：`thumbFailureStatus` 对形状不合法**必然**给 400，
-  // 所以两个写法进入的分支完全一致（这样下面才能安全读 p.uid / p.size）。
-  if (!p.ok || status !== null) {
-    log('thumb 拒绝', p.ok ? `库 id 无法还原：${p.rawHost}` : p.reason, '→', status);
-    return new Response('bad shape', { status: status ?? 400 });
+  const eng = engine;
+  const pre = thumbServeStatus({ shapeOk: p.ok, libId, engineReady: Boolean(eng) });
+  if (pre.status !== null) {
+    log('thumb 拒绝', pre.reason, '→', pre.status);
+    return new Response(pre.reason, { status: pre.status });
   }
+  // 只为类型收窄：`thumbServeStatus` 返回 null 蕴含"形状合法 + 库已还原 + 引擎就绪"，
+  // 所以运行期走不到这里（与下面 'thumb 引擎未就绪' 同一处置）。
+  if (!p.ok || !eng) throw new Error('thumb：形状/引擎前置条件未满足（不可达）');
   const uid = p.uid;
   const size = p.size;
   log('thumb 请求', libId, uid, size);
-  const eng = engine;
-  if (!eng) return new Response('engine not ready', { status: 503 });
 
-  const cachePath = path.join(THUMB_DIR, libId, `${uid}@${size}.jpg`);
-  try {
-    if (fs.existsSync(cachePath)) {
-      const hit = fs.readFileSync(cachePath);
-      log('thumb 缓存命中', libId, uid, size, hit.length);
-      return new Response(hit, { headers: { 'content-type': 'image/jpeg' } });
-    }
-  } catch { /* 缓存读失败就重生成 */ }
+  const cachePath = thumbCachePath({ dataDir: DATA_DIR, libId, uid, size });
+  const cached = readCachedThumb(cachePath);
+  if (cached.hit && cached.bytes) {
+    log('thumb 缓存命中', libId, uid, size, cached.reason);
+    return new Response(cached.bytes, { headers: { 'content-type': 'image/jpeg' } });
+  }
+  log('thumb 缓存未命中', cached.reason, '⇒ 重新生成');
 
   let src: string;
   try {
     src = eng.absPathFor(libId, uid);            // 内含 库根包含 + 符号链接校验
   } catch (e) {
-    log('thumb 取路径失败', libId, uid, codeText(e) || messageText(e));
-    return new Response('not found', { status: codeText(e) === 'SYMLINK_REJECTED' ? 403 : 404 });
+    // ⚠️ **本任务的核心修正**：不再 `SYMLINK_REJECTED ? 403 : 404` —— 那会把
+    // `PATH_ESCAPES_LIB`（越界拒绝）与**任何内部异常**都说成"这张图不存在"。
+    // 现在按 thumb-cache.ts 的表：素材不在 ⇒ 404 · 安全拒绝 ⇒ 403 · **其余 ⇒ 500**。
+    const d = thumbServeStatus({ shapeOk: true, libId, engineReady: true, resolveCode: codeText(e) });
+    log('thumb 取路径失败', libId, uid, codeText(e) || messageText(e), '→', d.status, d.reason);
+    return new Response(d.reason, { status: d.status ?? 500 });
   }
   const img = nativeImage.createFromPath(src);
-  if (img.isEmpty()) { log('thumb 解码失败', src); return new Response('decode failed', { status: 415 }); }
+  if (img.isEmpty()) {
+    const d = thumbServeStatus({ shapeOk: true, libId, engineReady: true, decoded: false });
+    log('thumb 解码失败', src, '→', d.status, d.reason);
+    return new Response(d.reason, { status: d.status ?? 415 });
+  }
 
   const { width, height } = img.getSize();
   const scale = size / Math.max(width, height);
@@ -618,10 +664,8 @@ async function handleThumb(request: Request): Promise<Response> {
     ? img.resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)), quality: 'good' })
     : img;
   const jpg = out.toJPEG(82);
-  try {
-    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-    fs.writeFileSync(cachePath, jpg);
-  } catch (e) { log('缩略图缓存写入失败', messageText(e)); }
+  const wrote = writeCachedThumb(cachePath, jpg);
+  if (!wrote.ok) log('缩略图缓存写入失败', wrote.error);
   log('thumb 生成成功', libId, uid, size, `${width}x${height}→${out.getSize().width}x${out.getSize().height}`, jpg.length);
   return new Response(jpg, { headers: { 'content-type': 'image/jpeg', 'cache-control': 'no-cache' } });
 }

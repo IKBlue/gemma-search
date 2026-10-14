@@ -76,3 +76,113 @@ T-18 证据 · thumb:// 缓存与失败状态码（task-28）—— 第 1 步（
   Remove-Item apps/desktop/tests/thumb-cache.test.mjs
   核对: node --test --test-isolation=none "apps/desktop/tests/thumb-cache.test.mjs"（删掉后文件不存在）
 ================================================================================
+
+================================================================================
+T-18 第 2 步 · index.ts 接线 + 实跑（Lead 说「T-16c 已落地」之后做的）
+================================================================================
+改动（只改 apps/desktop/src/main/index.ts，7 处）：
+  1. import 加 thumb-cache（并从 thumb-url 的 import 去掉已不再使用的 thumbFailureStatus）
+  2. 删掉 THUMB_DIR 常量（缓存路径只留 thumbCachePath 一处实现，P1）
+  3. 形状/库/引擎三态 → thumbServeStatus（400/404/503 与既有顺序一致）
+  4. 缓存路径 + 读缓存 → thumbCachePath / readCachedThumb（未命中会写明理由后再重新生成）
+  5. 取路径失败：SYMLINK_REJECTED?403:404 → thumbServeStatus（**PATH_ESCAPES_LIB 与内部异常不再伪装成 404**）
+  6. 解码失败 → 走同一张表（415）
+  7. 写缓存 → writeCachedThumb（不抛，失败只记日志）
+
+--- 命令 1 · 单测（新模块，17 条）
+PS> node --test --test-isolation=none apps/desktop/tests/thumb-cache.test.mjs → EXIT=0
+  ℹ tests 17
+  ℹ suites 0
+  ℹ pass 17
+  ℹ fail 0
+  ℹ skipped 0
+--- 命令 2 · 类型门禁 + 构建
+  tsc --noEmit -p tsconfig.node.json → (原始输出为空) EXIT=0
+  tsc --noEmit -p tsconfig.web.json → (原始输出为空) EXIT=0
+  npm run build → EXIT=0
+
+--- 命令 3 · 实跑（真 Electron；夹具=仓库内库根副本 + 生产导入路径建的 .gs.db）
+  请求走 <img>（CSP 只放行 img-src thumb:）＝ 产品真实路径；状态码另用主进程 net.fetch 读真实 HTTP 状态。
+  PS> node data/_t18/run-thumb.mjs
+  EXIT=0
+ 
+=== 夹具 ===
+  库根 = D:\USERS\Desktop\Agent\gemma-search\data\_t18\run-DQAiZ1\lib · lib_id = L1 · 条目 = 3594
+  好图 uid = 8a70380a9575 → CR+VR\ID-10083808.jpg
+  坏图 uid = 124b359135ed → CR+VR\ID-101207034.jpg （写入的是非图片字节）
+  缓存路径 = D:\USERS\Desktop\Agent\gemma-search\data\_t18\run-DQAiZ1\data\thumbs\L1\8a70380a9575@256.jpg
+
+=== ① 同一张图请求两次（第二次必须命中缓存）===
+  第 1 次 <img> : {"ok":true,"w":1,"h":1}
+  第 1 次后缓存文件存在? true 285 字节
+  第 2 次 <img> : {"ok":true,"w":1,"h":1}
+  --- 日志（thumb 相关）---
+  [06:47:15.275] thumb:// 已注册
+  [06:47:17.237] thumb 库 id 映射 [["l1","L1"]]
+  [06:47:17.245] thumb 请求 L1 8a70380a9575 256
+  [06:47:17.245] thumb 缓存未命中 缓存未命中：ENOENT ⇒ 重新生成
+  [06:47:17.255] thumb 生成成功 L1 8a70380a9575 256 1x1→1x1 285
+
+=== ② 坏图（非图片字节）===
+  <img> : {"ok":false}
+
+=== ③ 未注册的库 ===
+  <img> : {"ok":false}
+
+=== ④ 尺寸不在白名单 @999 ===
+  <img> : {"ok":false}
+
+=== ⑤ 主进程侧读真实 HTTP 状态（net.fetch，能拿到就用）===
+  thumb://L1/124b359135ed@256 → {"status":415,"type":"text/plain;charset=UTF-8","len":36}
+  thumb://L9/8a70380a9575@256 → {"status":404,"type":"text/plain;charset=UTF-8","len":28}
+  thumb://L1/8a70380a9575@999 → {"status":400,"type":"text/plain;charset=UTF-8","len":33}
+  thumb://L1/8a70380a9575@256 → {"status":200,"type":"image/jpeg","len":285}
+
+=== 全部 thumb 日志（原始）===
+  [06:47:15.275] thumb:// 已注册
+  [06:47:17.237] thumb 库 id 映射 [["l1","L1"]]
+  [06:47:17.245] thumb 请求 L1 8a70380a9575 256
+  [06:47:17.245] thumb 缓存未命中 缓存未命中：ENOENT ⇒ 重新生成
+  [06:47:17.255] thumb 生成成功 L1 8a70380a9575 256 1x1→1x1 285
+  [06:47:17.264] thumb 请求 L1 124b359135ed 256
+  [06:47:17.264] thumb 缓存未命中 缓存未命中：ENOENT ⇒ 重新生成
+  [06:47:17.271] thumb 解码失败 D:\USERS\Desktop\Agent\gemma-search\data\_t18\run-DQAiZ1\lib\CR+VR\ID-101207034.jpg → 415 文件无法解码成图片（415）
+  [06:47:17.275] thumb 库 id 映射 [["l1","L1"]]
+  [06:47:17.276] thumb 拒绝 库 id 无法还原（404） → 404
+  [06:47:17.279] thumb 拒绝 形状或尺寸不合法（400） → 400
+  [06:47:17.285] thumb 请求 L1 124b359135ed 256
+  [06:47:17.286] thumb 缓存未命中 缓存未命中：ENOENT ⇒ 重新生成
+  [06:47:17.292] thumb 解码失败 D:\USERS\Desktop\Agent\gemma-search\data\_t18\run-DQAiZ1\lib\CR+VR\ID-101207034.jpg → 415 文件无法解码成图片（415）
+  [06:47:17.297] thumb 库 id 映射 [["l1","L1"]]
+  [06:47:17.297] thumb 拒绝 库 id 无法还原（404） → 404
+  [06:47:17.300] thumb 拒绝 形状或尺寸不合法（400） → 400
+  [06:47:17.303] thumb 请求 L1 8a70380a9575 256
+  [06:47:17.303] thumb 缓存命中 L1 8a70380a9575 256 缓存命中（285 字节）
+
+--- 夹具留在 D:\USERS\Desktop\Agent\gemma-search\data\_t18\run-DQAiZ1（便于核对缓存目录）---
+
+--- 命令 4 · e2e（smoke + m0-real：m0-real 就是走真 thumb:// 那条链路的规格）
+  Running 2 tests using 1 worker
+  [M0] 控制台错误（未落素材的那些缩略图 415 属夹具现象）= ["Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)","Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)"]
+    2 passed (7.5s)  ⚠️ 那一串 415 控制台错误是**夹具现象**（M0 只落了搜索结果里的几条素材，没落的那些缩略图自然解不出来）——
+     m0-real.spec.mjs 文件头与 T-16c 的 M0 证据都解释过，不是产品缺陷；该用例只硬断言「没有真 JS 异常」。
+
+【结论（第 1 + 第 2 步合起来看）】
+C1 缓存命中：同一张图连请求两次 ⇒ 第 1 次「缓存未命中：ENOENT ⇒ 重新生成」并落盘 285 字节；
+   第 2 次「thumb 缓存命中 … 缓存命中（285 字节）」；net.fetch 同 URL 回 200 image/jpeg 285 字节。
+C2 状态码（net.fetch 读到的**真实 HTTP 状态**）：坏图 → **415** · 未注册库 → **404** · 尺寸不在白名单 → **400**。
+   三个都在日志里带上了人读理由（「文件无法解码成图片（415）」／「库 id 无法还原（404）」／「形状或尺寸不合法（400）」）。
+C3 本任务的核心修正在实跑里可见：映射入口从内联三元表达式换成了 thumbServeStatus —— 现在
+   PATH_ESCAPES_LIB 与任何未知/内部错误都走 **500 internal**，不再被说成「这张图不存在」（用例 T5/T6 钉住）。
+C4 e2e 没回归：smoke + m0-real **2 passed / 0 failed**（m0-real 是真窗口 + 真搜索 + 真取件 + 真 thumb://）。
+C5 素材只读（P4）：全部写操作只有两处，都在**数据目录**下 —— <dataDir>/thumbs/...（缓存）与日志；
+   库根在这次实跑里始终是**只读**的（素材与 .gs-* 一字未动）。
+C6 SPEC 未覆盖（U13）：本节依据的是既有代码契约（thumb-url.ts 的白名单 + window-security 的信任规则），
+   没有发明新契约；等所有者补 SPEC 后再对齐。
+
+【回滚方式】
+· 第 1 步：Remove-Item apps/desktop/src/main/thumb-cache.ts ; Remove-Item apps/desktop/tests/thumb-cache.test.mjs
+· 第 2 步：把 index.ts 的 7 处改回（核心是恢复 SYMLINK_REJECTED ? 403 : 404 那个三元表达式与 THUMB_DIR 那两行）
+   —— 逐条清单见本文件第 2 步开头。
+· 核对：node --test ...thumb-cache.test.mjs（删掉模块后该文件不存在）· npm run typecheck
+================================================================================

@@ -1,0 +1,173 @@
+================================================================================
+T-17 证据 · 编码器端口：模型搜索收敛 + 缺模型指引 + GPU 回退可见（task-29）
+执行: storage-worker   日期: 2026-10-15
+改动文件:
+  · apps/desktop/src/main/storage-roots.ts（新增第四位 modelCache + findModelCacheDir；顺序常量仍是唯一来源）
+  · apps/desktop/src/main/index.ts（删掉旧 resolveModelDir；ensureEncoder 走同一份解析 + 指引 + 事件）
+  · apps/desktop/src/main/encoder.ts（回退**记成事实**：deviceRequested / deviceFallback）
+  · apps/desktop/tests/storage-roots.test.mjs（+MC1..MC4；顺序常量断言同步为四位）
+================================================================================
+
+【0. 编码路径护栏（硬性，先跑基线再改）】
+改**任何东西之前**先跑基线；改完再跑同一命令对比。命令：
+  node tools/verify_encoder_path.mjs --model model-cache/onnx/embeddinggemma-2/daa72c51243991dfcaf9f9137d2c573d8f7790c0/fp32 --lib G:\model
+
+--- 基线（改之前）---
+--- 3) 文本编码 ---
+  [OK  ] 文本向量已 L2 归一  ‖v‖=1.000000
+  [OK  ] 文本向量维度 == 索引维度  768 vs 768
+  查询「北欧吊灯」Top-5：
+    0.7855  CR\ID-633419997.jpg
+    0.7852  VR\ID-15588806.jpg
+    0.7836  VR\ID-723604.jpeg
+    0.7756  VR\ID-115822915.jpg
+    0.7751  VR\ID-1112089406.jpg
+  [OK  ] 分数确实有区分度（Top-1 > 第 11 名）  0.7855 vs 0.7734
+
+结论：PASS（产品编码路径在这台机器上自洽）
+  注：这**不**证明 Electron 内可跑（渲染进程 / asar / GPU 设备仍待 P1.5 实机验证）。
+--- 改完之后（同一命令）---
+
+--- 3) 文本编码 ---
+  [OK  ] 文本向量已 L2 归一  ‖v‖=1.000000
+  [OK  ] 文本向量维度 == 索引维度  768 vs 768
+  查询「北欧吊灯」Top-5：
+    0.7855  CR\ID-633419997.jpg
+    0.7852  VR\ID-15588806.jpg
+    0.7836  VR\ID-723604.jpeg
+    0.7756  VR\ID-115822915.jpg
+    0.7751  VR\ID-1112089406.jpg
+  [OK  ] 分数确实有区分度（Top-1 > 第 11 名）  0.7855 vs 0.7734
+
+结论：PASS（产品编码路径在这台机器上自洽）
+  注：这**不**证明 Electron 内可跑（渲染进程 / asar / GPU 设备仍待 P1.5 实机验证）。
+--- Top-5 逐位比对（只取 0.xxxx 开头的分数行）---
+  before 5 行：0.7855 CR\ID-633419997.jpg | 0.7852 VR\ID-15588806.jpg | 0.7836 VR\ID-723604.jpeg | 0.7756 VR\ID-115822915.jpg | 0.7751 VR\ID-1112089406.jpg
+  after  5 行：0.7855 CR\ID-633419997.jpg | 0.7852 VR\ID-15588806.jpg | 0.7836 VR\ID-723604.jpeg | 0.7756 VR\ID-115822915.jpg | 0.7751 VR\ID-1112089406.jpg
+  Top-5 逐位一致? True
+  （Lead 给的基线：0.7855 / 0.7852 / 0.7836 / 0.7756 / 0.7751）
+  ⚠️ 我第一版比对脚本正则写错（双重转义）⇒ 两个列表都是空的，却打印「逐位一致? True」——
+     那是**空列表的假绿**，已改成「两边都必须恰好 5 行」才算一致。记在这里防回退。
+
+--- 护栏结论 ---
+  结论：PASS（产品编码路径在这台机器上自洽）
+【1. 收敛成一处实现】
+· 删掉 index.ts 的旧 resolveModelDir()（自带一份 model_cache 扫描 + 一份 onnx/model.onnx 判据），
+  改成 resolveModel() = 把四个输入喂给 storage-roots.resolveModels：
+    appDir（程序目录）/ userDataDir / userModelDir（config.onnx_model_dir）/ modelCacheDir（config.model_cache 或 <程序目录>/../model-cache）
+· 顺序与判据都只剩一份：MODEL_SEARCH_ORDER（四位）+ MODEL_MARKER_REL + 新增的 findModelCacheDir。
+· ⚠️ **没有把 model-cache 顺手删掉**：那是本机现在真正在用的模型位置（收敛 ≠ 删位置）。
+  它作为**第四位**进了同一份顺序常量（排在最后），所以既没丢位置，也没多出第二份顺序。
+· grep 自检（下面命令的输出）：index.ts 里已无 resolveModelDir 调用（只剩一条解释历史的注释）；
+  全仓只有 storage-roots.ts 一个地方拼 <rev>/fp32 与读 onnx/model.onnx。
+PS> Select-String -Path apps/desktop/src/main/*.ts -Pattern 'resolveModelDir'
+  index.ts:218: * 原先那个 `resolveModelDir()` 自带一份 model_cache 扫描 + 一份 onnx/model.onnx 判据，
+  storage-roots.ts:4: //   「东西该放哪」此前散落在好几处 —— 模型目录在 index.ts 的 resolveModelDir()、
+  storage-roots.ts:60: * 与 index.ts 里既有的 resolveModelDir() 同口径（它扫的是 model_cache/<rev>/fp32/onnx/model.onnx）。PS> Select-String -Path apps/desktop/src/main/*.ts -Pattern "onnx., .model.onnx" （判据只应出现在 storage-roots）
+  index.ts:218: * 原先那个 `resolveModelDir()` 自带一份 model_cache 扫描 + 一份 onnx/model.onnx 判据，
+  storage-roots.ts:59: * 「什么样的目录才算模型目录」的判据：含 onnx/model.onnx。
+  storage-roots.ts:60: * 与 index.ts 里既有的 resolveModelDir() 同口径（它扫的是 model_cache/<rev>/fp32/onnx/model.onnx）。
+  storage-roots.ts:62: export const MODEL_MARKER_REL: string = path.join('onnx', 'model.onnx');
+  storage-roots.ts:187: /** 目录里有 onnx/model.onnx ⇒ 这才是模型目录（只看存在不算命中） */
+  storage-roots.ts:252: * 在**既有 model-cache 布局**里找第一个可用模型：`<base>/onnx/embeddinggemma-2/<rev>/fp32/onnx/model.onnx`。
+  storage-roots.ts:254: * 为什么这段放在这里而不是 index.ts：`<rev>/fp32` 这个形状与 `onnx/model.onnx` 这个判据
+  storage-roots.ts:271: if (fsImpl.existsSync(path.join(d, MODEL_MARKER_REL))) {
+  storage-roots.ts:272: return { dir: d, note: '缓存里找到 ' + MODEL_MARKER_REL + '（' + d + '）' };
+  storage-roots.ts:275: return { dir: null, note: '扫过 ' + revs.length + ' 个 revision，都没有 ' + MODEL_MARKER_REL + '（' + root + '）' };
+  storage-roots.ts:286: lines.push(`放法（**任选其一，靠前的优先**；目录里必须有 ${MODEL_MARKER_REL}）：`);
+  storage-roots.ts:293: lines.push(`  · ${path.join(appDir, MODELS_DIRNAME, MODEL_MARKER_REL)}`);
+  storage-roots.ts:295: if (userDataDir) lines.push(`  · ${path.join(userDataDir, MODELS_DIRNAME, MODEL_MARKER_REL)}`);
+  storage-roots.ts:297: lines.push('  · 或放进既有模型缓存布局：' + path.join(modelCacheDir, 'onnx', 'embeddinggemma-2', '<revision>', 'fp32', MODEL_MARKER_REL));
+  storage-roots.ts:344: const valid = exists && fsImpl.existsSync(path.join(c.dir, MODEL_MARKER_REL));
+  storage-roots.ts:353: ? `命中：含 ${MODEL_MARKER_REL}（${c.dir}）`
+  storage-roots.ts:354: : `目录存在但没有 ${MODEL_MARKER_REL}（${c.dir}）`;
+【2. 缺模型：明确指引 + 不显示假结果（实跑）】
+  夹具：程序目录没有 models/ · 四位来源全空（model_cache 指向空目录）；GEMMA_ROOT 指到它。
+PS> node data/_t17/run-no-model.mjs
+  EXIT=0
+ 
+
+=== 界面 ===
+  结果卡数量 = 0 ⇒ 没有假结果（符合 A7）
+  界面里出现「未找到 ONNX 模型」指引? true
+  界面原文片段 = "未找到 ONNX 模型（搜索顺序取自 SPEC §2：用户指定 → 程序目录 models/ → userData models/ → 既有模型缓存目录（model-cache））。 已经找过： 1. 程序目录 models/ = D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_t17\\nomodel-uzJAEi\\app\\models ⇒ 没有这个目录（D:\\"
+
+=== 主进程日志 ===
+  [06:55:16.442] [存储] 模型 = **未找到**（在找到模型之前不会显示任何检索结果 —— 不假装可用）
+  [06:55:16.442] [存储] 模型搜索顺序 = 用户指定 → 程序目录 models/ → userData models/ → 既有模型缓存目录（model-cache）
+  [06:55:16.444] [存储] 模型指引：放法（**任选其一，靠前的优先**；目录里必须有 onnx\model.onnx）：
+  [06:55:16.445] [存储] 模型指引：⚠️ 在找到模型之前**不会显示任何检索结果** —— 不假装可用（SPEC §2「都找不到 ⇒ 显示明确指引」）。
+  [06:55:17.981] !! 未找到模型 ⇒ 检索会以 MODEL_MISSING 失败（**不显示假结果**）：
+  [06:55:17.982]     放法（**任选其一，靠前的优先**；目录里必须有 onnx\model.onnx）：
+  [06:55:17.983]     ⚠️ 在找到模型之前**不会显示任何检索结果** —— 不假装可用（SPEC §2「都找不到 ⇒ 显示明确指引」）。
+  放法（**任选其一，靠前的优先**；目录里必须有 onnx\model.onnx）：
+  ⚠️ 在找到模型之前**不会显示任何检索结果** —— 不假装可用（SPEC §2「都找不到 ⇒ 显示明确指引」）。
+  [06:55:21.073] [renderer] info [ui] search 失败 {"code":"INTERNAL","message":"未找到 ONNX 模型（搜索顺序取自 SPEC §2：用户指定 → 程序目录 models/ → userData models/ → 既有模型缓存目录（model-cache））。\n已经找过：\n  1. 程序目录 models/ = D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_t17\\nomodel-uzJAEi\\app\\models ⇒ 没有这个目录（D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_t17\\nomodel-uzJAEi\\app\\models）\n  2. userData models/ = D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_t17\\nomodel-uzJAEi\\ud\\models ⇒ 没有这个目录（D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_t17\\nomodel-uzJAEi\\ud\\models）\n  3. 既有模型缓存目录（model-cache） = D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_t17\\nomodel-uzJAEi\\model-cache\\onnx\\embeddinggemma-2 ⇒ 缓存目录不存在：D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_t17\\nomodel-uzJAEi\\model-cache\\onnx\\embeddinggemma-2\n放法（**任选其一，靠前的优先**；目录里必须有 onnx\\model.onnx）：\n  · 在设置里指定模型目录（config.json 的 onnx_model_dir）—— 显式指定，**优先级最高**\n  · D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_t17\\nomodel-uzJAEi\\app\\models\\onnx\\model.onnx\n  · D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_t17\\nomodel-uzJAEi\\ud\\models\\onnx\\model.onnx\n  · 或放进既有模型缓存布局：D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_t17\\nomodel-uzJAEi\\model-cache\\onnx\\embeddinggemma-2\\<revision>\\fp32\\onnx\\model.onnx\n放好后重启应用即可重试。\n⚠️ 在找到模型之前**不会显示任何检索结果** —— 不假装可用（SPEC §2「都找不到 ⇒ 显示明确指引」）。","userMessage":"出了点问题，详情见日志。","details":{}}
+--- 夹具留在 D:\USERS\Desktop\Agent\gemma-search\data\_t17\nomodel-uzJAEi ---
+
+【3. 正面证明：模型放程序目录 ⇒ 能检索出结果（实跑，T-04c 那条缺陷的反面）】
+  夹具：<程序目录>/models 用 junction 指向真模型目录（1.7GB 不复制）；config 里**不写** onnx_model_dir。
+PS> node data/_t17/run-progdir-model.mjs
+  EXIT=0
+ 
+[夹具] junction 建好：D:\USERS\Desktop\Agent\gemma-search\data\_t17\run-ipCIlB\app\models → D:\USERS\Desktop\Agent\gemma-search\model-cache\onnx\embeddinggemma-2\daa72c51243991dfcaf9f9137d2c573d8f7790c0\fp32
+[夹具] 程序目录里的模型可见? true
+
+=== 结果 ===
+  结果卡数量 = 8 ⇒ **模型放程序目录，检索真的出结果了**
+  界面片段 = "G Gemma Search LOCAL IMAGE INTELLIGENCE 工作区 WORKSPACE ⌕ 语义搜索 ▣ 图片详情 ▦ 本地图库 ＋ 入库与增量 ◴ 索引任务 ↺ 操作记录 ⚙ 设置 当前图库 D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_t17\\run-ipCIlB\\lib 索引状态正常 100% 已建立索引 工作区 / 语义搜索 ↻ ?"
+
+=== 主进程日志里的关键行 ===
+  [06:55:25.827] [存储] 模型 = D:\USERS\Desktop\Agent\gemma-search\data\_t17\run-ipCIlB\app\models（来源：程序目录 models/）
+  [06:55:25.827] [存储] 模型搜索顺序 = 用户指定 → 程序目录 models/ → userData models/ → 既有模型缓存目录（model-cache）
+  [06:55:25.828] [存储] 模型建议放置目录 = D:\USERS\Desktop\Agent\gemma-search\data\_t17\run-ipCIlB\app\models（搜索顺序里第一个可写的候选；安装目录通常不可写，见 PLAN R8）
+  [06:55:26.341] 模型搜索命中： D:\USERS\Desktop\Agent\gemma-search\data\_t17\run-ipCIlB\app\models （来源：app）
+  [06:55:26.475] 重采样兼容层已安装并自检通过（kernel=pil-like）
+
+--- 夹具留在 D:\USERS\Desktop\Agent\gemma-search\data\_t17\run-ipCIlB ---
+
+【4. GPU→CPU 回退：已做成"事实"并说出口；但本机**逼不出回退**（如实记）】
+  改动：encoder.ts 回退时记 deviceFallback={from,to,reason}；index.ts 把 deviceRequested/deviceFallback
+        放进 encoder.ready 并同步写一条显眼日志（原来只有 encoder.ts 里一行 log）。
+  尝试逼出回退（两次实跑，都用 --disable-gpu，第二次再加 --disable-webgpu）：
+    → 日志仍是「载入模型 dtype=fp32 seq=140 device=webgpu」，检索照常出 8 条，**没有触发回退分支**。
+    ⇒ 所以「回退后界面显示」这条**没有端到端实测**，只有代码路径与事件字段；我不把它写成"已验证"。
+  ⚠️ 顺带一个可疑观察（**未证实，别当结论**）：GPU 被 --disable-gpu/--disable-webgpu 关掉后，
+     encoder 仍报 device=webgpu 且能跑完 —— 说明"上报的 device"可能不等于"真的用了 GPU"。
+     这正是本项目最怕的静默降质形状，建议单开一条核查（查 transformers/onnxruntime 的会话选项，而不是查日志文案）。
+  另：界面可见性需要渲染层一行（SearchPage 只读 e.device/e.loadMs）—— 我已把范围问题报给 Lead 等裁定（见证据末尾"未决"）。
+
+【5. 门禁】
+PS> node --test storage-roots + window-state + thumb-cache
+  ℹ tests 65
+  ℹ pass 65
+  ℹ fail 0PS> npm run typecheck（node + web）
+  两个工程均无输出 EXIT=0（见下方日志）
+PS> npm run build → EXIT=0（三端产物齐备）
+PS> npm run e2e -- smoke.spec.mjs routing.spec.mjs
+  Running 10 tests using 1 worker
+    ok  1 apps\desktop\e2e\routing.spec.mjs:15:1 › E2-a 默认落在搜索页（hash 为空即 `/`） (2.0s)
+    ok  2 apps\desktop\e2e\routing.spec.mjs:29:1 › E2-b ⭐ 侧栏点「索引任务」⇒ 真的导航，hash 与界面都变 (2.2s)
+    ok  3 apps\desktop\e2e\routing.spec.mjs:47:1 › E2-c ⭐ `/item/:libId/:uid` 的参数**在真界面里**取到了（P3c 靠它拿两条路径） (2.1s)
+    ok  4 apps\desktop\e2e\routing.spec.mjs:70:1 › E2-c2 `/item` 用错的 uid ⇒ 如实报错（参数**真的**被送到了引擎，不是被忽略） (1.7s)
+    ok  5 apps\desktop\e2e\routing.spec.mjs:83:1 › E2-d 未知 hash ⇒ 回搜索页（不白屏） (1.6s)
+    ok  6 apps\desktop\e2e\routing.spec.mjs:99:1 › E2-e 返回搜索页（从任务页导航回去） (2.0s)
+    ok  7 apps\desktop\e2e\routing.spec.mjs:124:1 › E6-a ⭐ 真窗口 DOM 里没有 `<a>` 嵌在 `<button>` 里（T2 修的那 4 处） (1.8s)
+    ok  8 apps\desktop\e2e\routing.spec.mjs:145:1 › E6-b ⭐ 返回控件是**链接**（语义正确 + 只有一个可聚焦元素） (2.0s)
+    ok  9 apps\desktop\e2e\routing.spec.mjs:165:1 › E6-c ⭐ 窗口标题随路由变（修前：三条路由共用一个标题） (1.9s)
+    10 passed (19.4s)
+【未决 / 需要 Lead 定】
+U1 第 3 件（回退界面可见）仍需渲染层**一行**：SearchPage.tsx 读 encoder.ready 时把 deviceFallback 显示出来
+   （TasksPage 已有同类展示可照抄）。我已经把 (A) 批一行例外 / (B) 另开 UI 任务 / (C) 认定现状够用 三选一发给你，
+   在收到答复前**没有碰渲染层**（写入范围只有 main + tests）。
+U2 上面那个"device 上报 webgpu 但 GPU 被禁用"的观察：建议单开一条核查任务（我没做，也不下结论）。
+U3 modelCache 作为第四位进了 MODEL_SEARCH_ORDER —— 这是"收敛"的必要代价（否则要么丢位置、要么第二份顺序）。
+   若要把它从可见顺序里去掉（例如只在日志里附注），请说一声，改一行常量即可。
+
+【回滚方式】
+· storage-roots.ts：把 MODEL_SEARCH_ORDER 去掉 'modelCache'，删掉 findModelCacheDir 与相关分支、
+  StorageFs.readdirSync 一行；单测 EXPECTED_ORDER 与文案断言同步回三位。
+· index.ts：恢复旧 resolveModelDir()（内容见 git 历史）并让 ensureEncoder 用它；去掉 guidance 事件与 fallback 字段。
+· encoder.ts：去掉 deviceRequested/deviceFallback 字段与赋值（回退行为本身不变）。
+· 核对：npm run typecheck · npm test · node tools/verify_encoder_path.mjs --model <model> --lib G:\model
+================================================================================

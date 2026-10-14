@@ -38,11 +38,23 @@ export interface CreateEncoderOptions {
   log?: (...a: unknown[]) => void;
 }
 
+/** 设备回退的事实（T-17：回退必须能被界面看到，不能只写主进程日志） */
+export interface DeviceFallback {
+  from: 'webgpu' | 'cpu';
+  to: 'webgpu' | 'cpu';
+  /** 原始报错文案（原样带上，不加工 —— 排障时这行最有用） */
+  reason: string;
+}
+
 /** 引擎要的编码器端口（与 `packages/engine/src/engine.ts` 的 `EncoderPort` 结构性一致） */
 export interface Encoder {
   modelDir: string;
   seq: number;
   device: 'webgpu' | 'cpu';
+  /** 调用方**请求**的设备（与 device 不同就说明发生过回退） */
+  deviceRequested: 'webgpu' | 'cpu';
+  /** 回退事实；没回退就是 null */
+  deviceFallback: DeviceFallback | null;
   loadMs: number;
   encodeText(text: string): Promise<Float32Array>;
   encodeImage(absPath: string): Promise<Float32Array>;
@@ -164,12 +176,16 @@ export async function createEncoder({ modelDir, seq = 140, device = 'webgpu', lo
   // ⚠️ 每次调用都**重新取值** `device`（回退后第二次要用 'cpu'），所以写成函数而不是复用对象。
   const modelOptions = (): PretrainedModelOptions =>
     ({ config, dtype: 'float32', device }) as unknown as PretrainedModelOptions;
+  const deviceRequested: 'webgpu' | 'cpu' = device;
+  let deviceFallback: DeviceFallback | null = null;
   let model: Awaited<ReturnType<typeof AutoModel.from_pretrained>>;
   try {
     model = await AutoModel.from_pretrained(modelDir, modelOptions());
   } catch (err) {
     if (device === 'webgpu') {
       log(`webgpu 不可用（${errMessage(err)}），回退 cpu`);
+      // T-17：把这次回退**记成事实**交出去（界面据此显示"已回退"，而不是让用户自己猜为什么是 cpu）
+      deviceFallback = { from: 'webgpu', to: 'cpu', reason: errMessage(err) };
       device = 'cpu';
       model = await AutoModel.from_pretrained(modelDir, modelOptions());
     } else {
@@ -180,7 +196,7 @@ export async function createEncoder({ modelDir, seq = 140, device = 'webgpu', lo
   log(`载入完成 ${(loadMs / 1000).toFixed(1)}s · device=${device}`);
 
   return {
-    modelDir, seq, device, loadMs,
+    modelDir, seq, device, deviceRequested, deviceFallback, loadMs,
     async encodeText(text: string): Promise<Float32Array> {
       const inputs = await processor(QUERY_PREFIX + text);
       const emb = pickEmbedding(await model.forward(inputs));
