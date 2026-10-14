@@ -1,0 +1,219 @@
+gemma-search · T-13a 扫描器 · 证据
+日期：2026-10-15（任务书指定路径）· 执行者：core-migrator · 任务板 task-23 · 写入范围 packages/engine/**
+协议：每条结论 = 命令 + 原始输出（本轮实测，未转述）。本文件由工具直接写入（UTF-8），不经 PowerShell 文本管道。
+
+新增：
+  packages/engine/src/scanner.ts          扫描器（按名字在每一层跳过库内产物/隐藏项 · 缺包登记 · 魔数检测；只读）
+  packages/engine/src/magic.ts            按文件头判真实格式（认不出 ⇒ unknown，不猜）
+  packages/engine/src/uid.ts              SPEC-identity §2 冻结公式（引擎侧唯一一份）+ normRelDir/relDirOf
+  packages/engine/src/gs-names.ts         库根「保留命名空间」判据 + 三个名字常量（U11 的唯一来源）
+  packages/engine/tests/scanner.test.mjs  10 条断言（诱饵树跳过 · U11 反例 · 缺包登记 · 魔数 · 配对 · uid · 只读 · 真实库对账）
+改动：
+  packages/engine/tests/uid.test.mjs / engine.test.mjs   删掉各自内联的 uidOf 副本 → import src/uid.ts（P1 收口）
+
+
+===== 0. 环境 =====
+v24.14.0
+Version 7.0.2
+
+
+===== 1. 前置验证：Node 原生类型剥离可直接 import .ts（无 flag） =====
+ok 1
+
+
+===== 2. 引擎单独类型门禁（17 个 src 文件）EXIT 必须 0 =====
+engine-only files = 17
+engine-only exit=0
+
+
+===== 3. 项目类型门禁 tsconfig.node.json =====
+total error TS = 0
+packages/engine = 0
+
+
+===== 4. U11 反例：只有 .gs- 前缀会漏掉 .gs.db 一家（现实检查） =====
+.gs.db startsWith(.gs-) = false
+.gs.db-wal startsWith(.gs-) = false
+.gs.db-shm startsWith(.gs-) = false
+.gs.db-journal startsWith(.gs-) = false
+.gs-index.bin startsWith(.gs-) = true
+.gs-journal startsWith(.gs-) = true
+.gs-staging startsWith(.gs-) = true
+.gs-write-probe-1 startsWith(.gs-) = true
+
+
+===== 5. 引擎全量单测（含 scanner.test.mjs） =====
+ℹ 整库 3594 张 · uid 唯一 · 样例 022a00481875 → CR\ID-032109719124396.png
+ℹ tests 158
+ℹ suites 0
+ℹ pass 157
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 9603.2999
+
+
+===== 6. 扫描器单测（10 条）+ 真实库对账诊断 =====
+✔ SC-A 魔数判定：jpeg/png/bmp 认得出；认不出的必须如实回 unknown（不猜） (0.8866ms)
+✔ SC-B ⭐⭐ U11 反例：保留名判据必须覆盖 .gs.db 家族（".gs-" 前缀不够） (0.2181ms)
+✔ SC-C ⭐⭐ U11 反例端到端：库根下的 .gs.db 家族 / .gs-journal/ / .gs-index.bin 都不是素材；staging 诱饵也不进结果 (12.8579ms)
+✔ SC-D ⭐ 缺包是**合法状态**：登记进 missingArchive，扫描不报错 (3.7064ms)
+✔ SC-E 有包无图 ⇒ 进 missingImage，且**不**当作素材塞进 items (1.1638ms)
+✔ SC-F ⭐ 名 .jpg 实为 BMP 必须标注（体检 ⑥）；未知/空文件也如实回 unknown (6.6955ms)
+✔ SC-G 配对语义：同目录同主干才算一套；.rar/.zip/.7z 都认；跨目录不配对 (5.441ms)
+✔ SC-H uid 只有一份实现：扫描结果必须等于 src/uid.ts 的冻结公式，且整树唯一 (4.7911ms)
+✔ SC-I ⭐ 扫描**只读**：前后整树快照（名字/大小/mtimeNs）逐字相同 (7.2987ms)
+✔ SC-J ⭐⭐ 真实库实跑：3594 条对账 · 缺包 · 异常 20（BMP 伪装 .jpg）· 只读 (1839.7627ms)
+ℹ 库根 G:\model（来源 index-meta · libId L1）
+ℹ 条目 3594 · 配对 3594 · 缺包 0 · 有包无图 0 · 零字节 0
+ℹ 分目录 VR 2809 · CR 630 · CR+VR 78 · 其他 77
+ℹ 真实格式 jpeg 3417 · png 157 · bmp 20
+ℹ 扩展名与内容不符 105（.png -> jpeg 68 · .jpg -> bmp 20 · .jpg -> png 17）
+ℹ 其中「名 .jpg 实为 BMP」= 20 ← SPEC §7 的锚点（已知且合法）
+ℹ 跳过库内产物（.gs-* / .gs.db 家族 / staging）= 0 · 跳过其他隐藏项 = 0（本库根没有这类条目；跳过机制由 SC-C 的诱饵树证明）
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1941.3687
+
+
+===== 7. 扫描器直接实跑一次（真实库原始对账输出） =====
+root = G:\model | source = index-meta | libId = L1
+counts = {"images":3594,"paired":3594,"missingArchive":0,"missingImage":0,"formatMismatch":105,"zeroByte":0,"skippedReserved":0,"skippedHidden":0,"unreadable":0}
+perFolder = [["VR",2809],["CR",630],["CR+VR",78],["其他",77]]
+imageFormat = [["jpeg",3417],["png",157],["bmp",20]]
+formatMismatch = 105 [[".png -> jpeg",68],[".jpg -> bmp",20],[".jpg -> png",17]]
+skipped = {"total":0,"reservedCount":0,"hiddenCount":0,"reserved":[],"hidden":[]}
+uid unique = true
+--- 条目形状样例（前 2 条）---
+{"uid":"8a70380a9575","relPath":"CR+VR\\ID-10083808.jpg","relDir":"CR+VR","folder":"CR+VR","stem":"ID-10083808","imageExt":".jpg","imageFormat":"jpeg","extMatchesMagic":true,"imageSize":92213,"imageMtime":1626318115936,"archive":{"relPath":"CR+VR\\ID-10083808.rar","ext":".rar","size":3393183,"mtime":1626318115812}}
+{"uid":"124b359135ed","relPath":"CR+VR\\ID-101207034.jpg","relDir":"CR+VR","folder":"CR+VR","stem":"ID-101207034","imageExt":".jpg","imageFormat":"jpeg","extMatchesMagic":true,"imageSize":33443,"imageMtime":1634945367481,"archive":{"relPath":"CR+VR\\ID-101207034.rar","ext":".rar","size":27150275,"mtime":1634945367392}}
+--- 名 .jpg 实为 BMP：20 条（前 5）---
+  VR\ID-12089794.jpg  ext=.jpg  actual=bmp
+  VR\ID-1257367.jpg  ext=.jpg  actual=bmp
+  VR\ID-1299244.jpg  ext=.jpg  actual=bmp
+  VR\ID-1413345.jpg  ext=.jpg  actual=bmp
+  VR\ID-1422632.jpg  ext=.jpg  actual=bmp
+--- 其余不符：85 条（前 5）---
+  CR+VR\ID-108614951.png  ext=.png  actual=jpeg
+  CR\ID-1115078555.png  ext=.png  actual=jpeg
+  CR\ID-1116962226.png  ext=.png  actual=jpeg
+  CR\ID-1121651121.png  ext=.png  actual=jpeg
+  CR\ID-1123819907.png  ext=.png  actual=jpeg
+
+
+===== 8. 全仓 npm test =====
+npm-exit=0
+ℹ tests 433
+ℹ pass 432
+ℹ fail 0
+ℹ skipped 1
+--- 失败用例（若有）---
+(none)
+
+
+===== 9. 写路径守卫：扫描器不得出现任何写 API =====
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 52.195
+
+
+===== 10. 只读证明的断言落点（SC-I 合成树 / SC-J 真实库） =====
+scanner.test.mjs:291  assert.deepEqual(after, before, '扫描绝不写素材目录（AGENTS P4）');
+scanner.test.mjs:303  assert.deepEqual(after, before, '对真实库扫描也**不得**改动任何文件');
+
+
+===== 11. 判据与名字常量的使用点（engine 唯一来源；main 侧待 re-export） =====
+engine: gs-names.ts:58
+engine: scanner.ts:29
+engine: scanner.ts:139
+--- 名字常量 ---
+engine/gs-names.ts:33 export const GS_INDEX_NAME = '.gs-index.bin';
+engine/gs-names.ts:36 export const GS_DB_NAME = '.gs.db';
+engine/gs-names.ts:39 export const GS_JOURNAL_NAME = '.gs-journal';
+--- main 侧现状（待 Lead 做 re-export）---
+storage-roots.ts:39 import fs from 'node:fs';
+storage-roots.ts:40 import path from 'node:path';
+storage-roots.ts:45 import { STAGING_DIRNAME } from '../../../../packages/engine/src/transactions/steps.ts';
+storage-roots.ts:48 export const GS_INDEX_NAME: string = '.gs-index.bin';
+storage-roots.ts:49 export const GS_DB_NAME: string = '.gs.db';
+storage-roots.ts:50 export const GS_JOURNAL_NAME: string = '.gs-journal';
+gs-names.ts:18 import { STAGING_DIRNAME } from '../../../../packages/engine/src/transactions/steps.ts';
+gs-names.ts:19 import { GS_DB_NAME } from './storage-roots.ts';
+
+
+===== 12. 范围内文件清单 / 残留 / 依赖 =====
+packages\engine\src\compat.ts
+packages\engine\src\engine.ts
+packages\engine\src\errors.ts
+packages\engine\src\fake.ts
+packages\engine\src\fingerprint.ts
+packages\engine\src\gs-names.ts
+packages\engine\src\index.ts
+packages\engine\src\library.ts
+packages\engine\src\magic.ts
+packages\engine\src\scanner.ts
+packages\engine\src\transactions\executor.ts
+packages\engine\src\transactions\hash.ts
+packages\engine\src\transactions\journal.ts
+packages\engine\src\transactions\recovery.ts
+packages\engine\src\transactions\states.ts
+packages\engine\src\transactions\steps.ts
+packages\engine\src\uid.ts
+residual .mjs/.js = 0
+dependencies = {}
+
+
+===== 13. 结论 =====
+① 三条要求各自有一条能红的用例（不是只跑 happy path）：
+   · 跳过库内产物/隐藏项 —— 诱饵是**真的能配对成功**的 staging 目录（不跳过就会多出条目）⇒ SC-C
+   · 缺包登记（SPEC §1：缺包是合法状态）⇒ SC-D（有图无包进 missingArchive，扫描不报错）
+   · 魔数检测（SPEC §7 体检 ⑥）⇒ SC-F（名 .jpg 实为 BMP 标成 bmp + extMatchesMagic:false）
+   · 只读（AGENTS P4）⇒ SC-I（合成树）/ SC-J（**真实库**）扫描前后整树快照（名字/大小/mtimeNs）逐字相同
+   · U11 反例 ⇒ SC-B（判据表 + 三个名字常量）与 SC-C（库根下的 .gs.db 家族 / .gs-journal/ / .gs-index.bin 端到端）
+② 真实库对账（G:\model，来源 index-meta，libId L1）：
+   条目 3594 · 配对 3594 · 缺包 0 · 有包无图 0 · 零字节 0 · 读不动 0 · uid 唯一 true
+   分目录 VR 2809 / CR 630 / CR+VR 78 / 其他 77（与任务书锚点一致）
+   真实格式 jpeg 3417 / png 157 / bmp 20（那 20 张的扩展名全是 .jpg）
+③ 门禁：引擎单独 tsc EXIT=0 · 项目 tsc 0 条 · 引擎单测 158/157/0/1 · 全仓 npm test 433/432/0/1（EXIT=0）
+
+===== 14. 本轮发现 =====
+A. ⚠️ SPEC 的「扩展名与内容不符 20」只数了 BMP 那一档。按魔数细查真实库是 **105**：
+     .png 实为 JPEG 68 · .jpg 实为 BMP 20 · .jpg 实为 PNG 17
+   T-13a 的锚点「异常 20 条」= 其中 .jpg→BMP 的 20 条 ✓（SPEC §7 记为「已知且合法」）。
+   ⇒ 体检项 ⑥ 若沿用 20 当判据会**漏报 85 条**；建议在 T-33/SPEC 里按 105 校准（改 SPEC 归所有者）。
+B. ⚠️ U11（Lead 2026-10-14 紧急更正 / db-worker 独立复现）：`.gs-` 前缀**不够** ——
+   `.gs.db` 的第 4 个字符是 `.` 不是 `-`，它的 -wal/-shm/-journal 边车同样不匹配（第 4 条原始输出）。
+   处置：判据收敛到**引擎侧唯一实现** `engine/src/gs-names.ts`（`isReservedLibraryName`），扫描器改用它；
+   名字常量（GS_INDEX_NAME / GS_DB_NAME / GS_JOURNAL_NAME）也一并落在这里（Lead 指定的 step 1，已做）。
+   架构理由：main → engine 是既有依赖方向（main 早就 import 引擎的 STAGING_DIRNAME），反向 import 会**成环**，
+   也会破坏 AGENTS §1「引擎可脱离 Electron 单独测试」。
+   ⚠️ 仍在 main 侧的一份（**未越界改**）：`storage-roots.ts:48-50` 的同值常量 + `gs-names.ts:36` 的同义判据；
+      按 Lead 的方案由 main 改为 re-export（step 2/3，属 apps/** 范围）。
+C. ⭐ 两个**我自己写出、被断言当场抓住**的真 bug（都是静默错）：
+   C1. 把 `relDirOf()`（对**文件 relPath** 取目录）误用在**目录路径**上 ⇒ `path.dirname('VR') === '.'`
+       ⇒ 所有条目 rel_dir 变空串 ⇒ **VR/A 与 CR/A 算出同一个 uid**（索引主键碰撞 = SPEC-identity §1 警告的静默错误）。
+       SC-H「整树 uid 唯一」当场红。修法：新增 `normRelDir()`，把「目录路径规范化」与「文件 relPath 取目录」分开。
+   C2. 判据只认 `.gs-` 前缀 ⇒ `.gs.db` 被归到「隐藏项」而非「库内产物」（仍跳过，但归类错）。SC-B/SC-C 当场红。
+D. ⚠️ 跨范围上报（均未越界改）：
+   D1. `packages/indexer/src/build_index_onnx.ts` 仍各有一份 `scanLibrary`(258-305) 与 uid(432-437)；
+       其 `IMG_EXT` 只认 {.jpg,.jpeg,.png}，与 `engine/src/fingerprint.ts` 的 {.jpg,.jpeg,.png,.webp,.bmp} **不一致**
+       —— 本库恰好没有 .bmp/.webp，所以两边都得 3594；库里一旦出现，条目数会分叉。建议索引线复用 engine 的
+       uid.ts / IMG_EXT / scanner.ts（属 task-8）。
+   D2. `packages/indexer/src/bmp_decode.ts` 的 `isBmp()` 是第二份「读 BM 魔数」的实现；engine/magic.ts 是通用格式判定。
+       建议收敛到一处（只保留一份「真实格式」判据）。
+   D3. `main/storage-roots.ts` 的 `PROBE_PREFIX = '.gs-write-probe-'` 也是同类「名字常量」（Lead 只点了两个，
+       我没有擅自加第三个）—— 是否一并收敛请 Lead 定。
+E. 未做（避免范围蔓延）：零字节只**计数**、未单列成体检项（属 T-33 ⑤）；
+   真实库根下 `.gs-*` 一个都没有（skippedReserved=0，如实记录）⇒「跳过生效」由 SC-C 的诱饵树证明。
+F. 引擎仍**零第三方依赖**：新增 4 个文件只 import `node:` 内置与相对 `./x.ts`；`dependencies = {}`。
+   扫描器只用 readdir / stat / open(…,'r')+read / close，**没有任何写 API**（第 9 条守卫 4/4 仍绿）。

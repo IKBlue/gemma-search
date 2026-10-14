@@ -13,6 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { resolveTestLibraryRoot } from './lib-root.mjs';
+import { uidOf } from '../src/uid.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // 仓库根：测试跟着引擎包走（`packages/engine/tests/`），但 `config.json` 在**仓库根** ——
@@ -27,13 +28,7 @@ const ROOT = (() => {
   }
 })();
 
-/** SPEC-identity §2：uid = sha1( lib_id + "|" + rel_dir + "|" + stem ).slice(0, 12) */
-export function uidOf(libId, relDir, stem) {
-  const dir = relDir === '.' || relDir == null ? '' : String(relDir);
-  return crypto.createHash('sha1')
-    .update(`${libId}|${dir}|${stem}`, 'utf8')
-    .digest('hex').slice(0, 12);
-}
+// uid 公式的实现**只有一份**：packages/engine/src/uid.ts（原来这里内联了一份副本，属 P1 违规，已接回）
 
 test('uid: 形状是 12 位小写 hex', () => {
   const u = uidOf('L1', 'VR', 'ID-030518714422364');

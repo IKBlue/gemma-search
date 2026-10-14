@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createEngine, bandOf, BANDS, indexPathFor } from '../src/engine.ts';
+import { uidOf } from '../src/uid.ts';
 import { ERR, USER_MESSAGE } from '../src/errors.ts';
 
 const MAGIC = Buffer.from('4753494458000001', 'hex');
@@ -33,11 +34,7 @@ function makeLibrary() {
   return { root, rows: items };
 }
 
-/** 按 SPEC-identity §2 冻结公式算 uid（与构建器一致）。 */
-function uidOf(libId, relDir, stem) {
-  const dir = relDir === '.' ? '' : relDir;
-  return crypto.createHash('sha1').update(`${libId}|${dir}|${stem}`, 'utf8').digest('hex').slice(0, 12);
-}
+// uid 公式的实现**只有一份**：packages/engine/src/uid.ts（原来这里内联了一份副本，属 P1 违规，已接回）
 
 /** 写一份最小合法索引（含 header/footer，向量用可预测值）。
  *  imageSize/imageMtime **取自真实文件** —— 否则 scan 的"变化"检测没有意义。 */
