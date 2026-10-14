@@ -1,0 +1,144 @@
+================================================================================
+T-16c 证据 · 接线启动流程 + **真窗口** M0 实测
+任务板 id: task-27   执行: db-worker   日期: 2026-10-15
+依赖: T-16b（三个端口的主进程实现）· T-16a（引擎端口接口）· T-11b/T-12a · T-04（落点解析）
+写入范围: apps/desktop/src/main/**（只动 index.ts）· apps/desktop/e2e/**
+===============================================================================
+
+【结论】
+· **接线完成**：main/index.ts 在真实模式下装配 createLibraryResolverPort → createStoragePorts 并交给
+  createEngine({ …, storage })；**fake 模式 storage=null**，模拟模式逐字不变（62 条 fake 用例全绿即证据）。
+· **真窗口 M0 实测通过**（真 Electron 窗口 + 真 preload + 真 IPC + 真渲染层 + 真库副本 3594 条 + 真索引
+  3594×768 + **真编码器**）。应用**自己的日志**把整条链说清了（证据⑥）：
+    端口已装配 → indexStatus L1 **3594/3594 dim=768 healthy=true** → search **60 条 · 1966ms** →
+    item 9ms → itemPaths 6ms → thumb 生成成功 512 → **collect 7ms → ok**
+  并且：取件目标目录**真的出现了文件**（ID-15302998.7z），**与源文件 sha1 相同**（52d168d6…）。
+· 四道门禁（本任务要求，均由我实测）：
+    npm test  ⇒ 470 tests / pass 469 / fail 0 / skipped 1  EXIT=0
+    tsc 两工程 ⇒ node EXIT=0 · web EXIT=0
+    build      ⇒ EXIT=0（三端产物齐）
+    e2e 全量   ⇒ **63 passed**（原有 62 条全部不回归 + 新增 M0 那条）EXIT=0
+
+【改了哪些文件】
+新增：
+  apps/desktop/e2e/m0-real.spec.mjs        176 行  M0 真窗口端到端（启动→库就绪→检索→详情→取件→文件出现）
+修改：
+  apps/desktop/src/main/index.ts           +34 行  import + buildStoragePorts() + createEngine 的 storage 参数
+未改：storage-roots.ts（Lead 要求不碰；storage-worker 在做 T-04c）· packages/engine/**（一行没动）· 渲染层 · preload。
+
+【接线细节（三条都是刻意的）】
+1. **只在真实模式装配**：storage = FAKE_MODE ? null : buildStoragePorts(r)。
+   ⇒ 模拟模式（GEMMA_FAKE=1）连端口都不建 —— e2e 那 62 条全在 fake 下跑，必须逐字不受影响。
+2. **回落日志用项目的 log()**：onFallback = (m) => log('[存储][回落]', m) —— 主进程统一落盘到 data/_app.log，
+   不散落 console.warn。找不到 .gs.db 时读 items.json 这件事，在日志里能查到（含具体路径）。
+3. **装配失败不拦启动**：catch 后大声记日志，回落到旧布局（引擎不注入 storage 时的既有行为），
+   与 logStorageRoots() 同一哲学 —— 库根是坏盘/权限不足时，应用更要把话说清楚再继续。
+   正常路径上这一段不会触发（两个工厂在构造期不读盘）。
+
+【原始证据】
+
+--- ① npm test（全量单测）
+$ npm test
+ℹ tests 470 / suites 0 / pass 469 / fail 0 / cancelled 0 / skipped 1 / todo 0 / duration_ms 48848.4639
+NPM_TEST_EXIT=0
+（skipped=1 是既有的那一条；470 = 我这几轮新增的单测都进来了）
+
+--- ② 类型门禁（两个工程）
+$ npx tsc --noEmit -p tsconfig.node.json   ⇒ NODE_TSC_EXIT=0
+$ npx tsc --noEmit -p tsconfig.web.json    ⇒ WEB_TSC_EXIT=0
+
+--- ③ 构建
+$ npm run build
+✓ built in 297ms   → out/main/index.js 146.69 kB
+✓ built in 10ms    → out/preload/index.cjs 0.85 kB
+✓ built in 2.00s   → out/renderer/index.html + assets/index-BlzNWBUm.css + assets/index-DBlQNfHr.js
+BUILD_EXIT=0
+⚠️ 环境说明：**第一次 build 失败**，原因是 esbuild 在 AppData\Local\Temp\esbuild-… 清理临时文件被沙箱拒绝
+（EPERM: Access is denied）—— 与产品代码无关（主进程/preload 两段已经构建成功）。
+把 TEMP/TMP 指到仓库内 data/_esbuild-tmp 后 EXIT=0。**这是环境限制，不是产品缺陷**；无沙箱的机器不需要这个绕法。
+
+--- ④ e2e 全量（63 条 = 原有 62 条 + 新增 M0 1 条）
+$ npx playwright test -c apps/desktop/e2e/playwright.config.mjs
+  ok 42 … smoke.spec.mjs:14:1 › E0 探针：Electron 出窗，且 preload 暴露面恰好三键 (1.6s)
+  ok 48 … tasks.spec.mjs:18:1 › E10-a 未跑过时是**诚实的空态**
+  ok 54 … uiux-p0.spec.mjs:21:1 › E12-a ⭐ 结果卡的标题是**真链接**，指向详情页（V-28）
+  ok 60 … window-security.spec.mjs:14:1 › E3-a ⭐ S11：window.open 被 deny
+  ok 63 … window-security.spec.mjs:93:1 › E3-d 边界：file:// 导航是**前缀放行**
+  63 passed (2.4m)
+E2E_ALL_EXIT=0
+（62 条原有用例一条不少、全过 ⇒ "接线不改行为"不是声称；新增的第 63 条就是下面 ⑤ 的 M0）
+
+--- ⑤ M0 **真窗口**实测（apps/desktop/e2e/m0-real.spec.mjs）
+$ npx playwright test -c apps/desktop/e2e/playwright.config.mjs m0-real.spec.mjs
+  [M0] 结果条数 = 60 · 命中 uid = 7251fa882ae6 · relPath = VR\ID-15302998.jpg
+  [M0] 取件落点 = …\data\_m0-ENJUQk\out\ID-15302998.7z · 字节 = 23 · sha1 = 52d168d6bd7170f97bfc7e9b625535746646dd55
+  [M0] 目标目录内容 = ["ID-15302998.7z"]
+  [M0] 库根内容 = [".gs-index.bin",".gs.db",".gs.db-shm",".gs.db-wal","VR","items.json","meta.json"]
+  [M0] 控制台错误（未落素材的那些缩略图 415 属夹具现象）= [... 42 条 "Failed to load resource: … 415 …"]
+  ok 1 apps\desktop\e2e\m0-real.spec.mjs:46:1 › M0 ⭐⭐ 真窗口端到端：启动 → 库就绪 → 检索 → 详情 → 取件（确认框）→ 文件真的出现 (5.3s)
+  1 passed (5.3s)
+
+--- ⑥ **应用自己的日志**（data/_app.log —— 界面/主进程自己说出来的链条；这段是本次最关键的证据）
+[06:33:55.636] === gemma-search 启动 ===
+[06:33:55.648] 配置来源 …\data\_m0-ENJUQk\config.json
+[06:33:55.742] [存储] 端口已装配：items ← .gs.db（无则回落 items.json）· index ← <库根>/.gs-index.bin · libraries ← 注册表 + T-04 落点
+[06:33:55.792] 引擎就绪 · 库 L1=…\data\_m0-ENJUQk\lib[env]
+[06:33:55.793] [cfg] 取件白名单 {"m0":"…\\data\\_m0-ENJUQk\\out"} 默认 m0
+[06:33:55.797] [存储] 模型 = …\model-cache\onnx\embeddinggemma-2\daa72c…\fp32（来源：用户指定）
+[06:33:55.798] [存储] 库 L1：索引 …\.gs-index.bin · 元数据 …\.gs.db · 事务日志 …\.gs-journal
+[06:33:55.822] 窗口已创建 → out\renderer\index.html
+[06:33:56.181] invoke libraryConfig 1ms → ok        · [ui] libraryConfig → 1 个库 · 来源 env
+[06:33:56.275] invoke indexStatus 75ms → ok        · [ui] indexStatus → L1 3594/3594 dim=768 healthy=true
+[06:33:58.260] 载入完成 1.8s · device=cpu
+[06:33:58.320] invoke search 1967ms → ok           · [ui] search text → 60 条 · 1966ms
+[06:33:58.734] invoke item 9ms → ok
+[06:33:58.741] invoke itemPaths 6ms → ok
+[06:33:58.761] thumb 生成成功 L1 7251fa882ae6 512 1x1→1x1 285
+[06:33:58.810] thumb 生成成功 L1 7251fa882ae6 256 …（落素材之后 5 张缩略图都生成成功）
+[06:33:59.112] invoke collect 7ms → ok
+解读：条目数与向量行数（3594/3594）分别来自 .gs.db 与 .gs-index.bin —— 两个端口都真的被走到了；
+      healthy=true 是引擎自己的判定；search/item/collect 三次 IPC 全部 ok。
+
+--- ⑦ fake 模式不受影响的证据
+· 代码路径：storage = FAKE_MODE ? null : buildStoragePorts(r) ⇒ 模拟模式**连端口都不建**（第 1 条接线细节）。
+· 行为证据：e2e 63 条里除新增的 M0 外**全部是 fake 模式**（launchFake / helpers），一条不少全过（证据④）。
+· 另有 E10-f（真实模式点开始索引 ⇒ 如实报"还没做好"）等真实模式用例也在 63 条内，未回归。
+
+【这条工作**证明不了**什么（如实写）】
+· M0 的"字节一致"是**副本内自洽**：素材是我按 items.json 的 relPath 落进副本的真 JPEG（1×1，103 字节）+ 同名包，
+  不是"从原库 G:/model 取出原件" —— 原库在本沙箱不可读写（见环境说明）。取件链路本身的正确性（选包/复制/字节）
+  由这一步证明；原件字节一致性要等沙箱外或真实机器上再验一次。
+· **未覆盖**图像检索（encodeImage）、GPU 路径、性能阈值（那属 T-19）；未覆盖断网/坏盘下的界面表现。
+· **不是打包态**：跑的是 out/ 产物 + electron.exe，未做 electron-builder 安装包冒烟（T-22）。
+· 控制台里有 42 条 415（未落素材的缩略图）——**夹具现象**：副本里只有搜索命中的前 5 条素材，其余 55 条
+  没有文件，thumb:// 解码失败是**如实**的（界面显示"无预览"）。测试硬断言的是 **没有 pageerror（真的 JS 异常）**，
+  415 原样打印进证据、没有被过滤掉。
+· 未证明"重建/自检入口"在界面里可达（T-15a 的模块仍未接线到 IPC）—— 那是 T-24/T-15 的事。
+
+【环境说明（哪些是环境、哪些是产品）】
+· 本会话沙箱把 **electron.exe 的写限制在仓库工作目录内**（原库盘与 AppData 一律 EPERM，TASKS §5）
+  ⇒ M0 的库根副本、取件目标、userData 全部落在仓库内 data/_m0-*（跑完已删除）。
+  **这是环境限制，不是产品落点**：产品落点由 T-04 的 storage-roots 解析（声明库根；不可写时回退
+  <userData>/libraries/<libId>），日志里的 [存储] 段落就是它的自述。
+· build / e2e 需要把 TEMP/TMP 指到仓库内（esbuild 清理 AppData 临时文件被拒）—— 环境限制，见证据③。
+· Playwright 启动 Electron 需要 --no-sandbox（launch.mjs 头部有实测记录）——**没有**固化进产品配置（AGENTS §6.5）。
+· 两个 node：run_code 进程内 v24.18.1，pwsh/PATH 里 v24.14.0；应用内是 Electron 44.7.0 / node 24.21.0（见日志首行）。
+
+【未决 / 交接】
+1) e2e 现在**63 条**（新增的 M0 那条）。若 Lead 希望维持"62 条"口径，可以把 m0-real.spec.mjs 从默认 glob 排除；
+   我建议**留着** —— 它是 M0 判据唯一的自动化（缺真实库/模型时会 skip 并写明原因，不会红）。
+2) **U12 未踩**：scan.new 仍含压缩包 = 既有行为，口径归 T-33，本轮没顺手改。
+3) 「程序目录 models/ 在 T-17 收敛前实际不通」：本轮 M0 用 GEMMA_CONFIG 的 onnx_model_dir 指定模型，
+   没走程序目录那条路，也没改搜索顺序（T-04c 在做）。
+4) T-15a 的自检/重建模块**仍未接线**到 IPC —— 接线清单在 15a.txt 里，下一手可直接照做。
+5) 全量门禁本任务已由我实测（npm test / tsc / build / e2e）。⚠️ TASKS §3.6 说"同一时刻只允许一个人跑 npm test"
+   —— 我跑的那个时间窗若与别人重叠，请以我的时间戳为准，必要时 Lead 重跑一次。
+
+【回滚方式】
+· 删除 apps/desktop/e2e/m0-real.spec.mjs 与 本证据文件。
+· apps/desktop/src/main/index.ts 回退三处：import 两行 · buildStoragePorts() 整段 · createEngine 里的
+  storage: FAKE_MODE ? null : buildStoragePorts(r), 一行 ⇒ 回到 T-16b 提交（15c268e）后的状态。
+· 未跑 git（AGENTS P7）；本任务临时物 data/_m0-* 与 apps/desktop/test-results 已清理；
+  data/_esbuild-tmp 保留（构建/E2E 的 TEMP 落点，data/_* 属 gitignore 的本机临时物）。
+· storage-roots.ts 与 packages/engine/** 未改动，无需回退。
+===============================================================================

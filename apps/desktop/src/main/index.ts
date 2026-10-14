@@ -35,6 +35,8 @@ import { resolveStorageRoots, describeStorageRoots, probeWritable } from './stor
 import { decideWindowBounds, readSavedBounds, persistBounds } from './window-state.ts';
 import type { BoundsDecision } from './window-state.ts';
 import { createRevealPort } from './ports.ts';
+import { createLibraryResolverPort, createStoragePorts } from './storage-ports.ts';
+import type { StoragePorts } from '../../../../packages/engine/src/storage-ports.ts';
 import { parseThumbUrl, createLibIdResolver, thumbFailureStatus } from './thumb-url.ts';
 import {
   isTrustedSender as isTrustedSenderImpl,
@@ -284,6 +286,35 @@ function engineMethod(eng: EngineApi, method: MethodName): ((req: unknown) => Pr
   return typeof fn === 'function' ? (fn as (req: unknown) => Promise<unknown>) : null;
 }
 
+/**
+ * 存储端口（T-16b 的实现 + T-16c 的接线）：把 .gs.db / <库根>/.gs-index.bin / 库落点交给引擎。
+ *
+ * ⚠️ **只在真实模式装配**：`GEMMA_FAKE=1` 时返回 null —— 模拟模式的 e2e（62 条）必须**逐字不受影响**。
+ *    （引擎在 fake 下走 fakeKit，压根不看 storage；这里连装都不装，省掉无谓的落点解析。）
+ * ⚠️ 回落**明说**：ItemStorePort 找不到 .gs.db 时走 onFallback → 项目的 log()（统一落盘 data/_app.log），
+ *    不散落 console.warn。
+ * ⚠️ 装配失败**不拦启动**：大声记日志后回落到旧布局（引擎不注入 storage 时的既有行为，
+ *    即 `<dataDir>/libraries/<libId>/{index.bin,items.json,meta.json}`）——
+ *    与 logStorageRoots() 同一哲学：库根是坏盘/权限不足时，应用更要把话说清楚再继续。
+ */
+function buildStoragePorts(r: ResolveLibrariesResult): StoragePorts | null {
+  try {
+    const libraries = createLibraryResolverPort({
+      libraries: r.libraries.map((l) => ({ libId: l.libId, root: l.root, label: l.label })),
+      userDataDir: USER_DATA_DIR,
+    });
+    const ports = createStoragePorts({
+      libraries,
+      onFallback: (m: string) => log('[存储][回落]', m),
+    });
+    log('[存储] 端口已装配：items ← .gs.db（无则回落 items.json）· index ← <库根>/.gs-index.bin · libraries ← 注册表 + T-04 落点');
+    return ports;
+  } catch (e) {
+    log('!! 存储端口装配失败（本次回落到旧布局 <dataDir>/libraries/<libId>）:', stackText(e));
+    return null;
+  }
+}
+
 function buildEngine(): ResolveLibrariesResult {
   const r = librariesResolved();
   engine = createEngine({
@@ -298,6 +329,9 @@ function buildEngine(): ResolveLibrariesResult {
     // 引擎不 import electron，所以"在资源管理器里定位"这个能力只能由外壳这样交进去。
     // 端口本身只负责调用；成功/失败的判定在引擎里（见 ports.ts 的注释）。
     shell: createRevealPort(shell),
+    // 存储端口（T-16c 接线）：真实模式才装 —— 见 buildStoragePorts 的三条注释。
+    // 不注入（fake 模式）时引擎走旧布局，与改造前逐字一致。
+    storage: FAKE_MODE ? null : buildStoragePorts(r),
     // 模拟模式（契约 §8）：`GEMMA_FAKE=1` ⇒ 无模型、无真实库，界面可演示全部状态。
     // ⚠️ 只由**显式环境变量**打开，且启动时**大声记日志**（见下面的 log）—— 绝不静默生效。
     //
