@@ -11,10 +11,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { AutoConfig, AutoProcessor, AutoModel, env } from '@huggingface/transformers';
-import { readImageWithFallback, selfTestBmpLayout } from './bmp_decode.mjs';
+import type { ModelDevice } from './third_party_types.ts';
+import { readImageWithFallback, selfTestBmpLayout } from './bmp_decode.ts';
+
+interface EncodedRecord { rel_path: string; pair: string; norm: number }
+interface FailedRecord { rel_path: string; pair: string; error: string | null }
+interface MismatchResults { native: EncodedRecord[]; fallback: EncodedRecord[]; failed: FailedRecord[] }
+interface PairCount { native: number; fallback: number; failed: number }
 
 const argv = process.argv.slice(2);
-const arg = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : d; };
+const arg = (n: string, d?: string): string => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : (d as string); };
 const DEVICE = arg('device', 'webgpu');
 const LIMIT = parseInt(arg('limit', '0'), 10);
 // 模型目录：优先 --model，其次环境变量 GEMMA_ONNX_MODEL；**不在代码里写死本机路径**
@@ -30,7 +36,7 @@ env.allowLocalModels = true;
 env.allowRemoteModels = false;
 
 const now = () => Number(process.hrtime.bigint()) / 1e6;
-const log = (...a) => console.log('[test]', ...a);
+const log = (...a: unknown[]) => console.log('[test]', ...a);
 
 async function main() {
   if (!fs.existsSync(LIST)) { console.error('缺少清单:', LIST); process.exit(2); }
@@ -57,10 +63,10 @@ async function main() {
     processor.image_processor.max_soft_tokens = 140;
     processor.image_processor.image_seq_length = 140;
   }
-  const model = await AutoModel.from_pretrained(MODEL_DIR, { config, dtype: 'fp32', device: DEVICE });
+  const model = await AutoModel.from_pretrained(MODEL_DIR, { config, dtype: 'fp32', device: DEVICE as ModelDevice });
   log(`载入完成 ${((now() - t0) / 1000).toFixed(1)}s`);
 
-  const results = { native: [], fallback: [], failed: [] };
+  const results: MismatchResults = { native: [], fallback: [], failed: [] };
   const tEnc = now();
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
@@ -84,7 +90,7 @@ async function main() {
         const rec = { rel_path: it.rel_path, pair: tag, norm: Number(norm.toFixed(6)) };
         (how === 'native' ? results.native : results.fallback).push(rec);
       } catch (e) {
-        results.failed.push({ rel_path: it.rel_path, pair: tag, error: 'encode: ' + e.message });
+        results.failed.push({ rel_path: it.rel_path, pair: tag, error: 'encode: ' + (e instanceof Error ? e.message : String(e)) });
       }
     }
 
@@ -108,8 +114,8 @@ async function main() {
     log('  失败明细（前 10）:');
     for (const f of results.failed.slice(0, 10)) log(`    ${f.pair}  ${f.rel_path}  ← ${f.error}`);
   }
-  const byPair = {};
-  const slot = (k) => { byPair[k] = byPair[k] || { native: 0, fallback: 0, failed: 0 }; return byPair[k]; };
+  const byPair: Record<string, PairCount> = {};
+  const slot = (k: string): PairCount => { byPair[k] = byPair[k] || { native: 0, fallback: 0, failed: 0 }; return byPair[k]; };
   for (const r of results.native) slot(r.pair).native++;
   for (const r of results.fallback) slot(r.pair).fallback++;
   for (const r of results.failed) slot(r.pair).failed++;

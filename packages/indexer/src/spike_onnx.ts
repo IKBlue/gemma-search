@@ -12,6 +12,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import type { ModelDevice, ModelOutputView } from './third_party_types.ts';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
 
 const [modelDir, seqArg, outPath, selectionPath, deviceArg] = process.argv.slice(2);
@@ -32,7 +33,7 @@ const TEXTS = [
   '花卉图案装饰画',
 ];
 
-function log(...a) { console.error(`[onnx]`, ...a); }
+function log(...a: unknown[]) { console.error(`[onnx]`, ...a); }
 
 // 只用本地文件：不联网、不去 HF 找
 env.allowLocalModels = true;
@@ -56,12 +57,12 @@ if (processor.image_processor) {
 }
 log(`  processor.image_seq_length=${processor.image_seq_length}  image_processor.max_soft_tokens=${processor.image_processor?.max_soft_tokens}`);
 
-const model = await AutoModel.from_pretrained(modelDir, { config, dtype: 'fp32', device: DEVICE });
+const model = await AutoModel.from_pretrained(modelDir, { config, dtype: 'fp32', device: DEVICE as ModelDevice });
 const loadMs = Date.now() - t0;
 log(`  载入完成，用时 ${(loadMs / 1000).toFixed(1)}s`);
 
 /** 从模型输出里取句向量：优先 sentence_embedding，否则均值池化 + L2 归一化。 */
-function pickEmbedding(out) {
+function pickEmbedding(out: ModelOutputView): { data: ArrayLike<number>; dims: number[]; how: string } {
   if (out.sentence_embedding) {
     return { data: out.sentence_embedding.data, dims: out.sentence_embedding.dims, how: 'sentence_embedding' };
   }
@@ -84,7 +85,7 @@ function pickEmbedding(out) {
   return { data, dims: [B, D], how: 'mean_pool(last_hidden_state)' };
 }
 
-const norm = (arr) => {
+const norm = (arr: ArrayLike<number>): number => {
   let s = 0;
   for (let i = 0; i < arr.length; i++) s += arr[i] * arr[i];
   return Math.sqrt(s);

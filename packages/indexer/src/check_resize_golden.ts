@@ -14,10 +14,30 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { RawImage } from '@huggingface/transformers';
-import { installResizeCompat, selfTestResizeCompat, resizeCompatState, upstreamResize } from './resize_compat.mjs';
+import { installResizeCompat, selfTestResizeCompat, resizeCompatState, upstreamResize } from './resize_compat.ts';
+
+interface GoldenCase {
+  id: string; src_raw: string; src_w: number; src_h: number; channels: 1 | 2 | 3 | 4;
+  target_w: number; target_h: number; pil_raw: string;
+}
+interface ResizeStat { mean: number; max: number; cosine: number }
+/** 一条实现的结果：成功时三个统计量，失败时只有 error */
+interface ImplResult { mean?: number; max?: number; cosine?: number; error?: string }
+interface GoldenResult { id: string; src: string; target: string; direction: 'down' | 'up'; shim?: ImplResult; upstream?: ImplResult }
+/** filter 的收窄类型：两条实现都成功时才参与汇总 */
+type CompleteGoldenResult = GoldenResult & { shim: ResizeStat; upstream: ResizeStat };
+interface GoldenBucket {
+  n: number;
+  shim_mean_avg: number | null;
+  shim_mean_max?: number | null;
+  shim_cos_min: number | null;
+  upstream_mean_avg: number | null;
+  upstream_cos_min: number | null;
+}
+interface GoldenSummary { kernel: string; cases: number; down: GoldenBucket; up: GoldenBucket; sensitivity?: number | null }
 
 const argv = process.argv.slice(2);
-const arg = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : d; };
+const arg = (n: string, d?: string): string => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : (d as string); };
 const MANIFEST = arg('manifest');
 const OUT = arg('out');
 const KERNEL = arg('kernel', 'cubic');
@@ -32,7 +52,7 @@ console.log(`[golden] shim 自检通过（kernel=${st.kernel} · 断言 ${st.cal
 
 const sharpMod = (await import('sharp')).default;
 
-function diffStats(a, b) {
+function diffStats(a: ArrayLike<number>, b: ArrayLike<number>): { mean: number; max: number; cosine: number; n: number } {
   const n = Math.min(a.length, b.length);
   let sum = 0, max = 0, dot = 0, na = 0, nb = 0;
   for (let i = 0; i < n; i++) {
@@ -47,13 +67,13 @@ function diffStats(a, b) {
  *  impl='shim'     → 走安装后的 RawImage.resize（候选修复）
  *  impl='upstream' → 直接调**原始方法**（transformers.js 的 affine-bicubic）——否定对照
  */
-async function resizeWith(impl, srcRaw, w0, h0, ch, tw, th) {
+async function resizeWith(impl: string, srcRaw: ArrayLike<number>, w0: number, h0: number, ch: 1 | 2 | 3 | 4, tw: number, th: number) {
   const img = new RawImage(new Uint8ClampedArray(srcRaw), w0, h0, ch);
   // ⚠️ 必须把 `{resample: 3}` 一并传进去：
   //    处理器实际调用形式是 `resize(target_w, target_h, { resample: this.resample })`（=3 → bicubic）。
   //    不传 opts 时上游默认 resample=2（**bilinear**）—— 那测的就不是同一个东西了。
   //    （这个坑真踩到过：否定对照一度“看起来”变成 bilinear 的结果，数值对不上。）
-  const opts = { resample: 3 };
+  const opts = { resample: 3 } as const;
   const out = impl === 'upstream'
     ? await upstreamResize().call(img, tw, th, opts)
     : await img.resize(tw, th, opts);
@@ -61,24 +81,24 @@ async function resizeWith(impl, srcRaw, w0, h0, ch, tw, th) {
 }
 
 /** 该用例是降采样还是放大（判据分方向：放大时两套核差异天然更大） */
-function direction(c) {
+function direction(c: GoldenCase): 'down' | 'up' {
   return (c.target_w * c.target_h) < (c.src_w * c.src_h) ? 'down' : 'up';
 }
 
-const manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
-const results = [];
+const manifest: { cases: GoldenCase[] } = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
+const results: GoldenResult[] = [];
 for (const c of manifest.cases) {
   const srcBuf = fs.readFileSync(c.src_raw);
   const pilBuf = fs.readFileSync(c.pil_raw);
-  const rec = { id: c.id, src: `${c.src_w}x${c.src_h}`, target: `${c.target_w}x${c.target_h}`,
+  const rec: GoldenResult = { id: c.id, src: `${c.src_w}x${c.src_h}`, target: `${c.target_w}x${c.target_h}`,
                 direction: direction(c) };
 
-  for (const impl of ['shim', 'upstream']) {
+  for (const impl of ['shim', 'upstream'] as const) {
     let out;
     try {
       out = await resizeWith(impl, srcBuf, c.src_w, c.src_h, c.channels, c.target_w, c.target_h);
     } catch (e) {
-      rec[impl] = { error: e.message };
+      rec[impl] = { error: e instanceof Error ? e.message : String(e) };
       continue;
     }
     if (out.width !== c.target_w || out.height !== c.target_h) {
@@ -98,12 +118,13 @@ for (const c of manifest.cases) {
     + `  |  upstream 平均差=${rec.upstream?.mean} 余弦=${rec.upstream?.cosine}`);
 }
 
-const byDir = (dir) => results.filter((r) => r.direction === dir && r.shim && r.upstream);
+const byDir = (dir: string): CompleteGoldenResult[] =>
+  results.filter((r): r is CompleteGoldenResult => r.direction === dir && !!r.shim && !!r.upstream);
 const down = byDir('down');
 const up = byDir('up');
-const mean = (xs) => (xs.length ? +(xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(4) : null);
-const maxOf = (xs) => (xs.length ? +Math.max(...xs).toFixed(4) : null);
-const summary = {
+const mean = (xs: number[]): number | null => (xs.length ? +(xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(4) : null);
+const maxOf = (xs: number[]): number | null => (xs.length ? +Math.max(...xs).toFixed(4) : null);
+const summary: GoldenSummary = {
   kernel: KERNEL,
   cases: results.length,
   // 降采样方向（真实管线里绝大多数图走这条：库图普遍大于 ~624x480 的目标网格）

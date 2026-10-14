@@ -4,17 +4,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { decodeBmpRgb, selfTestBmpLayout } from './bmp_decode.mjs';
+import { decodeBmpRgb, selfTestBmpLayout } from './bmp_decode.ts';
 
-const sha = (b) => crypto.createHash('sha1').update(b).digest('hex');
-const log = (...a) => console.log('[v2]', ...a);
+interface MismatchItem { rel_path: string; abs_path: string; actual: string }
+
+const sha = (b: Buffer | Uint8Array): string => crypto.createHash('sha1').update(b).digest('hex');
+const log = (...a: unknown[]) => console.log('[v2]', ...a);
 
 log('=== A) 合成 BMP 布局自检 ===');
 try {
   const r = await selfTestBmpLayout();
   log('  通过 ✓  校验 ' + r.checked + ' 个像素  ' + r.size);
 } catch (e) {
-  log('  失败 ✗  ' + e.message);
+  log('  失败 ✗  ' + (e instanceof Error ? e.message : String(e)));
   process.exit(1);
 }
 
@@ -22,7 +24,7 @@ log('');
 log('=== B) 20 张真实 BMP vs PIL ===');
 const pil = JSON.parse(fs.readFileSync(path.join('..', 'data', 'quality', 'bmp-pil-sha1.json'), 'utf8'));
 const items = JSON.parse(fs.readFileSync(path.join('..', 'data', 'quality', 'extension-mismatch.json'), 'utf8'))
-  .items.filter((i) => i.actual === 'bmp');
+  .items.filter((i: MismatchItem) => i.actual === 'bmp');
 let ok = 0, bad = [];
 for (const it of items) {
   try {
@@ -31,7 +33,7 @@ for (const it of items) {
     if (s === pil[it.rel_path]) ok++;
     else bad.push(`${it.rel_path} 期望 ${pil[it.rel_path].slice(0, 12)} 实际 ${s.slice(0, 12)}`);
   } catch (e) {
-    bad.push(`${it.rel_path} 解码异常: ${e.message}`);
+    bad.push(`${it.rel_path} 解码异常: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
 log('  与 PIL 逐像素一致: ' + ok + ' / ' + items.length);
@@ -39,13 +41,13 @@ if (bad.length) { log('  不一致明细:'); bad.slice(0, 6).forEach((b) => log(
 
 log('');
 log('=== C) 端到端：能否变成 RawImage ===');
-const { readBmpAsRawImage } = await import('./bmp_decode.mjs');
+const { readBmpAsRawImage } = await import('./bmp_decode.ts');
 const one = items[0];
 try {
   const img = await readBmpAsRawImage(one.abs_path);
   log(`  ${one.rel_path} → RawImage ${img.width}×${img.height} channels=${img.channels} ✓`);
 } catch (e) {
-  log('  失败 ✗  ' + e.message);
+  log('  失败 ✗  ' + (e instanceof Error ? e.message : String(e)));
 }
 
 const pass = ok === items.length && bad.length === 0;

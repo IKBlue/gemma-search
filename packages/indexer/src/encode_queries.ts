@@ -18,11 +18,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
-import { readImageWithFallback, selfTestBmpLayout } from './bmp_decode.mjs';
-import { installResizeCompat, selfTestResizeCompat, assertResizeCompatInstalled } from './resize_compat.mjs';
+import { readImageWithFallback, selfTestBmpLayout } from './bmp_decode.ts';
+import type { ImageProcessorConfigView, ModelDevice, ModelDtype, ModelOutputView } from './third_party_types.ts';
+import { installResizeCompat, selfTestResizeCompat, assertResizeCompatInstalled } from './resize_compat.ts';
+
+interface QueryItem { id: string; kind: string; value: string }
+interface PickedEmbedding { data: ArrayLike<number>; dims: number[]; how: string }
+interface StoredVector { id: string; kind: string; value: string; dim: number; norm: number; vector: number[] }
 
 const argv = process.argv.slice(2);
-const arg = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : d; };
+const arg = (n: string, d?: string): string => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : (d as string); };
 
 const MODEL_DIR = arg('model') || process.env.GEMMA_ONNX_MODEL;
 const IN_JSON = arg('in');
@@ -36,13 +41,13 @@ if (!MODEL_DIR || !IN_JSON || !OUT_JSON) {
   process.exit(2);
 }
 
-const log = (...a) => console.log('[enc]', ...a);
+const log = (...a: unknown[]) => console.log('[enc]', ...a);
 
 env.allowLocalModels = true;
 env.allowRemoteModels = false;
 
 /** 与 build_index_onnx.mjs 的 pickEmbedding 保持一致（改动请同步，并跑交叉核对） */
-function pickEmbedding(out) {
+function pickEmbedding(out: ModelOutputView): PickedEmbedding {
   if (out.sentence_embedding) {
     return { data: out.sentence_embedding.data, dims: out.sentence_embedding.dims, how: 'sentence_embedding' };
   }
@@ -65,9 +70,9 @@ function pickEmbedding(out) {
   return { data, dims: [B, D], how: 'mean_pool(last_hidden_state)' };
 }
 
-const norm = (a) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * a[i]; return Math.sqrt(s); };
+const norm = (a: ArrayLike<number>): number => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * a[i]; return Math.sqrt(s); };
 
-const queries = JSON.parse(fs.readFileSync(IN_JSON, 'utf8'));
+const queries: QueryItem[] = JSON.parse(fs.readFileSync(IN_JSON, 'utf8'));
 log(`查询 ${queries.length} 条（文本 ${queries.filter((q) => q.kind === 'text').length}`
   + ` · 图像 ${queries.filter((q) => q.kind === 'image').length}）`);
 
@@ -79,12 +84,12 @@ processor.image_seq_length = SEQ;
 if (processor.image_processor) {
   processor.image_processor.max_soft_tokens = SEQ;
   processor.image_processor.image_seq_length = SEQ;
-  if (processor.image_processor.config) processor.image_processor.config.image_seq_length = SEQ;
+  if (processor.image_processor.config) (processor.image_processor.config as ImageProcessorConfigView).image_seq_length = SEQ;
 }
 if (processor.image_seq_length !== SEQ) {
   throw new Error(`预处理 seq 未生效：请求 ${SEQ}，实际 ${processor.image_seq_length}`);
 }
-const model = await AutoModel.from_pretrained(MODEL_DIR, { config, dtype: 'float32', device: DEVICE });
+const model = await AutoModel.from_pretrained(MODEL_DIR, { config, dtype: 'float32' as ModelDtype, device: DEVICE as ModelDevice });
 log(`模型载入完成（seq=${SEQ} · device=${DEVICE}）`);
 
 const st = await selfTestBmpLayout();
@@ -96,10 +101,10 @@ assertResizeCompatInstalled(RawImage);
 const rst = await selfTestResizeCompat();
 log(`重采样兼容层自检通过（kernel=${rst.kernel}）`);
 
-const out = [];
-let how = null;
+const out: StoredVector[] = [];
+let how: string | null = null;
 for (const q of queries) {
-  let emb;
+  let emb: PickedEmbedding;
   if (q.kind === 'text') {
     const inputs = await processor(QUERY_PREFIX + q.value);
     emb = pickEmbedding(await model.forward(inputs));
@@ -115,7 +120,7 @@ for (const q of queries) {
   out.push({ id: q.id, kind: q.kind, value: q.value, dim: vec.length, norm: +norm(vec).toFixed(6), vector: vec });
 }
 
-const revision = (MODEL_DIR.replace(/\\/g, '/').split('/').find((s) => /^[0-9a-f]{40}$/.test(s))) || null;
+const revision = (MODEL_DIR.replace(/\\/g, '/').split('/').find((s: string) => /^[0-9a-f]{40}$/.test(s))) || null;
 fs.writeFileSync(OUT_JSON, JSON.stringify({
   generated_at: new Date().toISOString(),
   runtime: { 'transformers.js': 'as-installed', device: DEVICE },

@@ -24,7 +24,7 @@ import { RawImage } from '@huggingface/transformers';
 const BMP_MAGIC = Buffer.from('BM');
 
 /** 按魔数判断是否 BMP（不信任扩展名） */
-export function isBmp(filePath) {
+export function isBmp(filePath: string): boolean {
   const fd = fs.openSync(filePath, 'r');
   try {
     const head = Buffer.alloc(2);
@@ -36,7 +36,7 @@ export function isBmp(filePath) {
 }
 
 /** 头部自查：只接受我们验证过的变体，其它明确报错（不猜） */
-function checkHeader(buf) {
+function checkHeader(buf: Buffer): { bpp: number; comp: number } {
   if (!buf.subarray(0, 2).equals(BMP_MAGIC)) throw new Error('不是 BMP（魔数不符）');
   const hdrSize = buf.readUInt32LE(14);
   const bpp = buf.readUInt16LE(28);
@@ -51,7 +51,7 @@ function checkHeader(buf) {
  * 解码 BMP → 顶层 RGB（Buffer，w*h*3）。
  * 布局按**已实测验证**的规则：每像素 4 字节，取 [1][2][3] 作 B,G,R。
  */
-export async function decodeBmpRgb(filePath) {
+export async function decodeBmpRgb(filePath: string): Promise<{ rgb: Buffer; width: number; height: number }> {
   const bmpjs = (await import('bmp-js')).default;
   const buf = fs.readFileSync(filePath);
   checkHeader(buf);
@@ -134,7 +134,7 @@ export async function selfTestBmpLayout() {
 }
 
 /** 变成 RawImage：裸像素 → sharp 编 PNG（sharp 输出 PNG 是好的）→ Blob → RawImage.read */
-export async function readBmpAsRawImage(filePath) {
+export async function readBmpAsRawImage(filePath: string): Promise<RawImage> {
   const { rgb, width, height } = await decodeBmpRgb(filePath);
   const sharp = (await import('sharp')).default;
   const png = await sharp(rgb, { raw: { width, height, channels: 3 } }).png().toBuffer();
@@ -146,17 +146,24 @@ export async function readBmpAsRawImage(filePath) {
  * 返回 { image, vectorSourceKind, error }
  *   vectorSourceKind: 'native' | 'bmp-fallback' → 写进索引的 vectorSource 字段
  */
-export async function readImageWithFallback(filePath) {
+interface ImageFallbackResult {
+  image: RawImage | null;
+  vectorSourceKind: 'native' | 'bmp-fallback' | null;
+  error: string | null;
+}
+
+export async function readImageWithFallback(filePath: string): Promise<ImageFallbackResult> {
   try {
     const image = await RawImage.read(filePath);
     return { image, vectorSourceKind: 'native', error: null };
   } catch (e) {
-    if (!isBmp(filePath)) return { image: null, vectorSourceKind: null, error: e.message };
+    const nativeError = e instanceof Error ? e.message : String(e);
+    if (!isBmp(filePath)) return { image: null, vectorSourceKind: null, error: nativeError };
     try {
       const image = await readBmpAsRawImage(filePath);
       return { image, vectorSourceKind: 'bmp-fallback', error: null };
     } catch (e2) {
-      return { image: null, vectorSourceKind: null, error: `native: ${e.message} | bmp: ${e2.message}` };
+      return { image: null, vectorSourceKind: null, error: `native: ${nativeError} | bmp: ${e2 instanceof Error ? e2.message : String(e2)}` };
     }
   }
 }

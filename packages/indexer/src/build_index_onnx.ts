@@ -21,16 +21,90 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
-import { readImageWithFallback, selfTestBmpLayout, isBmp } from './bmp_decode.mjs';
-import { installResizeCompat, selfTestResizeCompat, resizeCompatState, assertResizeCompatInstalled } from './resize_compat.mjs';
+import type { Processor } from '@huggingface/transformers';
+import type { Dirent } from 'node:fs';
+import type { ImageProcessorConfigView, ModelDevice, ModelDtype, TensorView } from './third_party_types.ts';
+import { readImageWithFallback, selfTestBmpLayout, isBmp } from './bmp_decode.ts';
+import { installResizeCompat, selfTestResizeCompat, resizeCompatState, assertResizeCompatInstalled } from './resize_compat.ts';
+
+// ---------------- 类型 ----------------
+interface LibrarySlotFile { name: string; ext: string; full: string }
+interface LibrarySlot { img?: LibrarySlotFile; arc?: LibrarySlotFile }
+
+/** 一条素材。uid 在扫描后按 SPEC-identity §2 计算；vectorSource 只在走了回退解码时有值。 */
+interface LibraryItem {
+  folder: string; stem: string; name: string; relPath: string; absPath: string;
+  imageExt: string; imageSize: number; imageMtime: number;
+  archiveName: string | null; archiveRelPath: string | null; archiveAbsPath: string | null;
+  archiveExt: string | null; archiveSize: number | null; archiveMtime: number | null;
+  uid?: string;
+  vectorSource?: 'native' | 'bmp-fallback' | null;
+}
+
+interface VectorRow { uid: string; vectorRow: number; vectorSource: 'native' | 'bmp-fallback' | null }
+interface FailedItem { uid: string; relPath: string; error: string }
+interface GpuInfo { gpu_model: string | null; gpu_driver: string | null; gpu_source: string }
+
+/** processor 三处生效参数的回读结果（值直接来自运行时对象，故为 unknown，靠 !== 断言比较） */
+interface EffectivePreprocessing {
+  image_seq_length: unknown;
+  max_soft_tokens: unknown;
+  config_image_seq_length: unknown;
+  patch_size: unknown;
+  pooling_kernel_size: unknown;
+  resample: unknown;
+  rescale: unknown;
+  do_normalize: unknown;
+  do_convert_rgb: unknown;
+  color: string | null;
+  resample_impl: string;
+}
+
+interface RuntimeInfo {
+  'transformers.js': string | null;
+  'onnxruntime-node': string | null;
+  device: string;
+  ort_provider: string;
+  gpu_model: string | null;
+  gpu_driver: string | null;
+  gpu_source: string;
+}
+
+/** index.bin 的 header（SPEC-identity §6.2） */
+interface IndexHeader {
+  format_version: number;
+  compat_key_version: number;
+  model_repo: string;
+  model_revision: string;
+  model_weights_dtype: string;
+  model_files: string[];
+  audio_disabled: boolean;
+  preprocessing_version: number;
+  preprocessing: EffectivePreprocessing;
+  seq_length: number;
+  dim: number;
+  embedding_dtype: string;
+  normalization: string;
+  pooling: string;
+  query_prefix: string;
+  document_prefix: string;
+  runtime: RuntimeInfo;
+  count: number;
+  lib_id: string;
+  lib_root: string;
+  built_at: string;
+  compat?: string;
+}
+
+interface IndexBin { header: IndexHeader; vectors: Float32Array }
 
 // ---------------- 参数 ----------------
 const argv = process.argv.slice(2);
-const arg = (name, dflt) => {
+const arg = (name: string, dflt?: string): string => {
   const i = argv.indexOf('--' + name);
-  return i >= 0 ? argv[i + 1] : dflt;
+  return i >= 0 ? argv[i + 1] : (dflt as string);
 };
-const has = (name) => argv.includes('--' + name);
+const has = (name: string): boolean => argv.includes('--' + name);
 
 const MODEL_DIR = arg('model');
 const LIB_ROOT = arg('lib');
@@ -63,8 +137,8 @@ const PREPROCESSING_VERSION = 2;   // 我方预处理配置版本（改动即升
 const DIM = 768;                   // EmbeddingGemma 2 统一 768 维
 const ONNX_SPIKE_DIR = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 
-const log = (...a) => { console.log(`[build]`, ...a); };
-const now = () => Number(process.hrtime.bigint()) / 1e6;
+const log = (...a: unknown[]) => { console.log(`[build]`, ...a); };
+const now = (): number => Number(process.hrtime.bigint()) / 1e6;
 
 // 只从本地读模型：allowLocalModels + 关掉远程，否则它会把本地路径当成 HF 仓库 ID 去联网找文件
 env.allowLocalModels = true;
@@ -86,13 +160,13 @@ const HEAD_OFF = MAGIC.length + 4;            // headerJSON 的起始位置
 // ---------------- 元数据辅助（SPEC-identity §6.2）----------------
 
 /** 从模型路径里取出钉住的 40 位 revision。取不到就返回 null —— 调用方必须报错，不许猜。 */
-function parseRevisionFromPath(p) {
+function parseRevisionFromPath(p: string): string | null {
   const seg = path.normalize(p).split(path.sep).find((s) => /^[0-9a-f]{40}$/.test(s));
   return seg || null;
 }
 
 /** 读 node_modules 里某个包的实际版本（用于把 runtime 版本写进索引） */
-function readPkgVersion(name) {
+function readPkgVersion(name: string): string | null {
   try {
     const p = path.join(ONNX_SPIKE_DIR, 'node_modules', name, 'package.json');
     return JSON.parse(fs.readFileSync(p, 'utf8')).version || null;
@@ -112,7 +186,7 @@ function readPkgVersion(name) {
  * 正确做法：**由调用方把值传进来**（调用方是自己 shell 里的脚本，能跑 nvidia-smi），
  * 这里的 spawn 只作尽力而为的回退，失败就老实写 null。
  */
-function gpuInfo() {
+function gpuInfo(): GpuInfo {
   const envModel = process.env.GEMMA_GPU_MODEL || null;
   const envDriver = process.env.GEMMA_GPU_DRIVER || null;
   if (envModel) {
@@ -125,7 +199,8 @@ function gpuInfo() {
     const [name, drv] = out.trim().split('\n')[0].split(',').map((s) => s.trim());
     return { gpu_model: name || null, gpu_driver: drv || null, gpu_source: 'nvidia-smi' };
   } catch (e) {
-    return { gpu_model: null, gpu_driver: null, gpu_source: `unavailable(${e.code || 'error'})` };
+    const code = (typeof e === 'object' && e !== null && 'code' in e) ? String(e.code) : 'error';
+    return { gpu_model: null, gpu_driver: null, gpu_source: `unavailable(${code})` };
   }
 }
 
@@ -138,10 +213,10 @@ function gpuInfo() {
  * 那时向量与索引不匹配、检索质量静默下降（本项目最危险的失败模式）。
  * 所以：**三处都设 + 回读断言 + 把两个值都记进元数据**。
  */
-function readEffectivePreprocessing(processor, seq, resampleImpl) {
-  const ip = processor.image_processor || {};
-  const ipc = ip.config || {};
-  const read = (obj, k) => (obj && k in obj ? obj[k] : null);
+function readEffectivePreprocessing(processor: Processor, seq: number, resampleImpl: string): EffectivePreprocessing {
+  const ip = processor.image_processor;
+  const ipc = ip ? ip.config : {};
+  const read = (obj: object | null | undefined, k: string): unknown => (obj && k in obj ? (obj as Record<string, unknown>)[k] : null);
   const meta = {
     image_seq_length: read(processor, 'image_seq_length'),
     max_soft_tokens: read(ip, 'max_soft_tokens'),
@@ -168,7 +243,7 @@ function readEffectivePreprocessing(processor, seq, resampleImpl) {
 }
 
 /** SPEC-identity §6.3 的兼容性判定键 —— 一个字符串，便于比对与写进索引 */
-function compatKey(h) {
+function compatKey(h: IndexHeader): string {
   return [
     h.model_repo, h.model_revision, h.model_weights_dtype,
     h.preprocessing_version, h.seq_length, h.dim, h.normalization, h.pooling,
@@ -180,16 +255,20 @@ const IMG_EXT = new Set(['.jpg', '.jpeg', '.png']);
 const ARC_EXT = new Set(['.rar', '.zip', '.7z']);
 
 // ---------------- 扫描：同目录同名主干配对 ----------------
-function scanLibrary(root) {
-  const items = [];
+function scanLibrary(root: string): LibraryItem[] {
+  const items: LibraryItem[] = [];
   const stack = [root];
   while (stack.length) {
-    const dir = stack.pop();
-    let entries;
+    const dir = stack.pop()!;
+    let entries: Dirent[];
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
-    catch (e) { log('  跳过不可读目录', dir, e.code); continue; }
+    catch (e) {
+      const code = (typeof e === 'object' && e !== null && 'code' in e) ? String(e.code) : 'error';
+      log('  跳过不可读目录', dir, code);
+      continue;
+    }
 
-    const byStem = new Map();
+    const byStem = new Map<string, LibrarySlot>();
     for (const ent of entries) {
       const full = path.join(dir, ent.name);
       if (ent.isDirectory()) { stack.push(full); continue; }
@@ -197,7 +276,7 @@ function scanLibrary(root) {
       if (!IMG_EXT.has(ext) && !ARC_EXT.has(ext)) continue;
       const stem = ent.name.slice(0, ent.name.length - ext.length);
       if (!byStem.has(stem)) byStem.set(stem, {});
-      const slot = byStem.get(stem);
+      const slot = byStem.get(stem)!;
       if (IMG_EXT.has(ext) && !slot.img) slot.img = { name: ent.name, ext, full };
       else if (ARC_EXT.has(ext) && !slot.arc) slot.arc = { name: ent.name, ext, full };
     }
@@ -238,7 +317,7 @@ function scanLibrary(root) {
 // footer 的作用：把"写完了"变成**可判定的事实**。没有它，断电留下的半个文件
 // 与完整文件在读取时无法区分 —— 而索引静默损坏是本项目最危险的失败模式。
 
-function buildFooter(count, dim, body) {
+function buildFooter(count: number, dim: number, body: Buffer): Buffer {
   const json = Buffer.from(JSON.stringify({
     count, dim,
     sha1_of_vector_block: crypto.createHash('sha1').update(body).digest('hex'),
@@ -249,7 +328,7 @@ function buildFooter(count, dim, body) {
   return Buffer.concat([len, json]);
 }
 
-function writeIndexBin(file, header, vectors, count, dim) {
+function writeIndexBin(file: string, header: object, vectors: ArrayLike<number>, count: number, dim: number): void {
   const headerJson = Buffer.from(JSON.stringify(header), 'utf8');
   const lenBuf = Buffer.alloc(4);
   lenBuf.writeUInt32LE(headerJson.length, 0);
@@ -267,7 +346,7 @@ function writeIndexBin(file, header, vectors, count, dim) {
 }
 
 /** 读回并**校验**：MAGIC / 长度自洽 / footer 完整标记 / 向量块 sha1。任一不符返回 null。 */
-function readIndexBin(file) {
+function readIndexBin(file: string): IndexBin | null {
   if (!fs.existsSync(file)) return null;
   const buf = fs.readFileSync(file);
   if (buf.length < HEAD_OFF || !buf.subarray(0, MAGIC.length).equals(MAGIC)) return null;
@@ -302,7 +381,7 @@ function readIndexBin(file) {
 /** 往返自检：写一份小索引 → 读回 → 断言内容一致。
  *  与 BMP 布局自检同理：**不靠"应该没问题"，靠可执行的断言**。
  *  这一步能拦住"写读偏移不一致"这类静默错误（本文件就出过一次）。 */
-function selfTestIndexBin() {
+function selfTestIndexBin(): { ok: boolean; checked: number } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gs-idxselftest-'));
   const f = path.join(dir, 'index.bin');
   try {
@@ -349,18 +428,18 @@ async function main() {
   //    用 (目录, 主干) 作种子则天然唯一，内容重复也不影响。
   log('计算 UID（sha1(lib_id|rel_dir|stem) 前 12 位，SPEC-identity §2）…');
   const t0 = now();
-  const uidSeen = new Map();
+  const uidSeen = new Map<string, string>();
   for (const it of items) {
     const relDir = path.dirname(it.relPath);
     const dir = relDir === '.' ? '' : relDir;
     it.uid = crypto.createHash('sha1')
       .update(`${LIB_ID}|${dir}|${it.stem}`, 'utf8')
       .digest('hex').slice(0, 12);
-    if (uidSeen.has(it.uid)) {
-      throw new Error(`UID 碰撞：${it.uid} 同时属于 "${uidSeen.get(it.uid)}" 与 "${it.relPath}"
+    if (uidSeen.has(it.uid!)) {
+      throw new Error(`UID 碰撞：${it.uid} 同时属于 "${uidSeen.get(it.uid!)}" 与 "${it.relPath}"
 （种子是 (lib_id, 目录, 主干)，理论上唯一；出现碰撞说明公式或输入有问题，不能继续）`);
     }
-    uidSeen.set(it.uid, it.relPath);
+    uidSeen.set(it.uid!, it.relPath);
   }
   log(`  完成，用时 ${((now() - t0) / 1000).toFixed(1)}s · ${uidSeen.size} 个 uid 无重复`);
 
@@ -400,10 +479,10 @@ async function main() {
     processor.image_processor.max_soft_tokens = SEQ;
     processor.image_processor.image_seq_length = SEQ;
     if (processor.image_processor.config) {
-      processor.image_processor.config.image_seq_length = SEQ;    // 第三处：config 副本
+      (processor.image_processor.config as ImageProcessorConfigView).image_seq_length = SEQ;    // 第三处：config 副本
     }
   }
-  const model = await AutoModel.from_pretrained(MODEL_DIR, { config, dtype: 'float32', device: DEVICE });
+  const model = await AutoModel.from_pretrained(MODEL_DIR, { config, dtype: 'float32' as ModelDtype, device: DEVICE as ModelDevice });
   log(`  载入完成 ${((now() - tLoad) / 1000).toFixed(1)}s`);
 
   // ---------- 元数据（SPEC-identity §6.2）：必须在续跑判定之前建好 ----------
@@ -412,13 +491,13 @@ async function main() {
     throw new Error(`无法从 --model 路径解析出 40 位 model revision：${MODEL_DIR}
 （不要用猜的：revision 进 compat，猜错会让不同权重的索引被误判为可互换）`);
   }
-  const pre = readEffectivePreprocessing(processor, SEQ, `resize_compat(${resizeCompatState().kernel})`);
+  const pre = readEffectivePreprocessing(processor, SEQ, `resize_compat(${resizeCompatState()!.kernel})`);
   log(`  预处理实测：seq=${pre.image_seq_length} · max_soft_tokens=${pre.max_soft_tokens}`
     + ` · config 副本=${pre.config_image_seq_length} · patch=${pre.patch_size}`
     + ` · pool=${pre.pooling_kernel_size} · resample=${pre.resample} · normalize=${pre.do_normalize}`
     + ` · impl=${pre.resample_impl}`);
 
-  const header = {
+  const header: IndexHeader = {
     format_version: FORMAT_VERSION,
     compat_key_version: COMPAT_KEY_VERSION,
 
@@ -467,7 +546,7 @@ async function main() {
   const old = REBUILD ? null : readIndexBin(INDEX_BIN);
   let oldMeta = null;
   try { oldMeta = JSON.parse(fs.readFileSync(META_JSON, 'utf8')); } catch { /* 无 */ }
-  const reusable = new Map();
+  const reusable = new Map<string, number[]>();
   if (old && oldMeta && oldMeta.compat && oldMeta.compat === header.compat) {
     let oldItems = [];
     try { oldItems = JSON.parse(fs.readFileSync(ITEMS_JSON, 'utf8')); } catch { /* 无 */ }
@@ -486,9 +565,9 @@ async function main() {
   }
 
   // 编码
-  const vectors = [];          // 扁平数组，行序与 items 一致
-  const rows = [];             // {uid, vectorRow}
-  const failed = [];
+  const vectors: number[] = [];          // 扁平数组，行序与 items 一致
+  const rows: VectorRow[] = [];          // {uid, vectorRow}
+  const failed: FailedItem[] = [];
   let dim = 0;
   let reused = 0;
   let fallbackUsed = 0;   // 走 BMP 回退的条数（应为 20）
@@ -499,7 +578,7 @@ async function main() {
     const hit = reusable.get(it.relPath);   // 复用表按 relPath 作键（与 uid 方案无关）
     if (hit) {
       dim = dim || hit.length;
-      rows.push({ uid: it.uid, vectorRow: vectors.length / dim, vectorSource: it.vectorSource || 'native' });
+      rows.push({ uid: it.uid!, vectorRow: vectors.length / dim, vectorSource: it.vectorSource || 'native' });
       vectors.push(...hit);
       reused++;
     } else {
@@ -511,16 +590,16 @@ async function main() {
         if (vectorSourceKind !== 'native') fallbackUsed++;
         const inputs = await processor(null, [img]);
         const out = await model.forward(inputs);
-        const emb = out.sentence_embedding ?? out.text_embeds;
+        const emb: TensorView | undefined = out.sentence_embedding ?? out.text_embeds;
         if (!emb) throw new Error('输出无 sentence_embedding');
         dim = emb.dims[emb.dims.length - 1];
         // ⚠️ 这里**必须**带上 vectorSource：漏了的话 persist() 里 srcByUid 取不到值，
         //    全部回落成 'native' —— 实测 meta.bmpFallbackUsed=20 而 items.json 里 3594 条
         //    全是 'native'（字段静默失真，SPEC-acceptance §2.2 的豁免分组就永远不触发）。
-        rows.push({ uid: it.uid, vectorRow: vectors.length / dim, vectorSource: vectorSourceKind });
+        rows.push({ uid: it.uid!, vectorRow: vectors.length / dim, vectorSource: vectorSourceKind });
         vectors.push(...Array.from(emb.data));
       } catch (e) {
-        failed.push({ uid: it.uid, relPath: it.relPath, error: (e && e.message) || String(e) });
+        failed.push({ uid: it.uid!, relPath: it.relPath, error: e instanceof Error ? e.message : String(e) });
       }
     }
     if ((i + 1) % 25 === 0 || i + 1 === items.length) {
@@ -553,11 +632,11 @@ async function main() {
   if (failed.length) log(`  失败清单已写入 meta.json 的 failed[]（前 5：${failed.slice(0, 5).map((f) => f.relPath).join(', ')}）`);
   return { ok, dim, failed: failed.length, reused, compat: header.compat };
 
-  function persist(allItems, allRows, vecs, d, fails, phase) {
+  function persist(allItems: LibraryItem[], allRows: VectorRow[], vecs: number[], d: number, fails: FailedItem[], phase: string): void {
     const rowByUid = new Map(allRows.map((r) => [r.uid, r.vectorRow]));
     const srcByUid = new Map(allRows.map((r) => [r.uid, r.vectorSource || 'native']));
     const outItems = allItems
-      .filter((it) => rowByUid.has(it.uid))
+      .filter((it) => rowByUid.has(it.uid!))
       .map((it) => ({
         uid: it.uid, libId: LIB_ID, folder: it.folder, stem: it.stem,
         name: it.name, relPath: it.relPath, absPath: it.absPath,
@@ -565,8 +644,8 @@ async function main() {
         archiveName: it.archiveName, archiveRelPath: it.archiveRelPath,
         archiveAbsPath: it.archiveAbsPath, archiveExt: it.archiveExt,
         archiveSize: it.archiveSize, archiveMtime: it.archiveMtime,
-        vectorRow: rowByUid.get(it.uid),
-        vectorSource: srcByUid.get(it.uid) || 'native',   // 'native' | 'bmp-fallback'
+        vectorRow: rowByUid.get(it.uid!),
+        vectorSource: srcByUid.get(it.uid!) || 'native',   // 'native' | 'bmp-fallback'
       }));
     writeIndexBin(INDEX_BIN, { ...header, count: allRows.length }, vecs, allRows.length, d);
     fs.writeFileSync(ITEMS_JSON + '.tmp', JSON.stringify(outItems, null, 1), 'utf8');

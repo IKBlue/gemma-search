@@ -27,9 +27,36 @@
 //    另有跨语言金标测试 `verify_resize.py`（含**否定对照**：上游 affine 必须被判为更差）。
 
 import { RawImage } from '@huggingface/transformers';
+import type { ResizeOptions } from 'sharp';
 
 const MARK = Symbol.for('gemma-search.resizeCompat');
-let STATE = null;
+
+type RawImageResize = typeof RawImage.prototype.resize;
+
+/** shim 之后的 resize：维度允许 null/undefined（上游 .d.ts 写的是 number，但实现刻意支持） */
+type NullableDimResize = (width: number | null | undefined, height: number | null | undefined, opts?: { resample?: string | 0 | 1 | 2 | 3 | 4 | 5 }) => Promise<RawImage>;
+
+interface ResizeCall {
+  impl: string;
+  from: [number, number];
+  to: [number, number];
+  channels?: [number, number];
+}
+
+/** 安装后的模块级状态；未安装时 STATE 为 null（resizeCompatState() 如实返回）。 */
+interface ResizeCompatState {
+  [key: symbol]: unknown;                 // MARK 标记位（Symbol.for 键）
+  kernel: string;
+  RawImage: typeof RawImage;
+  calls: ResizeCall[];
+  orig: RawImageResize;
+  patched: RawImageResize;
+  installed: boolean;
+  installed_di_name: string;
+  installed_at: string;
+}
+
+let STATE: ResizeCompatState | null = null;
 
 async function loadSharp() {
   const m = await import('sharp');
@@ -52,29 +79,33 @@ async function loadSharp() {
  *                它让类身份永远只有一个来源，不依赖"仓库里恰好只有一份"这种易碎前提。
  * @returns {object} state（含 calls 计数，便于诊断）
  */
-export function installResizeCompat({ kernel = 'pil-like', RawImage: RawImageClass = RawImage, logger = null } = {}) {
+export function installResizeCompat({ kernel = 'pil-like', RawImage: RawImageClass = RawImage, logger = null }: {
+  kernel?: string;
+  RawImage?: typeof RawImage;
+  logger?: ((message: string) => void) | null;
+} = {}): ResizeCompatState {
   if (STATE) return STATE;
 
   const sharpPromise = loadSharp();
   const orig = RawImageClass.prototype.resize;
 
-  const patched = async function resize(width, height, opts = {}) {
+  const patched = async function resize(this: RawImage, width: number | null | undefined, height: number | null | undefined, opts: { resample?: string | 0 | 1 | 2 | 3 | 4 | 5 } = {}) {
     // 核从 STATE 读（而不是闭包捕获）：诊断脚本要能切实现做**否定对照**。
     // 踩过的坑：写成闭包捕获时，切 STATE.kernel 无效，"shim vs upstream" 两行会一模一样 ——
     // 那等于否定对照失效，测试就失去了鉴别力（金标脚本会直接报错退出）。
-    const kernel = STATE.kernel;
+    const kernel = STATE!.kernel;
     // ① 同尺寸直接返回（与上游一致，别在这里丢一致性）
     if (this.width === width && this.height === height) return this;
 
     // ② nullish 维度的算术照抄上游：不抄就会出现 NaN 尺寸（静默产出坏图）
     if (width === null || width === undefined) {
-      width = Math.round((height / this.height) * this.width);
+      width = Math.round((height! / this.height) * this.width);
     } else if (height === null || height === undefined) {
       height = Math.round((width / this.width) * this.height);
     }
 
     const w = Math.round(width);
-    const h = Math.round(height);
+    const h = Math.round(height!);
     if (!(w > 0) || !(h > 0)) {
       throw new Error(`resize_compat: 目标尺寸非法 ${width}x${height}（源 ${this.width}x${this.height}）`);
     }
@@ -92,22 +123,22 @@ export function installResizeCompat({ kernel = 'pil-like', RawImage: RawImageCla
       impl = down ? 'cubic' : 'upstream-affine';
     }
     if (impl === 'upstream-affine') {
-      STATE.calls.push({ impl, from: [this.width, this.height], to: [w, h] });
-      return orig.call(this, width, height, opts);
+      STATE!.calls.push({ impl, from: [this.width, this.height], to: [w, h] });
+      return orig.call(this, width, height!, opts);
     }
 
     const sharp = await sharpPromise;
     const { data, info } = await this.toSharp()
-      .resize({ width: w, height: h, fit: 'fill', kernel: impl })
+      .resize({ width: w, height: h, fit: 'fill', kernel: impl as ResizeOptions['kernel'] })
       .raw()
       .toBuffer({ resolveWithObject: true });
-    STATE.calls.push({
+    STATE!.calls.push({
       impl: `sharp.resize(kernel=${impl},fit=fill)`,
       from: [this.width, this.height], to: [w, h],
       channels: [this.channels, info.channels],
     });
     // 保留源通道数（上游 loadImageFunction 也是这么做的），否则后续 convert/patchify 会错位
-    return new RawImageClass(new Uint8ClampedArray(data), info.width, info.height, info.channels);
+    return new RawImageClass(new Uint8ClampedArray(data), info.width, info.height, info.channels as 1 | 2 | 3 | 4);
   };
 
   RawImageClass.prototype.resize = patched;
@@ -127,19 +158,19 @@ export function installResizeCompat({ kernel = 'pil-like', RawImage: RawImageCla
 }
 
 /** 读取当前状态（未安装时为 null）。 */
-export function resizeCompatState() {
+export function resizeCompatState(): ResizeCompatState | null {
   return STATE;
 }
 
 /** 切换核（仅诊断用；正常路径应在 install 时定下）。 */
-export function setResizeKernel(kernel) {
+export function setResizeKernel(kernel: string): ResizeCompatState {
   if (!STATE) throw new Error('resize_compat 未安装');
   STATE.kernel = kernel;
   return STATE;
 }
 
 /** 取回**上游原始**方法（供否定对照：必须证明测试能分辨好坏）。 */
-export function upstreamResize() {
+export function upstreamResize(): RawImageResize {
   if (!STATE) throw new Error('resize_compat 未安装');
   return STATE.orig;
 }
@@ -157,7 +188,7 @@ export function upstreamResize() {
  * 那份重复依赖树已在 monorepo 重构中删除，但**这条护栏与注入约定都保留** ——
  * 它防的是"类身份有多个来源"这一类错误，而不是那一次的具体事故。
  */
-export function assertResizeCompatInstalled(RawImageClass) {
+export function assertResizeCompatInstalled(RawImageClass: typeof RawImage): boolean {
   if (!STATE) throw new Error('resize_compat 未安装');
   if (RawImageClass.prototype.resize !== STATE.patched) {
     throw new Error('resize_compat 未作用到调用方的 RawImage —— 传入的类与安装时的类不是同一个'
@@ -192,7 +223,7 @@ export async function selfTestResizeCompat() {
   if (r.data.length !== 5 * 4 * ch) throw new Error(`输出字节数错：${r.data.length}，期望 ${5 * 4 * ch}`);
 
   // nullish：只给宽时，高按比例（上游算法）→ 8x6 给 width=4 应为 4x3
-  const r2 = await img.resize(4, null);
+  const r2 = await (img.resize as NullableDimResize)(4, null);
   if (r2.height !== 3) throw new Error(`nullish 维度算术错：4x${r2.height}，期望 4x3`);
 
   const up = await img.resize(16, 12);

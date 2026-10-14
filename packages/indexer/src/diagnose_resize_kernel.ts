@@ -21,10 +21,21 @@
 
 import fs from 'node:fs';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
-import { readImageWithFallback } from './bmp_decode.mjs';
+import type { ResizeOptions } from 'sharp';
+import type { ImageProcessorConfigView, ModelDevice, ModelDtype, ModelOutputView } from './third_party_types.ts';
+import { readImageWithFallback } from './bmp_decode.ts';
+
+interface KernelCall { kernel: string; from: number[]; to: (number | null | undefined)[] }
+interface FailedSample { rel_path: string; error: string }
+interface DiagnoseResult {
+  model_dir: string; seq: number; device: string; kernels: string[];
+  vectors: Record<string, Record<string, number[]>>;
+  failed?: Record<string, FailedSample[]>;
+  resize_calls_sample?: KernelCall[];
+}
 
 const argv = process.argv.slice(2);
-const arg = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : d; };
+const arg = (n: string, d?: string): string => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : (d as string); };
 
 const MODEL_DIR = arg('model') || process.env.GEMMA_ONNX_MODEL;
 const IN_JSON = arg('in');
@@ -44,29 +55,29 @@ env.allowRemoteModels = false;
 let KERNEL = 'baseline';
 const origResize = RawImage.prototype.resize;
 const sharpMod = (await import('sharp')).default;
-const calls = [];
+const calls: KernelCall[] = [];
 
 /**
  * 变体：把 resize 换成 sharp.resize(kernel) 的 fit:'fill'。
  * baseline = 原样调用（即 transformers.js 的 affine-bicubic 路径）。
  * 尺寸按上游算法先补齐（只处理"其中一维为 null"的情形，其余原样透传）。
  */
-RawImage.prototype.resize = async function resize(width, height, opts = {}) {
+RawImage.prototype.resize = async function resize(this: RawImage, width: number | null | undefined, height: number | null | undefined, opts: { resample?: string | 0 | 1 | 2 | 3 | 4 | 5 } = {}) {
   if (this.width === width && this.height === height) return this;
   if (width === null || width === undefined) {
-    width = Math.round(height / this.height * this.width);
+    width = Math.round(height! / this.height * this.width);
   } else if (height === null || height === undefined) {
     height = Math.round(width / this.width * this.height);
   }
   calls.push({ kernel: KERNEL, from: [this.width, this.height], to: [width, height] });
-  if (KERNEL === 'baseline') return origResize.call(this, width, height, opts);
+  if (KERNEL === 'baseline') return origResize.call(this, width, height!, opts);
   const buf = await this.toSharp()
-    .resize({ width: Math.round(width), height: Math.round(height), fit: 'fill', kernel: KERNEL })
+    .resize({ width: Math.round(width), height: Math.round(height!), fit: 'fill', kernel: KERNEL as ResizeOptions['kernel'] })
     .png().toBuffer();
   return await RawImage.fromBlob(new Blob([buf]));
 };
 
-const log = (...a) => console.log('[kernel]', ...a);
+const log = (...a: unknown[]) => console.log('[kernel]', ...a);
 
 const list = JSON.parse(fs.readFileSync(IN_JSON, 'utf8'));
 log(`${list.length} 张 · 核 ${KERNELS.join(' / ')} · device=${DEVICE} seq=${SEQ}`);
@@ -78,19 +89,19 @@ processor.image_seq_length = SEQ;
 if (processor.image_processor) {
   processor.image_processor.max_soft_tokens = SEQ;
   processor.image_processor.image_seq_length = SEQ;
-  if (processor.image_processor.config) processor.image_processor.config.image_seq_length = SEQ;
+  if (processor.image_processor.config) (processor.image_processor.config as ImageProcessorConfigView).image_seq_length = SEQ;
 }
-const model = await AutoModel.from_pretrained(MODEL_DIR, { config, dtype: 'float32', device: DEVICE });
+const model = await AutoModel.from_pretrained(MODEL_DIR, { config, dtype: 'float32' as ModelDtype, device: DEVICE as ModelDevice });
 log('模型载入完成');
 
-const pick = (out) => out.sentence_embedding ?? out.text_embeds;
+const pick = (out: ModelOutputView) => out.sentence_embedding ?? out.text_embeds;
 
-const result = { model_dir: MODEL_DIR, seq: SEQ, device: DEVICE, kernels: KERNELS, vectors: {} };
+const result: DiagnoseResult = { model_dir: MODEL_DIR, seq: SEQ, device: DEVICE, kernels: KERNELS, vectors: {} };
 for (const k of KERNELS) {
   KERNEL = k;
   const t0 = Date.now();
-  const vectors = {};
-  const failed = [];
+  const vectors: Record<string, number[]> = {};
+  const failed: FailedSample[] = [];
   for (const it of list) {
     try {
       const { image } = await readImageWithFallback(it.abs_path);
@@ -101,7 +112,7 @@ for (const k of KERNELS) {
       if (!emb) throw new Error('输出无 sentence_embedding');
       vectors[it.rel_path] = Array.from(emb.data);
     } catch (e) {
-      failed.push({ rel_path: it.rel_path, error: e.message });
+      failed.push({ rel_path: it.rel_path, error: e instanceof Error ? e.message : String(e) });
     }
   }
   result.vectors[k] = vectors;

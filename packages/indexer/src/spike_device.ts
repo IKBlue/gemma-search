@@ -8,7 +8,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { ModelDevice } from './third_party_types.ts';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
+
+interface DeviceSpikeResult {
+  device: string; seq: number; n: number;
+  load_ms?: number; text_first_ms?: number; text_dim?: number | null;
+  dim?: number | null; per_image_ms?: number[]; first_image_ms?: number;
+  steady_avg_ms?: number | null; avg_ms?: number; ok?: boolean; error?: string;
+}
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const [modelDir, device = 'cpu', seqArg = '140', nArg = '8'] = process.argv.slice(2);
@@ -22,10 +30,10 @@ env.allowRemoteModels = false;
 const selPath = path.join(here, '..', 'spike_selection.json');
 const sel = JSON.parse(fs.readFileSync(selPath, 'utf8')).slice(0, N);
 
-const log = (...a) => console.error('[device]', ...a);
+const log = (...a: unknown[]) => console.error('[device]', ...a);
 const t = () => Number(process.hrtime.bigint()) / 1e6;   // ms
 
-const result = { device, seq: SEQ, n: sel.length };
+const result: DeviceSpikeResult = { device, seq: SEQ, n: sel.length };
 
 try {
   let t0 = t();
@@ -37,7 +45,7 @@ try {
     processor.image_processor.max_soft_tokens = SEQ;
     processor.image_processor.image_seq_length = SEQ;
   }
-  const model = await AutoModel.from_pretrained(modelDir, { config, dtype: 'fp32', device });
+  const model = await AutoModel.from_pretrained(modelDir, { config, dtype: 'fp32', device: device as ModelDevice });
   result.load_ms = Math.round(t() - t0);
   log(`device=${device} 载入 ${result.load_ms} ms`);
 
@@ -49,7 +57,7 @@ try {
   result.text_dim = tOut.sentence_embedding?.dims?.at(-1) ?? null;
 
   // 图像：逐张，分开记首张与稳态
-  const per = [];
+  const per: number[] = [];
   for (const s of sel) {
     const t1 = t();
     const img = await RawImage.read(s.abs_path);
@@ -71,7 +79,7 @@ try {
   result.ok = true;
 } catch (e) {
   result.ok = false;
-  result.error = (e && (e.message || String(e))) || 'unknown';
+  result.error = (e instanceof Error ? e.message : String(e)) || 'unknown';
   log(`失败: ${result.error}`);
 }
 
