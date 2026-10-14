@@ -1,0 +1,121 @@
+================================================================================
+T-12b 证据 · 索引五道校验**逐道破坏实测**
+任务板 id: task-22   执行: db-worker   日期: 2026-10-15
+依赖: task-21（T-12a 的 readIndexFile 产品路径）· 引擎 readIndexBin（唯五道校验实现）
+写入范围: apps/desktop/tests/index-corruption.test.mjs · data/_t12（临时副本）
+===============================================================================
+
+【结论】
+· 五道校验**每一道都真的会响**，而且报的是**它自己那一道**（错误码 + message 都带出来了，见下方原始输出）：
+    1 MAGIC 不符           → "MAGIC 不符：实际 b853494458000001，期望 4753494458000001"
+    2 footer 解析失败       → "footer 解析失败：Expected property name or '}' in JSON at position 1"
+    3 complete 非 true      → "footer.complete 不是 true → 视为写入未完成"
+    4 footer↔header 不一致  → "footer 与 header 不一致：3595/768 vs 3594/768"（count）· "3594/769 vs 3594/768"（dim）
+    5 向量块 sha1 不符      → "向量块 sha1 不符：footer=9e1575… 实际=4907618c…"
+  五道全部是 name=EngineError · code=INDEX_CORRUPT ⇒ 是**索引损坏**，不是别的错。
+· 每一道都**先证明同一份副本在破坏前读得通**（count=3594 · dim=768 · bytes=11042105），再证明破坏后报错。
+· 附加三道长度自洽检查也实测（文件太短 / headerLen 超出文件 / 向量块超出文件）。
+· 单测：node --test apps/desktop/tests/index-corruption.test.mjs ⇒ 7 tests / pass 7 / fail 0 / skipped 0 / EXIT=0
+· 五个新单测同进程合跑：51 tests / pass 51 / fail 0 / EXIT=0
+· npx tsc --noEmit -p tsconfig.node.json ⇒ EXIT=0
+· **原件零改动**：after() 把 data/libraries/L1/index.bin 重新哈希并与加载时的指纹比对（相等才通过）；
+  破坏全部发生在 data/_t12 下的副本上。独立核对：文件 sha1 = 56a8bf5f5f700ea734f22bc1bf255edd1432ae83（跑前跑后一致）。
+· ⚠️ 全量门禁 / npm test / build / e2e 未跑（Lead 统一跑，TASKS §3.6）。
+
+【改了哪些文件】
+新增：
+  apps/desktop/tests/index-corruption.test.mjs   255 行  D0 + D1–D5 + D6
+未改：**零个既有文件**（没有改任何生产代码 —— 本轮是纯实测）。
+
+【夹具为什么"知道布局"，而校验仍然 100% 归引擎】
+· 要**精准地只破坏一道**，就必须按 SPEC §2.2 公布的布局改字节：MAGIC(8) · u32 headerLen(8..12) ·
+  headerJSON(12..12+headerLen) · 向量块(count×dim×4) · u32 footerLen · footerJSON。
+  实测原件：headerLen=1215 · blockBytes=11040768 · footLenOff=11041995 · footLen=106 ·
+  footer={"count":3594,"dim":768,"sha1_of_vector_block":"9e1575145f101834cba1743943dac9ec5a8c5321","complete":true}
+· ⚠️ 但**判定全部由引擎做**：测试只写字节 + 调产品路径 readIndexFile（→ 引擎 readIndexBin）。
+  本文件不含任何"校验逻辑"，也没有第二份 GSIDX 解析（AGENTS P1）。
+· 等长替换是刻意设计：第 3 道把 true→null、第 4 道把 3594→3595 / 768→769，长度都不变 ——
+  否则会被第 2 道（footer 解析失败）先拦下，"那道校验响了"就变成假证据。
+  （夹具里对"替换必须等长"有断言，替换不等长会当场红。）
+
+【原始证据】
+
+--- ① 单测全文（含每道的破坏前 / 破坏后两条诊断原始输出）
+$ node --test apps/desktop/tests/index-corruption.test.mjs
+✔ D0 ⭐ 控制组：副本本身可读（破坏前的基线），且原件指纹未变 (39.8104ms)
+ℹ D0 破坏前：count=3594 · dim=768 · bytes=11042105 ⇒ 读取成功（同一份副本，只差下面那一处破坏）
+ℹ D0 破坏前：count=3594 · dim=768 · bytes=11042105 · headerLen=1215 · blockBytes=11040768 · footer={"count":3594,"dim":768,"sha1_of_vector_block":"9e1575145f101834cba1743943dac9ec5a8c5321","complete":true}
+✔ D1 ⭐ 第 1 道 MAGIC：改 1 个字节 ⇒ INDEX_CORRUPT（MAGIC 不符） (25.4667ms)
+ℹ D1 破坏前：count=3594 · dim=768 · bytes=11042105 ⇒ 读取成功（同一份副本，只差下面那一处破坏）
+ℹ D1 破坏后：name=EngineError · code=INDEX_CORRUPT · message=MAGIC 不符：实际 b853494458000001，期望 4753494458000001
+✔ D2 ⭐ 第 2 道 footer 解析：footer 前缀改成非法 JSON ⇒ INDEX_CORRUPT（footer 解析失败） (25.3315ms)
+ℹ D2 破坏前：count=3594 · dim=768 · bytes=11042105 ⇒ 读取成功（同一份副本，只差下面那一处破坏）
+ℹ D2 破坏后：name=EngineError · code=INDEX_CORRUPT · message=footer 解析失败：Expected property name or '}' in JSON at position 1 (line 1 column 2)
+✔ D3 ⭐ 第 3 道 complete：置成非 true（等长、仍是合法 JSON）⇒ INDEX_CORRUPT（视为写入未完成） (24.9615ms)
+ℹ D3 破坏前：count=3594 · dim=768 · bytes=11042105 ⇒ 读取成功（同一份副本，只差下面那一处破坏）
+ℹ D3 破坏后：name=EngineError · code=INDEX_CORRUPT · message=footer.complete 不是 true → 视为写入未完成
+✔ D4 ⭐ 第 4 道 footer↔header 不一致：只改 footer 的 count / dim ⇒ INDEX_CORRUPT（不一致） (51.3715ms)
+ℹ D4-count 破坏前：count=3594 · dim=768 · bytes=11042105 ⇒ 读取成功（同一份副本，只差下面那一处破坏）
+ℹ D4-count 破坏后：name=EngineError · code=INDEX_CORRUPT · message=footer 与 header 不一致：3595/768 vs 3594/768
+ℹ D4-dim 破坏前：count=3594 · dim=768 · bytes=11042105 ⇒ 读取成功（同一份副本，只差下面那一处破坏）
+ℹ D4-dim 破坏后：name=EngineError · code=INDEX_CORRUPT · message=footer 与 header 不一致：3594/769 vs 3594/768
+✔ D5 ⭐ 第 5 道 sha1：向量块里翻 1 个 bit（长度不变）⇒ INDEX_CORRUPT（sha1 不符） (62.7652ms)
+ℹ D5 破坏前：count=3594 · dim=768 · bytes=11042105 ⇒ 读取成功（同一份副本，只差下面那一处破坏）
+ℹ D5 破坏后：name=EngineError · code=INDEX_CORRUPT · message=向量块 sha1 不符：footer=9e1575145f101834cba1743943dac9ec5a8c5321 实际=4907618c0a81e6188accfb7fe8248dfa70c5cabb
+✔ D6 ⭐（附）长度自洽：文件太短 / headerLen 超出文件 / 向量块超出文件 也都是 INDEX_CORRUPT (31.3668ms)
+ℹ D6-short 破坏后：name=EngineError · code=INDEX_CORRUPT · message=文件太短：10 字节
+ℹ D6-headerLen 破坏后：name=EngineError · code=INDEX_CORRUPT · message=headerLen 超出文件：16777215
+ℹ D6-block 破坏后：name=EngineError · code=INDEX_CORRUPT · message=向量块超出文件：需要 11040768 字节，实际剩 5520384
+ℹ tests 7 · suites 0 · pass 7 · fail 0 · cancelled 0 · skipped 0 · todo 0 · duration_ms 399.6717
+EXIT=0
+
+--- ② 五个新单测同进程合跑（--test-isolation=none，防"单跑绿、合跑红"）
+$ node --test --test-isolation=none "…db-schema" "…db-import" "…db-rebuild" "…index-location" "…index-corruption"
+ℹ tests 51 / pass 51 / fail 0 / cancelled 0 / skipped 0 / duration_ms 21158.2861   TEST_EXIT=0
+
+--- ③ 类型门禁
+$ npx tsc --noEmit -p tsconfig.node.json
+TSC_EXIT=0
+
+--- ④ 原件未改动（独立核对，不依赖测试自己的断言）
+data/libraries/L1/index.bin sha1 = 56a8bf5f5f700ea734f22bc1bf255edd1432ae83（跑前 / 跑后两次一致）
+本文件另有 after() 钩子：把原件重新哈希与加载时指纹比对，不等就红。
+
+【每条用例"能红"的条件（不是空断言）】
+D1 若引擎不校验 MAGIC ⇒ 读取成功、断言红。
+D2 若 footer 解析失败被吞掉（旧实现就有过静默失效）⇒ 读取成功、断言红。
+D3 若 complete 没被检查 ⇒ 半截写入会被当成可用索引、断言红。
+D4 若 footer↔header 不做一致性检查 ⇒ 错位读取（rowToRel 全错）却"读得通"、断言红。
+D5 若 sha1 不校验 ⇒ 向量块被损坏也能读出"看似正常"的向量、断言红。
+D6-good 是反例锚：同一份 layout 下未破坏的副本必须读得通，防止"怎么都报错"也能骗过上面三条。
+
+【这条测试**证明不了**什么（如实写）】
+· 不证明"索引与 items.json 行数一致"（那是 F5 体检的第 7 项 / T-11c 的对账口径，不属于五道校验本身）。
+· 不证明 headerJSON 的内容正确（五道里没有 header 字段语义校验；header 的 count/dim 只被第 4 道间接比对）——
+  也就是说"header 被人改得很离谱但 count/dim/footer 都自洽"这种情况，五道校验抓不到。这是格式的既有边界，
+  不是本轮发现的缺陷。如实标出来，避免把"五道全过"读成"索引一定是对的"。
+· D6 的三条（文件太短 / headerLen 超出文件 / 向量块超出文件）**不在 SPEC §2.2 的五道里**，是额外的长度自洽检查，
+  我按"附"标注；D6 的三条破坏没有各自的"破坏前"诊断（它们是截断/改长度，不是同文件的一处字节不同），
+  基线与反例锚由 D0 与 D6-good 提供。
+· 不覆盖真实磁盘坏道/掉电场景：这里破坏的是**已写好的文件**，不是写入过程中的崩溃（后者由 T-12a 的
+  fsync+rename 与 L4 系列的失败路径覆盖，也不是断电注入）。
+
+【环境说明（哪些是环境、哪些是产品）】
+· 破坏副本落在仓库内 data/_t12/index-corruption-<pid>/（after() 整目录删除；已确认 data/_t12 为空）；
+  原件 data/libraries/L1/index.bin 只读、未被改动。
+· 本会话沙箱把 electron.exe 的写限制在仓库工作目录内（G:\\model / AppData EPERM，TASKS §5）——
+  本轮不需要库外路径，所以这条限制不影响结论。
+· 两个 node：run_code 进程内 v24.18.1，pwsh/PATH 里 v24.14.0。单测与 tsc 都走 PATH 的 v24.14.0。
+· 每进程一条 "(node:PID) ExperimentalWarning: SQLite is an experimental feature"（T-03 已判可接受，引用既有证据）。
+
+【未决 / 交接】
+1) 接线方（T-15/T-16）拿到的是引擎的 EngineError(INDEX_CORRUPT) —— 按 code 分流即可，
+   USER_MESSAGE.INDEX_CORRUPT 已有用户文案"索引文件已损坏，需要重建"（SPEC §2.2 的界面要求）。
+2) 五道校验**不覆盖 header 语义**（见上）；如果将来要求"header 字段也被完整性保护"，
+   那是改 GSIDX 格式（加 header 哈希或把 header 也纳入 sha1），属于**格式变更**，不是本轮范围（要动引擎与 T-00 基线）。
+3) 全量门禁 / build / e2e 未跑。
+
+【回滚方式】
+· 删除 apps/desktop/tests/index-corruption.test.mjs 与本证据文件即可；**没有改任何既有文件**，不需要回退别的。
+· 未跑 git（AGENTS P7）；data/_t12 与 data/_t11 已确认为空（临时副本与目录都已清理）。
+===============================================================================
