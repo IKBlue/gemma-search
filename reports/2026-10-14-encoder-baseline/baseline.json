@@ -1,0 +1,435 @@
+{
+ "at": "2026-10-14T03:44:03.422Z",
+ "model": "D:\\USERS\\Desktop\\Agent\\gemma-search\\model-cache\\onnx\\embeddinggemma-2\\daa72c51243991dfcaf9f9137d2c573d8f7790c0\\fp32",
+ "index": "data/libraries/L1",
+ "lib": "G:\\model",
+ "indexCount": 3594,
+ "dim": 768,
+ "imageSample": {
+  "n": 47,
+  "cosMin": 0.9999999999999998,
+  "cosMedian": 1,
+  "cosMax": 1.0000000000000002,
+  "rows": [
+   {
+    "uid": "8a70380a9575",
+    "relPath": "CR+VR\\ID-10083808.jpg",
+    "src": "native",
+    "cos": 1
+   },
+   {
+    "uid": "4055c9bed4d9",
+    "relPath": "CR\\ID-110322494.jpg",
+    "src": "native",
+    "cos": 1.0000000000000002
+   },
+   {
+    "uid": "2312ff831eef",
+    "relPath": "CR\\ID-1167109771.jpg",
+    "src": "native",
+    "cos": 1
+   },
+   {
+    "uid": "007e167c3185",
+    "relPath": "CR\\ID-1437342.jpg",
+    "src": "native",
+    "cos": 0.9999999999999999
+   },
+   {
+    "uid": "1db2ff382088",
+    "relPath": "CR\\ID-15764533.jpg",
+    "src": "native",
+    "cos": 1
+   },
+   {
+    "uid": "5d0de87d98f0",
+    "relPath": "CR\\ID-650675289.jpeg",
+    "src": "native",
+    "cos": 0.9999999999999998
+   },
+   {
+    "uid": "c8bd903f48d3",
+    "relPath": "VR\\ID-102914429.jpg",
+    "src": "native",
+    "cos": 0.9999999999999999
+   },
+   {
+    "uid": "bd7a73858ee1",
+    "relPath": "VR\\ID-1076400.jpeg",
+    "src": "native",
+    "cos": 1
+   },
+   {
+    "uid": "1238732f08f7",
+    "relPath": "VR\\ID-1102771533.jpg",
+    "src": "native",
+    "cos": 1
+   },
+   {
+    "uid": "82a3885bc0c0",
+    "relPath": "VR\\ID-1108675036.jpg",
+    "src": "native",
+    "cos": 1.0000000000000002
+   },
+   {
+    "uid": "2d26d23d37b2",
+    "relPath": "VR\\ID-1116231154.png",
+    "src": "native",
+    "cos": 1.0000000000000002
+   },
+   {
+    "uid": "ea5c4ece9de2",
+    "relPath": "VR\\ID-1129804457.jpg",
+    "src": "native",
+    "cos": 1
+   },
+   {
+    "uid": "0088bc6dd86d",
+    "relPath": "VR\\ID-1144534975.png",
+    "src": "native",
+    "cos": 1
+   },
+   {
+    "uid": "c4e3875f1066",
+    "relPath": "VR\\ID-116217287.jpg",
+    "src": "native",
+    "cos": 1.0000000000000002
+   },
+   {
+    "uid": "e72f73edf7ec",
+    "relPath": "VR\\ID-1177154193.jpg",
+    "src": "native",
+    "cos": 0.9999999999999999
+   },
+   {
+    "uid": "00e0857dc686",
+    "relPath": "VR\\ID-11943384.jpeg",
+    "src": "native",
+    "cos": 1
+   },
+   {
+    "uid": "ad4a22505356",
+    "relPath": "VR\\ID-1335802.jpg",
+    "src": "native",
+    "cos": 1
+   },
+   {
+    "uid": "26f89d54affc",
+    "relPath": "VR\\ID-14341364.jpg",
+    "src": "native",
+    "cos": 1
+   },
+   {
+    "uid": "60c559040e9e",
+    "relPath": "VR\\ID-15209089.jpg",
+    "src": "native",
+    "cos": 1
+   },
+   {
+    "uid": "e06bcffc6d1e",
+    "relPath": "VR\\ID-15557657.jpg",
+    "src": "native",
+    "cos": 1
+   },
+   {
+    "uid": "73506ab24463",
+    "relPath": "VR\\ID-16082032.jpg",
+    "src": "native",
+    "cos": 1.0000000000000002
+   },
+   {
+    "uid": "c9eb8fb81153",
+    "relPath": "VR\\ID-294166292.jpg",
+    "src": "native",
+    "cos": 0.9999999999999998
+   },
+   {
+    "uid": "ececa10844fd",
+    "relPath": "VR\\ID-417477.jpg",
+    "src": "native",
+    "cos": 1.0000000000000002
+   },
+   {
+    "uid": "4ee724cf9af3",
+    "relPath": "VR\\ID-588524836.jpg",
+    "src": "native",
+    "cos": 1.0000000000000002
+   },
+   {
+    "uid": "54a41bcae0b6",
+    "relPath": "VR\\ID-657843.jpg",
+    "src": "native",
+    "cos": 1
+   },
+   {
+    "uid": "b3fb04fd0fd5",
+    "relPath": "VR\\ID-726498.jpeg",
+    "src": "native",
+    "cos": 1
+   },
+   {
+    "uid": "a965e2d400e7",
+    "relPath": "VR\\ID-858548671.jpg",
+    "src": "native",
+    "cos": 1.0000000000000002
+   },
+   {
+    "uid": "cc18528e42ac",
+    "relPath": "VR\\ID-991224669.jpg",
+    "src": "bmp-fallback",
+    "cos": 1.0000000000000002
+   },
+   {
+    "uid": "2f6ecb3c660a",
+    "relPath": "VR\\ID-12089794.jpg",
+    "src": "bmp-fallback",
+    "cos": 1
+   },
+   {
+    "uid": "8051978aaefb",
+    "relPath": "VR\\ID-1257367.jpg",
+    "src": "bmp-fallback",
+    "cos": 0.9999999999999998
+   },
+   {
+    "uid": "b5eb7fa1e56b",
+    "relPath": "VR\\ID-1299244.jpg",
+    "src": "bmp-fallback",
+    "cos": 1.0000000000000002
+   },
+   {
+    "uid": "ba51c7762c23",
+    "relPath": "VR\\ID-1413345.jpg",
+    "src": "bmp-fallback",
+    "cos": 1.0000000000000002
+   },
+   {
+    "uid": "2b340d3eec19",
+    "relPath": "VR\\ID-1422632.jpg",
+    "src": "bmp-fallback",
+    "cos": 1
+   },
+   {
+    "uid": "2f70effe3206",
+    "relPath": "VR\\ID-1456208.jpg",
+    "src": "bmp-fallback",
+    "cos": 1.0000000000000002
+   },
+   {
+    "uid": "49f743cac2b7",
+    "relPath": "VR\\ID-1472285.jpg",
+    "src": "bmp-fallback",
+    "cos": 1
+   },
+   {
+    "uid": "8bf240b4635a",
+    "relPath": "VR\\ID-1499683.jpg",
+    "src": "bmp-fallback",
+    "cos": 0.9999999999999998
+   },
+   {
+    "uid": "7fe5356de529",
+    "relPath": "VR\\ID-1501265.jpg",
+    "src": "bmp-fallback",
+    "cos": 1
+   },
+   {
+    "uid": "6bb669706403",
+    "relPath": "VR\\ID-1502746.jpg",
+    "src": "bmp-fallback",
+    "cos": 0.9999999999999998
+   },
+   {
+    "uid": "4c139dd19162",
+    "relPath": "VR\\ID-1505776.jpg",
+    "src": "bmp-fallback",
+    "cos": 0.9999999999999999
+   },
+   {
+    "uid": "450a16796bc3",
+    "relPath": "VR\\ID-181657062.jpg",
+    "src": "bmp-fallback",
+    "cos": 1
+   },
+   {
+    "uid": "9bff1b8dd4ae",
+    "relPath": "VR\\ID-183073748.jpg",
+    "src": "bmp-fallback",
+    "cos": 1
+   },
+   {
+    "uid": "6db238eb5669",
+    "relPath": "VR\\ID-610620.jpg",
+    "src": "bmp-fallback",
+    "cos": 1
+   },
+   {
+    "uid": "621175e2eeee",
+    "relPath": "VR\\ID-628141.jpg",
+    "src": "bmp-fallback",
+    "cos": 1.0000000000000002
+   },
+   {
+    "uid": "f675accad3f9",
+    "relPath": "VR\\ID-680158601.jpg",
+    "src": "bmp-fallback",
+    "cos": 1
+   },
+   {
+    "uid": "1211199c86b5",
+    "relPath": "VR\\ID-787548745.jpg",
+    "src": "bmp-fallback",
+    "cos": 1
+   },
+   {
+    "uid": "161f17159b8e",
+    "relPath": "VR\\ID-888181044.jpg",
+    "src": "bmp-fallback",
+    "cos": 1
+   },
+   {
+    "uid": "8c449f7f7e00",
+    "relPath": "VR\\ID-888793055.jpg",
+    "src": "bmp-fallback",
+    "cos": 1
+   }
+  ]
+ },
+ "textQueries": [
+  {
+   "query": "北欧吊灯",
+   "top10": [
+    {
+     "score": 0.7855,
+     "relPath": "CR\\ID-633419997.jpg"
+    },
+    {
+     "score": 0.7852,
+     "relPath": "VR\\ID-15588806.jpg"
+    },
+    {
+     "score": 0.7836,
+     "relPath": "VR\\ID-723604.jpeg"
+    },
+    {
+     "score": 0.7756,
+     "relPath": "VR\\ID-115822915.jpg"
+    },
+    {
+     "score": 0.7751,
+     "relPath": "VR\\ID-1112089406.jpg"
+    },
+    {
+     "score": 0.7748,
+     "relPath": "VR\\ID-716501.jpeg"
+    },
+    {
+     "score": 0.7745,
+     "relPath": "VR\\ID-15107839.jpg"
+    },
+    {
+     "score": 0.7742,
+     "relPath": "CR\\ID-16047383.jpg"
+    },
+    {
+     "score": 0.7736,
+     "relPath": "VR\\ID-15960769.jpg"
+    },
+    {
+     "score": 0.7736,
+     "relPath": "CR\\ID-15062231.jpg"
+    }
+   ]
+  },
+  {
+   "query": "线性灯 安装",
+   "top10": [
+    {
+     "score": 0.765,
+     "relPath": "VR\\ID-670523.jpeg"
+    },
+    {
+     "score": 0.7595,
+     "relPath": "CR\\ID-113989370.jpg"
+    },
+    {
+     "score": 0.7566,
+     "relPath": "VR\\ID-2579409.jpg"
+    },
+    {
+     "score": 0.7552,
+     "relPath": "VR\\ID-15281459.jpg"
+    },
+    {
+     "score": 0.7545,
+     "relPath": "VR\\ID-1134173012.jpg"
+    },
+    {
+     "score": 0.754,
+     "relPath": "VR\\ID-14210457.jpg"
+    },
+    {
+     "score": 0.7536,
+     "relPath": "VR\\ID-14094877.png"
+    },
+    {
+     "score": 0.7518,
+     "relPath": "CR\\ID-1173617663.jpg"
+    },
+    {
+     "score": 0.7502,
+     "relPath": "VR\\ID-1138597605.jpeg"
+    },
+    {
+     "score": 0.7502,
+     "relPath": "VR\\ID-113070379.jpg"
+    }
+   ]
+  },
+  {
+   "query": "现代客厅 落地灯",
+   "top10": [
+    {
+     "score": 0.7882,
+     "relPath": "CR\\ID-15587404.jpg"
+    },
+    {
+     "score": 0.7784,
+     "relPath": "其他\\ID-15224609.jpg"
+    },
+    {
+     "score": 0.7756,
+     "relPath": "VR\\ID-343911.jpg"
+    },
+    {
+     "score": 0.7718,
+     "relPath": "VR\\ID-15329484.jpg"
+    },
+    {
+     "score": 0.7667,
+     "relPath": "CR\\ID-107111342.jpg"
+    },
+    {
+     "score": 0.7655,
+     "relPath": "VR\\ID-1176296688.png"
+    },
+    {
+     "score": 0.7652,
+     "relPath": "VR\\ID-328963.jpg"
+    },
+    {
+     "score": 0.7646,
+     "relPath": "VR\\ID-14353650.jpeg"
+    },
+    {
+     "score": 0.7642,
+     "relPath": "VR\\ID-715647.jpeg"
+    },
+    {
+     "score": 0.7607,
+     "relPath": "VR\\ID-1184698017.jpg"
+    }
+   ]
+  }
+ ]
+}

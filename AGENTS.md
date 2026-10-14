@@ -25,7 +25,7 @@
 | 界面 | **React 19** + **TypeScript（严格）** | 渲染层 `.tsx`，**不再是 .jsx** |
 | 样式 | **Tailwind CSS 4** + **shadcn/ui**（Radix + cva） | 自研 `ui/` 与手写 CSS 退役；组件代码进仓库、可改 |
 | 状态 | **Zustand** | 只放状态与编排，不持久化 |
-| 路由 | **React Router 7**（hash 路由） | 打包态是 `file://`，history 深链会 404 |
+| 路由 | **React Router 8**（hash 路由） | 打包态是 `file://`，history 深链会 404；**8.4.0 已由 spike 验证**（见 reports/2026-10-14-router8-spike） |
 | 校验 | **zod** | 契约唯一来源是 `shared/ipc.ts` |
 | 数据 | **node:sqlite**（元数据 / 文档分块 / 体检台账）+ 向量二进制文件 | SQL 是**派生数据**，可重建；向量格式见 SPEC §2 |
 | 测试 | **node:test**（单测）+ **Playwright**（真窗口 E2E） | 见 §4 |
@@ -80,7 +80,7 @@
 4. ⚠️ 现有 `@radix-ui/react-alert-dialog` / `@radix-ui/react-slot` 是**旧代码直接用裸 Radix** 留下的（`ui/ConfirmDialog.jsx` · `ui/Button.jsx`）：重写时由 `radix-ui` 统一包替代并删除这两个分散包。
 5. 历史教训：本项目曾一次性装 11 个 `@radix-ui/react-*` 却**零 import**，后来全部删除。**预装原语 = 造无用依赖**。
 
-> ⚠️ **`react-router` 最新已到 8.4.0**，而本项目锁定 7.x（现装 7.18.4）。**升 8 是破坏性变更**，需要单独决策后再动 —— 在决定之前不要顺手升级。
+> ✅ **`react-router` 已升到 8.4.0**（2026-10-14 spike 通过：`npm test` / `typecheck` / `build` / 导航 E2E 全绿，**一行代码都不用改**）。升级前请先看 spike 证据；同一 spike 也确认了 CLI 与 `radix-ui` 的装法。
 > 版本号以 **lockfile** 为准；这里记的是核实日期当天的最新稳定版。
 
 

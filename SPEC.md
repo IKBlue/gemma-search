@@ -109,11 +109,14 @@
 
 ### 2.2 `.gs-index.bin` 格式（GSIDX v1）
 
+> ⚠️ 2026-10-14 按 `packages/engine/src/index.mjs` 的 `readIndexBin` 逐行校对后修正：**[8,12) 是 headerLen，不是 count；header 是一段 JSON，不是固定字段**。
+
 ```
-[0,8)    MAGIC = 47 53 49 44 58 00 00 01   ("GSIDX" + 版本)
-[8,12)   u32 LE count
-[12,...) 向量块：count × dim × float32（行优先）
-末尾      u32 LE footerLen + footerJSON { count, dim, sha1_of_vector_block, complete }
+[0,8)              MAGIC = 47 53 49 44 58 00 00 01   ("GSIDX" + 版本)
+[8,12)             u32 LE headerLen
+[12, 12+headerLen) headerJSON（{ count, dim, … }）
+[...]              向量块：count × dim × float32（行优先）
+末尾               u32 LE footerLen + footerJSON { count, dim, sha1_of_vector_block, complete }
 ```
 
 **损坏判定（五道，缺一不可）**：MAGIC 不符 · footer 解析失败 · `complete !== true`（写入未完成）· footer 与 header 的 count/dim 不一致 · sha1 不符。**任一条不满足即视为损坏**，界面必须说「索引已损坏，需要重建」，不许静默给出空结果。
