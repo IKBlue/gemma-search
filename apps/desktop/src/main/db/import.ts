@@ -2,8 +2,9 @@
 //
 // 职责边界（老规矩：**只接收路径**，不 import electron、不读全局）：
 //   · 源文件路径 = itemsJsonPath（调用方从库根/索引自举目录解析后传入）
-//   · 计数来源 = .gs-index.bin（由**引擎**的 readIndexBin 解析，本层不实现第二份 GSIDX 解析，AGENTS P1）
-//     + 可选的 expectedCount（例如 meta.json 的 count）
+//   · 计数来源 = **expectedCount 优先**（meta.json 的 count，读几百字节）；
+//     .gs-index.bin 的 header.count 是**可选的重校验路径**（读整块 11 MB + sha1，只在要顺带证明索引完好时用）
+//     —— 解析一律交给引擎的 readIndexBin，本层不实现第二份 GSIDX 解析（AGENTS P1）
 //   · 落点路径 = 由调用方先用 openGsDb() 打开并把连接传进来
 //
 // ── 导入语义：**镜像**（这件事必须写死，不能让下一个人猜）────────────────────────
@@ -57,9 +58,15 @@ export interface ImportItemsOptions {
   db: SqlDatabase;
   library: ImportLibraryRef;
   itemsJsonPath: string;
-  /** .gs-index.bin 落点；给了就用它的 header.count 当期望计数（引擎负责校验索引完好） */
+  /**
+   * .gs-index.bin 落点 —— **可选的重校验路径**：给了就用它的 header.count 当期望计数，
+   * 代价是读整块 11 MB 并算 sha1（引擎的五道校验）。默认推荐改用下面的 expectedCount。
+   */
   indexBinPath?: string | null;
-  /** 额外的期望计数（例如 meta.json 的 count）；与 indexBinPath 的 count 都要与文件行数相等 */
+  /**
+   * 期望计数（**默认推荐**：meta.json 的 count，几百字节就能读到）。
+   * 与 indexBinPath 的 count **都要**与 items.json 的行数相等 —— 两个来源不一致时一定会报 IMPORT_COUNT_MISMATCH。
+   */
   expectedCount?: number | null;
   now?: () => number;
 }
@@ -130,10 +137,16 @@ function optionalPositiveInt(value: unknown, name: string): number | null {
 }
 
 /**
- * 读 .gs-index.bin 的 header.count。
+ * 读 .gs-index.bin 的 header.count —— **可选的重校验路径**（不是默认计数来源）。
  *
- * ⚠️ 解析交给**引擎**（readIndexBin 会跑完五道校验）—— 本层不实现第二份 GSIDX 解析（AGENTS P1）。
- * 代价是要读一遍 11 MB 的索引；只要计数、不想读整块时，调用方改用 expectedCount（如 meta.json 的 count）。
+ * ⚠️ 为什么它只是"可选"（T-11c 按 Lead 裁定降级，见 reports/2026-10-15-wave3/11c.txt）：
+ *   为拿一个数字要把整块 11 MB 向量读进来、还要算一遍 sha1（引擎的五道校验里最贵的那道），
+ *   而 meta.json 的 count 是**几百字节**的同名事实，读它几乎免费。
+ *   ⇒ 默认计数来源 = expectedCount（meta.json 的 count，由调用方传）；
+ *     本函数只在"需要顺带证明索引本身完好"时用（T-11c 的对账、T-15 的完整性自检）。
+ *   两个都给也可以：本层**两个都要满足**（不会因为便宜的那个先比就跳过贵的那个）。
+ *
+ * ⚠️ 解析仍交给**引擎**（readIndexBin 跑完五道校验）—— 本层不实现第二份 GSIDX 解析（AGENTS P1）。
  */
 export function readIndexItemCount(indexBinPath: string): number {
   const file = requireNonEmptyText(indexBinPath, 'indexBinPath');

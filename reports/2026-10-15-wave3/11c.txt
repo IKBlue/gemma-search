@@ -1,0 +1,132 @@
+================================================================================
+T-11c 证据 · 删库重建与首次导入逐项对账（"可重建的派生数据"落地证明）
+任务板 id: task-16   执行: db-worker   日期: 2026-10-15
+依赖: task-15（T-11b 导入，Lead 已复核 345474d）
+写入范围: apps/desktop/src/main/db/** · apps/desktop/tests/db-rebuild.test.mjs
+===============================================================================
+
+【结论】
+· 真实库（data/libraries/L1）实跑：**删掉 .gs.db → 重建 → 与首次导入逐项一致**。
+  行数 3594=3594 · uid 去重数 3594 · uid→vectorRow 逐条一致 · **全行规范化摘要 sha1 完全相同**
+  （43616cd36d3d0a59701959d61fcdb99a49dace42）· library 行业务列一致 · schema 版本 2。
+  连续重建两次，三次摘要全等 ⇒ 重建是**确定**的，不是碰巧对上一次。
+· vectorRow 与索引对齐：distinct=3594 · min=0 · max=3593 · 铺满 0..3593（双射）；
+  index.bin 的 header.count = 3594（用可选的重校验路径读到）。
+· 单测：node --test apps/desktop/tests/db-rebuild.test.mjs ⇒ 5 tests / pass 5 / fail 0 / skipped 0 / EXIT=0
+· 三个 db 单测同进程合跑：34 tests / pass 34 / fail 0 / EXIT=0
+· npx tsc --noEmit -p tsconfig.node.json ⇒ EXIT=0
+· ⚠️ 全量门禁（npm test / build / e2e）**由 Lead 统一跑**（你正在跑全量 e2e，本轮未跑 npm test）。
+
+【改了哪些文件】
+新增：
+  apps/desktop/tests/db-rebuild.test.mjs   325 行  R1–R5 五条用例
+修改（**只改注释与文档，没有行为改动**）：
+  apps/desktop/src/main/db/import.ts       +13 行  计数来源的取舍写进文件头 / 选项 / readIndexItemCount 的 JSDoc
+未改：row-types.ts / errors.ts / index.ts / open.ts / migrations.ts / sqlite-adapter.ts（T-11c 不需要新代码路径）
+
+【对账口径（逐项）】
+对账数据直接取自 T-11b 的 ImportItemsReport（dbCount / indexCount / expectedCounts），另加：
+  · uid 集合（按 uid 排序后逐条 deepEqual，3594 条）
+  · uid→vectorRow 映射 + vectorRow→uid 反向映射（两个方向都比，防"映射被整体置换"这种对称错误）
+  · 全行规范化摘要 = 按 uid 排序后、按 ITEM_COLUMNS 列序序列化每一行再 sha1
+    （比逐行 deepEqual 更省事，且不受对象键序影响）
+  · library 行（lib_id / root / fallback / compat / dim / seq / item_count / meta_json + 时间戳）
+  · schema_version
+
+【计数来源裁定的落地（你④.3 的采纳）】
+· 默认路径 = expectedCount（meta.json 的 count，几百字节）。
+  ⇒ 重建**不再依赖索引状态**：索引坏了也能重建元数据（R4 用例：index.bin 是垃圾文件，仍能从
+    meta.count 完成重建）。
+· readIndexItemCount（要读整块 11 MB 向量 + 算 sha1）**降级为可选的重校验路径**：只在
+  "要顺带证明索引本身完好"时传 indexBinPath（R1 的对账那一步、T-15 的完整性自检）。
+· 两个都给也可以：本层**两个都要满足**（不会因为便宜的那个先比就跳过贵的那个）。
+· 为什么这么定（写进 import.ts 的文件头与两处 JSDoc，避免下一个人再问一遍）：
+  meta.json 的 count 与 index.bin 的 header.count 是**同一个事实**的两种载体，
+  却差了五个数量级的读取成本（几百字节 vs 11 MB + sha1）—— 默认路径不该付那份钱。
+
+【原始证据】
+
+--- ① 单测（命令 + 输出；含 R1 的 t.diagnostic 对账行）
+$ node --test apps/desktop/tests/db-rebuild.test.mjs
+✔ R1 ⭐ 真实库删库重建：行数 / uid 集合 / vectorRow 对齐 / 全行摘要 / library 行全部一致 (2619.4865ms)
+ℹ R1 对账：count=3594 · index.count=3594 · digest=43616cd36d3d0a59701959d61fcdb99a49dace42 · 三次（首次/重建1/重建2）摘要全等
+✔ R2 ⭐ 重建结果只取决于源文件：旧库的残留不会带进新库 (1296.0449ms)
+✔ R3 ⭐ .gs.db 损坏 ⇒ 打开时响亮报错（不是"空库"），删掉重建即恢复 (850.4733ms)
+✔ R4 ⭐ 计数来源取舍：默认 expectedCount 不读索引；indexBinPath 是可选的重校验路径 (804.8111ms)
+✔ R5：重建会重新跑迁移（v0→v2），且不会留下旧的 -wal/-shm (795.0059ms)
+ℹ tests 5 / pass 5 / fail 0 / cancelled 0 / skipped 0 / duration_ms 6499.6562   EXIT=0
+
+--- ② 三个 db 单测同进程合跑（--test-isolation=none）
+$ node --test --test-isolation=none "…db-schema.test.mjs" "…db-import.test.mjs" "…db-rebuild.test.mjs"
+ℹ tests 34 / pass 34 / fail 0 / cancelled 0 / skipped 0 / duration_ms 17358.8483   TEST_EXIT=0
+
+--- ③ 类型门禁
+$ npx tsc --noEmit -p tsconfig.node.json
+TSC_EXIT=0
+
+--- ④ 真实库对账实况（临时脚本 data/_t11/rebuild-evidence.mjs，跑完已删；库落在仓库内 data/_t11/rebuild-evidence/.gs.db）
+$ node data/_t11/rebuild-evidence.mjs
+meta.json count = 3594 · lib_id = L1
+FIRST   import: {"dbCount":3594,"indexCount":null,"expectedCounts":[3594],"inserted":3594,"read":3594}
+files before delete: [".gs.db"]
+removeGsDbFiles -> [".gs.db"]
+files after delete : []
+reopen: {"created":true,"from":0,"to":2,"applied":[1,2]}
+REBUILD import: {"dbCount":3594,"indexCount":null,"expectedCounts":[3594],"inserted":3594,"libraryCreated":true}
+index.bin count (可选重校验路径 readIndexItemCount) = 3594
+reconcile: {"countEq":true,"distinctUidEq":true,"digestEq":true,"uidVectorRowEq":true,"libraryBusinessColumnsEq":true,"schemaVersion":2,"target":2}
+library timestamps (真实时钟下**本来就不同**：两次导入发生在不同时刻):
+  首次   registered_at=1791955351410 updated_at=1791955351466
+  重建   registered_at=1791955352669 updated_at=1791955352724
+  ⇒ 单测 R1 用注入的固定时钟，因此连时间戳也逐字段 deepEqual 相等
+digest(first) = 43616cd36d3d0a59701959d61fcdb99a49dace42
+digest(rebuild) = 43616cd36d3d0a59701959d61fcdb99a49dace42
+vectorRow: distinct=3594 min=0 max=3593 (铺满 0..count-1?) true
+library row: {"lib_id":"L1","root":"G:\\model","fallback":0,"compat":"onnx-community/embeddinggemma-2-ONNX|daa72c51243991dfcaf9f9137d2c573d8f7790c0|fp32|2|140|768|l2|mean_soft_tokens","compat_key_version":null,"model_repo":null,"model_revision":null,"dim":768,"seq":140,"item_count":3594,"meta_json":null,"registered_at":1791955352669,"updated_at":1791955352724}
+node = v24.14.0
+EXIT=0
+（"G:\\model" 是本机 meta.json 里的库根，SPEC §2 的示例路径；此处原样打印的是**运行时读到的数据**，
+  不是代码/文档里写死的值）
+
+--- ⑤ 五条用例各自证明什么（哪条能红）
+R1 真实库：首次导入 → removeGsDbFiles → 重建 → 逐项对账；再删再建一次 ⇒ 摘要仍相同（确定性）。
+   若重建少一行、uid 变了、vectorRow 被整体置换、library 丢了 compat、或重建后版本没回到 v0 ⇒ 任一条断言红。
+R2 重建与"被删掉的那份状态"无关：旧库 5 条 → 删库 → 从另一份 3 条的 items.json 重建
+   ⇒ 必须等于"另开一个全新目录直接导入这 3 条"的结果（防"旧库残留被带过来"）。
+R3 损坏：把 .gs.db 前 16 字节清零后 openGsDb 必须抛 DB_OPEN_FAILED（**不是静默给一个空库**），
+   删掉重建后摘要与损坏前一致。
+R4 计数来源：索引是垃圾文件时，expectedCount 路径仍能重建；显式传 indexBinPath 则必须
+   IMPORT_INDEX_UNREADABLE 且一行不导。
+R5 重建会重新跑迁移（applied=[1,2]，fromVersion=0），且删库后目录里不留 .gs.db / -wal / -shm / -journal。
+
+【这条测试**证明不了**什么（如实写，别当成实测）】
+· 不比较 .gs.db 的**文件字节**：SQLite 的页布局、freelist、WAL checkpoint 与文件内时间戳都不保证逐字节可复现，
+  比字节会把"实现细节变化"误报成"数据不一致"。本测试比的是**逻辑内容**（行集 + 映射 + 摘要 + 库行 + 版本）。
+· 不覆盖"重建期间界面必须显示正在重建元数据"（SPEC §2.1）—— 那是界面行为，属 T-15/T-24 的范围。
+· 用真实时钟跑时，library 的 registered_at/updated_at 两次必然不同（同一句号内跨越了两个时刻）；
+  R1 用注入的固定时钟才能对它们做 deepEqual —— 这是刻意的（可复现优先）。
+
+【环境说明（哪些是环境、哪些是产品）】
+· 本会话沙箱把 electron.exe 的写限制在仓库工作目录内，G:\\model 与 AppData 一律 EPERM（TASKS §5）。
+  临时库**故意**落在仓库内 data/_t11/db-rebuild-test-<pid>/（跑完 after() 整目录删除）；
+  真实库的 items.json / index.bin / meta.json 是仓库内副本，只读。这是环境限制不是产品落点。
+· 两个 node：run_code 进程内 v24.18.1，pwsh/PATH 里 v24.14.0（证据 ④ 末尾）。单测与 tsc 都走 PATH 的 v24.14.0。
+· 未跑全量门禁：你在跑全量 e2e，且 TASKS §3.6 规定同一时刻只允许一个人跑 npm test。
+
+【未决 / 交接】
+1) T-15 的完整性自检入口可直接复用 R1 的对账口径（快照函数在测试里，若 T-15 也要就提取成生产模块 —— 那是
+   它的写入范围，本轮**没有**为了复用而提前把快照函数搬进 db 层）。
+2) 删库重建目前是"测试/调用方手工编排"（removeGsDbFiles + openGsDb + importItemsFromJson 三步）。
+   是否要收成一个生产入口（例如 rebuildLibraryDb()）留给 T-15 —— 它会带"重建期间要告诉界面"的职责，
+   放在 T-15 比放在 db 层合适。
+3) 未跑全量门禁 / build / e2e。
+
+【回滚方式】
+· 新增文件（删掉即可）：apps/desktop/tests/db-rebuild.test.mjs · reports/2026-10-15-wave3/11c.txt
+· 修改文件：apps/desktop/src/main/db/import.ts 只有**注释与 JSDoc** 的改动（文件头计数来源说明、
+  ImportItemsOptions.indexBinPath / expectedCount 的说明、readIndexItemCount 的 JSDoc）。
+  要回退就把这三处文字还原成 T-11b 的版本；**没有任何可执行逻辑被改动**（改前改后 tsc 均 EXIT=0，
+  且 T-11b 的 17 条用例 + T-11a 的 12 条用例全部仍然通过 ⇒ 行为未变）。
+· 未跑 git（AGENTS P7）；临时库 data/_t11/rebuild-evidence/、data/_t11/rebuild-evidence.mjs 与
+  data/_t11/db-rebuild-test-* 已全部清理（data/_t11 现为空）。
+===============================================================================
