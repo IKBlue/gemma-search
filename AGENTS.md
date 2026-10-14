@@ -36,12 +36,22 @@
 2. **契约边界用 `.ts`**（`apps/desktop/src/shared/ipc.ts`）：`.ts` 总会被类型检查，是类型门禁唯一可靠的内容来源。
 3. **preload 源码 `.js`、构建产物必须 `.cjs`**：`sandbox: true` 不加载 ESM preload。
 4. **运行时依赖只在根 `package.json` 声明**；新增依赖必须写明用途，并先确认仓库里没有同功能的第二份实现。
+**框架边界（已锁定 · 2026-10-14 复核 React / Vue / Next.js）**
+
+| 决定 | 理由 |
+|---|---|
+| **渲染层 = React 19 + Vite**（现状，不换） | 已有的 42 个组件、62 条真窗口 E2E、以及已选组件生态都建立在它上面；换框架买不到任何本项目缺的东西 |
+| **不引入 Next.js（或任何 SSR / RSC 框架）** | 本应用是 `file://` 加载的本地窗口，**没有 HTTP 服务器**：SSR / SEO / RSC 收益为 0，而 Next 需要一个 Node 服务端 —— 与「传输走 IPC、离线、不引 localhost HTTP」直接冲突 |
+| **不换 Vue** | shadcn/ui v4、`radix-ui`、`cmdk`、`sonner`、TanStack、react-hook-form 全是 React 侧；换 Vue 等于作废组件体系决策并重写整个界面层 |
+| 将来若做 Web 版 | 优先 **Vite SPA + 本地服务**，复用同一套组件；**仍然不引 SSR**，除非真的出现 SEO 需求 |
+
+> 复盘的触发条件只有一个：出现「联网 + SEO」的真实需求。在此之前不要重开这个决定。
 
 **主流依赖（已选定 · 优先用现成轮子，不重造）**
 
 | 用途 | 选定方案 | 为什么不自研 |
 |---|---|---|
-| **界面原语（不重造）** | `shadcn/ui`（Radix + cva）· `lucide-react`（图标）· `sonner`（toast）· `cmdk`（命令面板） | 自己写弹窗/下拉/焦点管理是本项目历史上最费时且最容易出无障碍 bug 的部分 |
+| **界面原语（不重造）** | **shadcn/ui v4**（CLI 生成组件源码）+ **统一原语包 `radix-ui`** + `class-variance-authority` · `lucide-react`（图标）· `sonner`（toast）· `cmdk`（命令面板） | 自己写弹窗/下拉/焦点管理是本项目历史上最费时且最容易出无障碍 bug 的部分 |
 | **大列表与表格** | `@tanstack/react-virtual`（虚拟滚动）· `@tanstack/react-table`（表格） | 3594+ 条不虚拟化会卡死；表格排序/筛选自己写等于重造 |
 | **表单与校验** | `react-hook-form` + `@hookform/resolvers` + `zod` | 设置页/向导/确认框都要表单；zod 已经是契约层唯一来源 |
 | **图片查看** | `yet-another-react-lightbox`（大图、缩放、键盘切图） | 灯箱交互细节多（手势、缩放、键盘），不值得自研 |
@@ -55,6 +65,23 @@
 | **动效** | `motion`（原 framer-motion）· 仅在必要时用 | HIG 要尊重 reduced-motion；手写 CSS 动画更难维护 |
 | **图表** | `recharts`（体检统计） | 可选；P2 阶段才需要 |
 | **代码质量** | `eslint` + `prettier`（开发依赖） | 主流组合，编辑器与 CI 都认 |
+**版本（2026-10-14 实测 · 本机 `npm view <pkg> version`，需联网）**
+
+- 已选定：`lucide-react@1.56.0` · `@tanstack/react-virtual@3.14.19` · `@tanstack/react-table@9.3.1` · `sonner@2.0.8` · `cmdk@1.1.1` · `react-hook-form@7.90.0` · `@hookform/resolvers@5.9.1` · `motion@14.2.0` · `yet-another-react-lightbox@3.32.2` · `pdfjs-dist@6.4.299` · `mammoth@1.13.0` · `@langchain/textsplitters@1.0.2` · `chokidar@5.0.0` · `electron-log@5.4.4` · `p-queue@10.0.0` · `nanoid@6.0.2` · `eslint@10.12.0` · `prettier@3.9.10`
+- 可选（P2）：`recharts@3.10.1` · `date-fns@4.4.0` · `@dnd-kit/core@6.3.1`
+- **不采用**：`better-sqlite3@13.0.3`（用内置 `node:sqlite`）· `drizzle-orm@0.45.4`（表结构简单，不引 ORM）· `sqlite-vec@0.1.9` / `hnswlib-node@3.0.0` / `usearch@2.26.4`（分块 <10 万前不需要 ANN）· `electron-updater@6.8.9`（P2，需要更新服务器）
+- 界面层新增：`radix-ui@1.8.1`（**统一原语包**，含 55 个原语）· CLI `shadcn@4.21.4`（`npx shadcn@latest add <component>`，不是运行时依赖）
+
+**shadcn/ui 的正确用法（别装错）**
+
+1. **shadcn/ui 不是 npm 组件库** —— 它是「把组件源码生成进本仓库」的 CLI + 模板；组件代码进仓库、可任意改。
+2. shadcn/ui v4 生成的组件**统一从 `radix-ui` 引入原语**（实测源码：`import { AlertDialog as AlertDialogPrimitive } from "radix-ui"`、`import { Slot } from "radix-ui"`），**不再逐个安装 `@radix-ui/react-*`**。
+3. ⇒ **按需生成，不预装**：用 `npx shadcn@latest add alert-dialog dialog dropdown-menu …`；原语依赖只有 `radix-ui` 一个。
+4. ⚠️ 现有 `@radix-ui/react-alert-dialog` / `@radix-ui/react-slot` 是**旧代码直接用裸 Radix** 留下的（`ui/ConfirmDialog.jsx` · `ui/Button.jsx`）：重写时由 `radix-ui` 统一包替代并删除这两个分散包。
+5. 历史教训：本项目曾一次性装 11 个 `@radix-ui/react-*` 却**零 import**，后来全部删除。**预装原语 = 造无用依赖**。
+
+> ⚠️ **`react-router` 最新已到 8.4.0**，而本项目锁定 7.x（现装 7.18.4）。**升 8 是破坏性变更**，需要单独决策后再动 —— 在决定之前不要顺手升级。
+> 版本号以 **lockfile** 为准；这里记的是核实日期当天的最新稳定版。
 
 
 ---
@@ -112,6 +139,9 @@ UI(组件) ──> Operation(store/hooks/utils) ──> Adapter(唯一 invoke �
 | `npm run e2e` | 真启动 Electron；**覆盖主流程**（启动 / 导航 / 结果区 / 写入类确认 / 文档检索） |
 
 **门禁强度 = 中**（所有者 2026-10-14 定）：类型 + 单测 + 构建必绿，E2E 覆盖主流程。**不追求**每条需求都有自动化断言，但**每条任务必须给证据**。
+
+**编码护栏（硬性）**：改动 `packages/indexer/**` 或 `main/encoder.*`（编码 / 重采样 / 索引路径）之前，必须已经存在一份**基线证据**（全库 min 与中位余弦、若干查询 top10 对照）；改动之后必须**重跑同一基线并归档对比**。
+⇒ **没有基线证据的编码改动，一律视为未完成** —— 这条路径的失败模式是静默降质，不报错、不崩溃，只是结果变差。
 
 **证据协议**
 
