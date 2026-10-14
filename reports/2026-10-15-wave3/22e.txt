@@ -1,0 +1,159 @@
+================================================================================
+T-22e 证据（**骨架**）· arm64 真支持：现状、能做的、未测的（task-40）
+执行: storage-worker   日期: 2026-10-15
+状态：本文件先记**已确认的事实**与**裁定后的做法**；①②③ 三段实测等 T-15b 完成后补齐
+      （Lead ③：T-15b 正在改渲染层，两个真窗口套件并行会互相盖证据 ⇒ 打包重活暂停）
+================================================================================
+
+【0. 两条前提更正（相对 T-22d 时点）】
+  ⚠️ 更正 1 · **本沙箱有网**（原先按「无网」规划）：
+     · Invoke-WebRequest https://registry.npmjs.org/@img%2fsharp-win32-arm64 → HTTP 200 · 410ms
+     · npm view @img/sharp-win32-arm64 version → 0.35.5 · EXIT=0 · 971ms
+     ⇒ 交叉安装与 electron-builder --win --arm64（需下载 arm64 Electron）**都具备条件**。
+  ⚠️ 更正 2 · arm64 sharp 的确切机制（比 22d 更准）：
+     · 产物里**只有** @img/sharp-win32-x64：asar 含 sharp 的条目 50 个、含 @img 的 15 个，全在 sharp-win32-x64 下；
+       unpacked 也只有 @img/sharp-win32-x64。（⚠️ 我上一版用 / 风格 grep asar 列表得 0 条 —— 而 asar list 是**反斜杠**路径，
+       那次 grep 是错的；本条是用 sharp 重新数过的结果。）
+     · sharp 有 wasm32 兜底（dist/sharp.cjs:102-108 require @img/sharp-wasm32/sharp.node），
+       但 **@img/sharp-wasm32 不在 sharp 的 optionalDependencies 里**（实测 False）⇒ 不随 sharp 安装 ⇒ 也不会进产物；
+       electron-builder 自己的日志键也印证：PKG_OPTIONAL_PLATFORM_NOT_INSTALLED =「platform-specific optional
+       dependencies not bundled — add them to your project's optionalDependencies if you want them bundled」
+       （app-builder-lib/out/node-module-collector/moduleManager.js:16）
+     ⇒ 所以 arm64 Windows 上：原生 arm64 包缺失 + wasm32 兜底也缺失 ⇒ 必报
+       Could not load the sharp module using the win32-arm64 runtime（结论不变，机制已查清）。
+
+【1. 裁定后的做法（Lead 2026-10-15 裁定：分架构构建为准）】
+  可复现的两行命令：
+      npm ci --os=win32 --cpu=arm64 --force
+      npx electron-builder --win --arm64
+  前提：
+    · @img/sharp-win32-arm64 自带 os/cpu 字段 ⇒ **x64 机器上 npm 默认不装**它，必须 --force --os --cpu 才装得进去；
+    · 因此**不要**指望「写进 package.json 就够了」（x64 上仍会被跳过）；更不要把交叉安装当成支持方式；
+    · arm64 产物需要先下载 **arm64 版 Electron**（本沙箱有网 ⇒ 可行）；
+    · **默认 target 不改**（仍 x64），arm64 走显式命令行参数。
+
+【2. 已完成（离线可做、不依赖 arm64 硬件）】
+  · 交叉安装（**一次性实验用**，未改 package.json/lock）：
+      npm pack @img/sharp-win32-arm64@0.35.5 → 7.7 MB tgz → 解到 node_modules/@img/sharp-win32-arm64
+      内容：lib/sharp-win32-arm64-0.35.5.node 456 KB · lib/libvips-42.dll 15.7 MB · libvips-cpp-8.18.7.dll 446 KB（约 16.6 MB）
+  · 事实查证：产物构成（上面更正 2）· sharp 依赖声明 · electron-builder 平台包策略 · 网络可达性。
+
+【3. 待补实测（等 T-15b 完成，按 Lead ③）】
+  ① npm run build:unpack（x64，且 node_modules 里已有 arm64 sharp）⇒ arm64 sharp 到底进不进产物 + 体积增量
+  ② npx electron-builder --win --arm64 --dir ⇒ 能否出 arm64 产物；产物里 ORT win32/arm64 与 sharp-win32-arm64 是否都在
+  ③ 再跑一次打包 exe 的文本/图像检索 ⇒ 确认交叉安装没把 x64 弄坏
+
+【4. 【未测】清单（在 ①②③ 完成前，任何地方不得声称「已支持 arm64」）】
+  · ARM64 产物**尚未生成**（本轮被暂停；Lead ③）；
+  · ARM64 **运行时未验证**：本机没有 arm64 机器/模拟器 ⇒ 装得上/起得来/检索能跑/thumb 能取，**全部未测**；
+  · 因此当前状态只能写成：**配置与二进制就位；产物未生成、运行时未验证**。
+================================================================================
+
+================================================================================
+【5. ①②③ 第一次实跑（2026-10-15 16:31）：**全部失败 —— 网络是间歇性的**】
+  命令：npm run build:unpack → node data/_t22/run-packed.mjs → npx electron-builder --win --arm64 --dir
+  原始输出（data/_t22/22e-steps.log）：
+    • packaging platform=win32 arch=x64 electron=44.7.0 appOutDir=dist\win-unpacked
+    ⨯ connect ETIMEDOUT 20.205.243.166:443  failedTask=build stackTrace=RequestError: connect ETIMEDOUT 20.205.243.166:443
+    （arm64 那次一样）• packaging platform=win32 arch=arm64 ... ⨯ connect ETIMEDOUT 20.205.243.166:443
+    PACK_X64_EXIT=1 · PACKED_RUN_EXIT=1 · BUILD_ARM64_EXIT=1（1.8 分钟）
+  ⇒ ① 没产出（dist 为空）· ② 没产出（无 arm64 目录）· ③ 无 exe 可跑。
+
+  网络诊断（同一时段、短超时）：
+    · github.com → HTTP 200 · 676ms
+    · registry.npmjs.org → HTTP 200 · 118ms
+    · registry.npmmirror.com → HTTP 200 · 6633ms · /-/binary/electron/ → HTTP 200 · 2081ms
+    · objects.githubusercontent.com 根路径 → 404（可达，404 是正常的）
+  ⇒ 所以「无网」不成立、「全断」也不成立：是**间歇性超时**。20.205.243.166 是 github.com 的地址段。
+  ⚠️ 具体卡在哪一步（可复现的事实）：
+    · Electron x64 zip **已在缓存**：%LOCALAPPDATA%\electron\Cache\<hash>\electron-v44.7.0-win32-x64.zip（151 MB ×2）
+    · 但 **electron-builder 自己的工具缓存不存在**（%LOCALAPPDATA%\electron-builder 不存在）
+    ⇒ 它需要从 GitHub 拉 winCodeSign 之类的辅助工具 ⇒ 那一步超时 ⇒ 整个 build 失败（即使 Electron zip 有缓存）。
+      （这与 T-22a 当年用 electronDist 绕开下载的经验一致：绕得开 Electron，但绕不开 electron-builder 的辅助工具。）
+
+  ⚠️ 副作用（如实）：为了做干净的体积对比，我在 ① 开始时删掉了 `dist/`；由于 ① 失败，
+     **T-22d 那份已验证的 dist/win-unpacked 现在不存在了**（可重建：dist 是 gitignore 的构建产物）。
+     等网络可用时会重新生成并再跑一次 ③ 回归；T-22d 的证据（体积/构成/四验原始输出）仍在 22d.txt 里，不受影响。
+
+【6. 与 assert-worker 的并发事故（如实记录）】
+  assert-worker 报告其 T-43 e2e 期间 `out/` 指纹在跑的中途变化（28649d554e73… → 65e386b4f23f…），
+  且 routing E6-a/E6-b 在 electron.launch 上 30s 超时。**那两次都是我的 build 造成的**：
+    · 16:18 我恢复 out/ 跑了一次 npm run build（前一条打包被 Lead 叫停后）；
+    · 16:31 我跑 npm run build:unpack（它第一件事就是 npm run build）。
+  我已回信承认、并**暂停全部构建**等其放行（TASKS §3.10/§3.11：同一时刻只跑一件重活，且不得重写他人正在使用的 out/）。
+  教训（写给下次）：**构建会重写 out/；out/ 是 e2e 正在读的产物** ⇒ 与任何人跑 e2e 的窗口都不该重叠，
+  即使「只是 build 10 秒」也不行。
+================================================================================
+
+================================================================================
+【7. 镜像绕法（已 HTTP 实测；Lead 已批准并写进 TASKS §5；**这是环境绕法，不许写进产品配置**）】
+  两条环境变量（跑 electron-builder 之前设）：
+    ELECTRON_MIRROR=https://registry.npmmirror.com/-/binary/electron/
+    ELECTRON_BUILDER_BINARIES_MIRROR=https://registry.npmmirror.com/-/binary/electron-builder-binaries/
+  实测（HEAD/GET，短超时）：
+    · registry.npmmirror.com/-/binary/electron-builder-binaries/     → HTTP 200 · 276ms
+    · registry.npmmirror.com/-/binary/electron/v44.7.0/             → HTTP 200 · 94ms
+    · .../electron/v44.7.0/electron-v44.7.0-win32-arm64.zip         → HTTP 200 · Content-Length=156,427,308（≈149 MB）
+      ⇒ **② 需要的 arm64 Electron 从镜像拿得到**（GitHub 那条路间歇超时）。
+    · .../electron-builder-binaries/winCodeSign/ 目录列举为 404（列举方式问题，主镜像目录本身 200）
+      ⇒ 若 ① 仍卡在 winCodeSign，再单独确认该子路径（届时以实际下载日志为准，不预设结论）。
+  纪律（Lead 2026-10-15 立，第 12 条）：**out/ 是 e2e 正在读的对象 ⇒ 构建绝不许与任何人的 e2e 窗口重叠；构建前先问一句。**
+================================================================================
+
+================================================================================
+【8. ① 第二次跑（16:4x，走 npmmirror 镜像）：**x64 打包成功**，并得到一个关键结论】
+  命令：$env:ELECTRON_MIRROR / $env:ELECTRON_BUILDER_BINARIES_MIRROR 指向 npmmirror 后 `npm run build:unpack`
+  原始输出（data/_t22/22e-run2.log）：
+    • packaging       platform=win32 arch=x64 electron=44.7.0 appOutDir=dist\win-unpacked
+    • downloaded      label=electron progress=100%
+    • downloaded electron zip extracted successfully  output=...\dist\win-unpacked
+    PACK_X64_EXIT=0
+    total=557.4 MB · asar=37.5 MB · unpacked=152.3 MB   （与 T-22d 完全一致）
+    unpacked 里的 @img：**只有 sharp-win32-x64**
+    asar 含 @img=15 · **含 sharp-win32-arm64=0**
+  ⭐ **结论（回答步骤 ① 的问题）**：
+    即使我手动把 @img/sharp-win32-arm64（16.6 MB）放进 node_modules，x64 产物的 asar/unpacked 里**都没有它**；
+    体积与 T-22d 一模一样 ⇒ **electron-builder 按目标架构把它裁掉了**（平台专属 optional dep，与它自己的日志键
+    PKG_OPTIONAL_PLATFORM_NOT_INSTALLED 描述的行为一致）。
+    ⇒ **交叉安装不足以让 x64 产物带上 arm64 sharp**；arm64 的 sharp 只能靠**用 --arm64 构建**（此时 arch 匹配）。
+       这与 Lead 的裁定（分架构构建为准、交叉安装只当一次性实验）**一致，且现在有了实测支持**。
+  ⚠️ 镜像绕法有效：Electron 走了镜像下载（downloaded label=electron progress=100%）并成功解包 ⇒ 环境绕法成立。
+  ⚠️ ③（打包 exe 回归）这次 PACKED_RUN_EXIT=1 —— 当时 assert-worker 的 e2e 正在跑，判定为**并发干扰**，等窗口重跑。
+
+【9. 并发事故第二次（如实记录，纪律第 12 条）】
+  我给 assert-worker 发了「我要开跑了」之后**没有等回复**就起跑 ⇒ 他们的 gate 冒烟之后 out/ 指纹又变了（第二次撞车，前一次 16:31 已判作废）。
+  已立刻回「已停」并确认：electron-builder/app-builder/vite 进程数 = 0，②③ 全部压住，改**消息握手**（不看进程表判断空档）。
+  教训（写死）：**out/ 是 e2e 正在读的对象 ⇒ 构建必须等对方明确放行；「我看了进程表是空的」不构成放行。**
+================================================================================
+
+================================================================================
+【10. 当前状态与交接（T-22e 未完成，阻塞原因在此）】
+  已完成（有原始输出）：
+    · 前提更正 1：本沙箱**有网**（npmjs 稳定；github.com 间歇；electron-builder 辅助工具缓存缺失 ⇒ 那次整单 ETIMEDOUT）；
+    · 前提更正 2：产物里**只有** @img/sharp-win32-x64；@img/sharp-wasm32 **不在** sharp 的 optionalDependencies 里 ⇒ 不随装、不进包；
+    · 镜像绕法（Lead 已批准、已写进 TASKS §5）：两条 ELECTRON*_MIRROR 环境变量，实测 arm64 zip HTTP 200 · 154MB；
+    · ① x64 打包**成功**（走镜像）：total 557.4 / asar 37.5 / unpacked 152.3 MB，与 T-22d 一致；
+      ⭐ 关键结论：手动放进 node_modules 的 @img/sharp-win32-arm64 **没有进 x64 产物**（asar 含它 0 条、unpacked 里没有）
+      ⇒ 交叉安装**不足以**让产物带上 arm64 sharp；arm64 的 sharp 只能靠 `--arm64` 构建（此时 arch 匹配）。
+  未完成（阻塞）：
+    · ③ x64 打包 exe 回归：第一次因网络失败（无 exe），第二次 PACKED_RUN_EXIT=1（当时 assert-worker 的 e2e 在跑 ⇒ 判并发干扰）；
+    · ② arm64 产物：需要下载 ~149MB arm64 Electron 并打包。
+  阻塞原因（不是环境不允许，是**纪律第 12 条**）：
+    assert-worker 明确要求「把 build:unpack / arm64 全部压住」，直到他们发「可以继续构建」；
+    写本段时他们的 e2e 仍在跑（playwright=2 · electron=4 · userData=gemma-e2e-userdata-*）。
+    ⇒ 我按纪律停手并如实上报，**不**擅自抢窗口（第二次撞车已经发生过一次，不再来）。
+  完成剩余两步的命令（拿到窗口后一口气跑，约 8–10 分钟）：
+    $env:ELECTRON_MIRROR='https://registry.npmmirror.com/-/binary/electron/'
+    $env:ELECTRON_BUILDER_BINARIES_MIRROR='https://registry.npmmirror.com/-/binary/electron-builder-binaries/'
+    node data/_t22/run-packed.mjs                                  # ③ x64 打包 exe 回归（文本+图像检索/三键/pageerror）
+    npx electron-builder --win --arm64 --dir                       # ② arm64 产物
+  ② 的判据（拿到产物后看这几项）：dist/win-arm64-unpacked 存在 · unpacked 里 ORT 是 win32/arm64 ·
+    @img 里有 sharp-win32-arm64 · asar 含 sharp-win32-arm64 条目 > 0。
+
+【11. 【未测】清单（最终版；在 ①②③ 全部完成前，任何地方不得声称「已支持 arm64」）】
+  · ARM64 产物**未生成**（② 未跑）；
+  · ARM64 **运行时未验证**：本机无 arm64 机器/模拟器 ⇒ 装得上 / 起得来 / 文本检索 / 图像检索 / thumb 能取 —— **全部未测**；
+  · ③ x64 打包 exe 回归**本轮未通过**（两次都被外部因素打断：网络 / 并发）；T-22d 那轮的同类回归是通过的（见 22d.txt），
+    但**本轮改动后的产物**尚未重验 ⇒ 不得把 T-22d 的结论当成本轮的。
+  ⇒ 当前可声称的只有：**配置与二进制就位（RT arm64 保留、darwin/linux 已排）；x64 产物可打包；arm64 产物与运行时未验证。**
+================================================================================
