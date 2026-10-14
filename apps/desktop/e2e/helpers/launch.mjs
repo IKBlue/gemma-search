@@ -15,6 +15,8 @@
 //    `0x80000003`、加 `--no-sandbox` 就 exit=0 ⇒ 卡住的是 **Chromium 沙箱初始化**，与项目代码无关。
 //    ⚠️ 用户自己的终端**不需要**它；这里加是因为 agent 沙箱起不来进程沙箱。
 //    **绝不把它固化进产品配置**（`AGENTS.md` §6.5）。
+import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -34,7 +36,18 @@ const ELECTRON_BIN = path.join(ROOT, 'node_modules', 'electron', 'dist', 'electr
  * @param {object} [opts]
  * @param {Record<string,string>} [opts.env] 追加/覆盖环境变量（例如 `GEMMA_LIB_ROOT`）
  * @param {string[]} [opts.extraArgs] 追加给 Electron 的参数
+ *
+ * ⚠️ 每次启动都用**独立的临时 userData**（除非调用方自己传了 --user-data-dir）：
+ *    单实例锁是**按 userData** 的。默认 userData 一旦被别的实例占着锁（开发态挂着一个、
+ *    上次崩溃留下的、或另一个 spec 还没退干净），这个实例就会因为
+ *    `requestSingleInstanceLock() === false` 静默退出、窗口永不出现 ——
+ *    表现为"e2e 莫名其妙红了"，而根因跟被测代码毫无关系（T-10a 实测踩到）。
+ *    `app.mjs` 的三个场景 helper 早就各自带 --user-data-dir 了，这里补齐最后一条路。
  */
+function hasUserDataDir(extraArgs) {
+  return (extraArgs || []).some((a) => a === '--user-data-dir' || String(a).startsWith('--user-data-dir='))
+}
+
 export async function launchApp(opts = {}) {
   // env 在 Playwright 里是**整体替换** process.env，所以要先铺开再删/加
   const env = { ...process.env, ...(opts.env || {}) }
@@ -42,13 +55,30 @@ export async function launchApp(opts = {}) {
   // 测试不该走真实用户数据目录（避免污染，也让每次跑都是"干净用户配置"）
   env.GEMMA_E2E = '1'
 
+  // 调用方已经指了 userData（app.mjs 那三个 helper）就**原样尊重**，不覆盖
+  // ⚠️ 前缀刻意与 `app.mjs` 的 `tmpDir('userdata')`（`gemma-e2e-userdata-`）**不同**：
+  //    两者都在系统 temp 下，名字一样就分不清"哪个 helper 漏了没删"。
+  const isolatedUserData = hasUserDataDir(opts.extraArgs)
+    ? null
+    : fs.mkdtempSync(path.join(os.tmpdir(), 'gemma-e2e-launchapp-'))
+
   const app = await electron.launch({
     executablePath: ELECTRON_BIN,
-    args: ['--no-sandbox', MAIN_ENTRY, ...(opts.extraArgs || [])],
+    args: [
+      '--no-sandbox', MAIN_ENTRY, ...(opts.extraArgs || []),
+      ...(isolatedUserData ? ['--user-data-dir=' + isolatedUserData] : []),
+    ],
     cwd: ROOT,
     env,
     timeout: 30_000,
   })
+
+  if (isolatedUserData) {
+    // 进程退出后收掉（与 app.mjs 的 rmTmp 同口径：删不掉不致命，但要试）
+    app.on('close', () => {
+      try { fs.rmSync(isolatedUserData, { recursive: true, force: true }) } catch { /* 临时目录 */ }
+    })
+  }
   return app
 }
 

@@ -1,0 +1,122 @@
+================================================================================
+U7 证据 · e2e helpers 统一用临时 --user-data-dir（task-19）
+执行: storage-worker   日期: 2026-10-15
+改动文件: apps/desktop/e2e/helpers/launch.mjs（只动 launchApp 一段 + 两个 import：fs / os）
+依赖: task-12（T-10a 单实例锁）· task-20（U8 单测，已完成）
+验收: npm run e2e -- smoke.spec.mjs routing.spec.mjs window-security.spec.mjs 连跑两次一致
+================================================================================
+
+【为什么改（动机，来自 T-10a 实测）】
+单实例锁是**按 userData** 的。e2e 里除了 smoke.spec.mjs，其它 spec 都走 app.mjs 的三个场景 helper，
+而它们各自带 --user-data-dir；**只有裸 launchApp() 用默认 userData**。默认 userData 一旦被别的实例占着锁
+（开发态挂着的一个实例、上次崩溃留下的、另一个 spec 还没退干净的），那个实例就会
+requestSingleInstanceLock()===false 静默退出、窗口永不出现 —— 报错长得像产品坏了，其实跟被测代码无关。
+⇒ launchApp 补齐最后一条路：调用方**没传** --user-data-dir 就自己 mkdtemp 一个临时目录并在 app close 时清理；
+  已传的（app.mjs 那三个）**原样尊重、不覆盖**，所以现有 spec 的场景语义一个都没变。
+
+【影响面（改之前先数过调用点）】
+grep 结果：裸 launchApp() 只有 1 处 —— smoke.spec.mjs:15；
+其余全部走 helpers/app.mjs 的 launchWithoutLibrary / launchWithLibrary / launchFake（内部已带 --user-data-dir）。
+
+--- 新的 launchApp（改动后的原文）--- * @param {Record<string,string>} [opts.env] 追加/覆盖环境变量（例如 `GEMMA_LIB_ROOT`）
+ * @param {string[]} [opts.extraArgs] 追加给 Electron 的参数
+ *
+ * ⚠️ 每次启动都用**独立的临时 userData**（除非调用方自己传了 --user-data-dir）：
+ *    单实例锁是**按 userData** 的。默认 userData 一旦被别的实例占着锁（开发态挂着一个、
+ *    上次崩溃留下的、或另一个 spec 还没退干净），这个实例就会因为
+ *    `requestSingleInstanceLock() === false` 静默退出、窗口永不出现 ——
+ *    表现为"e2e 莫名其妙红了"，而根因跟被测代码毫无关系（T-10a 实测踩到）。
+ *    `app.mjs` 的三个场景 helper 早就各自带 --user-data-dir 了，这里补齐最后一条路。
+ */
+function hasUserDataDir(extraArgs) {
+  return (extraArgs || []).some((a) => a === '--user-data-dir' || String(a).startsWith('--user-data-dir='))
+}
+
+export async function launchApp(opts = {}) {
+  // env 在 Playwright 里是**整体替换** process.env，所以要先铺开再删/加
+  const env = { ...process.env, ...(opts.env || {}) }
+  delete env.ELECTRON_RUN_AS_NODE
+  // 测试不该走真实用户数据目录（避免污染，也让每次跑都是"干净用户配置"）
+  env.GEMMA_E2E = '1'
+
+  // 调用方已经指了 userData（app.mjs 那三个 helper）就**原样尊重**，不覆盖
+  // ⚠️ 前缀刻意与 `app.mjs` 的 `tmpDir('userdata')`（`gemma-e2e-userdata-`）**不同**：
+  //    两者都在系统 temp 下，名字一样就分不清"哪个 helper 漏了没删"。
+  const isolatedUserData = hasUserDataDir(opts.extraArgs)
+    ? null
+    : fs.mkdtempSync(path.join(os.tmpdir(), 'gemma-e2e-launchapp-'))
+
+  const app = await electron.launch({
+    executablePath: ELECTRON_BIN,
+    args: [
+      '--no-sandbox', MAIN_ENTRY, ...(opts.extraArgs || []),
+      ...(isolatedUserData ? ['--user-data-dir=' + isolatedUserData] : []),
+    ],
+    cwd: ROOT,
+    env,
+    timeout: 30_000,
+  })
+
+  if (isolatedUserData) {
+    // 进程退出后收掉（与 app.mjs 的 rmTmp 同口径：删不掉不致命，但要试）
+    app.on('close', () => {
+      try { fs.rmSync(isolatedUserData, { recursive: true, force: true }) } catch { /* 临时目录 */ }
+    })
+  }
+  return app
+}
+
+/** 等首个窗口出现（主进程在 whenReady 后才建窗） */
+export async function firstWindow(app, timeout = 30_000) {
+--- 隔离生效的直接证据（只跑 smoke.spec.mjs，GEMMA_APP_LOG 指向临时文件，读应用自己的日志）---
+  TEMP 下 gemma-e2e-launchapp-* ：跑之前 = 0
+  PS> npm run e2e -- smoke.spec.mjs  → EXIT=0
+  Running 1 test using 1 worker
+    1 passed (7.1s)  应用自己的日志（证明它这次用的是临时 userData，而不是默认 AppData\Roaming\Electron）：
+    [05:43:47.413] userData C:\Users\ADMINI~1\AppData\Local\Temp\gemma-e2e-launchapp-cOsvGx
+    [05:43:47.423] [存储] userData = C:\Users\ADMINI~1\AppData\Local\Temp\gemma-e2e-launchapp-cOsvGx  TEMP 下 gemma-e2e-launchapp-* ：跑之后 = 0（回到 0 ⇒ close 时清掉了）
+
+--- 验收：连跑两次（每次三个 spec）---
+PS> npm run e2e -- smoke.spec.mjs routing.spec.mjs window-security.spec.mjs   （第 1 次）
+  EXIT=0
+  Running 14 tests using 1 worker
+    ok  1 apps\desktop\e2e\routing.spec.mjs:15:1 › E2-a 默认落在搜索页（hash 为空即 `/`） (6.7s)
+    ok  2 apps\desktop\e2e\routing.spec.mjs:29:1 › E2-b ⭐ 侧栏点「索引任务」⇒ 真的导航，hash 与界面都变 (6.8s)
+    ok  3 apps\desktop\e2e\routing.spec.mjs:47:1 › E2-c ⭐ `/item/:libId/:uid` 的参数**在真界面里**取到了（P3c 靠它拿两条路径） (6.7s)
+    ok  4 apps\desktop\e2e\routing.spec.mjs:70:1 › E2-c2 `/item` 用错的 uid ⇒ 如实报错（参数**真的**被送到了引擎，不是被忽略） (6.7s)
+    ok  5 apps\desktop\e2e\routing.spec.mjs:83:1 › E2-d 未知 hash ⇒ 回搜索页（不白屏） (6.7s)
+    ok  6 apps\desktop\e2e\routing.spec.mjs:99:1 › E2-e 返回搜索页（从任务页导航回去） (6.9s)
+    ok  7 apps\desktop\e2e\routing.spec.mjs:124:1 › E6-a ⭐ 真窗口 DOM 里没有 `<a>` 嵌在 `<button>` 里（T2 修的那 4 处） (6.7s)
+    ok  8 apps\desktop\e2e\routing.spec.mjs:145:1 › E6-b ⭐ 返回控件是**链接**（语义正确 + 只有一个可聚焦元素） (6.9s)
+    ok  9 apps\desktop\e2e\routing.spec.mjs:165:1 › E6-c ⭐ 窗口标题随路由变（修前：三条路由共用一个标题） (6.8s)
+    14 passed (1.6m)
+PS> npm run e2e -- smoke.spec.mjs routing.spec.mjs window-security.spec.mjs   （第 2 次）
+  EXIT=0
+  Running 14 tests using 1 worker
+    ok  1 apps\desktop\e2e\routing.spec.mjs:15:1 › E2-a 默认落在搜索页（hash 为空即 `/`） (6.6s)
+    ok  2 apps\desktop\e2e\routing.spec.mjs:29:1 › E2-b ⭐ 侧栏点「索引任务」⇒ 真的导航，hash 与界面都变 (6.8s)
+    ok  3 apps\desktop\e2e\routing.spec.mjs:47:1 › E2-c ⭐ `/item/:libId/:uid` 的参数**在真界面里**取到了（P3c 靠它拿两条路径） (6.6s)
+    ok  4 apps\desktop\e2e\routing.spec.mjs:70:1 › E2-c2 `/item` 用错的 uid ⇒ 如实报错（参数**真的**被送到了引擎，不是被忽略） (6.7s)
+    ok  5 apps\desktop\e2e\routing.spec.mjs:83:1 › E2-d 未知 hash ⇒ 回搜索页（不白屏） (6.7s)
+    ok  6 apps\desktop\e2e\routing.spec.mjs:99:1 › E2-e 返回搜索页（从任务页导航回去） (6.8s)
+    ok  7 apps\desktop\e2e\routing.spec.mjs:124:1 › E6-a ⭐ 真窗口 DOM 里没有 `<a>` 嵌在 `<button>` 里（T2 修的那 4 处） (6.7s)
+    ok  8 apps\desktop\e2e\routing.spec.mjs:145:1 › E6-b ⭐ 返回控件是**链接**（语义正确 + 只有一个可聚焦元素） (6.9s)
+    ok  9 apps\desktop\e2e\routing.spec.mjs:165:1 › E6-c ⭐ 窗口标题随路由变（修前：三条路由共用一个标题） (6.8s)
+    14 passed (1.6m)
+--- 跑完 TEMP 下 gemma-e2e-launchapp-* 残留 = 0
+
+【需要 Lead 知道的两件事】
+C1 本会话沙箱下，系统 temp 对 electron.exe **不可写** ⇒ 单实例锁走的是 T-10a 那条「锁不可用 ⇒ 按单实例放行」的
+   分支（日志里能看到那条警告）。这**不影响** task-19 的目的：它要解决的是「依赖默认 userData 干净」这个前提，
+   现在每个实例有自己的 userData，正常环境里锁照常生效、也不会再与任何遗留实例抢锁。
+C2 顺带发现（**不是本任务引入、也没动它**）：TEMP 下积了 7 个「gemma-e2e-userdata-*」残留，
+   那是 helpers/app.mjs 的 tmpDir('userdata') 造的 —— 在那些「应用被锁挡住 / 测试失败」的轮次里
+   没走到 cleanup()。我把自己的前缀改成 gemma-e2e-launchapp- 就是为了以后能一眼看出是谁漏的。
+   要不要清那 7 个由你定（它们在系统 temp，不影响仓库）。
+
+【回滚方式】只改一个文件：
+  · 把 launchApp 里的 isolatedUserData 三段（mkdtemp / args 里追加 / app.on('close') 清理）与
+    hasUserDataDir 函数删掉，args 恢复成 ['--no-sandbox', MAIN_ENTRY, ...(opts.extraArgs || [])]，
+    并去掉 fs / os 两个 import。
+  核对: npm run e2e -- smoke.spec.mjs routing.spec.mjs window-security.spec.mjs
+================================================================================
