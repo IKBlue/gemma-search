@@ -23,6 +23,7 @@ import path from 'node:path';
 
 import { readIndexBin } from '../../../../packages/engine/src/index.ts';
 import type { IndexBin, IndexHeader } from '../../../../packages/engine/src/index.ts';
+import { isReservedLibraryName } from './gs-names.ts';
 import { GS_INDEX_NAME } from './storage-roots.ts';
 
 /** 索引文件名（**唯一来源**是 storage-roots.ts 的 GS_INDEX_NAME —— 这里只是接过来用） */
@@ -127,11 +128,14 @@ export function isGsWriteName(name: string): boolean {
 }
 
 /**
- * 断言"这个路径是库根的直接子项，且名字在 .gs-* 命名空间里"，返回 resolve 后的路径。
+ * 断言"这个路径是库根的**直接子项**，且名字在**保留命名空间**里"，返回 resolve 后的路径。
  *
  * 为什么要有它（而不是靠调用方自觉）：SPEC §2.1 的写入不变式是
  * "除 `.gs-*` 与 staging 外，素材目录一律只读"。这条不变式在这里是可机械检查的 ——
  * 那就别留给纪律。任何走本模块的写入都必须先过这一关。
+ *
+ * ⚠️ "保留命名空间"用 gs-names.ts 的 isReservedLibraryName 判定，**不是**简单的 `.gs-` 前缀：
+ *    `.gs.db` 不以 `.gs-` 开头（第 4 个字符是 `.`）。见那个模块的注释。
  */
 export function assertWritableGsPath(libraryRoot: string, target: string): string {
   const root = requireRoot(libraryRoot);
@@ -143,10 +147,13 @@ export function assertWritableGsPath(libraryRoot: string, target: string): strin
     );
   }
   const name = path.basename(resolved);
-  if (!isGsWriteName(name)) {
+  // ⚠️ 判据是**库根的保留命名空间**（.gs-* / .gs.db+边车 / staging），不是"以 .gs- 开头" ——
+  //    .gs.db 的第 4 个字符是 '.' 不是 '-'，只按前缀判断会把它误判成素材（2026-10-15 实测踩到）。
+  if (!isReservedLibraryName(name)) {
     throw new IndexFileError(
       'INDEX_PATH_OUTSIDE_GS',
-      '只允许写 .gs-* 名字（SPEC §2.1：素材目录除此以外只读），实际是 ' + JSON.stringify(name),
+      '只允许写库根的保留命名空间（.gs-* / .gs.db(+边车) / staging；SPEC §2.1：素材目录除此以外只读），实际是 ' +
+        JSON.stringify(name),
     );
   }
   return resolved;

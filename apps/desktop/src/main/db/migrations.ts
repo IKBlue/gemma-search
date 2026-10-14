@@ -222,6 +222,33 @@ export function targetVersionOf(migrations: readonly Migration[]): number {
 /** 本程序知道的最高版本（MIGRATIONS 派生，不另写一个数字） */
 export const TARGET_SCHEMA_VERSION: number = targetVersionOf(MIGRATIONS);
 
+/**
+ * 库应有的**全部表名**（含元表 schema_version）。
+ *
+ * ⚠️ **从 DDL 文本派生**，不另写一份表名清单 —— 清单与 DDL 是同一个概念的两份写法，
+ *    分开写迟早对不上（AGENTS P1）。加了新迁移，这里自动跟着变。
+ * 用途：T-15a 的完整性自检「表是否在」（apps/desktop/src/main/library-health.ts）。
+ * 机械核对：health-rebuild.test.mjs 断言本清单 == sqlite_master 里的表集合。
+ */
+const CREATE_TABLE_RE: RegExp = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)/gi;
+
+function tableNamesIn(statements: readonly string[]): string[] {
+  const names: string[] = [];
+  for (const sql of statements) {
+    for (const match of sql.matchAll(CREATE_TABLE_RE)) names.push(match[1]);
+  }
+  return names;
+}
+
+export const EXPECTED_TABLES: readonly string[] = Object.freeze(
+  [
+    ...new Set([
+      ...tableNamesIn([CREATE_SCHEMA_VERSION_TABLE]),
+      ...MIGRATIONS.flatMap((m: Migration): string[] => tableNamesIn(m.statements)),
+    ]),
+  ].sort(),
+);
+
 // ---------------------------------------------------------------- 结果类型
 
 export interface AppliedMigration {

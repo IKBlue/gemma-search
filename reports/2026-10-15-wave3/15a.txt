@@ -1,0 +1,172 @@
+================================================================================
+T-15a 证据 · 完整性自检 + 重建入口（不改素材）
+任务板 id: task-24   执行: db-worker   日期: 2026-10-15
+依赖: T-11a/b/c（建表 · 导入 · 删库重建对账）· T-12a/b（索引落点/原子写入 · 五道校验）· T-04（落点解析）
+写入范围: apps/desktop/src/main（新模块 + 两处小改动）· apps/desktop/tests/health-rebuild.test.mjs
+===============================================================================
+
+【结论】
+· **自检** checkLibraryHealth：9 项结构化检查（每项 ok · 机器可读 code · 人话 reason），**只读**：
+  0 建目录、0 迁移、0 素材写入。索引交给引擎五道校验；.gs.db 查 只读打开 / schema_version / integrity_check /
+  表是否在（清单从 DDL 派生）/ 能不能读。
+· **重建** rebuildLibraryDb：removeGsDbFiles → openGsDb（建表+迁移）→ importItemsFromJson（全量镜像）→
+  索引侧 written/kept/still-broken → 复检 before/after 一起给。
+· **真实库副本实测**（先把 .gs.db 弄坏再重建，原始输出见证据④）：
+  ① 正常重建 ok=true · 3594 条 · 索引 written(3594)
+  ② 把 .gs.db 前 16 字节清零 → openGsDb 拒开（DB_OPEN_FAILED）
+  ③ 自检 ok=false · needsDbRebuild=true · db-open code=DB_OPEN_FAILED rebuildable=true · 索引那项仍 ok
+  ④ 重建 ok=true · removed=[.gs.db,.gs.db-wal,.gs.db-shm] · schema v0→v2 · 导入 3594（新增 3594）· 索引 kept(3594)
+  ⑤ 复检 ok=true（9 项）  ⑥ 再重建一次 dbCount=3594（幂等）
+  ⑦ 落库：items=3594 · distinct uid=3594 · distinct vector_row=3594 · min 0 · max 3593 · library.item_count=3594
+  ⑧ **素材摘要（含内容 sha1）动手前后完全一致**（6ddb1ea1983ee4c6fd4dfdf8a187a375a7380ec3）
+  ⑨ **真实库原件未被改动**（三份 sha1 跑前跑后一致；index.bin=56a8bf5f5f700ea734f22bc1bf255edd1432ae83）
+· 单测：node --test apps/desktop/tests/health-rebuild.test.mjs ⇒ 13 tests / pass 13 / fail 0 / skipped 0 / EXIT=0
+· 六个相关单测同进程合跑：64 tests / pass 64 / fail 0 / EXIT=0
+· npx tsc --noEmit -p tsconfig.node.json ⇒ EXIT=0
+· ⚠️ 全量门禁（npm test / build / e2e）由 Lead 统一跑（TASKS §3.6）。
+
+【改了哪些文件】
+新增：
+  apps/desktop/src/main/gs-names.ts              43 行  保留命名空间判据（.gs-* / .gs.db+边车 / staging）
+  apps/desktop/src/main/library-health.ts       382 行  自检（只读）
+  apps/desktop/src/main/library-rebuild.ts      295 行  重建入口 + materialDigest
+  apps/desktop/tests/health-rebuild.test.mjs    464 行  H1–H13
+修改：
+  apps/desktop/src/main/db/migrations.ts          +EXPECTED_TABLES（**从 DDL 文本派生**，不另写一份表名清单）
+  apps/desktop/src/main/db/index.ts               +导出 EXPECTED_TABLES
+  apps/desktop/src/main/index-file.ts             assertWritableGsPath 的判据改用保留命名空间（见下"跨范围"）
+  apps/desktop/src/main/db/errors.ts              （无改动 —— 重建的入参错误复用既有 IMPORT_*/DB_PATH_REQUIRED）
+跨范围披露（**已按 Lead 要求回滚**）：
+  apps/desktop/src/main/storage-roots.ts：本轮早期我加过一个纯新增函数 isReservedLibraryName（20 行注释 + 10 行代码，
+  未改任何既有行/导出），用途同下方那条发现（.gs.db 不以 .gs- 开头）。收到 Lead 并行提醒后我已**删除干净**，
+  该文件现在只有你们 T-04c 的内容 + 既有常量（grep 无 isReservedLibraryName 残留）；
+  判据已搬到我自己的 apps/desktop/src/main/gs-names.ts。**此后我没有再碰 storage-roots.ts 与 main/index.ts。**
+
+【本轮最重要的发现（Lead 已记为 TASKS §4 U11）】
+⚠️ **'.gs.db' 不以 '.gs-' 开头**（第 4 个字符是 '.' 不是 '-'）⇒ '.gs.db'.startsWith('.gs-') === false，
+   它的边车 .gs.db-wal / .gs.db-shm / .gs.db-journal 同样不匹配。只按 '.gs-' 前缀判断"哪些是我们的"会出现两个症状：
+   ① 扫描器把 .gs.db 当成素材（F5 体检会报成"有包无图 / 零字节"这类假发现）；
+   ② "重建前后素材摘要一致"的机械断言把 SQLite 的 WAL 变化算成"素材被改了"。
+   本轮的实测证据：H11/H12 最初就是**红**的 —— 素材摘要从 count=4 变成 count=7（多出的正是 .gs.db 与它的两个边车）。
+   修法：判据逐字对齐 SPEC §2 的布局图（.gs-* · .gs.db 家族 · staging），落在 gs-names.ts 一处，
+   由 index-file.ts（写入约束）、library-rebuild.ts（素材摘要）、将来的 T-13 扫描器共用。
+   ⇒ 顺带说明：SPEC §2.1「除 .gs-* 与 staging 外只读」这句话**本身不完整**；改措辞属所有者（Lead 已上报）。
+
+【实现要点】
+1) 自检的语义边界：
+   · needsDbRebuild（删库重建能修好）与 needsIndexRebuild（**修不好**，要重新编码）**分开**——
+     合成一个 "needsRebuild" 会让界面把"索引损坏"显示成"点一下重建就好"，那是假的。
+   · **不假装**：库根不在 ⇒ 只报 library-root 一项就返回；.gs.db 不存在/打不开 ⇒ 后续 db-* 检查**跳过**
+     （H1/H2/H5 都断言"没有那些项"，而不是把它们标成 ok）。
+   · 每项都带 code（库根 LIB_ROOT_MISSING · 索引 INDEX_MISSING/INDEX_CORRUPT · DB_MISSING/DB_OPEN_FAILED/
+     SCHEMA_OUTDATED/SCHEMA_TOO_NEW/DB_INTEGRITY/DB_TABLE_MISSING/ITEMS_JSON_MISSING）。
+2) 重建入口：**库根必须先存在**（U6）—— 这一道挡在 openGsDb 之前，因为 openGsDb 会对 dbPath 的父目录
+   recursive mkdir（那是给 userData 回退落点用的），盘没挂载时会把"库根"凭空建出来。库根不在 ⇒ 抛引擎的
+   LIB_ROOT_MISSING（错误码归引擎契约，UI 已有文案），且 H13 断言连父目录都没被创建。
+3) 索引三态：给 indexBytes ⇒ writeIndexAtomically（临时名→fsync→五道校验→rename）；不给 ⇒ 只 readIndexFile
+   校验、**绝不动它**；索引坏着且没给新字节 ⇒ action='still-broken' 且 **ok=false**（不许因为"db 建好了"就报成功）。
+4) 报告三层结论：dbOk（重建本身的目标）· indexOk · ok（= 复检全绿）。
+5) 素材硬约束：结构性保证（本模块只调 removeGsDbFiles/openGsDb/importItemsFromJson/writeIndexAtomically，
+   它们的写入全被限制在 .gs-* 与库根直接子项）+ **机械断言** materialDigest（路径|size|mtime[|内容 sha1]）。
+   为什么 materialDigest **不**内建进 rebuildLibraryDb：真实库素材是几千张图 + 上 GB 压缩包，
+   算一遍要读几十 GB —— 塞进"点一下重建"会像卡死。生产入口只保证结构性质，摘要比对留在验证侧。
+
+【原始证据】
+
+--- ① 单测（命令 + 输出）
+$ node --test apps/desktop/tests/health-rebuild.test.mjs
+✔ H1 ⭐ 自检：库根不存在 ⇒ **只报这一项**，不假装别的检查通过 (2.2091ms)
+✔ H2 ⭐ 自检：空库根（无 .gs.db / 无索引）⇒ 失败项各归各，db-* 后续检查**跳过而不是假绿** (1.5142ms)
+✔ H3 ⭐ 自检：健康库全绿；EXPECTED_TABLES 与 sqlite_master 机械一致 (662.0248ms)
+✔ H4 ⭐ 自检：索引损坏 ⇒ INDEX_CORRUPT，且**不**提示重建元数据（删库重建修不好索引） (406.4416ms)
+✔ H5 ⭐ 自检：.gs.db 损坏 ⇒ DB_OPEN_FAILED，可重建 (424.6493ms)
+✔ H6 自检：schema_version 落后 ⇒ SCHEMA_OUTDATED，其它 db 项仍然 ok (537.1788ms)
+✔ H7 自检：缺表 ⇒ DB_TABLE_MISSING 且点名列出来 (558.4349ms)
+✔ H8 ⭐ 重建：.gs.db 损坏 ⇒ 删库重建 + 复检，素材摘要一字不变 (772.9275ms)
+✔ H9 ⭐ 幂等：重建两次的逻辑内容完全一致（不比 .gs.db 文件字节） (1120.8278ms)
+ℹ H9 两次重建的逻辑快照一致（count=3 · version=2）；⚠️ **不比 .gs.db 文件字节**：SQLite 页布局 / freelist / WAL checkpoint / 文件内时间戳不保证逐字节可复现
+✔ H10 ⭐ 索引三态：written / kept / still-broken (2194.1909ms)
+✔ H11 ⭐ 重建只碰 .gs-*：素材摘要（含内容）与文件集合一字不变 (380.0022ms)
+✔ H13 ⭐ 重建：库根不存在 ⇒ LIB_ROOT_MISSING 且**不创建目录**（U6 幽灵库） (0.9881ms)
+✔ H12 ⭐ 真实库副本：先弄坏 .gs.db → 自检报错 → 重建 → 3594 条 + 素材摘要不变 (1891.9439ms)
+ℹ H12 重建：删除 3 个 .gs.db 文件 · schema v0→v2 · 导入 3594 条（新增 3594）· 索引 kept（count=3594）· 素材摘要 6ddb1ea1983ee4c6fd4dfdf8a187a375a7380ec3
+ℹ tests 13 / pass 13 / fail 0 / cancelled 0 / skipped 0 / duration_ms 9113.0716   EXIT=0
+
+--- ② 六个相关单测同进程合跑（--test-isolation=none）
+$ node --test --test-isolation=none db-schema · db-import · db-rebuild · index-location · index-corruption · health-rebuild
+ℹ tests 64 / pass 64 / fail 0 / cancelled 0 / skipped 0 / duration_ms 65884.1119   TEST_EXIT=0
+
+--- ③ 类型门禁
+$ npx tsc --noEmit -p tsconfig.node.json
+TSC_EXIT=0
+
+--- ④ 验收实测：真实库**副本**上"先把 .gs.db 弄坏再重建"（临时脚本 data/_t15/acceptance-15a.mjs，跑完已删）
+$ node data/_t15/acceptance-15a.mjs
+库根（副本） = …\data\_t15\acceptance
+素材 = ["index.bin","items.json","meta.json"]
+素材摘要（动手之前，含内容 sha1） = {"count":3,"bytes":13012176,"digest":"6ddb1ea1983ee4c6fd4dfdf8a187a375a7380ec3","withContent":true}
+① 先跑一次完整重建（连索引一起写）: {"ok":true,"dbOk":true,"indexOk":true,"created":true,"schema":{"fromVersion":0,"toVersion":2,"applied":[1,2]},"dbCount":3594,"indexAction":"written","indexCount":3594}
+② 把 .gs.db 前 16 字节清零（模拟文件头被覆盖）
+   损坏后 openGsDb 拒绝打开: code=DB_OPEN_FAILED :: 打开 .gs.db 后初始化失败：…（file is not a database）…
+③ 自检: {"ok":false,"needsDbRebuild":true,"needsIndexRebuild":false}
+   ok   library-root  code=-                  rebuildable=false :: 库根是目录：…
+   ok   items-file    code=-                  rebuildable=false :: 条目表存在：…items.json（1968550 字节）
+   ok   index         code=-                  rebuildable=false :: 索引通过引擎五道校验：count=3594 · dim=768 · 11042105 字节
+   ok   db-file       code=-                  rebuildable=false :: .gs.db 存在：…（1265664 字节）
+   FAIL db-open       code=DB_OPEN_FAILED     rebuildable=true  :: 只读打开失败：… —— 删库重建能修好（.gs.db 是可重建的派生数据，SPEC §2.1）
+④ 重建: {"ok":true,"dbOk":true,"indexOk":true,"created":true,"removed":[".gs.db",".gs.db-wal",".gs.db-shm"],
+        "schema":{"fromVersion":0,"toVersion":2,"applied":[1,2]},"dbCount":3594,"inserted":3594,
+        "index":{"action":"kept","count":3594}}
+   reason = 重建完成：删除 3 个 .gs.db 文件 → schema v0→v2 → 导入 3594 条（新增 3594 / 更新 0 / 删除幽灵行 0）→ 索引 kept；复检 通过（9 项）
+⑤ 复检: ok = true · reason = 自检通过（9 项）
+⑥ 再重建一次（幂等）: dbCount = 3594 · ok = true · created = true
+⑦ 落库实况: {"items":3594,"distinctUid":3594,"distinctVectorRow":3594,"minRow":0,"maxRow":3593,"libraryItemCount":3594}
+⑧ 素材摘要（重建之后） = {"count":3,"bytes":13012176,"digest":"6ddb1ea1983ee4c6fd4dfdf8a187a375a7380ec3","withContent":true} · 与动手之前一致 = true
+⑨ 真实库原件未被改动 = true · {"items.json":"e9428bf088c1f026f3ff75349bf8b01a7a2987e8","meta.json":"7751eec256ced5ed5cdd74c97c4ff2e1b50b8947","index.bin":"56a8bf5f5f700ea734f22bc1bf255edd1432ae83"}
+node = v24.14.0
+EXIT=0
+
+--- ⑤ 判据的机械核对（H3 内）
+EXPECTED_TABLES（从 DDL 文本派生）= ['doc_chunks','doc_dirs','documents','health_ledger','health_runs','items','library','schema_version']
+== sqlite_master 的 type='table' 集合（逐项 deepEqual）⇒ 以后加迁移，自检的"表是否在"自动跟着变。
+
+【这条工作**证明不了**什么（如实写）】
+· 不比 .gs.db 的**文件字节**（T-11c 已写明的边界）：SQLite 页布局 / freelist / WAL checkpoint / 文件内时间戳
+  都不保证逐字节可复现。H9 比的是逻辑内容（行集 · uid→vectorRow · library 行 · 版本）。
+· **不能断言"重建后目录里只剩 .gs.db"**：SQLite 的 close 是 sqlite3_close_v2（延迟关闭），
+  -wal / -shm 可能还在（本机实测有时在有时不在）。所以 H11 的断言写成"新增的东西都属于 .gs.db 家族"——
+  这是可复现的说法，而"只新增 .gs.db"不是。
+· materialDigest **没有**内建进重建路径（理由见实现要点 5）⇒ 生产路径上的"素材零改动"目前是**结构性保证**，
+  不是运行期哈希断言；机械断言由测试与验收脚本承担。
+· 不覆盖"重建期间界面显示正在重建元数据"（SPEC §2.1）—— 界面行为归 T-24，本轮不碰。
+· 不做断电/崩溃注入（fsync+rename 的正确性由 T-12a 的失败路径覆盖，不是断电实测）。
+
+【环境说明（哪些是环境、哪些是产品）】
+· 本会话沙箱把 electron.exe 的写限制在仓库工作目录内，G:\model 与 AppData 一律 EPERM（TASKS §5）。
+  临时库落在仓库内 data/_t15/**，用例的 after() 整目录删除；真实库（data/libraries/L1）**只读**，
+  验收实测在它的**副本**上做（副本也放在仓库内）。
+· 两个 node：run_code 进程内 v24.18.1，pwsh/PATH 里 v24.14.0（证据④末尾）。单测与 tsc 走 PATH 的 v24.14.0。
+· 每进程一条 "(node:PID) ExperimentalWarning: SQLite is an experimental feature"（T-03 已判可接受，引用既有证据）。
+
+【未决 / 交接】
+1) 接线方（T-16 引擎接新存储 / T-24 界面）：入口 = checkLibraryHealth({libId, root, dbPath?, itemsJsonPath?})
+   与 rebuildLibraryDb({libId, root, itemsJsonPath, dbPath?, expectedCount, indexBytes?, library?})。
+   错误码：自检不抛（失败在结果里）；重建会抛 GsDbError / IndexFileError / 引擎的 LIB_ROOT_MISSING。
+2) **gs-names.ts 是 .gs.db 家族判据的唯一实现** —— T-13 的扫描器必须用它（Lead 已同步 core-migrator），
+   不要再写一份 startsWith('.gs-')。
+3) 我的两个模块与测试都 import storage-roots.ts 的常量（GS_DB_NAME / GS_INDEX_NAME）。若 T-04c 改名/删除这些常量，
+   会波及本轮与 T-12a 的模块 —— 目前未改动，仅作提示。
+4) materialDigest 若要进生产路径，需先决定"素材规模上限 / 采样策略"，否则把几十 GB 读一遍不可接受。
+5) 全量门禁 / build / e2e 由 Lead 统一跑。
+
+【回滚方式】
+· 新增文件（删掉即可）：gs-names.ts · library-health.ts · library-rebuild.ts · health-rebuild.test.mjs · 本证据文件。
+· 修改文件：
+    db/migrations.ts：删掉 EXPECTED_TABLES 那一段（CREATE_TABLE_RE / tableNamesIn / EXPECTED_TABLES）
+    db/index.ts：去掉 EXPECTED_TABLES 的导出
+    index-file.ts：assertWritableGsPath 的判据回到 isGsWriteName（并恢复原文档措辞）——
+      ⚠️ 回退这一处会让 .gs.db 家族重新被拒绝，而 gs-names.ts 仍在；是否回退请 Lead 决定（我建议保留修正）。
+· storage-roots.ts：**本轮我加的已删除**，无需回退（该文件现为 T-04c 的形状）。
+· 未跑 git（AGENTS P7）；临时目录 data/_t11 · data/_t12 · data/_t15 的用例子目录与验收脚本已清理
+  （data/_t15 空目录可能仍在，属 gitignore 的 scratch）。
+===============================================================================

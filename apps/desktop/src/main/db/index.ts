@@ -22,6 +22,7 @@ export type {
 } from './sqlite-adapter.ts';
 
 export {
+  EXPECTED_TABLES,
   MIGRATIONS,
   SCHEMA_VERSION_ROW_ID,
   SCHEMA_VERSION_TABLE,
