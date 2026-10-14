@@ -23,13 +23,13 @@ const arg = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
-// 项目根：向上找到含 packages/engine/src/engine.mjs 的那一级（搬目录也不会失效）
+// 项目根：向上找到含 packages/engine/src/engine.ts 的那一级（搬目录也不会失效）
 const ROOT = (() => {
   let p = HERE;
   for (;;) {
-    if (fs.existsSync(path.join(p, 'packages', 'engine', 'src', 'engine.mjs'))) return p;
+    if (fs.existsSync(path.join(p, 'packages', 'engine', 'src', 'engine.ts'))) return p;
     const up = path.dirname(p);
-    if (up === p) throw new Error('找不到项目根（向上找不到 packages/engine/src/engine.mjs）');
+    if (up === p) throw new Error('找不到项目根（向上找不到 packages/engine/src/engine.ts）');
     p = up;
   }
 })();
@@ -84,7 +84,7 @@ console.log('--- 1) 编码器初始化 ---');
 
 // 模块图里 RawImage 必须是**同一个类**且已被 shim 替换 —— encoder.mjs 内部会断言，
 // 这里再独立核一次，确认断言真的跑了（不是被 try/catch 吞掉）。
-const { resizeCompatState } = await import(pathToFileURL(path.join(ROOT, 'packages', 'indexer', 'src', 'resize_compat.mjs')).href);
+const { resizeCompatState } = await import(pathToFileURL(path.join(ROOT, 'packages', 'indexer', 'src', 'resize_compat.ts')).href);
 
 let encoder = null;
 try {
@@ -109,8 +109,8 @@ if (!fs.existsSync(indexBin)) {
   console.log('\n结论：FAIL');
   process.exit(1);
 }
-const { readIndexBin, readItems } = await import(pathToFileURL(path.join(ROOT, 'packages', 'engine', 'src', 'index.mjs')).href);
-// 注意：packages/engine/src/index.mjs 的读取函数**抛的是错误信封**（fail/corrupt），不是普通 Error ——
+const { readIndexBin, readItems } = await import(pathToFileURL(path.join(ROOT, 'packages', 'engine', 'src', 'index.ts')).href);
+// 注意：packages/engine/src/index.ts 的读取函数**抛的是错误信封**（fail/corrupt），不是普通 Error ——
 // 所以这里必须接住并自己报清楚，否则会以未捕获异常的方式炸掉。
 let header, vectors, items;
 try {

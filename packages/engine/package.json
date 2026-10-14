@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "搜索引擎本体（原 core/）：传输无关、零第三方依赖",
-  "main": "./src/index.mjs",
+  "main": "./src/index.ts",
   "scripts": {
     "test": "node --test --test-isolation=none \"tests/*.test.mjs\""
   },

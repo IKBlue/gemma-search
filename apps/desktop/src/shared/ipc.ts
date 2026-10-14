@@ -193,7 +193,9 @@ export function validateCall(method: unknown, params: unknown): ValidateCallResu
   }
   let bytes: number;
   try {
-    bytes = Buffer.byteLength(JSON.stringify(params ?? {}), 'utf8');
+    // ⚠️ 刻意**不用 Buffer**：本文件是主进程与渲染进程共用的契约，而渲染层没有 Node 全局
+    //    （tsconfig.web.json 的 lib 只有 DOM）。TextEncoder 两边都有，UTF-8 字节数与 Buffer.byteLength 等价。
+    bytes = new TextEncoder().encode(JSON.stringify(params ?? {})).length;
   } catch {
     return { ok: false, reason: '参数无法序列化' };
   }

@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
-import { installResizeCompat, selfTestResizeCompat, assertResizeCompatInstalled } from '../../../../packages/indexer/src/resize_compat.mjs';
+import { installResizeCompat, selfTestResizeCompat, assertResizeCompatInstalled } from '../../../../packages/indexer/src/resize_compat.ts';
 
 export const QUERY_PREFIX = 'task: search result | query: ';
 export const IMG_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.bmp']);
@@ -37,7 +37,7 @@ function pickEmbedding(out) {
 /**
  * BMP 解码：`@huggingface/transformers` 的 RawImage 读不了 BMP，
  * 而库里实测有 20 张 `.jpg` 其实是 BMP（见 data/quality/mismatch-test-result.json）。
- * 这里复用 packages/indexer/src/bmp_decode.mjs 里已验证过的纯 JS 实现与像素布局。
+ * 这里复用 packages/indexer/src/bmp_decode.ts 里已验证过的纯 JS 实现与像素布局。
  */
 async function readImageAny(absPath) {
   const ext = path.extname(absPath).toLowerCase();
@@ -47,9 +47,9 @@ async function readImageAny(absPath) {
   const buf = fs.readFileSync(absPath);
   const isBmp = buf.length > 2 && buf[0] === 0x42 && buf[1] === 0x4d;   // "BM"
   if (ext === '.bmp' || isBmp) {
-    const { readBmpAsRawImage } = await import('../../../../packages/indexer/src/bmp_decode.mjs');
+    const { readBmpAsRawImage } = await import('../../../../packages/indexer/src/bmp_decode.ts');
     // ⚠️ 这个 API 要的是**路径**，不是 Buffer：`readBmpAsRawImage(filePath)` 内部自己做
-    // `fs.readFileSync(filePath)`（packages/indexer/src/bmp_decode.mjs:137 → :56）。
+    // `fs.readFileSync(filePath)`（packages/indexer/src/bmp_decode.ts:137 → :56）。
     // 曾经这里传的是上面那个 `buf` → `fs.readFileSync(Buffer)` → `ERR_INVALID_ARG_VALUE`，
     // 于是 20 张"名为 .jpg 实为 BMP"的图在**以图搜图**路径上全部抛错（实测；回归断言见
     // tools/verify_encoder_path.mjs 的「2b) BMP 回退断言」）。别再改回 Buffer。

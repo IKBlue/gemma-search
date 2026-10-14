@@ -91,7 +91,7 @@ test('D-B 白名单不许变成垃圾场：里面每个包都必须**仍然被�
 
 test('D-C ⭐⭐ 断言本身有效：能看见**动态** `import()`（差点因此删错依赖）', () => {
   // 这条是"断言的断言"。实测教训：只匹配静态 import 时，sharp / bmp-js 会被误判为零 import。
-  for (const [dep, file] of [['sharp', 'packages/indexer/src/bmp_decode.mjs'], ['bmp-js', 'packages/indexer/src/bmp_decode.mjs']]) {
+  for (const [dep, file] of [['sharp', 'packages/indexer/src/bmp_decode.ts'], ['bmp-js', 'packages/indexer/src/bmp_decode.ts']]) {
     const hits = importers(dep)
     assert.ok(hits.includes(file), `${dep} 应被认出用在 ${file}（动态 import）—— 实得 ${JSON.stringify(hits)}`)
   }

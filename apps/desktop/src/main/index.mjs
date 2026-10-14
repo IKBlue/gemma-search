@@ -22,7 +22,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { ROOT, log } from './log.ts';   // ← 必须最先导入：导入即初始化日志
-import { createEngine, UNIMPLEMENTED_METHODS } from '../../../../packages/engine/src/engine.mjs';
+import { createEngine, UNIMPLEMENTED_METHODS } from '../../../../packages/engine/src/engine.ts';
 import { CH_INVOKE, CH_EVENT, validateCall, METHOD_NAMES } from '../shared/ipc.ts';
 import { resolveLibraries, loadRegistry, saveRegistry, normalizeLibraries, registryPath } from './library-config.mjs';
 import { createRevealPort } from './ports.mjs';
