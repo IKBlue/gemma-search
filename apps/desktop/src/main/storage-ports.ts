@@ -32,6 +32,7 @@ import type {
 
 import type { ItemRecord } from './db/row-types.ts';
 import { codeOf, messageOf } from './errors.ts';
+import { resolveIndexLocation } from '../../../../packages/engine/src/index-layout.ts';
 import { GS_DB_NAME, GS_INDEX_NAME, resolveLibraryStorage } from './storage-roots.ts';
 import type { LibraryStorage, LibraryRootInput, StorageFs } from './storage-roots.ts';
 import { ITEM_COLUMNS, sqlRowToItemRecord } from './db/row-types.ts';
@@ -85,6 +86,11 @@ export interface LibraryResolverPortOptions {
    */
   probeWrites?: boolean;
   fs?: StorageFs;
+  /**
+   * 旧布局的 libraries 根（`<dataDir>/libraries`）。给了 ⇒ 索引查找会**回退到旧布局**
+   * （`<该目录>/<libId>/index.bin`）。判定唯一来源 = 引擎的 `resolveIndexLocation`（T-44）。
+   */
+  legacyLibrariesDir?: string | null;
 }
 
 function isDir(p: string): boolean {
@@ -150,11 +156,19 @@ export function createLibraryResolverPort(opts: LibraryResolverPortOptions): Lib
       if (s.root === null) {
         throw fail(ERR.LIB_ROOT_MISSING, '这个库没有可用的 .gs-* 落点：' + s.reason, { libId: e.libId });
       }
+      // 索引落点：**唯一判据**在引擎（index-layout.ts）—— 新布局优先、旧布局回退。
+      // ⚠️ 体检也用同一个函数 ⇒ 「引擎能跑、体检查不到」这类口径分裂不会再出现（T-44）。
+      const loc = resolveIndexLocation({
+        libId,
+        libraryRoot: s.root,
+        legacyLibrariesDir: opts.legacyLibrariesDir ?? null,
+      });
       return {
         root: e.root, // 素材在**声明库根**
-        indexPath: s.index ?? path.join(s.root, GS_INDEX_NAME),
+        indexPath: loc.indexPath ?? s.index ?? path.join(s.root, GS_INDEX_NAME),
         dbPath: s.db ?? path.join(s.root, GS_DB_NAME),
         journalPath: s.journal ?? undefined,
+        layout: loc.layout,
       };
     },
   };

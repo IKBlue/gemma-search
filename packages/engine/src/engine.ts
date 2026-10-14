@@ -17,6 +17,8 @@ import { createFakeKit } from './fake.ts';
 import { isReservedLibraryName } from './gs-names.ts';
 import type { EngineEntry, IndexBin, IndexItem } from './index.ts';
 import type { StoragePorts } from './storage-ports.ts';
+// 旧布局索引文件名（**唯一来源**；本文件不另抄一个 'index.bin' 字面量）
+import { LEGACY_INDEX_FILENAME } from './index-layout.ts';
 import type { RegistryConfig } from './library.ts';
 import type { FakeKit, FakeModeOptions, SampleIndex } from './fake.ts';
 
@@ -279,7 +281,11 @@ export function createEngine({
     const legacyDir = dirOf(libId);                                // 旧布局：索引/条目/meta 都在这里
     const layout = resolver ? resolver.storageOf(libId) : null;    // 新布局：`.gs-*` 在**库根**
     // ② 向量索引：端口优先（`<库根>/.gs-index.bin`，实现里走引擎五道校验）；否则旧布局 index.bin
-    const bin: IndexBin = indexPort ? indexPort.readIndex(libId) : readIndexBin(path.join(legacyDir, 'index.bin'));
+    // ⚠️ 无端口时**只**走旧布局（T-16a 的「不注入 ⇒ 与改造前逐字一致」）；有端口时落点由端口决定，
+    //    而端口的落点判据就是 index-layout.ts 的 resolveIndexLocation（新布局 → 旧布局回退）。
+    const bin: IndexBin = indexPort
+      ? indexPort.readIndex(libId)
+      : readIndexBin(path.join(legacyDir, LEGACY_INDEX_FILENAME));
     // ① 条目：端口优先（T-11 的 `.gs.db`）；否则旧布局 items.json
     const items: IndexItem[] = itemStore ? itemStore.listItems(libId) : readItems(path.join(legacyDir, 'items.json'));
     // meta：旧布局读 meta.json；新布局里元数据在 `.gs.db`（不在这三个端口里）⇒ 空对象、上层报"未知"
@@ -478,7 +484,8 @@ export function createEngine({
         // storage 块**只在库解析端口存在时出现** ⇒ 旧布局的返回形状逐字不变（既有 fixtures/e2e 不受影响）
         ...(layout ? {
           storage: {
-            layout: 'library-root',
+            // 布局由**唯一判据**决定（index-layout.ts）—— 迁移期可能是旧布局回退，不许一律写死 'library-root'
+            layout: layout.layout ?? 'library-root',
             root: layout.root,
             indexPath: layout.indexPath,
             dbPath: layout.dbPath,

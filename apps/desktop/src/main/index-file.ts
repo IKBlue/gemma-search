@@ -323,7 +323,20 @@ export interface IndexReadReport {
  * @throws EngineError(INDEX_MISSING | INDEX_CORRUPT)
  */
 export function readIndexFile(libraryRoot: string): IndexReadReport {
-  const file = indexPathFor(libraryRoot);
+  return readIndexSummaryAt(indexPathFor(libraryRoot));
+}
+
+/**
+ * 读回并校验**给定路径**的索引，只回摘要 —— T-44：索引落点可能不在库根（旧布局回退），
+ * 路径由唯一的落点判据（引擎的 resolveIndexLocation）给，这里只负责「读 + 摘要」。
+ *
+ * ⚠️ 校验仍然只有引擎那一份（readIndexBinAt → readIndexBin 五道）；
+ *    readIndexFile 就是本函数的薄包装 ⇒ 不会长出第二份读索引的代码。
+ *
+ * @throws EngineError(INDEX_MISSING | INDEX_CORRUPT)
+ */
+export function readIndexSummaryAt(indexPath: string): IndexReadReport {
+  const file = indexPath;
   const bin = readIndexBinAt(file);
   return {
     path: file,

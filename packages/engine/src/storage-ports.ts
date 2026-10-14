@@ -48,6 +48,14 @@ export interface LibraryStorageLayout {
   dbPath: string;
   /** `<库根>/.gs-journal/`（可选：老库可能还没建这个目录） */
   journalPath?: string;
+  /**
+   * `indexPath` 属于哪套布局（T-44）。判定**唯一来源** = `index-layout.ts` 的 `resolveIndexLocation`。
+   * · 'library-root' = `<库根>/.gs-index.bin`（新布局，SPEC §2）
+   * · 'legacy'       = `<dataDir>/libraries/<libId>/index.bin`（迁移期的旧布局回退）
+   * · 'none'         = 两处都没有（此时 `indexPath` 是**首选**路径，供错误信息用）
+   * 缺省（老实现不填）= 视作 'library-root'。
+   */
+  layout?: 'library-root' | 'legacy' | 'none';
 }
 
 /**

@@ -25,15 +25,45 @@ export interface LibraryMethodInput {
   libraries: LibraryRootInput[];
   /** T-04 的 userData 回退落点；null = 没有 */
   userDataDir: string | null;
+  /**
+   * 旧布局的 libraries 根（`<dataDir>/libraries`）。给了 ⇒ 索引查找会**回退到旧布局**（T-44）。
+   * 省略 = 只认新布局（迁移完成后可以不再传）。
+   */
+  legacyLibrariesDir?: string | null;
 }
 
 /** 引擎契约码集合（唯一来源 = 引擎的 ERR） */
 const ENGINE_CODES: ReadonlySet<string> = new Set(Object.values(ERR));
 
+/**
+ * main 侧**必须原样透出**的错误码族（不做引擎码映射）。
+ *
+ * 导入族 IMPORT_* 曾经被映射成 INDEX_CORRUPT —— 那是**假因果**（T-42 实测）：
+ * 用户看到「索引文件已损坏，需要重建」，而体检同时说索引是好的。
+ * SPEC §9.1：**新增**错误码 = 兼容改动（改名才是破坏性）⇒ 按 SPEC §5 清单独立成码。
+ */
+const PASS_THROUGH_PREFIXES: readonly string[] = ['IMPORT_'];
+
 /** 引擎 USER_MESSAGE 表里没有的码（main 侧私有码：MKDIR_FAILED / DB_PATH_REQUIRED / IMPORT_*…）的兜底文案 */
 const FALLBACK_USER_MESSAGE: string = '处理这个素材库时出了点问题，详情见日志。';
 
+/**
+ * main 自有码的用户文案（它们不是引擎码，所以引擎的 USER_MESSAGE 表里没有）。
+ * 重建失败最怕用户以为库里留了半份数据 —— 文案要把"本次没有改动任何数据"说清楚。
+ */
+const MAIN_USER_MESSAGE: Readonly<Record<string, string>> = {
+  IMPORT_FAILED: '重建元数据时写不进去（临时目录或库根不可写），本次没有改动任何数据。',
+  IMPORT_INPUT_INVALID: '重建的输入不完整（缺条目表或落点不可用），修好之后再来一次。',
+  IMPORT_SOURCE_INVALID: '条目表读不动或格式不对，重建没有开始。',
+  IMPORT_INDEX_UNREADABLE: '索引读不动，重建没有开始（可以先重新建一次索引）。',
+  IMPORT_RECORD_INVALID: '条目表里有不合法的条目，重建没有开始（详情见日志）。',
+  IMPORT_DUPLICATE_UID: '条目表里有重复的 uid，重建没有开始（详情见日志）。',
+  IMPORT_COUNT_MISMATCH: '条目表与索引的条数对不上，重建没有开始（详情见日志）。',
+};
+
 function userMessageFor(code: string): string {
+  const own = MAIN_USER_MESSAGE[code];
+  if (typeof own === 'string' && own) return own;
   const m = (USER_MESSAGE as Record<string, string>)[code];
   return typeof m === 'string' && m ? m : FALLBACK_USER_MESSAGE;
 }
@@ -50,6 +80,10 @@ function userMessageFor(code: string): string {
 function normalizeCode(e: unknown): string {
   const raw = codeOf(e);
   if (ENGINE_CODES.has(raw)) return raw;
+  // ⚠️ T-42 的假因果：导入族（IMPORT_*）**不许**借 INDEX_CORRUPT 的名字出去 ——
+  //    那会让用户看到「索引文件已损坏」，而同一时刻体检说索引是好的（用户会去修一个没坏的东西）。
+  //    SPEC §9.1：新增错误码 = 兼容改动，所以这里原样透出（清单同步见 42.txt，由 Lead 提交 SPEC §5）。
+  if (PASS_THROUGH_PREFIXES.some((p) => raw.startsWith(p))) return raw;
   return asEngineError(e, '库操作').code;
 }
 
@@ -68,6 +102,8 @@ function resolverFor(input: LibraryMethodInput) {
   return createLibraryResolverPort({
     libraries: input.libraries,
     userDataDir: input.userDataDir ?? undefined,
+    // 索引落点判据的唯一来源是引擎的 resolveIndexLocation；这里只把旧布局根递进去（T-44）
+    legacyLibrariesDir: input.legacyLibrariesDir ?? null,
     // ⚠️ 写探测保持关闭：体检/重建的**每一次调用**都会走到这里，开着会在库根反复写删探针文件。
     //    "能不能写"由 T-04 的启动期解析负责（storage-roots 自己会探），这里只消费它的结论。
   });
@@ -87,6 +123,7 @@ export function runLibraryHealth(input: LibraryMethodInput): Envelope {
       root: storage.root,
       dbPath: storage.dbPath,
       itemsJsonPath: path.join(storage.root, 'items.json'),
+      legacyLibrariesDir: input.legacyLibrariesDir ?? null,
     });
     log('[体检]', input.libId, report.ok ? 'ok' : '有问题', '·', report.reason);
     return { ok: true, data: report };
@@ -109,6 +146,7 @@ export function runLibraryRebuild(input: LibraryMethodInput): Envelope {
       root: storage.root,
       dbPath: storage.dbPath,
       itemsJsonPath: path.join(storage.root, 'items.json'),
+      legacyLibrariesDir: input.legacyLibrariesDir ?? null,
     });
     log('[重建]', input.libId, '· dbCount=' + String(report.import.dbCount),
         '· 索引处置=' + report.index.action, '·', report.reason);

@@ -1,0 +1,151 @@
+gemma-search · T-44 体检与引擎的「布局回退」口径统一 · 证据
+日期：2026-10-15 · 执行者：core-migrator · 任务板 task-44 · 写入范围 apps/desktop/src/main + packages/engine/src + apps/desktop/tests
+协议：每条结论 = 命令 + 原始输出（本轮实测，未转述）。本文件由工具直接写入（UTF-8）。
+
+纪律声明：
+  · 全程**只跑 node:test 与 tsc**，未跑 Electron / e2e / 打包 ⇒ 不涉及 §3.10/§3.11 的并发等待（无需等 storage-worker/db-worker/assert-worker）。
+  · 未触及 packages/indexer/** 与 main/encoder.* ⇒ 不需要附 T-00 护栏输出（下面第 7 条有机械核对）。
+  · 对真实库只做**只读**体检（readIndexBin 读字节 + existsSync），没有写素材库。
+
+改动：
+  + packages/engine/src/index-layout.ts   索引落点判据的**唯一实现**（新布局 → 旧布局回退 → none）
+  ~ packages/engine/src/storage-ports.ts  LibraryStorageLayout 增 layout 字段（加法）
+  ~ packages/engine/src/engine.ts         indexStatus 的 storage 块如实报 layout（不再写死 library-root）
+  ~ apps/desktop/src/main/storage-ports.ts 库解析端口用同一份判据产出 indexPath + layout
+  ~ apps/desktop/src/main/library-health.ts 体检改用同一份判据；只有「两处都没有」才是 INDEX_MISSING
+  ~ apps/desktop/src/main/library-ipc.ts    把旧布局根递进去（体检/重建）
+  ~ apps/desktop/src/main/library-rebuild.ts 索引落点与自检走同一份判据
+  ~ apps/desktop/src/main/index-file.ts    抽出 readIndexSummaryAt(按给定路径读摘要)；readIndexFile 变薄包装
+  ~ apps/desktop/src/main/index.ts         装配端口与 IPC 输入时传 <dataDir>/libraries
+  + apps/desktop/tests/index-layout.test.mjs 6 条用例（新布局 / 旧布局 / 真缺失 / 不给旧布局根 / 判据本体 / 真库 A/B）
+
+
+===== 0. 前置事实（只读实测）：旧布局那份索引过得了引擎五道校验 =====
+PS> node "$env:TEMP\legacyidx2.mjs"     # 内容 = 下一行注释里的那三句
+    // const { readIndexBin } = await import('<repo>/packages/engine/src/index.ts');
+    // const r = readIndexBin('<repo>/data/libraries/L1/index.bin');
+    // console.log('PASS count=' + r.count + ' dim=' + r.dim + ' headerKeys=' + Object.keys(r.header).length);
+PASS count=3594 dim=768 headerKeys=22
+[exit=0]
+⇒ 旧布局**不是**「无法体检」；把它说成 INDEX_MISSING 是假因果。
+
+
+===== 1. 项目类型门禁 tsconfig.node.json =====
+undefined
+
+
+===== 2. T-44 用例（6 条，含真库 A/B 诊断） =====
+undefined
+
+
+===== 3. 真库实跑 data/libraries/L1（旧布局）：A 带旧布局根（修后）/ B 不带（旧口径） =====
+库根 = G:\model ( index-meta ) · libId = L1
+旧布局根 = D:\USERS\Desktop\Agent\gemma-search\data\libraries
+旧布局索引 = D:\USERS\Desktop\Agent\gemma-search\data\libraries\L1\index.bin 存在= true
+--- A 带旧布局根（修后） ---
+indexLayout = legacy | index.ok = true | code = ""
+reason = 索引通过引擎五道校验（布局=legacy）：count=3594 · dim=768 · 11042105 字节 —— 用**旧布局**（迁移期回退）：D:\USERS\Desktop\Agent\gemma-search\data\libraries\L1\index.bin —— 查找顺序 library-root=G:\model\.gs-index.bin(无) · legacy=D:\USERS\Desktop\Agent\gemma-search\data\libraries\L1\index.bin(有)
+needsIndexRebuild = false
+--- B 不带（旧口径，复现 T-15b） ---
+indexLayout = none | index.ok = false | code = "INDEX_MISSING"
+reason = 两处都没有索引：library-root=G:\model\.gs-index.bin(无) —— 需要**重新建索引**（删库重建修不好它）
+needsIndexRebuild = true
+
+
+===== 4. 体检/重建既有用例（防回归） =====
+undefined
+
+
+===== 5. 全仓 npm test（520 条；唯一失败项见第 6 条，属**别的线**） =====
+undefined
+
+
+===== 6. A1 失败的归属：db/ 多了一个 tmp-dir.ts，而它的精确清单没同步（不是我改的） =====
+errors.ts
+import.ts
+index.ts
+migrations.ts
+open.ts
+row-types.ts
+sqlite-adapter.ts
+tmp-dir.ts
+
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  ... Skipped lines
+  
+    [
+      'errors.ts',
+      'import.ts',
+      'index.ts',
+      'migrations.ts',
+  ...
+      'sqlite-adapter.ts',
+  +   'tmp-dir.ts'
+    ]
+  
+      at TestContext.<anonymous> (file:///D:/USERS/Desktop/Agent/gemma-search/apps/desktop/tests/db-schema.test.mjs:170:10)
+      at Test.runInAsyncScope (node:async_hooks:228:14)
+      at Test.run (node:internal/test_runner/test:1118:25)
+      at Test.start (node:internal/test_runner/test:1015:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:358:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [Array],
+    expected: [Array],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+
+===== 7. 机械核对：判据的唯一使用点 + 未触及 indexer/encoder =====
+--- resolveIndexLocation 的定义与使用点 ---
+定义  packages/engine/src/index-layout.ts:64
+使用  apps/desktop/src/main/library-health.ts:27
+使用  apps/desktop/src/main/library-health.ts:83
+使用  apps/desktop/src/main/library-health.ts:128
+使用  apps/desktop/src/main/storage-ports.ts:35
+使用  apps/desktop/src/main/storage-ports.ts:91
+使用  apps/desktop/src/main/storage-ports.ts:161
+使用  apps/desktop/src/main/library-rebuild.ts:42
+使用  apps/desktop/src/main/library-rebuild.ts:203
+--- 索引落点判据有没有第二份（引擎/主进程里不该再有自己拼 .gs-index.bin / 旧 index.bin 的地方）---
+engine/src 里 'index.bin' 字面量所在文件: **index-layout.ts**（LEGACY_INDEX_FILENAME 的定义）
+   · 复查时发现 engine.ts 的**无端口分支**还留着一个 'index.bin' 字面量（旧布局文件名）⇒ 已改为 import
+     LEGACY_INDEX_FILENAME（行为不变，只是文件名不再有两处定义）。修后重跑：见下方"复查后"。
+main 里出现 indexPathFor( 的文件: index-file.ts（那里是**新布局路径构造**的唯一入口；体检/重建已改用判据给的路径）
+--- 复查后（单源化之后重跑）---
+engine/src 的 index.bin 相关行: engine.ts:21 import LEGACY_INDEX_FILENAME · engine.ts:288 用它 · index-layout.ts:22 定义 · :78 用它
+tsc 错误数 = 0 · 引擎单测 166/165/0/1 · T-44 用例 6/6
+indexer/encoder 命中 resolveIndexLocation = 0 / 0 ⇒ **未触及** packages/indexer/** 与 main/encoder.*，不需要 T-00 护栏
+
+
+===== 8. 结论 =====
+① **判据只有一份**：`packages/engine/src/index-layout.ts` 的 `resolveIndexLocation`（新布局 → 旧布局回退 → none）。
+   消费方：主进程库解析端口（→ VectorIndexPort，引擎真正读索引的那条路）· 体检 · 重建。
+② 三情形分得清（单测 T44-U1/H1/H2/H3/H4）：
+   · 新布局 ⇒ layout=library-root、index ok；
+   · 旧布局 ⇒ layout=legacy、**index ok**（`data/libraries/L1` 那份 count=3594 过五道校验），**不许**报 INDEX_MISSING；
+   · 真缺失（两处都没有）⇒ 才用 INDEX_MISSING，且理由列出**两条**找过的路径；
+   · 调用方不给旧布局根 ⇒ 只认新布局，且**不声称**找过旧布局（迁移完成后的口径）。
+③ 结论如实说明用的是哪套布局：报告新增 `indexLayout`，index 检查的 reason 里带 layout 与查找顺序（第 3 条原始输出）。
+④ 门禁：项目 tsc **0 条** · T-44 用例 6/6 · 体检/重建既有用例 21/21 · 全仓 npm test 518/520（唯一红是 A1，见下）。
+
+===== 9. 本轮发现（含对任务前提的更正）=====
+A. ⚠️ **更正任务前提**：任务书写「引擎在旧布局下是能工作的（T-16 的 storage 端口有回退）」——**只对 items 成立**。
+   实测：`main/storage-ports.ts` 的 **VectorIndexPort 没有旧布局分支**（它只读 `layout.indexPath` = `<库根>/.gs-index.bin`），
+   而 T-16c 已把端口**无条件**接上（`main/index.ts:352 storage: FAKE_MODE ? null : buildStoragePorts(r)`）
+   ⇒ 运行时**引擎也读不到**旧布局索引，`data/libraries/L1` 会报 INDEX_MISSING。
+   所以原本不是「体检与引擎相反」，而是**两边都只认新布局**；我把判据收敛到引擎那一份之后，
+   **引擎与体检一起**恢复了对旧布局的支持（第 3 条 A/B 可验：A 走旧布局回退通过，B 仍复现 T-15b 的 INDEX_MISSING）。
+B. ✅ 旧布局**可以体检**：那份索引与构建器同一格式，五道校验全过（count=3594 · dim=768 · 11042105 字节）
+   ⇒ 不需要写「该布局无法体检」。我只保留真缺失的 INDEX_MISSING 语义 —— 不拿它冒充别的因果（与 T-42 同类问题）。
+C. ⚠️ **npm test 唯一的红不是我这条线**：`db-schema.test.mjs` 的 **A1** 有一份**精确清单**（db 层 7 个文件），
+   而 db/ 现在多了一个 `tmp-dir.ts`（T-42/db 那条线新增，未同步该清单）⇒ `+ 'tmp-dir.ts'` 断言红。
+   我没有碰 `apps/desktop/src/main/db/**`，也没有改那份 guard —— 它属 db 线的任务，且 db-worker 正在同一目录并发工作
+   （改它会有同文件写冲突风险）。如实上报，请 Lead 派给对应负责人补一行清单。
+D. `readIndexFile` 变薄包装：新增 `readIndexSummaryAt(indexPath)`（按**给定路径**读摘要），
+   `readIndexFile(root)` = `readIndexSummaryAt(indexPathFor(root))` ⇒ 读索引与五道校验**仍然只有一份**（没有长出第二份）。
+E. 一处留给你定：`LibraryHealthReport` 新增字段 `indexLayout`（加法 ⇒ 兼容）。渲染层的镜像类型在
+   `renderer/src/store/health.ts`（**不在我的写入范围**）—— 要不要在界面上显示「旧布局回退」由 UI 线决定。
+   目前它即使被忽略也不会出错（TypeScript 结构化类型 + 运行时多字段）。

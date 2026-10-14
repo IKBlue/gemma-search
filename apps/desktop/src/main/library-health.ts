@@ -23,7 +23,9 @@ import { GS_DB_NAME } from './storage-roots.ts';
 import { GsDbError, describeError } from './db/errors.ts';
 import { EXPECTED_TABLES, TARGET_SCHEMA_VERSION, readSchemaVersion } from './db/migrations.ts';
 import { openGsDb } from './db/open.ts';
-import { indexPathFor, readIndexFile } from './index-file.ts';
+import { readIndexSummaryAt } from './index-file.ts';
+import { resolveIndexLocation } from '../../../../packages/engine/src/index-layout.ts';
+import type { IndexLayout } from '../../../../packages/engine/src/index-layout.ts';
 import type { SqlDatabase } from './db/sqlite-adapter.ts';
 
 export type HealthCheckId =
@@ -52,7 +54,10 @@ export interface LibraryHealthReport {
   libId: string;
   root: string;
   dbPath: string | null;
+  /** 实际查/应放的索引路径（`none` 时是**首选**路径） */
   indexPath: string;
+  /** 用的是哪套布局：库根（新）/ 旧布局回退 / 两处都没有（T-44） */
+  indexLayout: IndexLayout;
   checks: HealthCheck[];
   /** 所有检查通过 */
   ok: boolean;
@@ -72,6 +77,12 @@ export interface CheckLibraryHealthOptions {
   dbPath?: string | null;
   /** items.json 落点；给了就一并检查（重建要用它）。不给则**不出这一项**，不编一个假的 */
   itemsJsonPath?: string | null;
+  /**
+   * 旧布局的 libraries 根（`<dataDir>/libraries`）。给了 ⇒ 索引查不到新布局时会**回退到旧布局**
+   * （`<该目录>/<libId>/index.bin`），并如实报告用的是哪套布局 —— T-44。
+   * 判定唯一来源 = 引擎的 `resolveIndexLocation`（与引擎读索引用的是同一个函数）。
+   */
+  legacyLibrariesDir?: string | null;
 }
 
 // ---------------------------------------------------------------- 小工具
@@ -113,7 +124,13 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
     throw new GsDbError('IMPORT_INPUT_INVALID', 'checkLibraryHealth 需要非空的 libId 与 root');
   }
   const root = path.resolve(rootRaw);
-  const indexPath = indexPathFor(root);
+  // 索引落点：**唯一判据**（引擎 index-layout.ts）—— 与引擎读索引用的是同一个函数（T-44）。
+  const loc = resolveIndexLocation({
+    libId,
+    libraryRoot: root,
+    legacyLibrariesDir: opts.legacyLibrariesDir ?? null,
+  });
+  const indexPath = loc.indexPath ?? loc.preferredPath;
   const dbPath =
     opts.dbPath === null ? null : opts.dbPath === undefined ? path.join(root, GS_DB_NAME) : path.resolve(opts.dbPath);
   const checks: HealthCheck[] = [];
@@ -127,7 +144,7 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
       reason: '库根不存在或不是目录：' + root + ' —— 盘没挂载 / 库被移走时就是这样；后面几项无从检查（不假装它们通过）',
       rebuildable: false,
     });
-    return summarize(libId, root, dbPath, indexPath, checks);
+    return summarize(libId, root, dbPath, indexPath, loc.layout, checks);
   }
   checks.push({ id: 'library-root', ok: true, code: '', reason: '库根是目录：' + root, rebuildable: false });
 
@@ -158,22 +175,26 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
   }
 
   // ---- 索引：交给引擎的五道校验（本模块不做任何字节级判断）
-  if (!fs.existsSync(indexPath)) {
+  //
+  // ⚠️ **只有「两处都没有」才是 INDEX_MISSING**（T-44）：旧布局下索引是**存在且可用**的
+  //    （实测 data/libraries/L1/index.bin 过得了五道校验），把它说成「缺失」是**假因果**。
+  if (loc.layout === 'none') {
     checks.push({
       id: 'index',
       ok: false,
       code: 'INDEX_MISSING',
-      reason: '库根里没有 ' + path.basename(indexPath) + '：' + indexPath + ' —— 需要**重新建索引**（删库重建修不好它）',
+      reason: loc.reason + ' —— 需要**重新建索引**（删库重建修不好它）',
       rebuildable: false,
     });
   } else {
     try {
-      const idx = readIndexFile(root);
+      const idx = readIndexSummaryAt(indexPath);
       checks.push({
         id: 'index',
         ok: true,
         code: '',
-        reason: '索引通过引擎五道校验：count=' + String(idx.count) + ' · dim=' + String(idx.dim) + ' · ' + String(idx.bytes) + ' 字节',
+        reason: '索引通过引擎五道校验（布局=' + loc.layout + '）：count=' + String(idx.count) +
+          ' · dim=' + String(idx.dim) + ' · ' + String(idx.bytes) + ' 字节 —— ' + loc.reason,
         rebuildable: false,
       });
     } catch (e) {
@@ -181,7 +202,8 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
         id: 'index',
         ok: false,
         code: codeOf(e),
-        reason: '索引损坏（引擎五道校验未通过）：' + describeError(e) + ' —— 需要**重新建索引**，删库重建修不好它',
+        reason: '索引损坏（引擎五道校验未通过，布局=' + loc.layout + '）：' + describeError(e) +
+          ' —— 需要**重新建索引**，删库重建修不好它',
         rebuildable: false,
       });
     }
@@ -196,7 +218,7 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
       reason: '没有可用的 .gs.db 落点（T-04 的解析结果与 userData 回退都失败了）',
       rebuildable: false,
     });
-    return summarize(libId, root, dbPath, indexPath, checks);
+    return summarize(libId, root, dbPath, indexPath, loc.layout, checks);
   }
 
   if (!fs.existsSync(dbPath)) {
@@ -207,7 +229,7 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
       reason: '.gs.db 不存在：' + dbPath + ' —— 删库重建会把它建出来（后面的 db 检查跳过，不假装通过）',
       rebuildable: true,
     });
-    return summarize(libId, root, dbPath, indexPath, checks);
+    return summarize(libId, root, dbPath, indexPath, loc.layout, checks);
   }
   checks.push({ id: 'db-file', ok: true, code: '', reason: '.gs.db 存在：' + dbPath + '（' + String(sizeOf(dbPath)) + ' 字节）', rebuildable: false });
 
@@ -358,7 +380,7 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
     }
   }
 
-  return summarize(libId, root, dbPath, indexPath, checks);
+  return summarize(libId, root, dbPath, indexPath, loc.layout, checks);
 }
 
 function summarize(
@@ -366,6 +388,7 @@ function summarize(
   root: string,
   dbPath: string | null,
   indexPath: string,
+  indexLayout: IndexLayout,
   checks: HealthCheck[],
 ): LibraryHealthReport {
   const failed = checks.filter((c) => !c.ok);
@@ -377,5 +400,5 @@ function summarize(
     : '自检发现 ' + String(failed.length) + ' 项问题：' + failed.map((c) => c.id + '(' + c.code + ')').join(' / ') +
       (needsDbRebuild ? ' ⇒ 可以删库重建' : '') +
       (needsIndexRebuild ? ' ⇒ 索引需要重新编码（删库重建修不好）' : '');
-  return { libId, root, dbPath, indexPath, checks, ok: failed.length === 0, needsDbRebuild, needsIndexRebuild, reason };
+  return { libId, root, dbPath, indexPath, indexLayout, checks, ok: failed.length === 0, needsDbRebuild, needsIndexRebuild, reason };
 }

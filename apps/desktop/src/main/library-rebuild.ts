@@ -38,7 +38,8 @@ import { GsDbError, describeError } from './db/errors.ts';
 import { importItemsFromJson } from './db/import.ts';
 import type { ImportItemsReport, ImportLibraryRef } from './db/import.ts';
 import { openGsDb, removeGsDbFiles } from './db/open.ts';
-import { indexPathFor, readIndexFile, writeIndexAtomically } from './index-file.ts';
+import { readIndexSummaryAt, writeIndexAtomically } from './index-file.ts';
+import { resolveIndexLocation } from '../../../../packages/engine/src/index-layout.ts';
 import { checkLibraryHealth } from './library-health.ts';
 import type { LibraryHealthReport } from './library-health.ts';
 
@@ -127,6 +128,11 @@ export interface RebuildLibraryOptions {
   now?: () => number;
   /** 是否做重建前自检（默认 true；报告里要有"为什么要重建"） */
   checkBefore?: boolean;
+  /**
+   * 旧布局的 libraries 根（`<dataDir>/libraries`）。给了 ⇒ 索引落点会**回退到旧布局**（T-44），
+   * 自检与"索引处置"都按同一份判据说话。
+   */
+  legacyLibrariesDir?: string | null;
 }
 
 export type RebuildIndexAction = 'written' | 'kept' | 'still-broken';
@@ -193,7 +199,13 @@ export function rebuildLibraryDb(opts: RebuildLibraryOptions): RebuildLibraryRep
     );
   }
   const now = opts.now ?? Date.now;
-  const indexPath = indexPathFor(root);
+  // 索引落点：**唯一判据**（引擎 index-layout.ts）—— 与体检、与引擎读索引用的是同一个函数（T-44）
+  const loc = resolveIndexLocation({
+    libId,
+    libraryRoot: root,
+    legacyLibrariesDir: opts.legacyLibrariesDir ?? null,
+  });
+  const indexPath = loc.indexPath ?? loc.preferredPath;
 
   // ⓪ **库根必须先存在**（Lead 裁定 U6：不许静默建出一个空库根 = 幽灵库）
   //    ⚠️ 这一道必须挡在 openGsDb 之前 —— openGsDb 会对 dbPath 的父目录做 recursive mkdir
@@ -204,7 +216,9 @@ export function rebuildLibraryDb(opts: RebuildLibraryOptions): RebuildLibraryRep
   }
 
   // ① 重建前自检：报告里要说清"为什么要重建"
-  const before = opts.checkBefore === false ? null : checkLibraryHealth({ libId, root, dbPath, itemsJsonPath });
+  const before = opts.checkBefore === false ? null : checkLibraryHealth({
+    libId, root, dbPath, itemsJsonPath, legacyLibrariesDir: opts.legacyLibrariesDir ?? null,
+  });
 
   // ② 删库（只删 .gs-* 命名空间里的文件，含 -wal/-shm/-journal）
   const removedDbFiles = removeGsDbFiles(dbPath);
@@ -238,7 +252,7 @@ export function rebuildLibraryDb(opts: RebuildLibraryOptions): RebuildLibraryRep
     index = { action: 'written', detail: written.reason, count: written.count, dim: written.dim };
   } else {
     try {
-      const kept = readIndexFile(root);
+      const kept = readIndexSummaryAt(indexPath);
       index = {
         action: 'kept',
         detail:
@@ -258,7 +272,9 @@ export function rebuildLibraryDb(opts: RebuildLibraryOptions): RebuildLibraryRep
   }
 
   // ⑤ 复检
-  const after = checkLibraryHealth({ libId, root, dbPath, itemsJsonPath });
+  const after = checkLibraryHealth({
+    libId, root, dbPath, itemsJsonPath, legacyLibrariesDir: opts.legacyLibrariesDir ?? null,
+  });
   const failed = after.checks.filter((c) => !c.ok);
   const dbOk = after.checks.filter((c) => c.id.startsWith('db-')).every((c) => c.ok);
   const indexCheck = after.checks.find((c) => c.id === 'index');
