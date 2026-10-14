@@ -167,8 +167,8 @@ function plainClassBodies(file) {
  *    留着它只会让白名单慢慢烂掉 —— 本仓库反复栽在这上面（"白名单一大，防线就废了"）。
  */
 const EXEMPT = new Map([
-  ['search/SearchPanel.jsx|auto',
-    '`ui/Field.jsx:4` 写的是 [\'field\', className].filter(Boolean).join(\' \') ⇒ 实际渲染出 class="field auto"，'
+  ['search/SearchPanel.tsx|auto',
+    '`ui/Field.tsx:4` 写的是 [\'field\', className].filter(Boolean).join(\' \') ⇒ 实际渲染出 class="field auto"，'
     + '`renderer.css:163` 的 `.field.auto { width: auto }` **生效**。静态检查看不见组件内部的合成，故豁免。'],
 ]);
 

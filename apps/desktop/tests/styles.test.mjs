@@ -25,7 +25,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { maskComments } from './helpers/source-scan.mjs'
-import { cn, TEXT_SIZES } from '../src/renderer/src/ui/cn.js'
+import { cn, TEXT_SIZES } from '../src/renderer/src/ui/cn.ts'
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const RENDERER = path.join(ROOT, 'apps', 'desktop', 'src', 'renderer')
@@ -39,7 +39,7 @@ function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name)
     if (e.isDirectory()) walk(p, out)
-    else if (/\.(js|jsx|css)$/.test(e.name)) out.push(p)
+    else if (/\.(js|jsx|ts|tsx|css)$/.test(e.name)) out.push(p)   // 全量 TS 迁移：源码扫描面必须含 .ts/.tsx
   }
   return out
 }
@@ -93,7 +93,7 @@ test('T1c ⭐ Tailwind 的 `@theme` 映射**只允许** `var(--…)`，不许出
 // ============================================================ ② F-02 不得自算阈值
 
 test('T2 ⭐ F-02：渲染层不得出现分数阈值常量（0.6~0.99）—— 档位只能来自引擎的 band', () => {
-  const files = walk(RENDERER).filter((f) => /\.(js|jsx)$/.test(f))
+  const files = walk(RENDERER).filter((f) => /\.(js|jsx|ts|tsx)$/.test(f))   // 同上：否则 T2 会变成空断言（假绿）
   const bad = []
   for (const f of files) {
     const code = maskComments(read(f))
@@ -103,8 +103,8 @@ test('T2 ⭐ F-02：渲染层不得出现分数阈值常量（0.6~0.99）—— 
     `界面不许自己判分数档，档位只能取引擎的 item.band：\n    ${bad.join('\n    ')}`)
 })
 
-test('T2b F-02 的正向面：`ui/Score.jsx` 确实消费 `band`，且缺失时不猜', () => {
-  const src = read(path.join(RENDERER, 'src', 'ui', 'Score.jsx'))
+test('T2b F-02 的正向面：`ui/Score.tsx` 确实消费 `band`，且缺失时不猜', () => {
+  const src = read(path.join(RENDERER, 'src', 'ui', 'Score.tsx'))
   assert.match(src, /band/, 'Score 必须消费 band')
   // 必须存在"band 不在已知档位里 ⇒ 不显示档位文案"的分支
   assert.match(src, /hasOwnProperty\.call\(BAND_TEXT/, '必须有"未知 band ⇒ 拒绝定档"的判定')
@@ -137,10 +137,10 @@ test('T4 构建配置接了 `@tailwindcss/vite`，且入口在 renderer.css **�
   assert.match(cfg, /@tailwindcss\/vite/, '构建配置必须引 @tailwindcss/vite')
   assert.match(cfg, /plugins:\s*\[[^\]]*tailwindcss\(\)/, 'renderer 段的 plugins 里必须有 tailwindcss()')
   // 顺序是迁移期的约定：手写层要能覆盖工具类
-  const main = read(path.join(RENDERER, 'src', 'main.jsx'))
+  const main = read(path.join(RENDERER, 'src', 'main.tsx'))
   const iTw = main.indexOf("styles/tailwind.css")
   const iRc = main.indexOf("'./renderer.css'")
-  assert.ok(iTw > 0, 'main.jsx 必须 import Tailwind 入口')
+  assert.ok(iTw > 0, 'main.tsx 必须 import Tailwind 入口')
   assert.ok(iRc > 0 && iTw < iRc, `Tailwind 入口必须在 renderer.css 之前（实际 ${iTw} vs ${iRc}）`)
   // 入口文件里的 @source 必须覆盖组件目录，否则类名扫不到 ⇒ 工具类不生成
   assert.match(read(TAILWIND), /@source\s+"/, 'Tailwind 入口必须显式给出 @source')

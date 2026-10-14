@@ -113,7 +113,7 @@ test('CP-4 ⭐ 错误提示不自动消失，且走 `alert` 而不是 `status`�
   // ② 角色映射：这部分在 `.jsx` 里，`node:test` 加载不了 ⇒ 断言**剥注释后的源码**
   //    （⚠️ 必须剥注释：本文件的注释里正当地引用了旧的 `role="status"`，
   //      裸匹配会把自己的说明当成违规 —— 这个坑在注入器与 CP-0 上各踩过一次。）
-  const toastSrc = maskComments(fs.readFileSync(path.join(SRC, 'ui', 'Toast.jsx'), 'utf8'));
+  const toastSrc = maskComments(fs.readFileSync(path.join(SRC, 'ui', 'Toast.tsx'), 'utf8'));
   assert.match(toastSrc, /role=\{isErr \? 'alert' : 'status'\}/,
     '错误必须是 `alert`、普通提示才是 `status` —— 恒 status 就等于"出错和成功对读屏一样"');
   assert.match(toastSrc, /aria-live=\{isErr \? 'assertive' : 'polite'\}/, '`aria-live` 要跟着角色一致');
@@ -141,5 +141,5 @@ test('CP-0 自检：扫描面覆盖到东西、且 `show` 真的用了 `normaliz
   const toastCode = maskComments(toastRaw);
   assert.doesNotMatch(toastCode, /setMessage\(String\(msg\)\)/,
     '不许退回 `setMessage(String(msg))`（那正是 V-42 的成因）');
-  assert.ok(files.some((f) => /\.jsx$/.test(f)), '扫描面应包含 .jsx（否则 CP-2/CP-3 覆盖面不全）');
+  assert.ok(files.some((f) => /\.tsx$/.test(f)), '扫描面应包含 .tsx（否则 CP-2/CP-3 覆盖面不全）');
 });

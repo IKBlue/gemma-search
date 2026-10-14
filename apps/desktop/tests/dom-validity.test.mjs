@@ -31,7 +31,7 @@ function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name)
     if (e.isDirectory()) walk(p, out)
-    else if (/\.jsx$/.test(e.name)) out.push(p)
+    else if (/\.(jsx|tsx)$/.test(e.name)) out.push(p)
   }
   return out
 }
@@ -66,7 +66,7 @@ test('V2 更一般地：`<button>`（含原生）里不许直接嵌 `<a>`', () =
 })
 
 test('V3 `Button` 真的实现了 `asChild`（否则 V1 的修法无处可依）', () => {
-  const src = fs.readFileSync(path.join(RENDERER, 'ui', 'Button.jsx'), 'utf8')
+  const src = fs.readFileSync(path.join(RENDERER, 'ui', 'Button.tsx'), 'utf8')
   // 2026-10-14：改用**统一原语包** radix-ui（shadcn/ui v4 的装法；分散包 @radix-ui/react-* 已删除）。
   // 断言同时钉住"不许再回去装分散包" —— 那正是 P1（同一概念两份来源）的老毛病。
   assert.match(src, /import\s*\{\s*Slot\s*\}\s*from\s*'radix-ui'/, 'Button 必须用统一原语包 radix-ui 的 Slot 实现 asChild')
@@ -86,7 +86,7 @@ test('V4 窗口标题有单一来源：应用名与页面名都来自 `router/pa
   assert.match(paths, /export const APP_NAME/, 'paths.js 必须导出 APP_NAME')
 
   // 三个页面都要设置标题，且**不许**各自硬编码中文字面量（那会变成第二份来源）
-  for (const [file, key] of [['SearchPage.jsx', 'search'], ['ItemPage.jsx', 'item'], ['TasksPage.jsx', 'tasks']]) {
+  for (const [file, key] of [['SearchPage.tsx', 'search'], ['ItemPage.tsx', 'item'], ['TasksPage.tsx', 'tasks']]) {
     const src = fs.readFileSync(path.join(RENDERER, 'pages', file), 'utf8')
     assert.match(src, /useDocumentTitle\(LABELS\.\w+\)/, `${file} 必须调用 useDocumentTitle(LABELS.xxx)`)
     assert.ok(src.includes(key) || true)

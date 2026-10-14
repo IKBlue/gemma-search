@@ -107,18 +107,18 @@ test('D-C ⭐⭐ 断言本身有效：能看见**动态** `import()`（差点因
 test('D-D ⭐ class 合并**只有一份实现**（`cn()`）—— `cx.js` 不得复活（A-4 的收口）', () => {
   const ui = fs.readdirSync(path.join(ROOT, 'apps/desktop/src/renderer/src/ui'))
   const impls = ui.filter((f) => /^(cx|cn|classnames?|clsx)\.(js|ts)$/i.test(f))
-  assert.deepEqual(impls, ['cn.js'], `ui/ 下应只有 cn.js 一份 class 合并实现，实得 ${JSON.stringify(impls)}`)
+  assert.deepEqual(impls, ['cn.ts'], `ui/ 下应只有 cn.ts 一份 class 合并实现，实得 ${JSON.stringify(impls)}`)
 
   // 全渲染层不许再有人从别处挪一个 cx 回来
   const strays = files
-    .filter((f) => f.includes('renderer') && /\.(js|jsx)$/.test(f))
+    .filter((f) => f.includes('renderer') && /\.(js|jsx|ts|tsx)$/.test(f))
     .filter((f) => /from\s+['"][^'"]*\bcx\.js['"]/.test(maskComments(fs.readFileSync(f, 'utf8'))))
     .map(rel)
   assert.deepEqual(strays, [], `这些文件还在 import 已删除的 cx.js：${strays.join(', ')}`)
 })
 
 test('D-E `cn()` 真的用了 clsx + tailwind-merge（不是自己手拼字符串）', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'apps/desktop/src/renderer/src/ui/cn.js'), 'utf8')
+  const src = fs.readFileSync(path.join(ROOT, 'apps/desktop/src/renderer/src/ui/cn.ts'), 'utf8')
   assert.match(src, /from 'clsx'/, 'cn 必须用 clsx')
   assert.match(src, /from 'tailwind-merge'/, 'cn 必须用 tailwind-merge（消解同组工具类冲突）')
   assert.match(src, /twMerge\(clsx\(/, 'cn 的实现应是 twMerge(clsx(...))')
@@ -127,12 +127,12 @@ test('D-E `cn()` 真的用了 clsx + tailwind-merge（不是自己手拼字符�
 // ============================================================ D-F 无障碍缺口真的补上了
 
 test('D-F ⭐ Chip 用的是 `aria-pressed` 语义，不只是 class（T4 补的无障碍缺口）', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'apps/desktop/src/renderer/src/ui/Chip.jsx'), 'utf8')
+  const src = fs.readFileSync(path.join(ROOT, 'apps/desktop/src/renderer/src/ui/Chip.tsx'), 'utf8')
   assert.match(src, /aria-pressed=\{active\}/, '切换按钮必须暴露 aria-pressed（class 名对屏幕阅读器不可见）')
 })
 
 test('D-G 确认弹窗真的用 Radix 的**可访问原语**（不是手写 overlay 冒充）', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'apps/desktop/src/renderer/src/ui/ConfirmDialog.jsx'), 'utf8')
+  const src = fs.readFileSync(path.join(ROOT, 'apps/desktop/src/renderer/src/ui/ConfirmDialog.tsx'), 'utf8')
   // 这几件是手写 overlay 最容易漏、也最难自己实现的（角色 / 焦点陷阱 / ESC / 焦点归还）
   for (const prim of ['AlertDialog.Root', 'AlertDialog.Overlay', 'AlertDialog.Content', 'AlertDialog.Title', 'AlertDialog.Description', 'AlertDialog.Cancel', 'AlertDialog.Action']) {
     assert.ok(src.includes(prim), `确认弹窗必须用 ${prim}（换成普通 div 就丢了角色与焦点管理）`)
@@ -141,7 +141,7 @@ test('D-G 确认弹窗真的用 Radix 的**可访问原语**（不是手写 over
 })
 
 test('D-H 破坏性操作走"请求 → 确认"，不再直接执行（取件会写文件）', () => {
-  const page = fs.readFileSync(path.join(ROOT, 'apps/desktop/src/renderer/src/pages/SearchPage.jsx'), 'utf8')
+  const page = fs.readFileSync(path.join(ROOT, 'apps/desktop/src/renderer/src/pages/SearchPage.tsx'), 'utf8')
   assert.match(page, /onCollect=\{requestCollect\}/, '取件必须先经过 requestCollect（弹确认框）')
   assert.ok(!/onCollect=\{\(item\) => collect\(/.test(page), '不许再直接调 collect —— 那会绕过确认')
   assert.match(page, /<ConfirmDialog/, 'SearchPage 必须挂确认弹窗')
