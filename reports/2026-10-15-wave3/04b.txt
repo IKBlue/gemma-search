@@ -1,0 +1,264 @@
+================================================================================
+T-04b 证据 · 存储根接进启动流程并打印落点
+任务板 id: task-10   执行: storage-worker   日期: 2026-10-15
+改动文件:
+  · apps/desktop/src/main/index.ts        （+46 行：storageAppDir / logStorageRoots / whenReady 里一行调用）
+  · apps/desktop/src/main/storage-roots.ts（T-04a 的模块，本任务只修了一处错误文案重复）
+依赖: task-9（T-04a，已完成并归档 reports/2026-10-15-wave3/04a.txt）
+验收三项: ① 三种情形各实跑一次且日志能看出落点与原因 ② npm test 全绿 ③ npm run e2e -- smoke.spec.mjs 通过
+================================================================================
+
+【接线方式】index.ts 的 app.whenReady() 里，buildEngine() 之后调用 logStorageRoots()：
+  · 程序目录 = app.isPackaged ? path.dirname(app.getPath('exe')) : ROOT（SPEC §2 的「程序目录」）
+  · userData  = app.getPath('userData')（**仍然可由 --user-data-dir 覆盖**，未改）
+  · 库列表    = librariesResolved().libraries（**仍然是 library-config.ts 的四条路**，未改）
+  · 用户指定模型目录 = config.onnx_model_dir（既有字段）
+  然后逐行 log() → 落进 GEMMA_APP_LOG 指定的日志文件与 stdout。
+  **只记录，不改变任何行为**：库从哪来、模型实际用哪个都不受影响。
+  另并列打出 resolveModelDir() 的真实返回值（T-17 才收敛那条 model_cache 路径），
+  目的是把「SPEC 搜索顺序」与「实现实际用的目录」的差异**摆在明面上**而不是藏起来。
+
+【三种情形的实跑结果（真 Electron，日志原文见「命令 6」）】
+  情形 A 程序目录可写（app/models 里有 onnx/model.onnx）
+    → 模型 = <app>/models（来源：程序目录 models/）；库根可写 → 落点 = 库根本身
+  情形 B 程序目录不可写（对 <app>/models 加 icacls 拒绝写）
+    → 第 1 位「目录不可写：...（EPERM: operation not permitted, open '...\.gs-write-probe-...')」
+      ⇒ 模型 = <userData>/models（来源：userData models/），建议放置目录也变成 userData
+  情形 C 库根不可写（对库根加 icacls 拒绝写）
+    → 落点 = <userData>/libraries/L1（**回退 userData**），理由里带 EPERM 原文与回退路径
+  情形 D 三位都没有模型
+    → 模型 = **未找到** + 逐条列出找过的路径 + 放法 + 「找到之前不会显示任何检索结果」
+  另: 情形 E = 不加任何 GEMMA_* 覆盖跑真应用（见「命令 7」）：
+    引擎就绪 · 库 L1=G:\model[index-meta] —— data/libraries/* 自举这条路没被动；
+    注册表路径 = <userData>/library-registry.json —— 未被动。
+
+【⚠️ 环境噪声判定：G:\model 的 EPERM 是**本会话沙箱**造成的，不是产品事实】
+  情形 E 里 [存储] 报「库根不可写 ⇒ 回退 userData（G:\model EPERM）」。逐层查证（原始输出见「命令 8」）：
+    · 普通 node 写 G:\model\xxx  → **OK**
+    · 同一个 electron.exe 的正常浏览器进程写 G:\model\xxx → EPERM
+    · 同一进程写 C:\Users\...\AppData\Roaming\Electron\xxx → EPERM
+    · 同一进程写仓库内路径 → **OK**
+  ⇒ 本 agent 会话的文件沙箱把 electron.exe 的写限制在**仓库工作目录内**，仓库外的路径一律 EPERM。
+    这与 G:\model 自身的权限无关（icacls 显示 Authenticated Users:(M)，普通 node 也能写）。
+    ⇒ 因此「库根不可写 ⇒ 回退 userData」这条规则**不能**用 G:\model 当证据；
+      有效证据是情形 B/C —— 那两处用的是显式 icacls 拒绝，且**普通 node 同样被拒**（见 04a.txt 命令 4 同款实验），
+      与沙箱无关。
+    ⇒ 在真实用户环境（无本沙箱）里，G:\model 是可写的，落点会是库根本身。**不要把 E 的日志读成"G:\model 坏了"。**
+
+【残留检查】所有情形跑完后，data/_t04 与真实库 G:\model 下都**没有** .gs-write-probe-* 残留
+  （探测文件写完即删；库根下也没有任何 .gs-* 被创建）。
+
+【未决 / 需 Lead 裁定】
+U1. index.ts 里现在有两处模型概念：storage-roots.ts 的 SPEC 顺序 + 既有 resolveModelDir()
+    （后者多认一条 config.model_cache/onnx/embeddinggemma-2/<rev>/fp32）。本任务**两处并列打印、
+    不改行为**；收敛（P1）属 T-17（main/encoder.*）。
+U2. 库根不可写时的回退目录 <userData>/libraries/<libId> 由本任务定义（T-04a 决定），
+    与 data/libraries/<libId> 自举布局同形；是否按此落地到 T-11/T-12 请 Lead 确认。
+U3. 首次写入前需要 mkdir 回退目录 —— 属写入侧（T-11/T-12）。
+
+【回滚方式】本任务只改 main/index.ts（+46 行）与 storage-roots.ts（1 处文案）：
+  · index.ts：删掉 import 行、storageAppDir/logStorageRoots 两个函数块、whenReady 里的
+    logStorageRoots() 调用，即回到 T-04a 后的状态；
+  · storage-roots.ts：把 probeWritable 的失败 reason 改回「codeOf(e): messageOf(e)」的旧文案（仅文案）。
+  · 核对命令: node --test --test-isolation=none "apps/desktop/tests/storage-roots.test.mjs"
+              （应与 04a.txt 一致：19/19）· npm test · npm run e2e -- smoke.spec.mjs
+================================================================================
+
+### 命令 1 · 类型门禁（两个 tsc 工程）
+PS> node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "$env:TEMP\tsbi_node.tsbuildinfo"
+(原始输出为空) EXIT=0
+PS> node node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json --tsBuildInfoFile "$env:TEMP\tsbi_web.tsbuildinfo"
+(原始输出为空) EXIT=0
+
+### 命令 2 · 构建（e2e 跑的是构建产物）
+PS> npm run build
+EXIT=0
+--- out/ 三端产物 ---
+  out/main
+  out/preload
+  out/renderer
+  out\main\index.js  110483 bytes
+  out\main\chunks\bmp_decode-CrjD8y7P.js  1826 bytes
+  out\main\chunks\encoder-CLjGa30W.js  8146 bytes
+  out\preload\index.cjs  849 bytes
+  out\renderer\index.html  1152 bytes
+  out\renderer\assets\index-BlzNWBUm.css  48615 bytes
+  out\renderer\assets\index-DBlQNfHr.js  1162220 bytes
+
+### 命令 3 · T-04a 单测（防回归）
+PS> node --test --test-isolation=none "apps/desktop/tests/storage-roots.test.mjs"
+EXIT=0
+ℹ tests 19
+ℹ pass 19
+ℹ fail 0
+ℹ skipped 0
+
+### 命令 4 · npm test（全量）
+PS> npm test
+EXIT=0
+ℹ tests 334
+ℹ pass 333
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+
+### 命令 5 · e2e smoke（真启动 Electron）
+PS> npm run e2e -- smoke.spec.mjs
+EXIT=0
+> gemma-search@0.1.0 e2e
+> playwright test -c apps/desktop/e2e/playwright.config.mjs smoke.spec.mjs
+Running 1 test using 1 worker
+  [E0] window.api = object · keys = ["invoke","onEvent","platform"]
+  [E0] typeof window.require/module/process = undefined / undefined / undefined
+  [E0] body.innerHTML 长度 = 6181 · 控制台错误 = 0
+  ok 1 apps\desktop\e2e\smoke.spec.mjs:14:1 › E0 探针：Electron 出窗，且 preload 暴露面恰好三键 (6.7s)
+  1 passed (7.1s)
+
+### 命令 6 · 四种情形实跑（真 Electron；脚本 data/_t04/run-scenarios.mjs）
+脚本要点: 用仓库 e2e 已验证的 @playwright/test _electron 启动；
+  GEMMA_ROOT=临时 app 目录（改「程序目录」）· GEMMA_LIB_ROOT=临时库根 · GEMMA_APP_LOG=临时日志
+  --user-data-dir=临时 userData · 刻意**不开** GEMMA_FAKE（说明见下"踩坑"）
+PS> node data/_t04/run-scenarios.mjs
+EXIT=0
+================ A-app-dir-writable ================
+  appDir   = D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\app
+  userData = D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\ud
+  libRoot  = D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\lib
+  log      = true  (13 条 [存储] 行)
+  [04:57:14.953] [存储] ======== 本次启动的落点 ========
+  [04:57:14.953] [存储] 程序目录 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\app
+  [04:57:14.953] [存储] userData = D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\ud
+  [04:57:14.953] [存储] 写探测 = 开启（在已存在的目录里写一个 .gs-write-probe-* 临时文件再删；不用 fs.access(W_OK) —— Windows 上它对 ACL 拒绝的目录会假报可写）
+  [04:57:14.954] [存储] 模型 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\app\models（来源：程序目录 models/）
+  [04:57:14.954] [存储] 模型搜索顺序 = 程序目录 models/ → userData models/ → 用户指定
+  [04:57:14.954] [存储]   1. 程序目录 models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\app\models ⇒ 命中：含 onnx\model.onnx（D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\app\models）；目录可写：D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\app\models
+  [04:57:14.954] [存储]   2. userData models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\ud\models ⇒ 没有这个目录（D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\ud\models）；目录不存在：D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\ud\models
+  [04:57:14.954] [存储] 模型建议放置目录 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\app\models（搜索顺序里第一个可写的候选；安装目录通常不可写，见 PLAN R8）
+  [04:57:14.954] [存储] 库 L1：声明库根 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\lib
+  [04:57:14.954] [存储] 库 L1：落点 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\lib（用库根本身）；为什么 = 库根可写（写探测：目录可写：D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\lib） ⇒ 索引 / 元数据 / 事务日志都写在**库根本身**（D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\lib）
+  [04:57:14.955] [存储] 库 L1：索引 D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\lib\.gs-index.bin · 元数据 D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\lib\.gs.db · 事务日志 D:\USERS\Desktop\Agent\gemma-search\data\_t04\A-app-dir-writable\lib\.gs-journal · 暂存 .gs-staging/<txnId>/（暂存目录是**每个写入目标所在目录**下一份（<目标目录>/.gs-staging/<txnId>/），不是全局一个 —— 同卷 rename 才能原子；扫描素材时必须跳过 .gs-* 与 .gs-staging/）
+  [04:57:14.955] [存储] 编码器实际将使用的模型目录 = (无 —— 检索会以 MODEL_MISSING 失败，不给假结果)
+
+================ B-app-dir-readonly ================
+  appDir   = D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\app
+  userData = D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\ud
+  libRoot  = D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\lib
+  log      = true  (13 条 [存储] 行)
+  [04:57:16.079] [存储] ======== 本次启动的落点 ========
+  [04:57:16.079] [存储] 程序目录 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\app
+  [04:57:16.079] [存储] userData = D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\ud
+  [04:57:16.080] [存储] 写探测 = 开启（在已存在的目录里写一个 .gs-write-probe-* 临时文件再删；不用 fs.access(W_OK) —— Windows 上它对 ACL 拒绝的目录会假报可写）
+  [04:57:16.080] [存储] 模型 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\ud\models（来源：userData models/）
+  [04:57:16.080] [存储] 模型搜索顺序 = 程序目录 models/ → userData models/ → 用户指定
+  [04:57:16.080] [存储]   1. 程序目录 models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\app\models ⇒ 目录存在但没有 onnx\model.onnx（D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\app\models）；目录不可写：D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\app\models（EPERM: operation not permitted, open 'D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\app\models\.gs-write-probe-24796-1-1791953836076'）
+  [04:57:16.080] [存储]   2. userData models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\ud\models ⇒ 命中：含 onnx\model.onnx（D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\ud\models）；目录可写：D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\ud\models
+  [04:57:16.080] [存储] 模型建议放置目录 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\ud\models（搜索顺序里第一个可写的候选；安装目录通常不可写，见 PLAN R8）
+  [04:57:16.081] [存储] 库 L1：声明库根 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\lib
+  [04:57:16.081] [存储] 库 L1：落点 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\lib（用库根本身）；为什么 = 库根可写（写探测：目录可写：D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\lib） ⇒ 索引 / 元数据 / 事务日志都写在**库根本身**（D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\lib）
+  [04:57:16.081] [存储] 库 L1：索引 D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\lib\.gs-index.bin · 元数据 D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\lib\.gs.db · 事务日志 D:\USERS\Desktop\Agent\gemma-search\data\_t04\B-app-dir-readonly\lib\.gs-journal · 暂存 .gs-staging/<txnId>/（暂存目录是**每个写入目标所在目录**下一份（<目标目录>/.gs-staging/<txnId>/），不是全局一个 —— 同卷 rename 才能原子；扫描素材时必须跳过 .gs-* 与 .gs-staging/）
+  [04:57:16.081] [存储] 编码器实际将使用的模型目录 = (无 —— 检索会以 MODEL_MISSING 失败，不给假结果)
+
+================ C-lib-root-readonly ================
+  appDir   = D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\app
+  userData = D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\ud
+  libRoot  = D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\lib
+  log      = true  (13 条 [存储] 行)
+  [04:57:17.211] [存储] ======== 本次启动的落点 ========
+  [04:57:17.211] [存储] 程序目录 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\app
+  [04:57:17.212] [存储] userData = D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\ud
+  [04:57:17.212] [存储] 写探测 = 开启（在已存在的目录里写一个 .gs-write-probe-* 临时文件再删；不用 fs.access(W_OK) —— Windows 上它对 ACL 拒绝的目录会假报可写）
+  [04:57:17.212] [存储] 模型 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\app\models（来源：程序目录 models/）
+  [04:57:17.212] [存储] 模型搜索顺序 = 程序目录 models/ → userData models/ → 用户指定
+  [04:57:17.212] [存储]   1. 程序目录 models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\app\models ⇒ 命中：含 onnx\model.onnx（D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\app\models）；目录可写：D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\app\models
+  [04:57:17.213] [存储]   2. userData models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\ud\models ⇒ 没有这个目录（D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\ud\models）；目录不存在：D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\ud\models
+  [04:57:17.213] [存储] 模型建议放置目录 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\app\models（搜索顺序里第一个可写的候选；安装目录通常不可写，见 PLAN R8）
+  [04:57:17.213] [存储] 库 L1：声明库根 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\lib
+  [04:57:17.213] [存储] 库 L1：落点 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\ud\libraries\L1（**回退 userData**）；为什么 = 库根不可写 ⇒ 回退 userData。原因为：目录不可写：D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\lib（EPERM: operation not permitted, open 'D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\lib\.gs-write-probe-11768-2-1791953837210'）。落点 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\ud\libraries\L1；回退目录尚未创建（D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\ud\libraries\L1）—— 首次写入时按需创建
+  [04:57:17.213] [存储] 库 L1：索引 D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\ud\libraries\L1\.gs-index.bin · 元数据 D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\ud\libraries\L1\.gs.db · 事务日志 D:\USERS\Desktop\Agent\gemma-search\data\_t04\C-lib-root-readonly\ud\libraries\L1\.gs-journal · 暂存 .gs-staging/<txnId>/（暂存目录是**每个写入目标所在目录**下一份（<目标目录>/.gs-staging/<txnId>/），不是全局一个 —— 同卷 rename 才能原子；扫描素材时必须跳过 .gs-* 与 .gs-staging/）
+  [04:57:17.214] [存储] 编码器实际将使用的模型目录 = (无 —— 检索会以 MODEL_MISSING 失败，不给假结果)
+
+================ D-no-model-anywhere ================
+  appDir   = D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\app
+  userData = D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\ud
+  libRoot  = D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\lib
+  log      = true  (23 条 [存储] 行)
+  [04:57:18.352] [存储] ======== 本次启动的落点 ========
+  [04:57:18.352] [存储] 程序目录 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\app
+  [04:57:18.352] [存储] userData = D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\ud
+  [04:57:18.352] [存储] 写探测 = 开启（在已存在的目录里写一个 .gs-write-probe-* 临时文件再删；不用 fs.access(W_OK) —— Windows 上它对 ACL 拒绝的目录会假报可写）
+  [04:57:18.353] [存储] 模型 = **未找到**（在找到模型之前不会显示任何检索结果 —— 不假装可用）
+  [04:57:18.353] [存储] 模型搜索顺序 = 程序目录 models/ → userData models/ → 用户指定
+  [04:57:18.353] [存储]   1. 程序目录 models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\app\models ⇒ 目录存在但没有 onnx\model.onnx（D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\app\models）；目录可写：D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\app\models
+  [04:57:18.353] [存储]   2. userData models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\ud\models ⇒ 没有这个目录（D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\ud\models）；目录不存在：D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\ud\models
+  [04:57:18.353] [存储] 模型建议放置目录 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\app\models（搜索顺序里第一个可写的候选；安装目录通常不可写，见 PLAN R8）
+  [04:57:18.353] [存储] 模型指引：未找到 ONNX 模型（搜索顺序取自 SPEC §2：程序目录 models/ → userData models/ → 用户指定）。
+  [04:57:18.354] [存储] 模型指引：已经找过：
+  [04:57:18.354] [存储] 模型指引：  1. 程序目录 models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\app\models ⇒ 目录存在但没有 onnx\model.onnx（D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\app\models）
+  [04:57:18.354] [存储] 模型指引：  2. userData models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\ud\models ⇒ 没有这个目录（D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\ud\models）
+  [04:57:18.354] [存储] 模型指引：放法（任选其一，目录里必须有 onnx\model.onnx）：
+  [04:57:18.354] [存储] 模型指引：  · D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\app\models\onnx\model.onnx
+  [04:57:18.354] [存储] 模型指引：  · D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\ud\models\onnx\model.onnx
+  [04:57:18.354] [存储] 模型指引：  · 在设置里指定模型目录（config.json 的 onnx_model_dir），或放到既有 model-cache 布局下
+  [04:57:18.355] [存储] 模型指引：放好后重启应用即可重试。
+  [04:57:18.355] [存储] 模型指引：⚠️ 在找到模型之前**不会显示任何检索结果** —— 不假装可用（SPEC §2「都找不到 ⇒ 显示明确指引」）。
+  [04:57:18.355] [存储] 库 L1：声明库根 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\lib
+  [04:57:18.355] [存储] 库 L1：落点 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\lib（用库根本身）；为什么 = 库根可写（写探测：目录可写：D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\lib） ⇒ 索引 / 元数据 / 事务日志都写在**库根本身**（D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\lib）
+  [04:57:18.355] [存储] 库 L1：索引 D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\lib\.gs-index.bin · 元数据 D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\lib\.gs.db · 事务日志 D:\USERS\Desktop\Agent\gemma-search\data\_t04\D-no-model-anywhere\lib\.gs-journal · 暂存 .gs-staging/<txnId>/（暂存目录是**每个写入目标所在目录**下一份（<目标目录>/.gs-staging/<txnId>/），不是全局一个 —— 同卷 rename 才能原子；扫描素材时必须跳过 .gs-* 与 .gs-staging/）
+  [04:57:18.355] [存储] 编码器实际将使用的模型目录 = (无 —— 检索会以 MODEL_MISSING 失败，不给假结果)
+
+--- ACL 已全部 /reset ; 结果写入 data/_t04/scenarios.json ---
+
+### 命令 7 · 基线回归：不加任何 GEMMA_* 覆盖，跑真应用（证明既有四条路没被动）
+PS> node data/_t04/run-baseline.mjs
+EXIT=0
+[04:57:19.825] userData D:\USERS\Desktop\Agent\gemma-search\data\_t04\E-baseline-ud
+[04:57:19.825] 注册表路径 D:\USERS\Desktop\Agent\gemma-search\data\_t04\E-baseline-ud\library-registry.json
+[04:57:19.835] 引擎就绪 · 库 L1=G:\model[index-meta]
+[04:57:19.837] [存储] ======== 本次启动的落点 ========
+[04:57:19.837] [存储] 程序目录 = D:\USERS\Desktop\Agent\gemma-search
+[04:57:19.837] [存储] userData = D:\USERS\Desktop\Agent\gemma-search\data\_t04\E-baseline-ud
+[04:57:19.838] [存储] 写探测 = 开启（在已存在的目录里写一个 .gs-write-probe-* 临时文件再删；不用 fs.access(W_OK) —— Windows 上它对 ACL 拒绝的目录会假报可写）
+[04:57:19.838] [存储] 模型 = **未找到**（在找到模型之前不会显示任何检索结果 —— 不假装可用）
+[04:57:19.838] [存储] 模型搜索顺序 = 程序目录 models/ → userData models/ → 用户指定
+[04:57:19.838] [存储]   1. 程序目录 models/ = D:\USERS\Desktop\Agent\gemma-search\models ⇒ 没有这个目录（D:\USERS\Desktop\Agent\gemma-search\models）；目录不存在：D:\USERS\Desktop\Agent\gemma-search\models
+[04:57:19.838] [存储]   2. userData models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04\E-baseline-ud\models ⇒ 没有这个目录（D:\USERS\Desktop\Agent\gemma-search\data\_t04\E-baseline-ud\models）；目录不存在：D:\USERS\Desktop\Agent\gemma-search\data\_t04\E-baseline-ud\models
+[04:57:19.838] [存储] 模型候选目录现在都不可写：需要先建出 <程序目录>/models 或 <userData>/models，或在设置里指向一个可写目录。
+[04:57:19.838] [存储] 模型指引：未找到 ONNX 模型（搜索顺序取自 SPEC §2：程序目录 models/ → userData models/ → 用户指定）。
+[04:57:19.839] [存储] 模型指引：已经找过：
+[04:57:19.839] [存储] 模型指引：  1. 程序目录 models/ = D:\USERS\Desktop\Agent\gemma-search\models ⇒ 没有这个目录（D:\USERS\Desktop\Agent\gemma-search\models）
+[04:57:19.839] [存储] 模型指引：  2. userData models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04\E-baseline-ud\models ⇒ 没有这个目录（D:\USERS\Desktop\Agent\gemma-search\data\_t04\E-baseline-ud\models）
+[04:57:19.839] [存储] 模型指引：放法（任选其一，目录里必须有 onnx\model.onnx）：
+[04:57:19.839] [存储] 模型指引：  · D:\USERS\Desktop\Agent\gemma-search\models\onnx\model.onnx
+[04:57:19.839] [存储] 模型指引：  · D:\USERS\Desktop\Agent\gemma-search\data\_t04\E-baseline-ud\models\onnx\model.onnx
+[04:57:19.840] [存储] 模型指引：  · 在设置里指定模型目录（config.json 的 onnx_model_dir），或放到既有 model-cache 布局下
+[04:57:19.840] [存储] 模型指引：放好后重启应用即可重试。
+[04:57:19.840] [存储] 模型指引：⚠️ 在找到模型之前**不会显示任何检索结果** —— 不假装可用（SPEC §2「都找不到 ⇒ 显示明确指引」）。
+[04:57:19.840] [存储] 库 L1：声明库根 = G:\model
+[04:57:19.840] [存储] 库 L1：落点 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\E-baseline-ud\libraries\L1（**回退 userData**）；为什么 = 库根不可写 ⇒ 回退 userData。原因为：目录不可写：G:\model（EPERM: operation not permitted, open 'G:\model\.gs-write-probe-4892-1-1791953839836'）。落点 = D:\USERS\Desktop\Agent\gemma-search\data\_t04\E-baseline-ud\libraries\L1；回退目录尚未创建（D:\USERS\Desktop\Agent\gemma-search\data\_t04\E-baseline-ud\libraries\L1）—— 首次写入时按需创建
+[04:57:19.840] [存储] 库 L1：索引 D:\USERS\Desktop\Agent\gemma-search\data\_t04\E-baseline-ud\libraries\L1\.gs-index.bin · 元数据 D:\USERS\Desktop\Agent\gemma-search\data\_t04\E-baseline-ud\libraries\L1\.gs.db · 事务日志 D:\USERS\Desktop\Agent\gemma-search\data\_t04\E-baseline-ud\libraries\L1\.gs-journal · 暂存 .gs-staging/<txnId>/（暂存目录是**每个写入目标所在目录**下一份（<目标目录>/.gs-staging/<txnId>/），不是全局一个 —— 同卷 rename 才能原子；扫描素材时必须跳过 .gs-* 与 .gs-staging/）
+[04:57:19.841] [存储] 编码器实际将使用的模型目录 = (无 —— 检索会以 MODEL_MISSING 失败，不给假结果)
+
+### 命令 8 · 环境噪声判定：electron.exe 被本会话沙箱限制在仓库内（G:\model 的 EPERM 不是产品事实）
+PS> node -e "写 G:\model"
+  普通 node  -> OK
+PS> electron.exe --no-sandbox data/_t04/eprobe/main2.cjs   （正常浏览器进程，结果写入 out2.txt）
+electron browser process, pid=25468
+FAIL G:\model\_t04_c_browser.txt -> EPERM
+FAIL C:\Users\Administrator\AppData\Roaming\Electron\_t04_c.txt -> EPERM
+OK   D:\USERS\Desktop\Agent\gemma-search\data\_t04\_t04_c_repo.txt
+done
+  结论: 仓库内路径可写、G: 与 AppData 均 EPERM ⇒ 是本会话对 electron.exe 的写限制，与库根权限无关。
+
+### 残留检查
+  data/_t04 下无 .gs-write-probe-* 残留
+  G:\model 下无任何 .gs-* 文件
+
+### 命令 9 · 把「ACL 拒绝」与「会话沙箱」两件事分开（证明情形 C 的证据是 ACL 而不是沙箱）
+目录在仓库内（沙箱允许写），只由 icacls 拒绝当前用户写。
+PS> icacls data/_t04/acl-check-lib /reset ; node data/_t04/_aclcheck.cjs data/_t04/acl-check-lib
+  普通 node 写 -> OK
+PS> icacls data/_t04/acl-check-lib /deny "$env:USERNAME:(W)" ; node data/_t04/_aclcheck.cjs data/_t04/acl-check-lib
+  普通 node 写 -> EPERM
+  ⇒ 普通 node 也被 ACL 拒绝写 ⇒ 情形 B/C 用的 icacls 拒绝是**与沙箱无关**的独立证据。
+PS> icacls data/_t04/acl-check-lib /reset   （还原）
+  普通 node 写 -> OK

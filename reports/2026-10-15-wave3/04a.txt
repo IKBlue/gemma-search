@@ -1,0 +1,512 @@
+================================================================================
+T-04a 证据 · 存储根解析模块（纯函数 + 单测）
+任务板 id: task-9   执行: storage-worker   日期: 2026-10-15
+新增: apps/desktop/src/main/storage-roots.ts
+      apps/desktop/tests/storage-roots.test.mjs（本任务唯一新增测试文件）
+本证据: reports/2026-10-15-wave3/04a.txt
+未改动任何既有文件（回滚 = 删掉这两个文件）
+================================================================================
+
+【做了什么】
+1. storage-roots.ts —— 把「东西该放哪」收成一处显式解析：
+   · 模型：程序目录 models/ → userData models/ → 用户指定（顺序逐字照抄 SPEC §2，
+     含「用户指定排在最后」这一条，不按「显式配置优先」的直觉改）
+   · 索引 .gs-index.bin / 元数据 .gs.db / 事务日志 .gs-journal/：库根
+   · staging 目录名从引擎 transactions/steps.ts 的 STAGING_DIRNAME 导入（P1：不写第二份）
+   · 库根不可写 ⇒ 回退 userData/libraries/<libId>，并把「为什么」写成人话
+   · 缺模型 ⇒ found=null + 明确指引（逐条列出找过的路径），绝不编一个默认目录、不假报可用
+   · 纯函数 + 依赖注入：不 import electron、不读 app / process.env 全局单例；
+     文件系统能力由调用方注入（EPERM / ENOENT 这类情形在真机上没法干净地造出来）
+2. 单测 storage-roots.test.mjs：19 条（M1–M5 模型 · L1–L7 库根 · P1–P3 写探测 ·
+   D1 可读性 · S1 libId 安全化 · R1/R2 真实文件系统端到端）。
+
+【关键设计决定（供 Lead 复核）】
+A. 「可写」用【在已存在的目录里写一个 .gs- 前缀的临时探测文件再删】判定，
+   不用 fs.access(W_OK)。原始实测见「命令 4」：对 ACL 拒绝写的目录，
+   accessSync(W_OK) 报 OK（**假报可写**），writeFileSync 才报 EPERM。
+   若用 access(W_OK) 实现「库根不可写 ⇒ 回退 userData」，ACL 拒绝场景下回退**永不触发**，
+   失败被推迟到真正写索引那一刻（用户以为一切正常）—— 正是本项目最怕的静默。
+   探测文件名用 .gs- 前缀是故意的：SPEC §2.1 只允许库根出现 .gs-* 与 .gs-staging/。
+   解析过程**不创建任何目录**（只在目录已存在时探测）—— 单测 P1/R1/R2 钉住。
+B. 回退落点 = <userData>/libraries/<libId>，与既有 data/libraries/<libId>/ 自举布局同形；
+   「一个库一个目录」，多库的 .gs-index.bin 不会互相覆盖；libId 做了安全化（S1 防穿越）。
+C. 模型候选目录「不存在」时 writable=false（不建目录）；installDir = 搜索顺序里第一个
+   **可写**的候选，一个都没有则 null（不假装有地方放）。
+D. staging 没有单一全局路径：引擎实现是 <写入目标所在目录>/.gs-staging/<txnId>/
+   （同卷 rename 才原子）。模块如实描述，不发明全局路径、不改事务语义。
+
+【未决 / 需 Lead 裁定】
+U1. 「用户指定」排在搜索顺序最后是 SPEC §2 原文，UX 上反直觉（显式配置通常应最高优先）。
+    本任务照抄 SPEC 未改；若要点到最前，需先改 SPEC（改规格 = 改需求）。
+U2. index.ts 既有的 resolveModelDir() 还认一条本模块没有的路径：
+    config.model_cache/onnx/embeddinggemma-2/<rev>/fp32。本任务**未动它**（行为不变），
+    但「模型搜索」这个概念现在存在第二处实现 —— 属 T-17 范围（main/encoder.*），
+    建议 T-17 把 resolveModelDir 收敛到本模块，避免两处漂移（P1）。
+U3. 本模块只解析落点、不创建回退目录（启动路径零副作用）；首次真正写入前需要 mkdir，
+    留给 T-11 / T-12 的写入侧。
+
+【环境噪声（如实记录，非本改动引起）】
+在补记本证据期间有一次 npm test 里，packages/engine 的故障注入用例 FI-10 在 setup 的
+fs.rmSync 上报 EPERM（path = data/_txn-test/fi-after-commit；被杀的子进程在 Windows 上
+可能短暂持有句柄）。随后连跑 3 次（清理残留 / 不清理残留 / 再跑）全部 334 tests ·
+333 pass · 0 fail · 1 skipped · EXIT=0，见「命令 3」。本改动只新增文件，
+不碰 packages/engine，判定为该用例既有的时序偶发。
+================================================================================
+
+### 命令 1 · 单测（验收项之一）
+PS> node --test --test-isolation=none "apps/desktop/tests/storage-roots.test.mjs"
+✔ M1 程序目录可写且含模型 ⇒ 命中程序目录，installDir 也是它 (1.3057ms)
+✔ M2 程序目录**不可写** ⇒ 改用 userData（落点与 installDir 都跟着走） (0.5866ms)
+✔ M3 用户指定目录命中（SPEC §2 的第三位） (0.6381ms)
+✔ M4 三位都没有 ⇒ found=null、指引非空且**列出找过的每条路径** (0.304ms)
+✔ M5 目录存在但没有 onnx/model.onnx ⇒ **不算命中** (0.312ms)
+✔ L1 库根可写 ⇒ 索引 / 元数据 / 事务日志都在库根本身 (0.4808ms)
+✔ L2 库根不可写 ⇒ 回退 userData/libraries/<libId>，并说清为什么 (0.2486ms)
+✔ L3 库根不存在（盘符变了 / 盘没挂载）⇒ 同样回退，理由说明"不存在" (0.1748ms)
+✔ L4 库根是文件（不是目录）⇒ 回退，理由说明"不是目录" (0.3356ms)
+✔ L5 库根不可写且没有 userData ⇒ 明确报"没有落点"，不假装有 (0.2457ms)
+✔ L6 多个库各解析一份落点（一个回退、一个不回退） (0.3709ms)
+✔ L7 一个库都没有 ⇒ 落点为空并说明原因（不编一个落点出来） (0.1904ms)
+✔ P1 探测文件写完即删、解析过程**不创建任何目录** (0.2362ms)
+✔ P2 probeWrites=false 时只按存在性判断，理由**必须**承认"没探测过" (0.1255ms)
+✔ P3 probeWritable 用真实文件系统：真目录可写且不留文件，文件路径报 ENOTDIR (1.7869ms)
+✔ D1 describeStorageRoots 把"落在哪 + 为什么"渲染成可读行（启动日志直接用） (0.4453ms)
+✔ S1 libId 里的路径分隔符被安全化（回退目录不许路径穿越） (0.1161ms)
+✔ R1 真文件系统跑一遍：模型在程序目录、库根可写 ⇒ 落点如预期且零残留 (2.8036ms)
+✔ R2 真文件系统：库根不存在 ⇒ 回退 userData，且**不在库根创建任何东西** (0.8629ms)
+ℹ tests 19
+ℹ suites 0
+ℹ pass 19
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 75.289
+EXIT=0
+
+### 命令 2 · 类型门禁（验收项之二）
+PS> node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "$env:TEMP\tsbi_node.tsbuildinfo"
+(无输出) EXIT=0  ← tsconfig.node.json（storage-roots.ts 在其中）
+PS> node node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json --tsBuildInfoFile "$env:TEMP\tsbi_web.tsbuildinfo"
+(无输出) EXIT=0  ← tsconfig.web.json
+错误行数: node=0 web=0
+
+### 命令 3 · 全量 npm test（回归面）
+PS> npm test
+
+> gemma-search@0.1.0 test
+> node --test --test-isolation=none "packages/engine/tests/*.test.mjs" "apps/desktop/tests/*.test.mjs"
+
+node.exe : [adapter] 事件回调异常 Error: handler 炸了
+所在位置 行:1 字符: 1
++ & "D:\Program Files\nodejs/node.exe" "D:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([adapter] 事件回调异常 Error: handler 炸了:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    at file:///D:/USERS/Desktop/Agent/gemma-search/apps/desktop/tests/adapter.test.mjs:135:62
+    at Array.<anonymous> (file:///D:/USERS/Desktop/Agent/gemma-search/apps/desktop/src/renderer/src/adapter/api.ts:160:
+7)
+    at TestContext.<anonymous> (file:///D:/USERS/Desktop/Agent/gemma-search/apps/desktop/tests/adapter.test.mjs:136:15)
+    at Test.runInAsyncScope (node:async_hooks:228:14)
+    at Test.run (node:internal/test_runner/test:1118:25)
+    at async Test.processPendingSubtests (node:internal/test_runner/test:787:7)
+[ui] search text → 0 条 · 1ms
+[ui] search text → 0 条 · 1ms
+[ui] search text → 2 条 · 42ms
+[ui] search 失败 {"code":"LIB_NOT_FOUND","message":"m","userMessage":"找不到这个库。"}
+[ui] search text → 0 条 · 1ms
+[ui] search text → 0 条 · 1ms
+✔ A1：成功信封 ⇒ 取出 data，并把 warnings 归一成数组 (3.194ms)
+✔ A2：方法名与参数**原样**传给 bridge（Adapter 不篡改契约） (0.3256ms)
+✔ A3：失败信封 ⇒ 保留主进程的 userMessage（界面不许自编文案） (0.3389ms)
+✔ A4：失败信封**缺 userMessage** ⇒ 用兜底文案，且原文进 message（不丢诊断信息） (0.1766ms)
+✔ A5：⭐ invoke 抛异常 ⇒ 收进信封，**不向调用点传播** (0.2696ms)
+✔ A6：⭐ 非信封返回值**不许当成功**（静默假成功是本仓库栽过的坑） (0.3358ms)
+✔ A7：bridge 不存在（preload 没加载）⇒ NO_BRIDGE，仍然不抛 (0.1749ms)
+✔ A8：onEvent 转发事件，且返回**可用的取消订阅** (0.2742ms)
+✔ A9：handler 抛异常不影响订阅通道（后续事件仍能到达） (0.8404ms)
+✔ A10：bridge 不可用时 onEvent 返回空函数（而不是 undefined） (0.2556ms)
+✔ A11：normalizeError 对任意垃圾输入都给出可显示的 userMessage (0.9391ms)
+✔ CT-1 ⭐⭐ 令牌配对的对比度必须达 WCAG AA（浅色） (1.4446ms)
+✔ CT-2 ⭐⭐ 令牌配对的对比度必须达 WCAG AA（深色，两套块都要过） (1.0256ms)
+✔ CT-0 自检：配对表非空、令牌都解析得出来（否则上面两条恒真） (0.7546ms)
+✔ CT-3 ⭐ 两套深色块的**键集合必须一致**（V-06 那类漂移的回归锁） (0.3509ms)
+✔ CP-1 ⭐⭐ `normalizeMessage` 把"不可显示"的输入挡掉（V-42 的真机制） (0.3055ms)
+✔ CP-2 ⭐ 非注释代码里不得出现 `**加粗**`（V-40：会按字面显示） (22.1204ms)
+✔ CP-3 界面可见字符串里不得出现字面 `undefined` / `NaN`（V-42 的另一半） (14.262ms)
+✔ CP-4 ⭐ 错误提示不自动消失，且走 `alert` 而不是 `status`（V-16） (0.5666ms)
+✔ CP-0 自检：扫描面覆盖到东西、且 `show` 真的用了 `normalizeMessage` (1.3187ms)
+✔ D-A ⭐ 每个声明的依赖：要么有真实 import，要么在白名单里且写了理由 (2448.2134ms)
+✔ D-B 白名单不许变成垃圾场：里面每个包都必须**仍然被声明** (0.2261ms)
+✔ D-C ⭐⭐ 断言本身有效：能看见**动态** `import()`（差点因此删错依赖） (374.623ms)
+✔ D-D ⭐ class 合并**只有一份实现**（`cn()`）—— `cx.js` 不得复活（A-4 的收口） (8.3178ms)
+✔ D-E `cn()` 真的用了 clsx + tailwind-merge（不是自己手拼字符串） (0.3264ms)
+✔ D-F ⭐ Chip 用的是 `aria-pressed` 语义，不只是 class（T4 补的无障碍缺口） (0.2242ms)
+✔ D-G 确认弹窗真的用 Radix 的**可访问原语**（不是手写 overlay 冒充） (0.2704ms)
+✔ D-H 破坏性操作走"请求 → 确认"，不再直接执行（取件会写文件） (0.2763ms)
+✔ V1 ⭐ 不许把 `<Link>`（即 `<a>`）嵌在 `<Button>`（即 `<button>`）里 (5.4475ms)
+✔ V2 更一般地：`<button>`（含原生）里不许直接嵌 `<a>` (5.6143ms)
+✔ V3 `Button` 真的实现了 `asChild`（否则 V1 的修法无处可依） (0.4044ms)
+✔ V4 窗口标题有单一来源：应用名与页面名都来自 `router/paths.ts` (0.6597ms)
+✔ E-1 ⭐ 编码路径必须把**模型输出**喂给 pickEmbedding（两处调用点都要） (0.2436ms)
+✔ E-2 ⭐ 护栏必须指向真实存在的 encoder 源文件（改名后不许悄悄失效） (0.3766ms)
+✔ G1：还没问出来 ⇒ loading（留白，不要闪一下向导又消失） (0.2084ms)
+✔ G2：读不到配置 ⇒ error（如实报 + 给重试，不要假装没库） (0.1194ms)
+✔ G3：⭐ 一个库都没有 ⇒ wizard（D2 的核心：不能把用户丢进必然报错的检索页） (0.1368ms)
+✔ G4：有库 ⇒ app（交给路由） (0.1182ms)
+✔ G5：垃圾输入不抛异常，且一律落到 wizard（宁可见向导，也不白屏） (0.3047ms)
+✔ G6：判定与「data 存不存在」无关，只看 libraries 的**长度** (0.1224ms)
+✔ IA1 `deriveIndexState`：四档都能判出来，且 `removed` 优先于 `stale` (0.1921ms)
+✔ IA1b 四档的文案与提示都在唯一的定义处（不许散落到组件里） (0.1804ms)
+✔ IA1c `needsScanToDecide`：能当场判定的不该说"要扫"；盘上没了的也不必扫 (0.1588ms)
+✔ IA2 ⭐ 四分区**永远都在**，且分区名与规格逐字一致（UI-REVIEW:236） (0.2925ms)
+✔ IA2b ⭐ 规格要求「把是否需重编码标在按钮上」—— 每个动作都带这个标志与角标 (0.3121ms)
+✔ IA2c `disabled` 为真时 `reason` 必须非空（不能有"点不动又不说为什么"的按钮） (0.202ms)
+✔ IA2d 「重新编码」：**需要与否**与**能否点**是两件事（我第一版混为一谈） (0.295ms)
+✔ IA2e 盘上没了的条目：取件/改 ID/移出库都不可点（理由都是"文件不在盘上"） (0.1759ms)
+✔ IA3 ⭐⭐ 界面上的"有没有后端"必须与 `ipc.ts` 的白名单**逐条对上**（防漂移） (0.491ms)
+✔ IA3b 反过来：`mutate` 白名单里的每个 op，界面上都要有对应的动作（或有据不显示） (0.3259ms)
+✔ L1 ⭐ `window.api` 只允许出现在 `adapter/` 里（全应用唯一接触点） (12.9359ms)
+✔ L2 ⭐ UI 层（pages/layout/ui/search）零 `window.api` (7.6876ms)
+✔ L3 ⭐ UI 层不得直接 import Adapter（协议细节归 Operation 层） (7.0632ms)
+✔ L4 Operation 层（hooks/store/utils）零 `window.api` (3.3218ms)
+✔ L5 Adapter 不 import React（纯传输层，这样才能被 node:test 直接加载） (0.571ms)
+✔ L6 ⭐ 用户文案兜底只允许在 Adapter 里出现一次（P2 的机械判据） (9.894ms)
+✔ L6b ⭐⭐ 判据本身要准：真兜底抓到、同行无关的 `||` 放过（否则会逼人不写注释） (0.2449ms)
+✔ L7 ⭐ 检查**能红**：给 UI 层喂一行 window.api，L1/L2 必须报出来 (0.1872ms)
+✔ ① 索引自举：有 meta.json 就能推出库（本机零配置可用的关键） (4.1651ms)
+✔ ② 索引里没 meta.json / 没 lib_root / 解析失败 → 都不抛，只是没有库 (8.3123ms)
+✔ ③ 优先级：环境变量压过一切 (10.6133ms)
+✔ ④ 优先级：注册表压过 config 与索引自举 (8.0354ms)
+✔ ⑤ 优先级：config 压过索引自举（无注册表时） (17.2853ms)
+✔ ⑥ 注册表损坏 → 不抛，退到下一优先级并留下 warning (7.0858ms)
+✔ ⑦ F-04：取件白名单不再为空，且默认值来自规格 (0.6443ms)
+✔ ⑧ 取件白名单：环境变量 > 注册表 > config > 规格兜底 (3.725ms)
+✔ ⑧b ⭐ parseCollectDirsEnv 解析不出东西时返回 null，**绝不返回空对象** (0.2305ms)
+✔ ⑧c ⭐ 垃圾环境变量**不能**把白名单弄空（F-04 回归防线） (0.5266ms)
+✔ ⑨ 库根不存在 → 如实报 warning，但仍把库交出去（不在这里判失败） (1.5676ms)
+✔ ⑩ normalizeLibraries：非法条目被丢弃并给出原因，不静默改造 (0.3247ms)
+✔ ⑪ meta 目录名与 meta.lib_id 不一致 → 以 meta 为准并说明 (1.5736ms)
+✔ ⑫ 解析是纯读：调用 resolveLibraries 不产生任何文件 (1.7663ms)
+✔ S1：未登记的方法一律拒绝（含 `exec` 这种明显的逃逸尝试） (1.3535ms)
+✔ S2：已知方法传未知字段被拒（zod .strict()，不是"忽略多余字段"） (2.1933ms)
+✔ S3：libId / uid 形状不合法一律拒绝（路径穿越、大写 uid、超长 id） (0.9623ms)
+✔ S14：载荷 > 1 MB 被拒；恰好 1 MB 边界内则放行 (2.4477ms)
+✔ S14b：参数无法序列化（循环引用）时拒绝，而不是抛异常给调用方 (0.1612ms)
+✔ S5：size 只认白名单 128/256/512，@999 之类一律 400 (0.401ms)
+✔ S4：thumb:// 路径穿越被拒，且**解析阶段零文件读取**（注入计数 io 证明） (0.47ms)
+✔ S6：失败状态码映射 —— 形状/尺寸错 ⇒ 400；库无法还原 ⇒ 404（可执行契约） (0.2844ms)
+✔ S4b：形状不合法的一律拒（uid 不是 12 位 hex、缺 @、多段路径、host 为空、非法 URL） (0.2101ms)
+✔ S4c：路径里的 `?query` 与 `#fragment` 不影响形状判定（不构成绕过） (0.2064ms)
+✔ S6：未注册的库 ⇒ 无法还原 libId ⇒ 空串（调用方给 404） (0.2185ms)
+✔ S6b：libId 还原器缓存映射，但**绝不缓存"索引未就绪"（空列表）** (0.3624ms)
+✔ thumb:// 的合法形状能正常解出三要素（防止"全拒"骗过上面所有用例） (0.1625ms)
+✔ S15 ⭐ `mutate`：`undo` **不需要** uid，其余 op **必须**带 —— 两头都要断言 (1.0401ms)
+✔ S16 ⭐ `transactions` 已登记进白名单，且 `txId`/`limit` 有边界（契约 §2.11） (0.7052ms)
+✔ 端口形状：恰好只有 reveal 一个成员（端口最小化） (0.1462ms)
+✔ 端口把参数**原样**转发给 showItemInFolder，不做路径加工 (0.1356ms)
+✔ 端口不吞异常：showItemInFolder 抛错必须冒泡出去 (0.3379ms)
+✔ 端口每次调用都真的转发（不是只成功一次） (0.1301ms)
+✔ R1：路由表至少 3 条，且路径唯一（多页是 P3c/P3d 的前置） (0.1716ms)
+✔ R2：每条路由都能被 matchRoutes **真的解算**出来 (1.5034ms)
+✔ R3：⭐ `/item/:libId/:uid` 的**参数真的被捕获**（P3c 靠它拿两条路径） (0.1901ms)
+✔ R4：未知路径在路由表里**不命中**（真实 router 里另有 catch-all 兜到 /） (0.2548ms)
+✔ R5：hash 路由的路径都不带协议/主机（否则 file:// 下会 404） (0.1632ms)
+✔ Z1：⭐ 状态切换真的生效（不是只注册了 store） (0.1923ms)
+✔ Z2：clear 只清本次检索，不动 mode/imagePath（用户的选择不该被清掉） (0.1642ms)
+✔ Z3：sortResults —— score 降序 / name 升序 / recent 原序 / null 原样返回 (8.2913ms)
+✔ Z4：FOLDERS / CHIPS 是同一份定义（P1：别处不许再抄一遍） (0.1904ms)
+✔ Z5：⭐ run() 的筛选参数：「全部」发四个目录，单选发一个 (0.5647ms)
+✔ Z6：run() 成功 ⇒ 存结果与耗时、busy 归 false (0.3064ms)
+✔ Z7：⭐ run() 失败 ⇒ error 是**已归一化的信封**、rawResults 变 []（而不是留着旧结果） (0.5476ms)
+✔ Z8：⭐ 空查询 / 缺参考图 **不发 IPC**（白跑一次引擎是有代价的） (0.2907ms)
+✔ Z9：busy 时重复调用被挡住（不会并发发两次检索） (0.4191ms)
+✔ Z10：⭐ reveal 成功文案**不许**写成「已定位」（F-01 复核的 R-1） (0.367ms)
+✔ Z11：reveal 失败 / collect 成败 的文案都来自 userMessage (0.264ms)
+✔ Z12：没给 onToast 也不该抛（状态层不依赖界面） (0.3715ms)
+✔ Z13：⭐ requestCollect **只记下来、不发任何 IPC**（确认框弹出前不许动文件） (0.1421ms)
+✔ Z14：⭐ cancelCollect ⇒ 动作**未执行**（一个 IPC 都没发，待确认项被丢弃） (0.1257ms)
+✔ Z15：⭐ confirmCollect 真的执行；且**先清状态再执行** ⇒ 连点两次只发一次 IPC (0.2131ms)
+✔ Z16：没有待确认项时 confirmCollect 是**空操作**（防误调） (0.1029ms)
+✔ Z17：确认框的内容来自真实结果项（标题不是编的） (0.1484ms)
+✔ S1：注释里的 `window.api` **不算**（行注释 / 块注释 / 多行块注释） (0.126ms)
+✔ S2：⭐ 被**注释掉**的接线不算（反向陷阱：注释掉一行是禁用接线的常见手法） (0.1115ms)
+✔ S3：字符串 / 模板字面量里的不算；但**模板插值里的算** (0.1075ms)
+✔ S4：⭐ 含引号的正则字面量之后仍能正确识别（当年栽过的那条） (0.1018ms)
+✔ S5：除法不被误判成正则起始 (0.0941ms)
+✔ S6：行号准确（多行块注释不能把行号带偏） (0.103ms)
+✔ S7：maskNonCode 与原串**等长同结构**（否则行号与列号会全错） (0.1248ms)
+✔ S8：真正的代码**必须**被找到（否则检查会静默通过 —— 这是最危险的方向） (0.1072ms)
+✔ S9：⭐ 字符串里的色值 maskComments **能找到**、而 maskNonCode **找不到** (0.2307ms)
+✔ S10：maskComments 仍然正确跳过注释（两类注释都要） (0.1048ms)
+✔ S11：maskComments 不会把字符串里的 `//` 当成行注释（URL 用例） (0.3373ms)
+✔ S12：maskComments 与原串**等长同结构**（行号才不会错） (0.1353ms)
+✔ S13 ⭐⭐ maskNonCode：模板插值**之后**的代码仍被识别（旧版从此整段失明） (0.1398ms)
+✔ S14 ⭐⭐ maskNonCode：注释里的**反引号**不得漏出来（旧版会漏 ⇒ 假阳性） (0.2065ms)
+✔ S15 插值里的**字符串**按 maskStrings 走：maskNonCode 抹、maskComments 保留 (0.1887ms)
+✔ S16 插值里含嵌套花括号/字符串/切片时，配平仍然正确 (0.1795ms)
+✔ S16b 未闭合的模板不会把文件"吞掉"到越界（健壮性） (0.1452ms)
+✔ M1 程序目录可写且含模型 ⇒ 命中程序目录，installDir 也是它 (0.4461ms)
+✔ M2 程序目录**不可写** ⇒ 改用 userData（落点与 installDir 都跟着走） (0.3666ms)
+✔ M3 用户指定目录命中（SPEC §2 的第三位） (0.2428ms)
+✔ M4 三位都没有 ⇒ found=null、指引非空且**列出找过的每条路径** (0.2436ms)
+✔ M5 目录存在但没有 onnx/model.onnx ⇒ **不算命中** (0.1572ms)
+✔ L1 库根可写 ⇒ 索引 / 元数据 / 事务日志都在库根本身 (0.3134ms)
+✔ L2 库根不可写 ⇒ 回退 userData/libraries/<libId>，并说清为什么 (0.2007ms)
+✔ L3 库根不存在（盘符变了 / 盘没挂载）⇒ 同样回退，理由说明"不存在" (0.1299ms)
+✔ L4 库根是文件（不是目录）⇒ 回退，理由说明"不是目录" (0.1219ms)
+✔ L5 库根不可写且没有 userData ⇒ 明确报"没有落点"，不假装有 (0.1446ms)
+✔ L6 多个库各解析一份落点（一个回退、一个不回退） (0.2578ms)
+✔ L7 一个库都没有 ⇒ 落点为空并说明原因（不编一个落点出来） (0.1382ms)
+✔ P1 探测文件写完即删、解析过程**不创建任何目录** (0.1955ms)
+✔ P2 probeWrites=false 时只按存在性判断，理由**必须**承认"没探测过" (0.2494ms)
+✔ P3 probeWritable 用真实文件系统：真目录可写且不留文件，文件路径报 ENOTDIR (2.1259ms)
+✔ D1 describeStorageRoots 把"落在哪 + 为什么"渲染成可读行（启动日志直接用） (0.8601ms)
+✔ S1 libId 里的路径分隔符被安全化（回退目录不许路径穿越） (0.353ms)
+✔ R1 真文件系统跑一遍：模型在程序目录、库根可写 ⇒ 落点如预期且零残留 (3.2682ms)
+✔ R2 真文件系统：库根不存在 ⇒ 回退 userData，且**不在库根创建任何东西** (0.869ms)
+✔ SC-1 ⭐ Tailwind 的 `text-*`/`bg-*`/`border-*` 类必须能真的生成（否则静默失效） (10.2548ms)
+✔ SC-2 ⭐ `className="字面量"` 里的每个类都必须真有规则（只作复合选择器一部分的类，单独用无效） (45.2656ms)
+✔ SC-3 ⭐ 界面输出的 `data-tone` 值必须在 CSS 里有对应规则（否则"设计了但没渲染"） (9.1334ms)
+✔ SC-0 自检：扫描面覆盖到东西（否则上面三条恒真） (8.6906ms)
+✔ T1 ⭐ 渲染层**零**色值字面量：所有颜色都必须经 var(--…) 引用令牌 (12.4708ms)
+✔ T1b 唯一定义处是 `packages/design-tokens/tokens.css`，且它**确实**定义了色值 (0.5827ms)
+✔ T1c ⭐ Tailwind 的 `@theme` 映射**只允许** `var(--…)`，不许出现字面值 (0.5415ms)
+✔ T2 ⭐ F-02：渲染层不得出现分数阈值常量（0.6~0.99）—— 档位只能来自引擎的 band (8.8911ms)
+✔ T2b F-02 的正向面：`ui/Score.tsx` 确实消费 `band`，且缺失时不猜 (0.3418ms)
+✔ T3 ⭐ 已迁到 Tailwind 的旧类名不得复活（`.btn` / `.icon-btn` / `.chip`） (7.7917ms)
+✔ T4 构建配置接了 `@tailwindcss/vite`，且入口在 renderer.css **之前**被 import (0.4703ms)
+✔ T5 ⭐ 自定义字号不会被 `cn()` 当颜色吃掉（T4 踩过的坑） (4.308ms)
+✔ T5b `TEXT_SIZES` 与 `@theme` 的 `--text-*` 一一对应（加档位时别只改一边） (1.5328ms)
+✔ T6 `tailwind-merge` 真的在消解同组冲突（这是它存在的唯一理由） (1.2037ms)
+✔ T1 进度事件把 done/total/条每秒/ETA/阶段都写进状态 (0.5299ms)
+✔ T2 ⭐ `done` **单调不减** —— 迟到/乱序的进度不许把进度条往回拨（契约 §3） (1.4255ms)
+✔ T3 ⭐ GPU 回退**必须留住并显示**（契约 §3「不静默」） (0.2234ms)
+✔ T3b 续跑说明同样要留住（引擎只在第一条事件里说明复用多少） (0.1925ms)
+✔ T4 ⭐ 失败清单**不静默**：非空 ⇒ `ok:false`，每项可解释（契约 §3） (0.2889ms)
+✔ T4b 取消收尾：`cancelled` 要留痕，且 done 停在取消时的值 (0.154ms)
+✔ T4c `index.failed` 收尾：留下错误信封，且 userMessage 非空（界面要显示它） (0.1626ms)
+✔ T5 ⭐ 认不出的**阶段**原样显示、不崩（契约只举了 3 个阶段，规格要 5 个） (0.1918ms)
+✔ T5b 认不出的**事件类型**不崩、也不假装处理过（只记进日志） (0.1703ms)
+✔ T5c `total` 未知时百分比返回 **null**（显示不确定进度），不编一个数 (0.1625ms)
+✔ T5d `etaSec` 缺失写 "—"，**不本地估算**（ETA 是引擎算的，契约 §3） (0.132ms)
+✔ T6 `begin` 把状态清干净并标记已发起（避免上一次的失败项残留） (0.1584ms)
+✔ T7 日志有上限（长任务跑几千条进度也不能无限涨内存） (0.5219ms)
+✔ S12：库外 URL 一律不许导航；应用自身 URL 放行 (0.1593ms)
+✔ S12b：dev 态只放行 electron-vite 的 URL，不放行任意 http (0.1048ms)
+✔ S11：开新窗口**无条件** deny —— 不搞"判断后大多 deny" (0.1258ms)
+✔ S13：顶层 frame 且来自主窗口 ⇒ 可信 (0.1648ms)
+✔ S13：iframe 内调用 ⇒ 拒绝（frame.parent 不为 null） (0.1074ms)
+✔ S13b：来源不是主窗口的 webContents ⇒ 拒绝 (0.0976ms)
+✔ S13c：地址不属于应用自身 ⇒ 拒绝（即使是最外层 frame） (0.1027ms)
+✔ S13d：缺 senderFrame / 窗口已销毁 / 窗口不存在 ⇒ 一律拒绝（fail closed） (0.1217ms)
+✔ S13e：dev 态下 127.0.0.1 的来源可信、别的 http 不可信 (0.1036ms)
+✔ isAppUrl 只认 file:// 与 dev URL，其余一律 false (0.1104ms)
+✔ indexStatus：返回每个库的 indexed/encoded/compat/healthy (11.9301ms)
+✔ indexStatus：库根不存在时 rootExists=false 且不抛异常 (7.7729ms)
+✔ indexStatus：索引损坏 → problems 里带 INDEX_CORRUPT，且**不**抛给调用方 (10.2286ms)
+✔ search(text)：命中同向条目，band 由引擎给（界面不自己算） (8.3726ms)
+✔ search：结果带 libsSkipped 口径（无跳过时为 []） (8.3839ms)
+✔ search：filters 生效（按 folder / ext 过滤） (8.0888ms)
+✔ search：空文本 → BAD_REQUEST（信封，不抛） (9.4386ms)
+✔ search：未知 mode → BAD_REQUEST (6.4594ms)
+✔ search：未注入编码器 → MODEL_MISSING (7.0163ms)
+✔ search(image)：queryImagePath 是唯一允许的库外输入，且扩展名受限 (8.4031ms)
+✔ search(image)：库内 imageRef 走 uid → 路径解析（不接受客户端路径） (12.0049ms)
+✔ 多库：compat 相等 → 一起检索，结果带 libId (10.4198ms)
+✔ 多库：compat 不等 → 该库进 libsSkipped 并给**结构化原因**（契约 §6） (11.2079ms)
+✔ 多库：device 不同**不**导致跳过（否则 CPU 回退会拒绝自己的索引） (13.7222ms)
+✔ scan：新增 / 消失 / 变化 都能报出（只读） (11.907ms)
+✔ item：返回索引条目 + 磁盘实况；文件没了要如实说 (9.7844ms)
+✔ reveal：走注入的 shell 端口；不经传输层也能测 (14.7452ms)
+✔ reveal：文件不在磁盘上 → ITEM_MISSING_ON_DISK (9.92ms)
+✔ reveal：未注入 shell 端口 → PORT_MISSING，且 ok 不为 true（不许假成功） (8.2573ms)
+✔ reveal：shell 形状不对（缺 reveal / reveal 不是函数）→ 同样 PORT_MISSING (15.0866ms)
+✔ reveal：端口存在但目标文件不存在 → ITEM_MISSING_ON_DISK，且端口**一次都没被调用** (9.3878ms)
+✔ reveal：端口抛错 → 归为 INTERNAL 信封，不把异常漏给调用方 (8.1897ms)
+✔ PORT_MISSING 的用户文案存在，且不含任何绝对路径 (0.2008ms)
+✔ search：编码器忘了归一化时，引擎自行归一 → 排序与 band 仍正确 (10.8401ms)
+✔ band：阈值随模态不同（分数不可跨模态比较） (0.1805ms)
+✔ band：不认识的模态 → unknown，**不拿文本阈值猜**（R-3） (0.1371ms)
+✔ collect：复制到已配置目录，库侧零变化 (10.2419ms)
+✔ collect：无同名包时自动取图（auto 语义） (9.4156ms)
+✔ collect：目标已存在 → skipped（**不覆盖**） (11.8622ms)
+✔ collect：白名单外/未配置的目标名 → COLLECT_DIR_NOT_ALLOWED (8.1449ms)
+✔ collect：部分成功必须如实呈现（成功/失败/跳过三分） (10.4019ms)
+✔ collect：target=archive 但该素材无包 → failed 且说明原因 (9.2144ms)
+✔ collect：uids 为空或超量 → BAD_REQUEST (11.1257ms)
+✔ F1 契约 §8：模拟模式**绝不触碰真实文件系统** —— 判据是"库根根本不存在" (2.1278ms)
+✔ F2 `search` 固定排序且可复现（同参数两次调用逐字段一致） (0.518ms)
+✔ F2b `__empty__` 触发「无结果」分支；compat 不符与索引损坏的库进 `libsSkipped` (0.4313ms)
+✔ F3 `item` **不**返回绝对路径；`itemPaths` 才是要路径的地方（所有者决定） (0.4392ms)
+✔ F3b 样例索引覆盖「待重编码 / 已从索引移除」两档（界面必须能演示） (0.3896ms)
+✔ F12 ⭐⭐ fake 的 `item` 与**真实引擎**的 `item` **逐字同形**（防"模拟能跑、真库崩"） (0.4775ms)
+✔ F4 `indexStart` 发进度事件：`done` 单调不减，收尾发 `index.done` (0.7495ms)
+✔ F5 失败项非空 ⇒ `index.done.ok === false`，且每项可解释（哪条/哪个阶段/为什么） (0.6084ms)
+✔ F6 ⭐ 取消**在边界生效**：cancel 后立刻收尾，且已处理数停在中间值 (0.5464ms)
+✔ F6b `indexResume` 复用已编码行，并在事件里说明复用多少（契约 §3） (0.7144ms)
+✔ F7 `RECOVERY_NEEDED` 那条路可演示：有未收尾事务时写操作被拒且带可恢复信息 (0.7159ms)
+✔ F8 ⭐ `fake:false`（真实模式）下 `indexStart`/`mutate` 如实返回 `INTERNAL`，**不假装成功** (0.2408ms)
+✔ F9 ⭐ fake 用到的**每个错误码**都在冻结的错误码表里（我曾造过一个 ENCODE_FAILED） (0.6727ms)
+✔ F10 `fixtures/sample-index.json` 存在、条数达标、且覆盖契约 §8 要求的展示分支 (0.5233ms)
+✔ F13 ⭐⭐ fake 的 `indexStatus.compat` 与真实引擎**同形**：8 段、顺序一致 (0.4471ms)
+✔ F14 ⭐ `transactions`（契约 §2.11）：列出事务、可按 txId 查、并报告 `blocked` (0.5213ms)
+✔ F15 ⭐ 撤销一条待处理事务：状态、canUndo 与 blocked 都要跟着变 (0.3806ms)
+✔ F15b ⭐ 不可撤销的事务**如实拒绝**（`UNDO_EXPIRED`），不假装成功 (0.3307ms)
+✔ F15c 写操作会**记进台账**（界面据此显示"最近发生了什么"） (0.3224ms)
+✔ F16 ⭐ 真实模式 `transactions` 如实返回 `INTERNAL`（不返回空数组假装"没有事务"） (0.1529ms)
+✔ F17 ⭐⭐ `UNIMPLEMENTED_METHODS` 与假套件**逐一对得上**，且真实模式全部 INTERNAL (0.764ms)
+✔ F11 `createFakeKit` 必须注入 `bandOf` —— 不许在本模块里重算档位阈值 (0.2925ms)
+✔ index: 合法索引可读回，且向量与写入一致 (1.5318ms)
+✔ index: MAGIC 不对 → INDEX_CORRUPT（不是"读到了半个文件"） (1.7492ms)
+✔ index: 截断文件 → 拒绝（footer 校验起作用） (1.0136ms)
+✔ index: footer.complete 不是 true → 拒绝（写入未完成的判定） (0.9767ms)
+✔ index: 向量块被改一个字节 → sha1 不符 → 拒绝 (1.5812ms)
+✔ index: 文件不存在 → INDEX_MISSING（与"损坏"区分开） (0.2986ms)
+✔ index: readItems / readMeta 对坏 JSON 抛 INDEX_CORRUPT (2.4674ms)
+✔ index: relOf 同时认新格式 relPath 与旧档 rel_path (0.7869ms)
+✔ compat: 8 个成员，顺序固定 (0.6411ms)
+✔ compat: device / gpu 型号**不参与**（否则 CPU 回退会拒绝自己的索引） (0.2753ms)
+✔ compat: seq 不同 → 不等，并给出逐字段差异 (1.1179ms)
+✔ compat: 权重精度不同 → 不等（fp32 vs q4f16） (0.4631ms)
+✔ compat: 字段不齐 → 视为不完整，不参与相等判定 (0.1856ms)
+✔ compat: compatReason 结构化原因含"哪一项不符 + 期望 + 实际"（契约 §6） (0.2964ms)
+✔ compat: 真实索引用例（data/idx-full 存在时读其 header 并自比） (1.0821ms)
+✔ errors: 信封形状（成功/失败） (0.2026ms)
+✔ errors: 每个错误码都有用户可见文案（且不含绝对路径） (0.2575ms)
+✔ errors: envelope 永不抛异常给调用方 (0.2152ms)
+✔ ① 绝对路径一律拒绝（盘符 / UNC / 前导斜杠） (0.1512ms)
+✔ ① 含 .. 的相对路径拒绝 (0.1253ms)
+✔ ① 正常相对路径接受 (0.1503ms)
+✔ ①..④ 经由 .. 逃逸 → PATH_ESCAPES_LIB (0.4164ms)
+✔ ③ 解析后的真实路径必须仍在库根内 (0.9698ms)
+✔ ③ 与之同前缀的兄弟目录不能蒙混过关（前缀比较要带分隔符） (0.5777ms)
+✔ ④ 库内指向库外的目录联接 → SYMLINK_REJECTED (1.0763ms)
+﹣ ④ 指向库外的文件符号链接 → SYMLINK_REJECTED (0.7313ms) # 本环境无法创建文件符号链接：EPERM: operation not permitted, symlink 'D:\USERS\Desktop\Agent\gemma-search\data\_esbuild-tmp\gs-lib-aqajAm\secret.jpg' -> 'D:\USERS\Desktop\Agent\gemma-search\data\_esbuild-tmp\gs-lib-zGgKu2\alias.jpg'
+✔ ② 取件目标在白名单外 → COLLECT_DIR_NOT_ALLOWED (0.2487ms)
+✔ ② 白名单要求整段匹配（E:\素材待用-x 不算命中） (0.1432ms)
+✔ 查询图：扩展名白名单 + 必须是已存在的文件 (0.7378ms)
+✔ ⑤ 解析与指纹是只读的：库指纹在操作前后不变 (1.7021ms)
+✔ 注册表：未注册的库 → LIB_NOT_FOUND；根不存在 → LIB_ROOT_MISSING (0.5208ms)
+✔ 注册表：uid → 路径解析走索引里的 relPath（不接受客户端路径） (1.0517ms)
+✔ 注册表：索引里的 relPath 若被投毒（..\..）→ 仍被拦住 (0.405ms)
+✔ 指纹 v1：与 baseline-v1.json 记录的值一致（跨语言一致性） (261.4889ms)
+ℹ 库 3594 图 + 3594 包 · 指纹 3c62f15c5944 · 库根来自 index-meta
+✔ FI before-prepared —— §8 第 1 例：写 PREPARED 前被杀 ⇒ 什么都没发生，重试即可 (168.3181ms)
+✔ FI after-prepared —— §8 第 2 例：PREPARED 后被杀 ⇒ 恢复=回退；源完好 (259.1366ms)
+✔ FI mid-staging —— §8 第 3 例：staging 写到一半 ⇒ 恢复=回退；staging 被清理；源完好 (320.8643ms)
+✔ FI after-staging —— §8 第 4 例：staging 完成、校验前 ⇒ 校验后前进或回退都可接受，但必须确定（这里是前进） (370.3835ms)
+✔ FI after-verified —— §8 第 5 例：校验通过、rename 前 ⇒ 恢复=前进 (469.871ms)
+✔ FI mid-rename —— §8 第 6 例：图已 rename、包未 rename ⇒ 恢复=把包也 rename（前进），不留半截 (392.2525ms)
+✔ FI after-commit —— §8 第 7 例：rename 完成、索引未更新 ⇒ 恢复=更新索引；绝不出现索引指向不存在的文件 (417.2435ms)
+✔ FI after-index —— §8 第 8 例：索引已更新、源未删 ⇒ 恢复=删源（且**不得重复更新索引**） (423.1455ms)
+  ⚠️ §8 第 9 例（跨卷 / 拔盘）**未验证**：沙箱文件策略为 workspace-write，跨卷写 staging 会被拒；E: 是取件区、G: 是库盘 —— 往那里写测试数据会碰真实数据，违反"绝不对真实库跑"；拔盘需要在操作系统层卸载卷，沙箱内无法模拟
+✔ FI-10 ⭐⭐ 同一事务**重复恢复两次**：幂等 —— 第二次不改动任何东西（§8 第 10 例） (458.1172ms)
+✔ FI-09 ⚠️ 跨卷（G:→E:）与"E: 拔盘" —— **本环境未验证**，如实记录（§8 第 9 例） (0.26ms)
+✔ RC-1 `PREPARED` ⇒ **回退**：清 staging、源不动、落到 ABORTED 并归档 (145.1374ms)
+✔ RC-2 ⭐ `STAGED` 且校验一致 ⇒ **前进**：rename + 索引 + 清源，走完整条 (279.7927ms)
+✔ RC-3 ⭐ `STAGED` 但校验**不一致** ⇒ 回退（清 staging、源不动、绝不将坏字节扶正） (134.6746ms)
+✔ RC-4 ⭐⭐ 判定不唯一（staging 丢失 **且** 源已不在）⇒ `RECOVERY_NEEDED` **停下问人** (135.1429ms)
+✔ RC-5 ⭐ 源与目标都在且**字节不同** ⇒ 同样停下问人（不能挑一个） (112.0051ms)
+✔ RC-6 ⭐ `COMMITTED` 但索引未更新 ⇒ **只补索引**，然后清源（绝不出现索引指向不存在的文件） (190.6407ms)
+✔ RC-7 ⭐⭐ **幂等**：同一条事务恢复两次，第二次什么也不改、索引不再被调 (237.058ms)
+✔ RC-8 终态（CLEANED / ABORTED）⇒ **只归档、不动文件** (125.0757ms)
+✔ RC-9 索引端口在恢复时失败 ⇒ **停下报出来**，绝不当成"已完成"去清源 (123.0946ms)
+✔ RC-10 坏日志**不静默**：`broken` 要报出来，且不影响其它事务的恢复 (134.9714ms)
+✔ RC-11 多文件事务：只 rename 了一半 ⇒ 恢复把**另一半也补上**（不留半截） (201.7457ms)
+✔ RC-13 ⭐⭐ 记录**不完整**（缺 `sha1`）⇒ 停下问人，**不许**被误读成"校验不一致" (48.4083ms)
+✔ RC-14 `writeTxn` 拒绝结构不完整的记录（在**写的时候**就炸，不留半截档案） (75.2243ms)
+✔ RC-12 恢复报告**不静默**：有未完成事务时 summary/pending 必须给得出东西 (147.0365ms)
+✔ TX-W1 ⭐⭐ 破坏性写操作（rename/unlink/rm）只允许出现在 `src/transactions/`（规格 §9） (5.9912ms)
+✔ TX-W2 断言**不是空的**：transactions/ 里确实用到了这些 API（否则上面那条恒真） (5.5235ms)
+✔ TX-W3 ⭐ 判据**能红**：往 `engine.ts` 注入一行 fs.renameSync ⇒ 必须被扫出来 (0.1414ms)
+✔ TX-W4 如实钉住边界：`collect` 会在**库外**（取件目录）新增文件，不属 §9 的"写素材文件" (5.4266ms)
+✔ TX-S1 主链只能**前进一步**，不许跳步（跳步会把中间的校验整段跳过） (0.1715ms)
+✔ TX-S2 ⭐ `COMMITTED` **不许 ABORT**（§3 第 5 条：只能"完成它"，回退会制造半完成状态） (0.1255ms)
+✔ TX-S3 终态不可再变（幂等恢复的前提：第二次恢复什么都不改） (0.1136ms)
+✔ TX-S4 ⭐ 取消只在**状态边界**生效：COMMITTED 之后不可取消（§5） (0.1195ms)
+✔ TX-S5 ⭐ 恢复判定表（§4）逐态对齐 —— 这张表决定"进程被杀之后前进还是回退" (0.1079ms)
+✔ TX-S6 ⭐ 歧义判定（§4）：只有两种情形该停下问人，且**不能把"已完成"误判成歧义** (0.1424ms)
+✔ TX-J1 txnId 形态与规格 §1 一致：`<utc>-<rand>`，且可用固定 now/rand 复现 (0.2205ms)
+✔ TX-J2 ⭐ 日志是**一事务一文件**且原子落盘（不留半截 JSON） (191.7072ms)
+✔ TX-J3 ⭐ 坏日志**不许让扫描崩**，而且要**可见**（"无法识别的状态"正是 §8 禁止的结果） (125.1004ms)
+✔ TX-J4 `withState` 不改入参（状态跃迁必须产生新对象，避免"已经改了一半"） (0.2082ms)
+✔ TX-J5 终态归档：从 journal/ 移到 journal/archive/ (91.0161ms)
+✔ TX-E1 正常移动走完七步：CLEANED · 源已删 · 目标字节一致 · 索引恰好调一次 · staging 已清 (312.8489ms)
+✔ TX-E2 ⭐⭐ 规则①：**索引更新失败 ⇒ 源绝不能删**（否则"文件没了、索引还指着它"） (279.6923ms)
+✔ TX-E3 ⭐⭐ 规则②：目标已存在且**字节不同** ⇒ 拒绝，且**一个字节都不许动** (47.6681ms)
+✔ TX-E3b ⭐ 规则②的**幂等**那一半：目标字节相同 ⇒ 视为已命中、跳过该文件而不是再写一遍 (266.0141ms)
+✔ TX-E3c ⭐⭐ `src === dst` 必须被拒绝（否则"幂等命中 + 清源"会把文件本身删掉） (48.0332ms)
+✔ TX-E4 预检：源不存在 ⇒ 不写日志、不动任何东西 (46.2853ms)
+✔ TX-E4b 多文件事务：图 + 包一起移动，两条都要到目标、源都要清干净 (290.3079ms)
+✔ TX-C1 ⭐ 空间核算用**目标所在目录**（相对路径也不许静默失败） (46.5371ms)
+✔ TX-C2 ⭐ 空间不足 ⇒ **在 PREPARED 之前拒绝**，给出"需要 X、可用 Y"（§6） (54.3884ms)
+✔ TX-C3 没有 PREPARED 就不该有日志：空间不足时事务根本不开始 (47.8603ms)
+✔ TX-P1 staging 路径形态与 §1 示例一致：落在**目标目录**下的 `.gs-staging/<txnId>/` (0.1828ms)
+✔ TX-P2 注入点清单覆盖 §8 的 8 个位置（跨卷与重复恢复由测试额外驱动） (0.1076ms)
+✔ TX-P3 缺 `indexPort` 必须**拒绝构造**（否则"索引成功后才清源"无从保证） (41.0312ms)
+✔ uid: 形状是 12 位小写 hex (0.246ms)
+✔ uid: 确定性（同输入同输出） (0.1294ms)
+✔ uid: 目录参与种子（同主干不同目录 → 不同 uid） (0.1065ms)
+✔ uid: lib_id 参与种子（跨库不撞） (0.1025ms)
+✔ uid: 根目录下的素材 rel_dir 为空串（不是 "."） (0.116ms)
+✔ uid: 黄金向量（锁住当前行为，改动即报警） (0.1166ms)
+✔ uid: 整库唯一性（用真实素材库；库不存在则跳过） (25.8204ms)
+ℹ 扫描 3594 张图 · 库根来自 index-meta（G:\model）
+ℹ 整库 3594 张 · uid 唯一 · 样例 022a00481875 → CR\ID-032109719124396.png
+ℹ tests 334
+ℹ suites 0
+ℹ pass 333
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 11387.624
+EXIT=0
+
+### 命令 4 · 「为什么不用 fs.access(W_OK)」的原始实测（模块头注释引用的就是这段）
+node --version: v24.14.0
+PS> icacls <临时目录> /reset   （回到基线）
+Successfully processed 1 files; Failed processing 0 files
+[1] 基线（ACL 已 /reset）
+  writeFileSync   → OK（真的写进去了）
+  accessSync(W_OK)→ OK（认为可写）
+PS> icacls <临时目录> /deny "$env:USERNAME:(W)"   （拒绝当前用户写权限）
+Successfully processed 1 files; Failed processing 0 files
+[2] 拒绝写权限之后 —— 关键行：accessSync 仍报 OK（假报可写）
+  writeFileSync   → EPERM
+  accessSync(W_OK)→ OK（认为可写）
+PS> icacls <临时目录> /reset   （还原，不在机器上留 ACL）
+Successfully processed 1 files; Failed processing 0 files
+[3] 还原后
+  writeFileSync   → OK（真的写进去了）
+  accessSync(W_OK)→ OK（认为可写）
+
+### 命令 5 · 落点说明的可读性（describeStorageRoots 真实输出；启动日志就是这些行）
+PS> node data/_t04_probe/demo.mjs   （只用 data/_t04_probe 下的临时目录，**不碰真实素材库**）
+[存储] 程序目录 = D:\USERS\Desktop\Agent\gemma-search
+[存储] userData = D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\userData
+[存储] 写探测 = 开启（在已存在的目录里写一个 .gs-write-probe-* 临时文件再删；不用 fs.access(W_OK) —— Windows 上它对 ACL 拒绝的目录会假报可写）
+[存储] 模型 = **未找到**（在找到模型之前不会显示任何检索结果 —— 不假装可用）
+[存储] 模型搜索顺序 = 程序目录 models/ → userData models/ → 用户指定
+[存储]   1. 程序目录 models/ = D:\USERS\Desktop\Agent\gemma-search\models ⇒ 没有这个目录（D:\USERS\Desktop\Agent\gemma-search\models）；目录不存在：D:\USERS\Desktop\Agent\gemma-search\models
+[存储]   2. userData models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\userData\models ⇒ 没有这个目录（D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\userData\models）；目录不存在：D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\userData\models
+[存储] 模型候选目录现在都不可写：需要先建出 <程序目录>/models 或 <userData>/models，或在设置里指向一个可写目录。
+[存储] 模型指引：未找到 ONNX 模型（搜索顺序取自 SPEC §2：程序目录 models/ → userData models/ → 用户指定）。
+[存储] 模型指引：已经找过：
+[存储] 模型指引：  1. 程序目录 models/ = D:\USERS\Desktop\Agent\gemma-search\models ⇒ 没有这个目录（D:\USERS\Desktop\Agent\gemma-search\models）
+[存储] 模型指引：  2. userData models/ = D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\userData\models ⇒ 没有这个目录（D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\userData\models）
+[存储] 模型指引：放法（任选其一，目录里必须有 onnx\model.onnx）：
+[存储] 模型指引：  · D:\USERS\Desktop\Agent\gemma-search\models\onnx\model.onnx
+[存储] 模型指引：  · D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\userData\models\onnx\model.onnx
+[存储] 模型指引：  · 在设置里指定模型目录（config.json 的 onnx_model_dir），或放到既有 model-cache 布局下
+[存储] 模型指引：放好后重启应用即可重试。
+[存储] 模型指引：⚠️ 在找到模型之前**不会显示任何检索结果** —— 不假装可用（SPEC §2「都找不到 ⇒ 显示明确指引」）。
+[存储] 库 L1：声明库根 = D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\lib-writable
+[存储] 库 L1：落点 = D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\lib-writable（用库根本身）；为什么 = 库根可写（写探测：目录可写：D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\lib-writable） ⇒ 索引 / 元数据 / 事务日志都写在**库根本身**（D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\lib-writable）
+[存储] 库 L1：索引 D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\lib-writable\.gs-index.bin · 元数据 D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\lib-writable\.gs.db · 事务日志 D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\lib-writable\.gs-journal · 暂存 .gs-staging/<txnId>/（暂存目录是**每个写入目标所在目录**下一份（<目标目录>/.gs-staging/<txnId>/），不是全局一个 —— 同卷 rename 才能原子；扫描素材时必须跳过 .gs-* 与 .gs-staging/）
+[存储] 库 L2：声明库根 = Z:\gone
+[存储] 库 L2：落点 = D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\userData\libraries\L2（**回退 userData**）；为什么 = 库根不可写 ⇒ 回退 userData。原因为：目录不存在：Z:\gone。落点 = D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\userData\libraries\L2；回退目录尚未创建（D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\userData\libraries\L2）—— 首次写入时按需创建
+[存储] 库 L2：索引 D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\userData\libraries\L2\.gs-index.bin · 元数据 D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\userData\libraries\L2\.gs.db · 事务日志 D:\USERS\Desktop\Agent\gemma-search\data\_t04_probe\demo\userData\libraries\L2\.gs-journal · 暂存 .gs-staging/<txnId>/（暂存目录是**每个写入目标所在目录**下一份（<目标目录>/.gs-staging/<txnId>/），不是全局一个 —— 同卷 rename 才能原子；扫描素材时必须跳过 .gs-* 与 .gs-staging/）
+EXIT=0

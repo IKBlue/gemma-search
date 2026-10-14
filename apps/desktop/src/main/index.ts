@@ -31,6 +31,7 @@ import { CH_INVOKE, CH_EVENT, validateCall, METHOD_NAMES } from '../shared/ipc.t
 import type { Envelope, MethodName, Req } from '../shared/ipc.ts';
 import { resolveLibraries, loadRegistry, saveRegistry, normalizeLibraries, registryPath } from './library-config.ts';
 import type { MainConfig, ResolveLibrariesResult } from './library-config.ts';
+import { resolveStorageRoots, describeStorageRoots } from './storage-roots.ts';
 import { createRevealPort } from './ports.ts';
 import { parseThumbUrl, createLibIdResolver, thumbFailureStatus } from './thumb-url.ts';
 import {
@@ -214,6 +215,47 @@ function resolveModelDir(): string | null {
     if (fs.existsSync(path.join(d, 'onnx', 'model.onnx'))) return d;
   }
   return null;
+}
+
+// ---------------------------------------------------------------- 存储落点（T-04 · SPEC §2）
+//
+// 为什么在这里打印：三类落点（模型 / 索引与 .gs.db / 事务日志）此前散在好几处，
+// 没有一处能回答"现在落在哪、为什么"。解析逻辑全在 `storage-roots.ts`（可 node:test），
+// 这里**只接线 + 打日志**。
+//
+// ⚠️ 只记录，**不改任何既有行为**：
+//    · 库从哪来 = library-config.ts 的四条路（GEMMA_LIB_ROOT / 注册表 / config / 索引自举）；
+//    · 模型实际用哪个仍由 resolveModelDir() 决定 —— 它还多认一条 model_cache 路径，
+//      那条路径不在 SPEC §2 的搜索顺序里，收敛是 T-17（main/encoder.*）的事。
+//      两处并列打出来，就是为了**不把差异藏起来**。
+function storageAppDir(): string {
+  try {
+    // 打包态：exe 所在目录就是 SPEC §2 的「程序目录」（models/ 放它下面）；
+    // dev 态没有 exe，用仓库根。
+    return app.isPackaged ? path.dirname(app.getPath('exe')) : ROOT;
+  } catch {
+    return ROOT;
+  }
+}
+
+function logStorageRoots(): void {
+  try {
+    const r = librariesResolved();
+    const roots = resolveStorageRoots({
+      appDir: storageAppDir(),
+      userDataDir: USER_DATA_DIR,
+      libraries: r.libraries.map((l) => ({ libId: l.libId, root: l.root })),
+      // 「用户指定」这一位 = config.json 既有的 onnx_model_dir（没有就跳过这一位）
+      userModelDir: typeof config.onnx_model_dir === 'string' ? config.onnx_model_dir : null,
+    });
+    log('[存储] ======== 本次启动的落点 ========');
+    for (const line of describeStorageRoots(roots)) log('[存储]', line);
+    log('[存储] 编码器实际将使用的模型目录 =',
+        resolveModelDir() ?? '(无 —— 检索会以 MODEL_MISSING 失败，不给假结果)');
+  } catch (e) {
+    // 落点解析失败不许拦住启动：库根是坏盘 / 权限不足时，应用更要把话说清楚再继续。
+    log('!! 存储落点解析失败（不影响启动）:', stackText(e));
+  }
 }
 
 // ---------------------------------------------------------------- 引擎
@@ -664,6 +706,7 @@ app.whenReady().then(async () => {
     log('thumb:// 已注册');
     registerIpc();
     buildEngine();
+    logStorageRoots();                             // T-04：落点与"为什么"进日志（只记录，不改变行为）
     log('引擎阶段完成');
     createWindow();
     log('启动流程完成（窗口已创建）');
