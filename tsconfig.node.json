@@ -20,7 +20,10 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    // Node ESM 必须写显式扩展名 ⇒ .ts 之间只能 import './x.ts'。
+    // TS 需要这个开关才允许（TS5097），而它要求 noEmit（本工程正是 noEmit: true）。
+    "allowImportingTsExtensions": true
   },
   "include": [
     "electron.vite.config.mjs",
@@ -28,6 +31,7 @@
     "apps/desktop/src/preload/**/*",
     "apps/desktop/src/shared/**/*",
     "packages/engine/src/**/*",
+    "packages/indexer/src/**/*",
     "tools/**/*",
     "scripts/**/*"
   ]
