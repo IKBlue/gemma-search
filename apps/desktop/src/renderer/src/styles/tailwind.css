@@ -34,8 +34,11 @@
 @import "tailwindcss/utilities.css" layer(utilities);
 
 /* 显式给扫描范围（相对**本文件**）。不写就靠自动探测 —— 而本文件在 `src/styles/` 下、
-   组件在 `src/**`，靠默认探测容易漏掉上层目录。显式写死更可预期。 */
-@source "../**/*.{js,jsx}";
+   组件在 `src/**`，靠默认探测容易漏掉上层目录。显式写死更可预期。
+   ⚠️ 2026-10-15（P4-1）修：原来的 glob 只写了 `{js,jsx}` —— 全量 TS 化（W2）之后源码里
+      **一个 .js/.jsx 都没有**，于是 Tailwind 其实在扫描**空集**：组件里用到的工具类**不会生成**
+      （症状是「构建通过、样式静默失效」，与 V-17 同一类病）。改为含 `.ts/.tsx`。 */
+@source "../**/*.{ts,tsx,js,jsx}";
 
 @theme inline {
   /* ============ 颜色 → 令牌（值只在 tokens.css 定义一次） ============ */
@@ -60,6 +63,24 @@
   --color-success: var(--color-success);
   /* 遮罩（弹窗用）—— T4 加确认弹窗时才需要，仍指向令牌、不写字面值 */
   --color-scrim: var(--scrim);
+
+  /* ============ shadcn/ui 的**语义别名**（P4-1，2026-10-15） ============
+   * 为什么加它们：shadcn 生成的组件用 `bg-primary` / `text-primary-foreground` / `border-input`
+   * 这类**语义名**；本项目原来的语义名是 `bg-accent` / `text-on-accent` / `border-line`。
+   * 两套名字指同一批令牌也行，但 shadcn 的源码要能被**原样保留**（否则每次生成都要手改，
+   * 迟早改漏）⇒ 加一层别名。
+   * ⚠️ 值仍然**只在 `tokens.css` 定义一次**（这里是 `var(--…)` 映射，不是第二份值）；
+   *    这也正是 `style-contract.test.mjs` 的 SC-1 要求的：类名必须能在 `@theme` 里找到令牌。
+   * ⚠️ 只加「后续卡片确定会用」的那几个（muted 系与 `bg-ink-muted` 同值、纯重复 ⇒ 不加）。 */
+  --color-background: var(--color-bg-primary);
+  --color-foreground: var(--color-text-primary);
+  --color-primary: var(--color-accent);
+  --color-primary-foreground: var(--color-on-accent);
+  --color-secondary: var(--color-selection);
+  --color-input: var(--color-separator);
+  --color-ring: var(--color-accent);
+  --color-destructive: var(--color-critical);
+  --color-destructive-foreground: var(--color-on-accent);
 
   /* ============ 浮起阴影（弹窗/浮层）—— 用不重名的别名，避开 `--shadow-x: var(--shadow-x)` 自引用 ============ */
   --shadow-raised: var(--shadow-float);

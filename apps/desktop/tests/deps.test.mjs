@@ -69,6 +69,20 @@ const IMPLICIT = {
   '@types/node': '由 tsconfig 的 `types` 解析，代码里绝不出现 import',
   '@types/react': '同上',
   '@types/react-dom': '同上',
+
+  // ── P4 界面补齐（TASKS §6，所有者 2026-10-15 批准）：依赖**一次加齐**，
+  //    接线按卡片的依赖顺序（task-45…task-50）逐张来。
+  //    ⚠️ 这里只是「已声明、还没 import」的过渡态 —— 每张卡片落地时**必须**把它从这条名单里删掉、
+  //       改成真实 import（D-A 会在有人忘记删时提醒；D-I 会钉住这条纪律本身）。
+  '@tanstack/react-virtual': 'P4-2 浏览页 F2 的虚拟滚动（TASKS §6 目标 2）',
+  '@tanstack/react-table': 'P4-2 浏览页 F2 的筛选/排序（同上）',
+  'react-hook-form': 'P4-4 设置中心 / P4-5 向导的表单（TASKS §6 目标 4/5）',
+  '@hookform/resolvers': '同上：zod 解析器（契约唯一来源是 shared/ipc.ts）',
+  sonner: 'P4 各页的统一 toast（替换自研 ui/Toast 的过渡期）',
+  cmdk: 'P4-6 命令面板（TASKS §6 目标 6）',
+  'lucide-react': 'P4 各页图标（替换 emoji 前缀图标）',
+  'yet-another-react-lightbox': 'P4-3 详情页大图灯箱（TASKS §6 目标 3）',
+  motion: 'P4 动效；HIG 要求尊重 reduced-motion，故只在必要时用',
 }
 
 // ============================================================ D-A 不许有"已装零 import"
@@ -95,10 +109,38 @@ test('D-C ⭐⭐ 断言本身有效：能看见**动态** `import()`（差点因
     const hits = importers(dep)
     assert.ok(hits.includes(file), `${dep} 应被认出用在 ${file}（动态 import）—— 实得 ${JSON.stringify(hits)}`)
   }
-  // 而真正没人用的，必须报 0（否则白名单/断言都失去意义）
+  // ⚠️ 2026-10-15（P4-1）：**判据本身被改了** —— 旧版断言「@tanstack/react-virtual / lucide-react 应报零 import
+  //    **且**不该被声明回来」。那在 T4 当时是对的（当时的台账口径是「声明了却零 import = 漂移」），
+  //    但 P4 界面补齐（TASKS §6，所有者批准）**明确要求把它们一次加齐**、按卡片顺序接线。
+  //    ⇒ 继续拦它们就是拦住已批准的工作。**这不是放宽**：'没人用' 这条判据留了下来（importers === 0），
+  //      只是把「不许声明」换成「**必须仍在白名单里 + 白名单必须给理由**」（见下面的 D-I）。
   for (const dep of ['@tanstack/react-virtual', 'lucide-react']) {
-    assert.equal(importers(dep).length, 0, `${dep} 应报零 import`)
-    assert.ok(!declared[dep], `${dep} 已在 T4 删除，不该又被声明回来`)
+    assert.equal(importers(dep).length, 0, `${dep} 在接线前应报零 import（接线后本行会提醒你把它从白名单删掉）`)
+    assert.ok(IMPLICIT[dep], `${dep} 已声明 ⇒ 必须在 IMPLICIT 白名单里并写明用途`)
+    assert.ok(!orphanAllowed(dep), `${dep} 不该出现在"零 import 且不在白名单"的名单里`)
+  }
+})
+
+// ============================================================ D-I P4 依赖：白名单条条有理由 + 「零 import」判据仍有效
+
+/** 把 D-A 的判据抽成一个函数，供 D-I 复用（**同一份判定**，不是抄第二遍） */
+function orphanAllowed(dep) {
+  return importers(dep).length === 0 && !IMPLICIT[dep]
+}
+
+test('D-I ⭐ P4 依赖白名单：每条都有非空理由，且「零 import」这条判据仍然有效', () => {
+  const P4 = [
+    '@tanstack/react-virtual', '@tanstack/react-table', 'react-hook-form', '@hookform/resolvers',
+    'sonner', 'cmdk', 'lucide-react', 'yet-another-react-lightbox', 'motion',
+  ]
+  for (const dep of P4) {
+    assert.ok(declared[dep], `${dep} 应已在 package.json 声明（P4 一次加齐）`)
+    assert.ok(typeof IMPLICIT[dep] === 'string' && IMPLICIT[dep].length >= 8,
+      `${dep} 的白名单理由必须写成一句人话（谁用、在哪张卡）`)
+  }
+  // 反向：白名单里**不属于** P4 的那些，理由同样不许空着（避免后门变成垃圾桶）
+  for (const [dep, why] of Object.entries(IMPLICIT)) {
+    assert.ok(typeof why === 'string' && why.trim().length > 0, `${dep} 的白名单理由不许是空串`)
   }
 })
 

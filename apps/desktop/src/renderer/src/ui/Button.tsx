@@ -30,7 +30,10 @@ import { Slot } from 'radix-ui'
 import { cn } from './cn.ts'
 import type { ButtonHTMLAttributes } from './types.ts'
 
-const button = cva('inline-flex items-center disabled:opacity-50 disabled:cursor-default', {
+// ⚠️ P4-1（2026-10-15）：变量名与导出改成 shadcn 约定的 `buttonVariants`（其他文件可以用它把
+//    按钮样式套到别的元素上），变体值本身**一个字没改** —— 见文件头：等比照抄 shadcn 的
+//    secondary/destructive/h-9 会同时改视觉与既有 E2E 断言（44px 命中区是 HIG 要求）。
+const buttonVariants = cva('inline-flex items-center disabled:opacity-50 disabled:cursor-default', {
   variants: {
     variant: {
       default: 'gap-2 border rounded-xs font-semibold border-line bg-surface-raised text-ink hover:border-accent',
@@ -49,8 +52,8 @@ const button = cva('inline-flex items-center disabled:opacity-50 disabled:cursor
   defaultVariants: { variant: 'default', size: 'md', block: false },
 })
 
-type ButtonVariant = NonNullable<VariantProps<typeof button>['variant']>
-type ButtonSize = NonNullable<VariantProps<typeof button>['size']>
+type ButtonVariant = NonNullable<VariantProps<typeof buttonVariants>['variant']>
+type ButtonSize = NonNullable<VariantProps<typeof buttonVariants>['size']>
 
 /**
  * 组件自己的属性全部可选（HTML 属性类型里有必填成员，见 `ui/types.ts` 的 `UiAttrs` 注释）。
@@ -65,7 +68,7 @@ export type ButtonProps =
     asChild?: boolean
   }
 
-export default function Button({
+export function Button({
   variant = 'default',
   size = 'md',
   className,
@@ -77,17 +80,21 @@ export default function Button({
 }: ButtonProps) {
   // icon 变体自带尺寸，忽略 size（显式表达，别靠「后面的类覆盖前面的」）
   const resolvedSize: ButtonSize = variant === 'icon' ? 'none' : size
-  const cls = cn(button({ variant, size: resolvedSize, block }), className)
+  const cls = cn(buttonVariants({ variant, size: resolvedSize, block }), className)
 
   if (asChild) {
     // ⚠️ 统一包 radix-ui 的 Slot 是**命名空间对象**（{ Root, Slot, Slottable, … }），
     //    直接写 <Slot> 会触发 React #130（Element type is invalid … got: object）。
     //    2026-10-14 实测踩到过：a11y E5-b 打开任务页即白屏。
-    return <Slot.Root className={cls} {...rest}>{children}</Slot.Root>
+    return <Slot.Root data-slot="button" className={cls} {...rest}>{children}</Slot.Root>
   }
   return (
-    <button type={type} className={cls} {...rest}>
+    <button type={type} data-slot="button" className={cls} {...rest}>
       {children}
     </button>
   )
 }
+
+// shadcn 约定：导出具名的 variants 工厂（其他组件/页面可以拿它把按钮样式套到 <a>/<Link> 上）
+export { buttonVariants }
+export default Button
