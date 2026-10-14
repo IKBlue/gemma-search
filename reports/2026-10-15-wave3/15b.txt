@@ -1,0 +1,182 @@
+T-15b · 体检 / 重建 的用户界面入口（DiagnosticsPage）· 2026-10-15
+任务板 id: task-38 · 执行: ui-migrator · 类型: **本轮实测**（真窗口 + 单测 + 两工程 tsc + build）
+写入范围: apps/desktop/src/renderer · apps/desktop/tests · apps/desktop/e2e
+依赖: task-37（T-15a 的两条 IPC，已交付）
+
+=================================================================================
+0. 结论速览
+=================================================================================
+① 界面有了：侧栏「诊断与重建」→ /health。体检逐项列结论（ok/code/**主进程给的人话理由**）；
+   重建元数据走**两段式**（请求 → 确认框）；执行期间显示「正在重建元数据…」；完成后显示重建报告并自动复检。
+② 验收命令（原始输出见 §3）：
+   npx tsc --noEmit -p tsconfig.web.json   → EXIT=0
+   npx tsc --noEmit -p tsconfig.node.json  → EXIT=0
+   npm run build（TEMP 指向仓库内）        → EXIT=0（三端齐备）
+   node --test apps/desktop/tests/*.test.mjs → 344 tests / 344 pass / 0 fail / 0 skipped（EXIT=0）
+   npx playwright ... health.spec.mjs       → **4 passed**（含真库 E13-d）
+③ 任务书 §4 的三条 e2e 要求全部覆盖：**取消 ⇒ 零 IPC**（E13-b）· **重建期间有忙碌指示**（E13-c）·
+   **体检坏项能显示出来**（E13-a 桩 / E13-d 真库真实现）。
+④ ⚠️ 两条**我为范围外问题留的证据**（重要，请裁决）：
+   · F-1：Electron 里真重建**当前走不通** —— 真 IPC 返回 IMPORT_FAILED，被归一成 INDEX_CORRUPT 报给用户（假因果）。
+        根因不在界面；见 §5。真库的「修复」能力仍由 T-15a 的真实副本证据负责（那是在 Node 里跑的）。
+   · F-2：e2e 夹具路径 `apps/desktop/e2e/fixtures/lib-mini` **不存在**（helpers/app.mjs:23），
+        `launchWithLibrary()` 实际把库根设成一个不存在的路径 —— 那些 spec 现在是在**空库**上跑的。见 §5。
+⑤ 树状态：我这边**收工了**（本轮之后不再写文件）。可以跑全量 e2e 做权威回归。
+
+=================================================================================
+1. 改了哪些文件
+=================================================================================
+1.1 新增 4 个（都在声明范围内）
+  apps/desktop/src/renderer/src/pages/DiagnosticsPage.tsx   诊断页（体检结论 + 重建两段式 + 报告）
+  apps/desktop/src/renderer/src/store/health.ts             状态机（Operation 层，不 import React）
+  apps/desktop/src/renderer/src/utils/library-root.ts       从 libraryConfig 里挑当前库（纯函数）
+  apps/desktop/tests/health-store.test.mjs                  HZ1–HZ10（11 条）
+  apps/desktop/e2e/health.spec.mjs                          E13-a/b/c/d
+  apps/desktop/e2e/helpers/health-stub.mjs                  体检/重建的桩（可编程延迟 + 复检变好）
+1.2 修改 5 个
+  apps/desktop/src/renderer/src/router/paths.ts       PATHS.health = '/health' · LABELS.health = '诊断与重建' · ROUTES 加一行
+  apps/desktop/src/renderer/src/router/index.tsx      COMPONENTS.health = DiagnosticsPage（启动期断言仍一一对应）
+  apps/desktop/src/renderer/src/search/SearchSidebar.tsx  侧栏加可达项（label 来自 LABELS、路径来自 PATHS）
+  apps/desktop/tests/router.test.mjs                 R2 的 samples 补 PATHS.health（新路由不补这条会红）
+  apps/desktop/tests/dom-validity.test.mjs           V4 的标题覆盖加 DiagnosticsPage.tsx（新页面必须设窗口标题）
+未动：shared/ipc.ts · src/main/** · preload · tsconfig · package.json · 既有测试断言（只补样本/覆盖）
+
+=================================================================================
+2. 每一条硬要求怎么落的（对照 Lead 的 7 条）
+=================================================================================
+① 体检逐项 + 坏项能看懂 —— `DiagnosticsPage` 把 `report.checks[]` 逐项渲染成
+   `[data-check=<id>] data-ok data-code` 一行 + **主进程 reason 原样显示**（不摘要、不改写、不自造第二套措辞）。
+   上面还有一行 `report.reason`（主进程的总结）与 `needsDbRebuild` 的语义（由 `rebuildable` 逐项标注）。
+② 重建两段式 —— 按钮只调 `requestRebuild(libId)`（**只记状态**）⇒ 弹既有 `ConfirmDialog`；
+   取消 = `cancelRebuild()`（丢弃请求，零 IPC）；确认 = `confirmRebuild()`，**先清 pending 再发**。
+   可断言在 `health-store.test.mjs`：HZ3（取消后 libraryRebuild 调用数 = 0）、HZ4（连点两次只发一次）。
+③ 执行期间「正在重建元数据」—— `rebuildPhase === 'running'` ⇒ 页面显示 `[data-testid=rebuild-busy]`
+   「正在重建元数据…（跑完会自动复检一次）」并把按钮禁用；**契约不发事件 ⇒ 不编百分比**（SPEC §2.3）。
+   另外窗口标题临时加前缀（切走再回来也知道它在跑）。真窗口断言在 E13-c。
+④ 完成后报告 + 自动复检 —— 报告区显示：删了哪些 .gs.db 文件 · 是否新建 · schema v?→v? ·
+   导入多少条（新增/更新/幽灵行）· **索引处置 kept/written/still-broken** · db-*/索引 是否通过 · 主进程 reason；
+   随后 `await run(libId)` **再走一次同一条只读方法**复检（不把 report.after 当结论硬塞）。
+⑤ 复用既有组件、不造第二份文案 —— 用了 `ConfirmDialog` / `Toast` / `Button` / `SearchSidebar` / `AppShell` / `Main` / `PageHead` / `Topbar`；
+   错误一律渲染 Adapter 的 `error.userMessage`，失败原因一律渲染主进程的 `reason`；`layering` 的 L6 仍然绿。
+⑥ 入口与窗口标题 —— 入口在侧栏（`/health`，图标 ⚕）；页面名唯一来源 `router/paths.ts` 的 `LABELS.health`，
+   标题由 `useDocumentTitle(LABELS.health)` 设置（`dom-validity` V4 已把它纳入覆盖）。
+⑦ e2e 三条 —— 见 §4。
+
+=================================================================================
+3. 验收命令 + 原始输出
+=================================================================================
+原始文件（scratch，gitignored）：data/_w2ui/t15b-{tsc-web,tsc-node,build,tests}.txt · data/_w2ui/e2e-t15b.txt
+
+3.1 类型门禁（两工程）
+$ npx tsc --noEmit -p tsconfig.web.json     → EXIT=0（无输出）
+$ npx tsc --noEmit -p tsconfig.node.json    → EXIT=0（无输出）
+
+3.2 构建
+$ $env:TEMP=(Join-Path $PWD 'data/_w2ui-tmp'); npm run build
+../../../../out/renderer/index.html                     1.15 kB
+../../../../out/renderer/assets/index-BlzNWBUm.css     48.62 kB
+../../../../out/renderer/assets/index-D24c17u5.js   1,179.69 kB
+✓ built in 1.92s                                    → EXIT=0（main/preload/renderer 三端齐备）
+
+3.3 桌面单测（含我新加的 11 条）
+$ node --test --test-isolation=none "apps/desktop/tests/*.test.mjs"
+ℹ tests 344   ℹ pass 344   ℹ fail 0   ℹ skipped 0   → EXIT=0
+（全量 `npm test` 还包含 packages/engine/tests ⇒ 由 Lead 统一跑。）
+
+3.4 我新加的单测逐条
+$ node --test apps/desktop/tests/health-store.test.mjs
+✔ HZ1 体检把结构化结论原样收下（每一步状态都真的动）
+✔ HZ2 体检失败 ⇒ phase=error，且弹的就是 Adapter 的 userMessage（不自造第二份文案）
+✔ HZ2b 没有库时 run 直接提示、一个 IPC 都不发（不拿空 libId 去撞 zod）
+✔ HZ3 ⭐ 取消 ⇒ **一个 IPC 都不发**
+✔ HZ4 ⭐ 连点两次确认 ⇒ 只发一次 libraryRebuild（先清状态再执行）
+✔ HZ5 ⭐ 执行期间 rebuildPhase=running（页面据此显示「正在重建元数据」）
+✔ HZ6 重建成功后自动复检一次（并显示报告：删了什么/导入多少/索引处置）
+✔ HZ7 重建失败 ⇒ rebuildError.userMessage（不假装成功，也不编文案）
+✔ HZ8 decideRebuildGate 四条口径都不猜（没结论 / 只有索引坏 / 元数据坏 / 好的）
+✔ HZ9 checkLabel 认不出来就原样返回 id（不猜、不吞）
+✔ HZ10 resolveLibrary chosen 优先、缺 libId 归 null
+ℹ tests 11 / pass 11 / fail 0 → EXIT=0
+
+=================================================================================
+4. e2e（我这条 spec 的原始输出）
+=================================================================================
+$ npx playwright test -c apps/desktop/e2e/playwright.config.mjs health.spec.mjs
+  ok 1 E13-a ⭐ 体检的坏项在真窗口里显示：错误码 + 主进程给的人话理由 (2.4s)
+  ok 2 E13-b ⭐⭐ 取消重建 ⇒ **零 IPC**（一个 libraryRebuild 都不许发） (2.3s)
+  ok 3 E13-c ⭐⭐ 确认后：忙碌指示「正在重建元数据」→ 重建报告 → 自动复检 (3.1s)
+  [E13-d] 真实现体检理由 = 自检发现 1 项问题：db-file(DB_MISSING) ⇒ 可以删库重建
+  ok 4 E13-d ⭐⭐ 真库 · 真实现（不经桩）：过真 IPC 体检，坏项如实显示（含主进程的 reason） (2.4s)
+  4 passed (10.6s)                                  → EXIT=0
+
+4.1 桩覆盖了什么 / **没**覆盖什么（按 Lead 要求写明）
+  helpers/health-stub.mjs 替换的是**主进程那两条方法的实现**（engine:invoke 的 handler）：
+   ✅ 覆盖：界面接线与可达性（侧栏进得去、按钮发得对、状态机切得对）、**取消零 IPC**、
+           **忙碌指示**（桩给 libraryRebuild 挂 1200ms 延迟 —— 真实现 ~700ms 秒回，忙碌态一闪而过测不到）、
+           **完成后复检会变好**（桩的第二次 libraryHealth 返回健康报告）、报告字段的渲染。
+   ❌ 没覆盖：zod 参数校验、库根解析（T-04）、真正的删库 / 导入 / 复检 / 索引处置。
+           ⇒ 「重建真的把库修好了」**不由桩证明**，由 T-15a 的真实副本证据负责（15a2.txt L4/L7）。
+   边界如实写在桩的文件头（同 engine-stub.mjs 的写法）。
+
+4.2 E13-d 为什么是「真体检」而不是「真重建」
+  因为**真重建在 Electron 里现在走不通**（不是界面的锅，见 §5 F-1）：
+  真 IPC 返回 `IMPORT_FAILED → 归一成 INDEX_CORRUPT`，页面会如实显示「重建失败：索引文件已损坏，需要重建。」
+  —— 而体检显示索引明明是好的（count=3594 · dim=768）。**这条自相矛盾是既存缺陷**，
+  我没有把界面改成掩盖它（那才是谎报），也没有顺手改主进程（范围外）。
+  所以 E13-d 走的是真库里**确实成立**的那一半：真 IPC 体检 + 真结论渲染 + 门控可点。
+  真重建那一段留了两份可复跑的原始输出（§5 F-1）供裁决。
+
+=================================================================================
+5. 范围外发现（交裁决；我**没有**动这些文件）
+=================================================================================
+F-1 ⭐ 真重建在 Electron 里失败：`IMPORT_FAILED`（unable to open database file）被归一成 `INDEX_CORRUPT`
+    重现（可复跑）：$ node data/_t15b/probe-electron-ipc.mjs
+      HEALTH1 = [library-root ok, items-file ok, index ok(count=3594·dim=768), db-file DB_MISSING(rebuildable)]
+      REBUILD = { code: 'INDEX_CORRUPT',
+                  message: '导入写入阶段失败，已回滚（库里没有半份导入）：unable to open database file',
+                  userMessage: '索引文件已损坏，需要重建。',
+                  details: { libId: 'L1', rawCode: 'IMPORT_FAILED' } }
+      HEALTH2 = '自检通过（9 项）'   ← .gs.db 已被建出（122880 字节）且复检通过 ⇒ 坏在**导入写数据**那一步
+    两条问题（分开看）：
+      (a) **因果被报错**：`IMPORT_FAILED` 落进 main/library-ipc.ts 的 `normalizeCode` 映射表（storage-ports.asEngineError），
+          被归到 INDEX_CORRUPT ⇒ 用户看到「索引文件已损坏」，而体检说索引是好的。这是**假因果**，比不报错更坏。
+      (b) **能力真的坏了**：Electron 主进程里 `importItemsFromJson` 打不开 .gs.db（同一份代码在纯 Node 里通过 ——
+          data/_t15b/probe-ipc.mjs 里 REBUILD ok=true，index kept，imported=3594）。
+          ⇒ 与 T-15a 的结论不冲突：T-15a 证明的是**模块在 Node 里的正确性**，没证明「过 IPC 在 Electron 里能跑」。
+    影响：T-15b 的界面在真实 Electron 上**能体检、不能重建**；「用户能自救」这条 A11 还差这一步。
+    证据文件：data/_t15b/probe-real-ipc.txt（摘要）· data/_t15b/probe-electron-ipc.mjs（复跑脚本，gitignored）
+
+F-2 e2e 夹具路径不存在：apps/desktop/e2e/helpers/app.mjs:23 的 FIXTURE_LIB = '../fixtures/lib-mini'
+    （解析成 apps/desktop/e2e/fixtures/lib-mini），而 `apps/desktop/e2e/fixtures/` **整个目录都不存在**。
+    ⇒ `launchWithLibrary()` 把 `GEMMA_LIB_ROOT` 指向一个不存在的路径；
+      本机之所以还是「有库」（a11y/routing/styles/item-detail 等一起全绿），是因为 library-config 对
+      `GEMMA_LIB_ROOT` 这条**不做存在性校验**，于是界面拿到的库根是个空目录（页面照样渲染）。
+    ⇒ 那些 spec 实际上是在**空库**上跑的（根下没有 items.json / 索引）。机器上没有真实库时行为如何，未知。
+    影响：**不是我这轮的回归**（我没动 app.mjs），但它会让「夹具库」这类断言悄悄失去意义。
+    建议：把 FIXTURE_LIB 指向仓库根的 `fixtures/lib-a`（那份确实存在）或在 e2e/fixtures 下补 lib-mini —— 由 Lead 决定。
+
+F-3（观察，非缺陷）真实库 data/libraries/L1 是**旧布局**（根下 index.bin），而体检按**新布局**找 `.gs-index.bin`
+    ⇒ 真机上体检必然报 index(INDEX_MISSING)。这是「迁移未完成」的如实反映，不是体检写错。
+    证据：E13-d 的夹具必须先 `copyFileSync(index.bin → .gs-index.bin)` 才能让「索引是好的」成立。
+
+=================================================================================
+6. 一处我**改了口径**并说明理由（请复核）
+=================================================================================
+`decideRebuildGate` 一开始把「索引坏」也当成禁用重建按钮的理由。真库跑通 E13-d 时发现那是错的：
+  · 旧布局真实库的处境就是「索引报 MISSING + 元数据可能真的坏着」；
+  · 元数据重建**修不好索引**，但它**能修好元数据** —— 两者是两件事；
+  · 禁用按钮 = 把一条能修好的路堵上（而且体检报告本来就如实写着索引还坏着：after.indexOk=false / index.action=still-broken）。
+⇒ 现在门只挡两种：**还没体检**（不知道该不该修）与**正在跑**（避免并发两次重建）；
+  元数据没事时按钮也禁用，理由如实写「体检没发现可重建的元数据问题」。
+  单测 HZ8 两个方向都钉住（只有索引坏 ⇒ 禁用且理由不是索引；元数据坏 ⇒ 允许）。
+
+=================================================================================
+7. 复用与纪律自查
+=================================================================================
+· 新组件没有：新造弹窗（用 ConfirmDialog）· 新造兜底文案（用 Adapter 的 userMessage / 主进程的 reason）· 新造 CSS 类。
+· 页面名与路径：唯一来源 router/paths.ts（LABELS/PATHS）；侧栏那行 label 也是 `LABELS.health`，不是字面量。
+· 分层：store/health.ts 不 import React、不碰 window.api（L1/L2/L4 仍绿）；领域判断（门控/标签映射/摘要）都在纯函数里。
+· 范围内 .ts/.tsx 无 any / @ts-ignore / @ts-expect-error / @ts-nocheck。
+· 临时物：data/_t15b/**（探针脚本 + 摘要，gitignored）· data/_w2ui/**（门禁原始输出）。测试的临时库根都在 finally 里删除（已核：data/_t15b-* 残留 0）。
+
+—— 我这边收工，树安静。请跑全量 e2e 作为权威回归。

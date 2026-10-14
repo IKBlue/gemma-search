@@ -17,6 +17,7 @@ import SearchPage from '../pages/SearchPage.tsx'
 import ItemPage from '../pages/ItemPage.tsx'
 import TasksPage from '../pages/TasksPage.tsx'
 import ActivityPage from '../pages/ActivityPage.tsx'
+import DiagnosticsPage from '../pages/DiagnosticsPage.tsx'
 
 /** 路由 key → 组件。key 来自 `paths.ts`，两边必须一一对应 */
 const COMPONENTS = {
@@ -24,6 +25,7 @@ const COMPONENTS = {
   item: ItemPage,
   tasks: TasksPage,
   activity: ActivityPage,
+  health: DiagnosticsPage,
 }
 
 // 启动期断言：表里有 key 却没有组件 ⇒ 立刻炸，别留白屏

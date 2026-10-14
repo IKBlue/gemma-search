@@ -7,6 +7,7 @@
 // 视觉值全走类（renderer.css 消费令牌）；图标装饰性 → aria-hidden。
 import Sidebar, { Brand, Nav, NavItem, NavLabel, SideNote } from '../layout/Sidebar.tsx'
 import Progress from '../ui/Progress.tsx'
+import { LABELS, PATHS } from '../router/paths.ts'
 import type { UiNavItem } from '../ui/types.ts'
 import type { LibStatus } from '../hooks/useEngine.ts'
 
@@ -17,6 +18,9 @@ const NAV: readonly UiNavItem[] = [
   { key: 'ingest', icon: '＋', label: '入库与增量', phase: 'P4' },
   { key: 'tasks', icon: '◴', label: '索引任务', to: '/tasks' },
   { key: 'records', icon: '↺', label: '操作记录', to: '/activity' },
+  // ⚠️ 2026-10-15（T-15b）：诊断页是**真的可达**的（体检 + 重建元数据），所以它给 `to`；
+  //    下面的「设置」仍是未实现占位（phase）—— 两者别混。页面名与路径的唯一来源都是 router/paths.ts。
+  { key: 'health', icon: '⚕', label: LABELS.health, to: PATHS.health },
   { key: 'settings', icon: '⚙', label: '设置', phase: 'P3d' },
 ]
 

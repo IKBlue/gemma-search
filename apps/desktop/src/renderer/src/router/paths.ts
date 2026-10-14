@@ -14,6 +14,7 @@ export const PATHS = Object.freeze({
   item: '/item/:libId/:uid',
   tasks: '/tasks',
   activity: '/activity',
+  health: '/health',
 })
 
 /**
@@ -43,6 +44,7 @@ export const LABELS = Object.freeze({
   item: '图片详情',
   tasks: '索引任务',
   activity: '操作记录',
+  health: '诊断与重建',
 })
 
 /**
@@ -63,6 +65,7 @@ export const ROUTES: readonly RouteEntry[] = Object.freeze([
   Object.freeze({ key: 'item', path: PATHS.item, label: LABELS.item }),
   Object.freeze({ key: 'tasks', path: PATHS.tasks, label: LABELS.tasks }),
   Object.freeze({ key: 'activity', path: PATHS.activity, label: LABELS.activity }),
+  Object.freeze({ key: 'health', path: PATHS.health, label: LABELS.health }),
 ])
 
 /** 应用名 —— 窗口标题的后缀，与 `index.html` / 主进程建窗时的 title 保持一致 */
