@@ -146,6 +146,7 @@
 9. **跑 e2e / 手动启动前，先确认没有遗留的 `electron.exe`** —— 僵尸实例会占着**默认 userData 的单实例锁**，让后续启动或 e2e 以难解释的方式变红（2026-10-14 实测；根治办法见 U7：e2e 统一用临时 `--user-data-dir`）。
 10. **只在「树安静」时验收**（没有别的 worker 在写）—— 并行写会让**中间态**看起来像真失败：2026-10-14 我两次追查的红（`scanner.test.mjs` 报 GS_PREFIX 不存在、`db-rebuild` R5 报 -wal 残留）在对方收工后**都自己变绿**。结论：**队友报完成 + 确认无人再写**，再跑门禁；中间态的红不进结论、也不必报警。
 11. **清理进程只能按自己的夹具路径匹配**（例如 `data/_t17` 下的进程）—— **不许「看到 electron 就杀」**：2026-10-14 有队友这么做，杀掉的正是另一轮 e2e 的应用进程，直接污染了一次全量门禁的结果（那轮 3 条失败因此不可信，已重跑）。杀之前先看命令行里用的是哪个 `--user-data-dir`。
+12. **`out/` 是 e2e 正在读的对象** —— `npm run build` / `build:unpack` **绝不许与任何人的 e2e 窗口重叠**，哪怕只 build 10 秒：2026-10-15 有队友在别人 e2e 期间构建 ⇒ `out/` 指纹中途变化 + 两条 `electron.launch` 30s 超时，**那一轮结果作废**。构建前先问一句「有没有人在跑 e2e」。
 
 ---
 
@@ -168,4 +169,35 @@
 ⇒ 「库根不可写 ⇒ 回退」这类行为，**有效证据必须来自显式 ACL 拒绝**（如 `icacls` 拒绝后普通 node 也被拒），
 而『G:\model 写不进去』在本机是**环境噪声**。要验收真实的库根写入（`.gs-index.bin` / `.gs.db` 落到 `G:\model`），**必须在沙箱外跑**，并在证据里写明是环境还是产品。
 
+**网络（2026-10-15 实测）**：`github.com` **间歇超时**（同一时段一次 200/676ms，也有 ETIMEDOUT）；`registry.npmjs.org` 稳定（200/118ms）。
+`electron-builder` 的辅助工具缓存（`%LOCALAPPDATA%\electron-builder`）**不存在**时，它必须从 GitHub 拉 winCodeSign 之类 ⇒ 超时会让**整次打包失败**（即使 Electron zip 已在本地缓存）。
+⇒ 可复现的绕法（已 HTTP 实测）：
+
+`~powershell
+$env:ELECTRON_MIRROR='https://registry.npmmirror.com/-/binary/electron/'
+$env:ELECTRON_BUILDER_BINARIES_MIRROR='https://registry.npmmirror.com/-/binary/electron-builder-binaries/'
+`~
+
+实测 `electron-v44.7.0-win32-arm64.zip` **HTTP 200 · 154 MB** ⇒ arm64 产物**出得来**。
+**这是环境限制的绕法，不是产品配置**（不许写进产品代码/配置）。
+## 6. P4 界面补齐 · 硬范围（所有者 2026-10-15 批准开工）
+
+**为什么现在开**：PLAN §3 写着「M0 不过，不开始界面重写」—— M0 已通过（真窗口 e2e 67/0 · 打包冒烟 · 取件字节一致）。
+
+**目标（按依赖顺序，串行）**
+1. **shadcn/ui 采纳**（T-06）：`npx shadcn@latest add …` 生成的组件源码进 `renderer/src/ui/`；统一用 `radix-ui` 包（**不预装** `@radix-ui/react-*`）；现有裸 Radix 用法（ConfirmDialog/Button）改由统一包并删除那两个分散包。⚠️ 命名空间原语必须写 `X.Root`（`<Slot>` ⇒ React #130 白屏，已有回归断言 dom-validity V3）。
+2. **浏览页 F2**：虚拟滚动 + 筛选（分类目录 / 扩展名 / 有无包）+ 排序。数据先走**既有** `scan`（3594 条可接受），**不加新方法**。
+3. **详情页**：字段齐 + 缩略图 + 取件/定位入口。
+4. **设置中心**：库配置 · 模型搜索指引 · 设备与 `effectiveProvider` 展示 · 日志位置 + 诊断入口。
+5. **首次运行向导**：无库/无模型时的明确指引（A7），**不显示假结果**。
+6. **命令面板**（cmdk）：跳页 / 切库 / 跑体检。
+
+**禁区（要动先报 Lead）**
+· `shared/ipc.ts`（不加方法；确需 ⇒ 属契约变更，先报所有者）· `main/**` 与 `packages/**`
+· 既有验收点不许退化：取消 ⇒ **零 IPC** · `device` = 请求值 / `effectiveProvider` = 实际或 null · `thumb://` 400/403/404/415/500/503 映射 · preload 仍三键
+· 令牌只在 `tokens.css` 定义；class 合并只用 `cn()`；按钮套链接用 `asChild`
+
+**e2e 断言处理规则**：改断言必须附「改前/改后 + 为什么这不是放宽」（能红的证明优于声称）；新页面必须有窗口标题（`router/paths.ts` 的 `LABELS` 唯一来源）；每个新页面至少一条真窗口可达性 e2e。
+
+**串行**：`renderer/` 同一时刻**只有一个写入者**（PLAN §4）；一次只派一张卡。
 *本文件与实现不一致时：先确认哪个是对的，再改另一方。*
