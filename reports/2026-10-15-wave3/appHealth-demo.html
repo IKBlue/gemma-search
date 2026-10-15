@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>appHealth · 诊断可见性（设计稿）· gemma-search</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#262b36; --fg:#e6e9ef; --dim:#9aa4b2; --accent:#7aa2ff; --warn:#f0b429; --bad:#e5534b; --ok:#3fb950; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.65 -apple-system,"SF Pro Text","Segoe UI",system-ui,sans-serif; }
+  .wrap { max-width:1000px; margin:0 auto; padding:40px 24px 80px; }
+  h1 { font-size:26px; margin:0 0 6px; }
+  h2 { font-size:18px; margin:34px 0 10px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  .sub { color:var(--dim); font-size:13.5px; }
+  .tag { display:inline-block; font-size:12px; padding:2px 8px; border:1px solid var(--line); border-radius:999px; color:var(--dim); margin-right:6px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; margin:14px 0; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  button { background:#20242e; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 14px; font-size:14px; cursor:pointer; }
+  button[aria-pressed="true"] { border-color:var(--accent); color:#fff; background:#243054; }
+  code { background:#0b0d11; border:1px solid var(--line); border-radius:6px; padding:1px 6px; font-size:13px; }
+  pre { background:#0b0d11; border:1px solid var(--line); border-radius:10px; padding:14px; overflow:auto; font-size:12.5px; }
+  .mock { border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .bar { display:flex; align-items:center; gap:10px; background:#12151b; padding:10px 14px; border-bottom:1px solid var(--line); font-size:13px; }
+  .bar .dot { width:9px; height:9px; border-radius:50%; background:var(--dim); }
+  .bar .sp { flex:1; }
+  .body { padding:16px; min-height:96px; }
+  .banner { display:flex; gap:12px; align-items:flex-start; border-radius:10px; padding:12px 14px; border:1px solid; }
+  .banner.warn { border-color:#5a4a1a; background:#2a2312; }
+  .banner.ok { border-color:#1f4029; background:#12251a; }
+  .banner b { font-size:14px; }
+  .banner p { margin:4px 0 0; font-size:13.5px; color:var(--dim); }
+  .pill { font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); }
+  .pill.ok { color:var(--ok); border-color:#1f4029; }
+  .pill.warn { color:var(--warn); border-color:#5a4a1a; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:600; }
+  .note { color:var(--dim); font-size:13.5px; }
+  .kv { display:grid; grid-template-columns:150px 1fr; gap:4px 12px; font-size:13.5px; }
+  .kv div:nth-child(odd) { color:var(--dim); }
+  .foot { margin-top:40px; color:var(--dim); font-size:13px; border-top:1px solid var(--line); padding-top:14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>appHealth · 让「不健康」被看见</h1>
+  <div class="sub">
+    <span class="tag">第 22 个 IPC 方法（只读）</span>
+    <span class="tag">DF-6 的配套</span>
+    <span class="tag">设计稿 · 非已实现</span>
+  </div>
+
+  <h2>一、它解决什么问题</h2>
+  <div class="card">
+    <p>DF-6 已经把「未捕获异常」从<b>只记一行日志</b>改成两条更响亮的策略：</p>
+    <table>
+      <tr><th>事件</th><th>现在的行为（已实现）</th><th>界面能看见吗</th></tr>
+      <tr><td><code>uncaughtException</code></td><td>先落盘三行 → flush → <code>app.exit(1)</code>（保留 Electron 收尾，不用 <code>process.exit</code>）</td><td>下次启动由日志说明</td></tr>
+      <tr><td><code>unhandledRejection</code></td><td>记日志（<b>不退出</b>）+ 标记进程内只读「不健康态」；原因取<b>第一条</b>（根因不被余波覆盖）</td><td><b>看不见</b> ← 缺口就在这</td></tr>
+    </table>
+    <p class="note">「不健康」目前只活在主进程里（日志 + 可导入的 <code>crashUnhealthyState()</code>）。用户遇到的是「应用怪怪的，但没有任何提示」——
+    这与本项目「最怕静默」的口径冲突。<b>appHealth 就是把这件事接到界面上</b>：只暴露事实，不做修复。</p>
+  </div>
+
+  <h2>二、效果演示（点按钮切换状态）</h2>
+  <div class="row" style="margin:14px 0">
+    <button id="b0" aria-pressed="true">① 正常</button>
+    <button id="b1" aria-pressed="false">② 本次运行出现过未处理异常</button>
+    <button id="b2" aria-pressed="false">③ 上次是崩溃退出</button>
+  </div>
+
+  <div class="mock">
+    <div class="bar">
+      <span class="dot" id="dot"></span>
+      <span>语义搜索 · gemma-search</span>
+      <span class="sp"></span>
+      <span class="pill" id="pill">诊断：正常</span>
+      <span id="diagEntry" style="color:var(--dim)">诊断…</span>
+    </div>
+    <div class="body" id="stage"></div>
+  </div>
+  <p class="note" id="explain"></p>
+
+  <h2>三、契约（拟）</h2>
+<pre>appHealth(): Promise&lt;{
+  unhealthy: boolean      // 本次进程内是否出现过未处理异常
+  count: number           // 次数
+  reason: string | null   // 第一条的摘要（根因）
+  firstAt: string | null  // ISO 时间
+  sessionExit?: 'crashed' | null   // 上个会话是否以未捕获异常退出（读日志得出）
+}&gt;</pre>
+  <div class="card">
+    <div class="kv">
+      <div>只读</div><div>无副作用、不改任何状态 ⇒ 可以随便轮询（界面上只在启动 + 打开诊断面板时各查一次）</div>
+      <div>恒成功</div><div>不返回 <code>ok:false</code>：查不到事实本身就是一种事实（<code>unhealthy:false</code>）</div>
+      <div>不含敏感信息</div><div>只有计数、首条摘要、时间；<b>不</b>含路径/用户名/堆栈正文，也<b>不</b>上报</div>
+      <div>与 DF-6 同源</div><div>数据来自 <code>crash-policy.ts</code> 的同一份进程内状态 ⇒ 不产生第二份真相</div>
+    </div>
+  </div>
+
+  <h2>四、为什么是「低调可见」而不是弹窗</h2>
+  <div class="card">
+    <table>
+      <tr><th>做法</th><th>为什么不</th></tr>
+      <tr><td>启动时弹模态框</td><td>未处理异常常常是**已经被兜住的一次**网络/解码抖动；每次弹窗会把用户训练成"无脑关掉"</td></tr>
+      <tr><td>完全不提示</td><td>等于回到静默：用户看到的是"检索偶尔不灵"，无法归因，也无法配合诊断</td></tr>
+      <tr><td><b>顶栏一个低调标记 + 诊断面板</b></td><td>事实摆在**能被找到**的地方：不影响主流程，需要时点一下就有原因、次数、时间与「导出日志」</td></tr>
+    </table>
+    <p class="note">崩溃退出（③）无法在"当时"提示 —— 界面在那一刻已经没了。所以它的呈现是：<b>下次启动时</b>由同一条 <code>appHealth</code> 说明「上一个会话以未捕获异常结束」，并给出日志位置。</p>
+  </div>
+
+  <h2>五、边界（P6 口径）</h2>
+  <div class="card">
+    <ul>
+      <li>它<b>只暴露</b>事实；<b>不</b>自动重启、<b>不</b>自动修复、<b>不</b>静默清零。</li>
+      <li><code>unhandledRejection</code> <b>不退出</b>（良性 rejection 不该杀掉应用）；只有 <code>uncaughtException</code> 退出。</li>
+      <li>没有这个方法之前，实现者<b>明确拒绝</b>声称「诊断面板上能看到」—— 本稿就是把那句声称变成可实现的东西。</li>
+    </ul>
+  </div>
+
+  <div class="foot">
+    gemma-search · 设计稿（与 DF-6 的 crash-policy 配套）· 生成于 2026-10-15 · 依据：<code>apps/desktop/src/main/crash-policy.ts</code>、<code>SPEC §6</code>（第 22 个方法需所有者批准后写入契约）
+  </div>
+</div>
+
+<script>
+  const S = {
+    0: { dot:'var(--ok)', pill:'诊断：正常', pillCls:'ok',
+         banner:['ok','本次运行没有未处理异常','应用启动以来一切正常 —— 这里什么都不用做。'],
+         explain:'① 正常：顶栏只是一个很淡的入口，不占注意力；诊断面板里是「无事发生」这一条事实（而不是空白）。' },
+    1: { dot:'var(--warn)', pill:'诊断：1 次未处理异常', pillCls:'warn',
+         banner:['warn','本次运行出现过 1 次未处理的异常','首条（根因）：读取缩略图时发生未捕获的 Promise 拒绝；时间 17:02:41。应用已继续运行 —— 未处理拒绝不退出进程。'],
+         explain:'② 非致命：不弹窗、不阻塞。顶栏标记变成琥珀色；点开诊断面板能看到次数 / 首条原因 / 时间，并可导出日志交给维护者。' },
+    2: { dot:'var(--bad)', pill:'诊断：上次异常退出', pillCls:'warn',
+         banner:['warn','上一个会话以未捕获异常结束','发生在 16:58:03（应用已按策略退出并写入了日志）。这是本次启动时读出的事实，不是这次运行的问题。'],
+         explain:'③ 崩溃退出：当时界面已经没了，无法"当时"提示 ⇒ 由本次启动的同一条 appHealth 说明「上个会话异常结束」并给出日志位置。' }
+  };
+  function render(k) {
+    const s = S[k];
+    document.getElementById('dot').style.background = s.dot;
+    const pill = document.getElementById('pill');
+    pill.textContent = s.pill; pill.className = 'pill ' + s.pillCls;
+    document.getElementById('stage').innerHTML =
+      '<div class="banner ' + s.banner[0] + '"><div><b>' + s.banner[1] + '</b><p>' + s.banner[2] + '</p></div></div>' +
+      (k === 0 ? '<p class="note" style="margin:14px 0 0">诊断面板：<code>unhealthy=false · count=0 · reason=null</code></p>'
+               : '<div style="margin-top:14px"><button>导出日志</button> <button>查看详情</button></div>' +
+                 '<p class="note" style="margin:10px 0 0">诊断面板：<code>unhealthy=true · count=' + (k===1?1:1) + ' · reason="' + (k===1?'thumbnail decode rejection':'uncaughtException @ main') + '"</code></p>');
+    document.getElementById('explain').textContent = s.explain;
+    for (const i of [0,1,2]) document.getElementById('b'+i).setAttribute('aria-pressed', String(i===k));
+  }
+  for (const i of [0,1,2]) document.getElementById('b'+i).addEventListener('click', () => render(i));
+  render(0);
+</script>
+</body>
+</html>
