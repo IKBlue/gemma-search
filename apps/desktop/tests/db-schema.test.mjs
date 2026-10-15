@@ -1,20 +1,20 @@
-// apps/desktop/tests/db-schema.test.mjs —— S1 绿地 schema 的验收测试（20 张表 · 四层分类 · 两套账本）
+// apps/desktop/tests/db-schema.test.mjs —— S1/S1b 绿地 schema 的验收测试（**本轮 6 张** · 四层分类 · 两套账本）
 //
-// 2026-10-15：整体重写。旧版测的是 v1/v2（library / items / 文档三表 / 体检两表），
-//   绿地已把这些**全部丢弃**（所有者裁定：全新项目，旧 schema 不迁移）。
+// 2026-10-15：整体重写。旧版测的是 v1/v2（library / items / 文档三表 / 体检两表），绿地已全部丢弃。
+// 2026-10-15 · S1b（所有者裁定 B · TASKS §4 U19）：**只建 6 张**（库级 3 + 应用级 3），其余 14 张随功能上线。
 //
 // 每条用例对应一个**会静默出错的失败模式**（不是凑数的分支覆盖）：
-//   G1 表数不对 / 分类漏一张      ⇒ 提案自己的规矩（"忘分类就变红"）形同虚设
-//   G2 DDL 与"应有表清单"漂移     ⇒ "表是否在"的自检会漏报
-//   G3 两套账本互相污染           ⇒ 推应用级版本却动了库级表（或反之）
-//   G4 幂等重跑重建了表           ⇒ 每次启动清空元数据
-//   G5 迁移失败留下半张表         ⇒ 下次启动看到没人解释得了的中间态
-//   G6 修正 #3 没落实             ⇒ UNIQUE(lib_id, rel_path) 建在假列上（提案原样就是建不出来）
-//   G7 修正 #4 没落实             ⇒ "全部库"反复搜同一个词每次新增一行，真历史被挤掉
-//   G8 修正 #5 没落实             ⇒ 两个索引任务并行跑（产品决定是全局串行）
-//   G9 分类常量被改坏             ⇒ 四组不再覆盖 DDL 建出的表（用"删一条分类"现场证明会红）
-//   A1 适配层被绕过               ⇒ 实验性 API 散落各处
-//   A2 撒 any 换绿灯              ⇒ 门禁失去意义
+//   G1 表数不对 / 有待建的表没被点名 ⇒ 第二批加表时悄悄长出没有归属的表（B 不丢能力的核心断言）
+//   G2 DDL 与"应有表清单"漂移  ⇒ "表是否在"的自检会漏报；暂缓的表被偷偷建出来也会被发现
+//   G3 两套账本互相污染         ⇒ 推应用级版本却动了库级表（或反之）
+//   G4 幂等重跑重建了表         ⇒ 每次启动清空元数据
+//   G5 迁移失败留下半张表       ⇒ 下次启动看到没人解释得了的中间态
+//   G6 修正 #3 没落实           ⇒ UNIQUE(lib_id, rel_path) 建在假列上（提案原样就是建不出来）
+//   G7 列集比基线多             ⇒ "迟早要用"的列被提前加进来（回收站/去重/内容时间/缩略图哈希/needs_reencode）
+//   G8 collect_dir 落错库       ⇒ 全局安全边界退化成"每个库一份白名单"
+//   G9 分类常量被改坏           ⇒ 四组不再覆盖 DDL 建出的表（用"删一条分类"现场证明会红）
+//   A1 适配层被绕过             ⇒ 实验性 API 散落各处
+//   A2 撒 any 换绿灯            ⇒ 门禁失去意义
 //
 // 跑法：node --test apps/desktop/tests/db-schema.test.mjs（也在 npm test 的 glob 里）
 // 临时库落在仓库内 data/_s1/db-schema-test-<pid>/（AGENTS §3：data/_* 是本机临时物，随时可删）。
@@ -50,6 +50,7 @@ import {
   openNodeSqlite,
   readSchemaVersion,
   schemaTables,
+  tablesInLayer,
   validateMigrations,
 } from '../src/main/db/index.ts';
 
@@ -59,6 +60,17 @@ const LIB_DB = '.gs.db';
 const APP_DB = 'app.db';
 const FIXED_NOW = 1700000000000;
 const now = () => FIXED_NOW;
+
+/** 本轮**保留**的 6 张 */
+const KEPT_LIBRARY = ['asset', 'asset_file', 'asset_index_state'];
+const KEPT_APP = ['app_meta', 'collect_dir', 'library_registry'];
+/** 本轮**暂缓**的 14 张（随功能上线；它们现在一张都不许被建出来） */
+const DEFERRED_TABLES = [
+  'app_setting', 'activity', 'recent_query', 'recent_view',
+  'asset_name_fts', 'asset_user_meta', 'tag', 'asset_tag',
+  'collection', 'collection_item', 'asset_export',
+  'job', 'health_run', 'health_finding',
+];
 
 let seq = 0;
 function freshDir(label) {
@@ -76,9 +88,9 @@ after(() => {
 function allTables(db) {
   return db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r) => r.name);
 }
-/** SQLite 内部表：AUTOINCREMENT 的 sqlite_sequence（提案明确要 AUTOINCREMENT，认账见 migrations.ts） */
+/** SQLite 内部表（本轮没有 AUTOINCREMENT，理论上不该出现；留着是为了让"出现了"变红而不是悄悄漏过） */
 const SQLITE_INTERNAL = ['sqlite_sequence'];
-/** 我们建的虚拟表（FTS5）会带来影子表；按 <vt>_ 前缀机械排除，不手写影子表名 */
+/** 虚拟表（FTS5）会带来影子表；按 <vt>_ 前缀机械排除，不手写影子表名。本轮应为空。 */
 function ourTables(db, virtualTables) {
   const shadowPrefixes = virtualTables.map((vt) => vt + '_');
   return allTables(db).filter(
@@ -103,14 +115,17 @@ function uniqueIndexColumns(db, table) {
   }
   return out;
 }
+/** 从 DDL 文本里取出 idx_* 索引名（证明索引也是 DDL 派生、且真的建出来了） */
+function ddlIndexNames(migrations) {
+  const sql = migrations.flatMap((m) => m.statements).join('\n');
+  const hits = sql.match(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?idx_[A-Za-z0-9_]+/g) || [];
+  return [...new Set(hits.map((s) => s.replace(/^.*?(idx_[A-Za-z0-9_]+)$/, '$1')))].sort();
+}
 function openLibrary(label) {
-  const dbPath = path.join(freshDir(label), LIB_DB);
-  const opened = openGsDb({ dbPath, now });
-  return opened;
+  return openGsDb({ dbPath: path.join(freshDir(label), LIB_DB), now });
 }
 function openApp(label) {
-  const dir = freshDir(label);
-  const dbPath = path.join(dir, APP_DB);
+  const dbPath = path.join(freshDir(label), APP_DB);
   const db = openNodeSqlite(dbPath);
   const migration = migrateApp(db, { now });
   return { db, dbPath, migration };
@@ -122,14 +137,15 @@ function insertAsset(db, uid, over = {}) {
     {
       uid, lib_id: 'L1', folder: 'CR', stem: 'ID-' + uid, display_name: 'ID-' + uid + '.jpg',
       rel_dir: 'CR', rel_path: 'CR/ID-' + uid + '.jpg',
-      discovered_at_ms: FIXED_NOW, updated_at_ms: FIXED_NOW,
+      discovered_at_ms: FIXED_NOW,
     },
     over,
   );
+  // 8 列 —— 以设计基线 §1.2 为准（没有 content_created_at_ms / deleted_at_ms / dup_group_id / updated_at_ms）
   db.prepare(
-    'INSERT INTO asset (uid, lib_id, folder, stem, display_name, rel_dir, rel_path, discovered_at_ms, updated_at_ms) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(row.uid, row.lib_id, row.folder, row.stem, row.display_name, row.rel_dir, row.rel_path, row.discovered_at_ms, row.updated_at_ms);
+    'INSERT INTO asset (uid, lib_id, folder, stem, display_name, rel_dir, rel_path, discovered_at_ms) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(row.uid, row.lib_id, row.folder, row.stem, row.display_name, row.rel_dir, row.rel_path, row.discovered_at_ms);
   return row;
 }
 
@@ -183,11 +199,11 @@ test('A2：db 层源码里没有 any / @ts-ignore / @ts-expect-error', () => {
 
 // ============================================================ G1 表数 + 分类全覆盖
 
-test('G1 ⭐ 表数 = 20；每张建出的表都在四组里被点名，且只被点名一次', () => {
+test('G1 ⭐ 表数 = 6；每张建出的表都在四组里被点名，且只被点名一次', () => {
   const grouped = schemaTables();
-  assert.equal(grouped.length, 20, '四组点名去重后必须是 20 张（应用级 6 + 库级 14）');
+  assert.equal(grouped.length, 6, '四组点名去重后必须是 6 张（所有者裁定 B：库级 3 + 应用级 3）');
 
-  // 双向：DDL 派生 == 四组点名（缺一边都要红）
+  // 双向：DDL 派生 == 四组点名（缺一边都要红）—— 这是"第二批加表会被逼着分类"的执行点
   const fromDdl = [...LIBRARY_TABLES, ...APP_TABLES].sort();
   assert.deepEqual(fromDdl, grouped, 'DDL 建出的表与四组点名必须逐张对上（缺分类 / 多分类都算漂移）');
 
@@ -196,65 +212,66 @@ test('G1 ⭐ 表数 = 20；每张建出的表都在四组里被点名，且只�
   for (const layer of SCHEMA_LAYER_ORDER) {
     for (const name of SCHEMA_LAYERS[layer]) seen.set(name, (seen.get(name) || 0) + 1);
   }
-  assert.equal(seen.size, 20);
+  assert.equal(seen.size, 6);
   for (const [name, n] of seen) assert.equal(n, 1, name + ' 被点名了 ' + String(n) + ' 次');
 
-  // 物理落点与层一一对应（Lead 修正 #1：应用级 6 + 库级 14）
-  assert.equal(libraryLayerTables().length, 14, '库级 = 事实 ∪ 过程 ∪ 意图');
-  assert.equal(appLayerTables().length, 6, '应用级 = 应用层');
+  // 四层各自点名（**空层是合法的**：intent 本轮为空）
+  assert.deepEqual(tablesInLayer('fact'), ['asset', 'asset_file']);
+  assert.deepEqual(tablesInLayer('process'), ['asset_index_state']);
+  assert.deepEqual(tablesInLayer('intent'), [], '意图层本轮一张表都没有 —— 空层允许为空');
+  assert.deepEqual(tablesInLayer('app'), ['app_meta', 'library_registry', 'collect_dir']);
+
+  // 物理落点与层一一对应
+  assert.deepEqual([...LIBRARY_TABLES].sort(), KEPT_LIBRARY.slice().sort());
+  assert.deepEqual([...APP_TABLES].sort(), KEPT_APP.slice().sort());
   assert.deepEqual(libraryLayerTables(), [...LIBRARY_TABLES].sort(), 'DDL 落点与层分类必须一致（库级）');
   assert.deepEqual(appLayerTables(), [...APP_TABLES].sort(), 'DDL 落点与层分类必须一致（应用级）');
+  assert.equal(DEFERRED_TABLES.length, 14, '暂缓的 14 张要逐张列出来（它们是第二批的输入）');
 });
 
 // ============================================================ G2 DDL 建表 + 索引
 
-test('G2 ⭐ 打开两个库：DDL 建出全部表（sqlite_master 对照）与全部索引', () => {
+test('G2 ⭐ 打开两个库：DDL 建出全部表与索引；14 张暂缓表一张都不许被建出来', () => {
   const lib = openLibrary('G2-lib');
-  try {
-    assert.equal(lib.created, true);
-    assert.equal(lib.migration.fromVersion, 0);
-    assert.equal(lib.migration.toVersion, TARGET_SCHEMA_VERSION);
-    assert.deepEqual(lib.migration.applied.map((m) => m.version), [1]);
-
-    // 我们建的表 == 应有清单（14 业务表 + 账本 schema_version）
-    assert.deepEqual(ourTables(lib.db, LIBRARY_VIRTUAL_TABLES), [...EXPECTED_TABLES]);
-    assert.equal(LIBRARY_TABLES.length, 14);
-    assert.equal(EXPECTED_TABLES.length, 15, '14 业务表 + schema_version 账本');
-    assert.deepEqual([...LIBRARY_VIRTUAL_TABLES], ['asset_name_fts'], 'FTS5 虚表要从 DDL 派生出来');
-
-    // FTS5 的影子表确实存在 —— 它们由 SQLite 建，不是我们的表（排除规则要如实钉住）
-    const raw = allTables(lib.db);
-    assert.ok(raw.includes('asset_name_fts_data'), 'FTS5 影子表应存在：' + raw.join(','));
-    assert.ok(raw.includes('sqlite_sequence'), 'AUTOINCREMENT 会带来 sqlite_sequence（health_finding 要它）');
-    assert.ok(!EXPECTED_TABLES.includes('sqlite_sequence'), '内部表不许混进应有清单');
-
-    // 索引：从 DDL 派生的 idx_* 必须真的建出来
-    const idx = indexNames(lib.db);
-    const fromDdl = LIBRARY_MIGRATIONS.flatMap((m) => m.statements)
-      .join('\n')
-      .match(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(idx_[A-Za-z0-9_]+)/g)
-      .map((s) => s.replace(/^.*?(idx_[A-Za-z0-9_]+)$/, '$1'));
-    assert.deepEqual(idx, [...new Set(fromDdl)].sort(), 'idx_* 索引必须与 DDL 逐条对上');
-
-    // 库级库里**不许**出现应用级表
-    for (const t of APP_TABLES) assert.equal(raw.includes(t), false, '库级库不该有 ' + t);
-  } finally {
-    lib.db.close();
-  }
-
   const app = openApp('G2-app');
   try {
+    assert.equal(lib.created, true);
+    assert.deepEqual(lib.migration.applied.map((m) => m.version), [1]);
+    assert.equal(lib.migration.toVersion, TARGET_SCHEMA_VERSION);
+
+    // 我们建的表 == 应有清单（3 业务表 + 账本 schema_version）
+    assert.deepEqual(ourTables(lib.db, LIBRARY_VIRTUAL_TABLES), [...EXPECTED_TABLES]);
+    assert.equal(LIBRARY_TABLES.length, 3);
+    assert.equal(EXPECTED_TABLES.length, 4, '3 业务表 + schema_version 账本');
+    assert.deepEqual([...LIBRARY_VIRTUAL_TABLES], [], '本轮没有 FTS 虚表（asset_name_fts 进第二批）');
+    assert.equal(allTables(lib.db).includes('sqlite_sequence'), false, '本轮没有 AUTOINCREMENT 表');
+
+    // 索引：DDL 里声明的 idx_* 必须真的建出来
+    assert.deepEqual(indexNames(lib.db), ddlIndexNames(LIBRARY_MIGRATIONS));
+
+    // 应用级 3 张
     assert.equal(app.migration.toVersion, APP_TARGET_SCHEMA_VERSION);
     assert.deepEqual(ourTables(app.db, []), [...APP_TABLES]);
-    assert.equal(APP_TABLES.length, 6, '应用级 6 张（含账本 app_meta）');
+    assert.equal(APP_TABLES.length, 3);
     assert.ok(APP_TABLES.includes(APP_META_TABLE));
-    for (const t of LIBRARY_TABLES) assert.equal(allTables(app.db).includes(t), false, '应用级库不该有 ' + t);
+    assert.deepEqual(indexNames(app.db), ddlIndexNames(APP_MIGRATIONS));
+
+    // 两库互不串味
+    for (const name of APP_TABLES) assert.equal(allTables(lib.db).includes(name), false, '库级库不该有 ' + name);
+    for (const name of LIBRARY_TABLES) assert.equal(allTables(app.db).includes(name), false, '应用级库不该有 ' + name);
+
+    // 14 张暂缓表：两库都不许出现（"先建着"是被所有者否决的选项）
+    for (const name of DEFERRED_TABLES) {
+      assert.equal(allTables(lib.db).includes(name), false, '本轮不建 ' + name + '（进第二批）');
+      assert.equal(allTables(app.db).includes(name), false, '本轮不建 ' + name + '（进第二批）');
+    }
   } finally {
+    lib.db.close();
     app.db.close();
   }
 });
 
-// ============================================================ G6/G7/G8 五条修正
+// ============================================================ G6 修正 #3
 
 test('G6 ⭐ 修正 #3：UNIQUE(lib_id, rel_path) 落在**真实列**上（asset.rel_path），重复登记被拒', () => {
   const lib = openLibrary('G6');
@@ -263,7 +280,6 @@ test('G6 ⭐ 修正 #3：UNIQUE(lib_id, rel_path) 落在**真实列**上（asset
     const relPath = cols.find((c) => c.name === 'rel_path');
     assert.ok(relPath, 'asset 必须有 rel_path（提案把它写在约束里却没给列）');
     assert.equal(relPath.notnull, 1, 'rel_path 由扫描器写 ⇒ NOT NULL');
-    assert.equal(cols.filter((c) => c.name === 'rel_path').length, 1);
 
     const uniq = uniqueIndexColumns(lib.db, 'asset').filter(
       (i) => i.columns.length === 2 && i.columns[0] === 'lib_id' && i.columns[1] === 'rel_path',
@@ -273,69 +289,85 @@ test('G6 ⭐ 修正 #3：UNIQUE(lib_id, rel_path) 落在**真实列**上（asset
     insertAsset(lib.db, hex(1));
     assert.throws(() => insertAsset(lib.db, hex(2), { rel_path: 'CR/ID-' + hex(1) + '.jpg' }), /UNIQUE|constraint/i,
       '同库同路径不得登记两次（uid 不再由路径派生 ⇒ 这条唯一性是唯一的防线）');
-    // 不同库的同名路径是合法的
-    insertAsset(lib.db, hex(3), { lib_id: 'L2' });
+    insertAsset(lib.db, hex(3), { lib_id: 'L2' });   // 不同库的同名路径合法
     assert.equal(lib.db.prepare('SELECT COUNT(*) AS n FROM asset').get().n, 2);
+
+    // 外键：asset_file 的 uid 必须指向 asset，且真的级联
+    const fks = lib.db.prepare('PRAGMA foreign_key_list(asset_file)').all();
+    assert.equal(fks.length, 1);
+    assert.equal(fks[0].table, 'asset');
+    assert.equal(fks[0].on_delete, 'CASCADE');
+    const insFile = (role) => lib.db.prepare(
+      'INSERT INTO asset_file (uid, role, rel_path, ext, size_bytes, mtime_ms) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(hex(1), role, 'CR/ID-' + hex(1) + '.jpg', 'jpg', 10, FIXED_NOW);
+    assert.throws(() => insFile('image'), /CHECK|constraint/i,
+      "role 用 preview/archive（设计基线 §1.2），不是提案里的 image/archive");
+    insFile('preview');
+    lib.db.prepare('DELETE FROM asset WHERE uid = ?').run(hex(1));
+    assert.equal(lib.db.prepare('SELECT COUNT(*) AS n FROM asset_file WHERE uid = ?').get(hex(1)).n, 0, 'CASCADE 必须真的生效');
   } finally {
     lib.db.close();
   }
 });
 
-test('G7 ⭐ 修正 #4：recent_query 用哨兵 scope_lib_id；"全部库"与图片查询都能去重', () => {
-  const app = openApp('G7');
+// ============================================================ G7 列集以设计基线 §1 为准
+
+test('G7 ⭐ 列集 = 设计基线 §1（本批刻意不加的列一个都不许提前出现）', () => {
+  const lib = openLibrary('G7-lib');
   try {
-    const col = columnsOf(app.db, 'recent_query').find((c) => c.name === 'scope_lib_id');
-    assert.ok(col, 'scope_lib_id 必须存在');
-    assert.equal(col.notnull, 1, '哨兵列必须 NOT NULL（可空 + UNIQUE 会让"全部库"每次新增行）');
-    assert.equal(col.dflt, "''", "默认必须是空串哨兵（'' = 全部库）");
+    const cols = (t) => columnsOf(lib.db, t).map((c) => c.name);
+    // asset 8 列 · asset_file 8 个物理列（基线按"字段行"记 7，width/height 同一行）
+    assert.deepEqual(cols('asset'),
+      ['uid', 'lib_id', 'folder', 'stem', 'display_name', 'rel_dir', 'rel_path', 'discovered_at_ms']);
+    assert.deepEqual(cols('asset_file'),
+      ['uid', 'role', 'rel_path', 'ext', 'size_bytes', 'mtime_ms', 'width', 'height']);
+    assert.deepEqual(cols('asset_index_state'),
+      ['uid', 'encoded_at_ms', 'encoded_mtime_ms', 'compat_key', 'attempt_count', 'last_error', 'last_error_at_ms', 'excluded_at_ms', 'checked_at_ms']);
 
-    const ins = (id, kind, text, imageRef, scope, at) =>
-      app.db.prepare(
-        'INSERT INTO recent_query (query_id, kind, text, image_ref, scope_lib_id, result_count, at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      ).run(id, kind, text, imageRef, scope, 1, at);
+    // 提案里有、本批**刻意不加**的列（加列 = 一条迁移；"迟早要用"不是理由）
+    for (const [table, gone] of [
+      ['asset', ['deleted_at_ms', 'dup_group_id', 'content_created_at_ms', 'updated_at_ms']],
+      ['asset_file', ['thumb_hash', 'content_hash_kind', 'content_hash_value']],
+      ['asset_index_state', ['needs_reencode']],
+    ]) {
+      for (const c of gone) {
+        assert.equal(cols(table).includes(c), false, table + '.' + c + ' 本批不该存在（设计基线 §1 已裁掉）');
+      }
+    }
+  } finally {
+    lib.db.close();
+  }
 
-    // 全部库（scope=''）同一个词反复搜 ⇒ 只留一行
-    ins('q1', 'text', '大海', null, '', FIXED_NOW);
-    assert.throws(() => ins('q2', 'text', '大海', null, '', FIXED_NOW + 1), /UNIQUE|constraint/i,
-      '哨兵写法必须让"全部库"的文字查询去重');
-    // 换范围就是另一条历史（重跑时要还原当时的范围）
-    ins('q3', 'text', '大海', null, 'L1', FIXED_NOW + 2);
-    // 图片查询按 image_ref 去重（kind='image' 时 text 为 NULL，NULL 不参与唯一比较）
-    ins('q4', 'image', null, hex(7), '', FIXED_NOW + 3);
-    assert.throws(() => ins('q5', 'image', null, hex(7), '', FIXED_NOW + 4), /UNIQUE|constraint/i,
-      '图片查询同样要去重（它的天然键是 image_ref）');
-    // 形状守卫：kind='text' 必须带 text，kind='image' 必须带 image_ref
-    assert.throws(() => ins('q6', 'text', null, null, '', FIXED_NOW + 5), /CHECK|constraint/i);
-    assert.throws(() => ins('q7', 'image', null, null, '', FIXED_NOW + 6), /CHECK|constraint/i);
-    assert.equal(app.db.prepare('SELECT COUNT(*) AS n FROM recent_query').get().n, 3);
-    //（q1 全部库 / q3 限 L1 / q4 图片各一条；q2 q5 被唯一索引拒、q6 q7 被 CHECK 拒）
+  const app = openApp('G7-app');
+  try {
+    const cols = (t) => columnsOf(app.db, t).map((c) => c.name);
+    assert.deepEqual(cols('app_meta'), ['id', 'schema_version', 'created_at_ms', 'updated_at_ms']);
+    assert.deepEqual(cols('library_registry'),
+      ['lib_id', 'root', 'display_name', 'enabled', 'compat_key', 'sort_order', 'registered_at_ms', 'updated_at_ms']);
+    assert.deepEqual(cols('collect_dir'), ['dir_id', 'label', 'abs_path', 'is_default', 'created_at_ms']);
   } finally {
     app.db.close();
   }
 });
 
-test('G8 ⭐ 修正 #5：job 是**全局单任务**（活跃行只能有一行）；历史行不受限', () => {
-  const lib = openLibrary('G8');
+// ============================================================ G8 collect_dir 的落点
+
+test('G8 ⭐ collect_dir 在**应用级**（全局安全边界），且默认项只能有一个', () => {
+  assert.equal(APP_TABLES.includes('collect_dir'), true, 'collect_dir 必须在应用级（SPEC F1 的全局安全边界）');
+  assert.equal(LIBRARY_TABLES.includes('collect_dir'), false, 'collect_dir 不许落库级（否则每个库各定义一份白名单）');
+
+  const app = openApp('G8');
   try {
-    const ins = (id, kind, state) =>
-      lib.db.prepare(
-        'INSERT INTO job (job_id, kind, state, progress_done, queued_at_ms) VALUES (?, ?, ?, 0, ?)',
-      ).run(id, kind, state, FIXED_NOW);
-
-    const idxNames = lib.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'uniq_job_single_active'").all();
-    assert.equal(idxNames.length, 1, '全局单任务约束必须真的建出来');
-
-    ins('j1', 'index', 'running');
-    assert.throws(() => ins('j2', 'health', 'queued'), /UNIQUE|constraint/i,
-      '第二个活跃任务必须被拒（索引/扫描/体检/重建/入库全串行 —— 产品决定）');
-    ins('j3', 'scan', 'done');       // 历史行可以有多条
-    ins('j4', 'index', 'failed');
-    lib.db.prepare("UPDATE job SET state = 'done' WHERE job_id = 'j1'").run();
-    ins('j5', 'health', 'running');  // 前一个结束后可以再起一个
-    assert.equal(lib.db.prepare('SELECT COUNT(*) AS n FROM job').get().n, 4);
-    //（j1 已转 done / j3 done / j4 failed / j5 running；j2 被全局单任务约束拒）
+    const ins = (id, label, isDefault) =>
+      app.db.prepare('INSERT INTO collect_dir (dir_id, label, abs_path, is_default, created_at_ms) VALUES (?, ?, ?, ?, ?)')
+        .run(id, label, 'X:/take/' + id, isDefault, FIXED_NOW);
+    ins('c1', '素材待用', 1);
+    ins('c2', '移出素材', 0);
+    assert.throws(() => ins('c3', '第二个默认', 1), /UNIQUE|constraint/i, '默认取件目录只能有一个（库级约束）');
+    assert.throws(() => ins('c4', '素材待用', 0), /UNIQUE|constraint/i, '同名目录不许登记两次');
+    assert.equal(app.db.prepare('SELECT COUNT(*) AS n FROM collect_dir').get().n, 2);
   } finally {
-    lib.db.close();
+    app.db.close();
   }
 });
 
@@ -348,7 +380,6 @@ test('G3 ⭐ 两套账本各自独立：推进一个不动另一个', () => {
     assert.equal(readSchemaVersion(lib.db), TARGET_SCHEMA_VERSION);
     assert.equal(APP_META_LEDGER.readVersion(app.db), APP_TARGET_SCHEMA_VERSION);
 
-    // 应用级加一条 v2：库级版本与表集合必须一字不动
     const libTablesBefore = ourTables(lib.db, LIBRARY_VIRTUAL_TABLES);
     const appV2 = {
       version: 2,
@@ -362,7 +393,6 @@ test('G3 ⭐ 两套账本各自独立：推进一个不动另一个', () => {
     assert.deepEqual(ourTables(lib.db, LIBRARY_VIRTUAL_TABLES), libTablesBefore, '库级表集合不得变');
     assert.equal(ourTables(app.db, []).includes('probe_app_v2'), true);
 
-    // 库级账本坏掉也不影响应用级
     lib.db.prepare('UPDATE schema_version SET version = 999 WHERE id = 1').run();
     assert.equal(APP_META_LEDGER.readVersion(app.db), 2, '库级版本坏了不该影响应用级');
   } finally {
@@ -421,7 +451,6 @@ test('G5 ⭐ 迁移失败 ⇒ 整条回滚（不留半张表）；未来版本 �
     assert.equal(readSchemaVersion(lib.db), TARGET_SCHEMA_VERSION, '失败后版本必须停在上一条');
     assert.equal(allTables(lib.db).includes('probe_partial'), false, '同一事务里先建成功的表也必须回滚');
 
-    // 断代（跳版本）⇒ SCHEMA_GAP，而不是"跳到最大版本"
     const gapped = [...LIBRARY_MIGRATIONS, { version: TARGET_SCHEMA_VERSION + 2, name: 'gap', statements: ['CREATE TABLE probe_gap (a INTEGER);'] }];
     let gapErr = null;
     try { migrate(lib.db, { migrations: gapped, now }); } catch (e) { gapErr = e; }
@@ -429,7 +458,6 @@ test('G5 ⭐ 迁移失败 ⇒ 整条回滚（不留半张表）；未来版本 �
     assert.equal(gapErr.code, 'SCHEMA_GAP');
     assert.equal(allTables(lib.db).includes('probe_gap'), false);
 
-    // 未来版本
     lib.db.prepare('UPDATE schema_version SET version = 999 WHERE id = 1').run();
     let tooNew = null;
     try { migrate(lib.db, { now }); } catch (e) { tooNew = e; }
@@ -480,11 +508,11 @@ test('G0 ⭐ 应有表清单从 DDL 派生（不是手写清单），且清单�
   const oneLess = LIBRARY_MIGRATIONS.map((m) => ({
     version: m.version,
     name: m.name,
-    statements: m.statements.filter((s) => !s.includes('CREATE TABLE IF NOT EXISTS tag ')),
+    statements: m.statements.filter((s) => !s.includes('CREATE TABLE IF NOT EXISTS asset_file ')),
   }));
   const derived = createdTableNames(oneLess.flatMap((m) => m.statements));
-  assert.equal(derived.includes('tag'), false, 'DDL 里删掉 tag ⇒ 派生清单必须跟着少一张');
-  assert.equal(LIBRARY_TABLES.includes('tag'), true, '真实清单里 tag 必须在（上一条只是证明派生有效）');
+  assert.equal(derived.includes('asset_file'), false, 'DDL 里删掉 asset_file ⇒ 派生清单必须跟着少一张');
+  assert.equal(LIBRARY_TABLES.includes('asset_file'), true, '真实清单里 asset_file 必须在（上一条只是证明派生有效）');
 
   validateMigrations(LIBRARY_MIGRATIONS);
   validateMigrations(APP_MIGRATIONS);

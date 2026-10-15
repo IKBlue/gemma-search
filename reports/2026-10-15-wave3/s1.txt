@@ -116,3 +116,94 @@ EXIT=1
   · 要整卡撤销：撤销 Lead 的这次提交（git revert <commit>）；涉及路径只有 §0 的 7 个文件。
   · 注入实验的备份留在 data/_s1/schema-layers.ts.bak（已与工作树逐字节一致，复跑绿）；data/_* 可随时删。
 ==============================================================================
+
+==============================================================================
+S1b / task-56 · 收窄到 6 张（**所有者裁定 B** · TASKS §4 U19 · 设计基线 §1）
+本段是**追加**：上面 S1 的原始证据一字未改。日期：2026-10-15 · 执行：main-migrator
+==============================================================================
+
+## 0. 这次改了什么
+  保留 6 张：库级 asset / asset_file / asset_index_state；应用级 app_meta / library_registry / collect_dir。
+  删除 14 张 DDL（随功能上线，各加一条迁移）：app_setting · activity · recent_query · recent_view ·
+    asset_name_fts · asset_user_meta · tag · asset_tag · collection · collection_item · asset_export ·
+    job · health_run · health_finding。（原 S1b 的 collect_dir/recent_view 对调方案已被 B 取代。）
+
+  列集按 **DESIGN-6tables-and-contract.md §1** 收一遍（提案多出来的列一律不加）：
+   · asset 8 列：uid · lib_id · folder · stem · display_name · rel_dir · rel_path · discovered_at_ms
+     删 deleted_at_ms（回收站）/ dup_group_id（重复分组）/ content_created_at_ms（按内容浏览）/ updated_at_ms
+     索引按基线：idx_asset_lib_folder (lib_id, folder) · idx_asset_stem (stem)
+   · asset_file 8 个物理列（基线按字段行记 7）：uid · role · rel_path · ext · size_bytes · mtime_ms · width · height
+     删 thumb_hash / content_hash_kind / content_hash_value；role 取值改为 **preview/archive**（提案是 image/archive）
+     索引按基线：idx_asset_file_path (rel_path)
+   · asset_index_state 9 列，**不物化 needs_reencode**（跨表比较无法索引，等要筛再加列 + 对账）
+     索引按基线：idx_state_pending (encoded_at_ms) WHERE encoded_at_ms IS NULL ·
+                 idx_state_excluded (excluded_at_ms) WHERE excluded_at_ms IS NOT NULL
+   · app_meta 4 列（id CHECK=1 · schema_version CHECK>=0 · created_at_ms · updated_at_ms）
+   · library_registry 8 列 + idx_library_registry_sort (sort_order, lib_id)（基线写 INDEX，名字由本实现给）
+   · collect_dir 5 列（新增 created_at_ms）+ 基线的偏唯一索引名 uniq_collect_default
+  约束按基线：uid 的"12 位 hex"与 lib_id 的"1–32 字符"形状由**唯一写入口**保证，DDL 不加 CHECK（列集/约束以基线为准）。
+
+  机制**保留**（B 不丢能力的核心）：migration-engine.ts 仍是唯一迁移实现 · 两套账本（schema_version /
+    app_meta.schema_version）仍独立 · schema-layers.ts 仍是四层分类唯一来源（**空层合法**：意图层本轮为 0）·
+    应有表清单仍**从 DDL 派生** · 测试仍强制"每张建出的表都必须在四组里被点名"。
+  四层点名：事实 2 · 过程 1 · 意图 0 · 应用 3 = 6。
+
+## 1. 命令与原始输出
+
+### 1.1 类型门禁
+命令：node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "$env:TEMP\tsbi_s1b.tsbuildinfo"
+结果：EXIT=0，输出 0 行（全工程 0 错误）。
+  (空 —— 无任何诊断)
+
+### 1.2 S1b 验收测试
+命令：node --test --test-isolation=none apps/desktop/tests/db-schema.test.mjs
+EXIT=0
+  ✔ A1：db 层只有 sqlite-adapter.ts 碰 node:sqlite，且不 import electron (12.2585ms)
+  ✔ A2：db 层源码里没有 any / @ts-ignore / @ts-expect-error (6.8559ms)
+  ✔ G1 ⭐ 表数 = 6；每张建出的表都在四组里被点名，且只被点名一次 (0.4615ms)
+  ✔ G2 ⭐ 打开两个库：DDL 建出全部表与索引；14 张暂缓表一张都不许被建出来 (783.9926ms)
+  ✔ G6 ⭐ 修正 #3：UNIQUE(lib_id, rel_path) 落在**真实列**上（asset.rel_path），重复登记被拒 (625.8955ms)
+  ✔ G7 ⭐ 列集 = 设计基线 §1（本批刻意不加的列一个都不许提前出现） (702.5733ms)
+  ✔ G8 ⭐ collect_dir 在**应用级**（全局安全边界），且默认项只能有一个 (802.9533ms)
+  ✔ G3 ⭐ 两套账本各自独立：推进一个不动另一个 (858.3028ms)
+  ✔ G4 ⭐ 幂等重跑：不执行 DDL、不清数据、不报错（两套账本都是） (759.3605ms)
+  ✔ G5 ⭐ 迁移失败 ⇒ 整条回滚（不留半张表）；未来版本 ⇒ SCHEMA_TOO_NEW (323.3644ms)
+  ✔ G6b：只读打开不迁移；账本单行守卫/版本非负 由库级约束保证 (315.7319ms)
+  ✔ G0 ⭐ 应有表清单从 DDL 派生（不是手写清单），且清单合法 (0.2067ms)
+  ℹ tests 12
+  ℹ pass 12
+  ℹ fail 0
+  ℹ cancelled 0
+  ℹ skipped 0
+
+### 1.3 能红证明（注入违例：从事实层点名里删掉 asset_file）
+步骤（AGENTS §3.7：先 cp 到 data/_s1/schema-layers.pre-s1b-red.ts.bak，写回原文，**不用 git checkout**）：
+原始输出（红）：
+EXIT=1
+  ℹ tests 12
+  ℹ pass 11
+  ℹ fail 1
+  ℹ cancelled 0
+  ℹ skipped 0
+  ✖ G1 ⭐ 表数 = 6；每张建出的表都在四组里被点名，且只被点名一次 (1.4344ms)
+  ✖ failing tests:
+  ✖ G1 ⭐ 表数 = 6；每张建出的表都在四组里被点名，且只被点名一次 (1.4344ms)
+    AssertionError [ERR_ASSERTION]: 四组点名去重后必须是 6 张（所有者裁定 B：库级 3 + 应用级 3）
+      actual: 5,
+      expected: 6,
+
+写回原文：restored identical = true；复跑 EXIT=0 · tests 12 / pass 12 / fail 0（见 §1.2）。
+
+## 2. 本次触及的文件（均在声明写入范围内）
+  apps/desktop/src/main/db/migrations.ts        —— 库级 DDL 收到 3 张 · 列集按基线 §1.2
+  apps/desktop/src/main/db/app-migrations.ts    —— 应用级 DDL 收到 3 张（app_meta/library_registry/collect_dir）· 列集按 §1.1
+  apps/desktop/src/main/db/schema-layers.ts     —— 四层点名收敛到 6 张（空层合法 + 注释同步）
+  apps/desktop/tests/db-schema.test.mjs         —— 表数断言 = 6 · 新增 G7 列集钉死 · G8 collect_dir 落点 · 红证明上游
+  migration-engine.ts / index.ts / open.ts      —— **未改**（机制原样保留）
+  未碰 shared/ipc.ts（契约由下一张卡统一改）。
+
+## 3. 仍然红的窗口（不变，归 S2）
+  绿地丢弃 items/library/文档三表后，走 importItemsFromJson → items 的 6 个测试文件仍红：
+  db-import · db-rebuild · health-rebuild · library-methods · storage-ports-main · sqlite-tmp-dir —— 见上方 S1 段 §4。
+  本轮**没有**新增红：除了上面 6 个，未动任何其它模块。
+==============================================================================
