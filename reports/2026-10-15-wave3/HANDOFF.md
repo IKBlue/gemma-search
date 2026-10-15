@@ -1,7 +1,7 @@
 # 交班单 · 2026-10-15 收工 → 2026-10-16
 
 **起点**：`96b62a9`（+ 今晚 T-09 的收口提交，若有）。
-**权威门禁**（冻结窗口 · `461e5e7`）：单测 **613 / pass 612 / fail 0 / skipped 1** · `npm run typecheck` **0** · `npm run build` **0** · `npm run e2e` **63 passed / 1 skipped / 0 failed** · `s4-accept.mjs` **PASS 13 / FAIL 0 / SKIP 0** · `out/` 指纹 build 后 = e2e 后。**红窗口 = 0。**
+**权威门禁**（冻结窗口 · **收工前最后一次** · `16e7f3a`）：`npx prettier --check .` **0** · 单测 **613 / pass 612 / fail 0 / skipped 1** · `tsc` **0** · `build` **0** · `e2e` **63 passed / 1 skipped / 0 failed** · `s4-accept.mjs` **PASS 13 / FAIL 0 / SKIP 0** · `out/` 指纹 build 后 = e2e 后。**红窗口 = 0**；`npm run lint` 报告制 **22 条**（LINT-1 承接）。
 
 ## 今晚的在飞状态（**必须处理，不能留中间态**）
 **T-09**（`task-78` · `renderer-migrator`）—— Prettier ① / ESLint 报告制 ② / 守卫适配 ③。
@@ -10,7 +10,8 @@
 
 ## 明日顺序（所有者已批）
 1. **T-09 收口** → Lead 提交 → **最后一次冻结门禁**（类型/单测/build/e2e + `out/` 指纹）；
-2. **`push`**（U29）—— 远端拿到全绿快照；
+2. **`push`（U29）—— 未完成（环境限制，不是仓库问题）**：本机 `C:/Users/Administrator/.gitconfig` 有 `http.https://github.com.proxy=http://127.0.0.1:7897`，而该本地代理**此刻没运行**；**直连 github 也会超时**（沙箱无直出）⇒ `git push` 报 `Failed to connect to 127.0.0.1 port 7897`（EXIT=128）。
+   ⇒ **代理恢复后一条命令即可**：`git push origin main`（本地 **140 个提交**已全部提交、门禁全绿，随时可推）；不要为此改仓库配置。
 3. **U27 / U12 / U18 并发**（卡已建：`task-80` / `task-81` / `task-82`，**无主待派**）：`appHealth`（契约**收窄为进程内事实**）· 孤包**独立异常类别**（不算素材也别静默）· 库根不存在时**可见**（只加显示）；
 4. **U28**：`prototypes/` 6 份入库 + 根目录 4 个审查 HTML **移进 `reports/2026-10-15-review/`**（根目录只留四份 md）；
 5. **产品主线**：`BATCH2-PLAN.md` 的 **B2-1（`job` 表 → 建索引）** —— 第三方审查说的「产品无法冷启动」就是它。**一次一表**。
