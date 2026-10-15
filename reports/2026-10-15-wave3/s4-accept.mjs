@@ -15,8 +15,9 @@
 //        · A18 错误码空间：引擎 ERR == SPEC §5.2 的 28（机械核）
 //
 // ── 口径与边界（**不假装**）──────────────────────────────────────────────────
-//   · 「npm test 全绿」**不在本脚本结论里**：S2（task-59）还在关 24 条单测红，写成 DEFERRED，
-//     等它收口后补跑（见文件末尾 DEFERRED 段）。
+//   · 「npm test 全绿」不在本脚本的**断言**范围内（本脚本只跑 3 个相关单测文件 + 验收级判据）；
+//     但该门禁**已达成**：2026-10-15 实测 npm test 574 / pass 573 / fail 0 / skipped 1 / EXIT=0，
+//     typecheck 0、build 0（数字为**转述 Lead 的实跑**，不是本脚本产出）。
 //   · 本脚本**只读**产品代码与夹具；临时库落 data/_s4/（AGENTS §3：data/_* 是本机临时物）。
 //   · 判定：任一 FAIL ⇒ 退出码 1；只有 PASS/SKIP ⇒ 0。
 
@@ -45,6 +46,7 @@ import { runItemsQuery } from '../../apps/desktop/src/main/items-ipc.ts';
 import { normalizeRootPath, insertLibrary } from '../../apps/desktop/src/main/app-db.ts';
 import { readIndexBin } from '../../packages/engine/src/index.ts';
 import { checkLibraryHealth } from '../../apps/desktop/src/main/library-health.ts';
+import { createItemStorePort, createLibraryResolverPort } from '../../apps/desktop/src/main/storage-ports.ts';
 import { materialDigest, rebuildLibraryDb } from '../../apps/desktop/src/main/library-rebuild.ts';
 import { ERR } from '../../packages/engine/src/errors.ts';
 
@@ -488,9 +490,40 @@ check('S4-A16', 'A16 旧库不升级：旧口径 .gs.db ⇒ 如实告知 + 丢�
   return '旧库：如实告知(SCHEMA_TOO_NEW/可重建) + 丢弃重建(v0→v1、旧表清空) + 素材 sha1 不变；对照：当前版本库 db-schema 通过且幂等不丢';
 });
 
-console.log('');
-skip('S4-A18b', 'A18 第二半：同一个坏 .gs.db 经引擎端口与经体检返回同一个 DB_OPEN_FAILED',
-  '依赖 S7b（task-61 pending：删 main 侧 DB_OPEN_FAILED→INDEX_CORRUPT 改名映射 + 端到端断言）');
+// ================================================================ A18 第二半（两路同码）
+
+check('S4-A18b', 'A18 第二半：同一个坏 .gs.db，经**引擎端口**与经**体检**两条路返回同一个码 DB_OPEN_FAILED（不得 INDEX_CORRUPT / INTERNAL）', () => {
+  const root = tmpDir('A18b');
+  const dbPath = path.join(root, '.gs.db');
+  // 坏法：文件**存在**但不是 SQLite（头部垃圾）—— 与 S7b 的 M9c 同口径
+  fs.writeFileSync(dbPath, Buffer.from('NOT A SQLITE DATABASE FILE — S4-A18b probe'.repeat(3)), 'utf8');
+  const itemsJsonPath = path.join(root, 'items.json');
+  fs.writeFileSync(itemsJsonPath, '[]', 'utf8');
+
+  // ① 体检路径（checkLibraryHealth 的 db-open 检查）
+  const health = checkLibraryHealth({ libId: 'L1', root, dbPath, itemsJsonPath, legacyLibrariesDir: null });
+  const dbOpen = health.checks.find((c) => c.id === 'db-open');
+  assert(dbOpen !== undefined, '体检报告里必须有 db-open 这一项');
+  eq(dbOpen.ok, false, '坏库的 db-open 不该通过');
+  const healthCode = dbOpen.code;
+
+  // ② 引擎端口路径（ItemStorePort.getItem）—— 与 S7b 的 M9c 走同一条产品实现
+  const port = createItemStorePort({
+    libraries: createLibraryResolverPort({ libraries: [{ libId: 'L1', root, label: '坏库' }] }),
+    onFallback: () => {},
+  });
+  let portCode = null;
+  try { port.getItem('L1', 'deadbeefdead'); } catch (e) { portCode = e && e.code ? e.code : null; }
+  assert(portCode !== null, '引擎端口必须抛错（不许把坏库当成"空结果"静默放过）');
+
+  // ③ 两条路必须同名；两个明确不许
+  eq(healthCode, 'DB_OPEN_FAILED', '体检路径的码');
+  eq(portCode, 'DB_OPEN_FAILED', '引擎端口路径的码');
+  eq(portCode, healthCode, '同一个坏库不许有两个名字（这正是 S7b 消掉的假因果）');
+  assert(portCode !== 'INDEX_CORRUPT', '不许把「库打不开」说成「索引损坏」（假因果）');
+  assert(portCode !== 'INTERNAL', 'S7b 之后它已在引擎码空间里，不许掉回 INTERNAL');
+  return '体检=' + String(healthCode) + ' · 引擎端口=' + String(portCode) + '（同名；≠INDEX_CORRUPT、≠INTERNAL）';
+});
 
 console.log('');
 console.log('── 汇总 ──────────────────────────────────────────────────────');
@@ -502,7 +535,8 @@ const sk = rows.filter((r) => r.status === 'SKIP').length;
 console.log('  PASS ' + String(pass) + ' · FAIL ' + String(failN) + ' · SKIP ' + String(sk));
 console.log('');
 console.log('── DEFERRED（明确**不算进**本脚本结论）─────────────────────────');
-console.log('  · npm test 全绿：S2（task-59）仍在关 24 条单测红 ⇒ 等 S2 收口后补跑。');
-console.log('  · A18 第二半：见上面的 SKIP 原因。');
+console.log('  · npm test 全绿：**已达成**（2026-10-15 门禁实测：574 / pass 573 / fail 0 / skipped 1 / EXIT=0；typecheck 0；build 0）。');
+console.log('    数字是**转述 Lead 的实跑**，非本脚本产出。');
+console.log('  · 本脚本已无 SKIP：A14 / A15 / A16 / A17 / A18（含第二半）全部为真断言。');
 fs.rmSync(TMP, { recursive: true, force: true });
 process.exit(failed === 0 ? 0 : 1);
