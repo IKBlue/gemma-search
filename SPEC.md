@@ -394,6 +394,9 @@
 
 **新增**：`librarySetEnabled` · `libraryReorder` · `libraryRemove` · `collectDirs` · `collectDirAdd` · `collectDirRemove` · `collectDirSetDefault` · `appMeta`（诊断页显示应用级版本）
 
+**`items`（只读列表 · 2026-10-15 补 · 属兼容）** —— F2「逛整库」要的读路径。**Lead 基线的遗漏**：`scan` 只返回**差异**（`new/missing/changed` + 指纹）、`search` 空查询会 `BAD_REQUEST`（「查询文本为空」）、`item` 只读一条 ⇒ 三者**都不能**列全部。
+签名（S8 定稿实现）：`items { libId, folder?, ext?, hasArchive?, sort?, offset?, limit? }` → `{ rows, total }`；**只读**：不触发扫描、不进向量、越界时**如实返回 total**。由 `asset` + `asset_file` 支持，不违反「唯一写入口」。
+
 **删除**（对应的表本轮不存在 ⇒ **不为不存在的表开接口**）
 
 - 6 个诚实桩：`ingest` · `mutate` · `transactions` · `indexStart` · `indexCancel` · `indexResume`
