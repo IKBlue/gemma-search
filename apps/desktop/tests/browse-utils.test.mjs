@@ -15,7 +15,7 @@ import assert from 'node:assert/strict'
 
 import {
   buildQuery, matchesFilters, sortRows, applyLocal, facetsOf, deriveBrowseView,
-  facetOptions, facetHidden, sortWire, hasArchive, rowLabel,
+  facetOptions, facetHidden, sortWire, hasArchive, rowLabel, archiveSizeOf,
   NO_FILTERS, NO_FACETS, SORTS,
 } from '../src/renderer/src/utils/browse.ts'
 import { useBrowseStore } from '../src/renderer/src/store/browse.ts'
@@ -118,18 +118,54 @@ test('B5b：buildQuery 只带**真正要传**的字段（不筛 = 省略，不�
     '空串扩展名 = 不筛（省略）；hasArchive=false 是**真筛选**，必须带上')
 })
 
-test('B21 ⭐⭐ 只发 S8 白名单里那 8 个 sort 串；界面档 → wire 的映射逐条对', () => {
-  const WHITELIST = ['relPath', 'folder', 'stem', 'imageMtime', '-relPath', '-folder', '-stem', '-imageMtime']
+test('B21 ⭐⭐ 只发白名单里那 **12** 个 sort 串（S8b 定稿）；界面档 → wire 的映射逐条对', () => {
+  // ⚠️ 与 `main/items-ipc.ts` 的 SORT_COLUMNS 逐字对齐（4 键 × 正倒 = 8，**S8b 加 size 两键** ⇒ 12）。
+  //    这份清单是**照抄**，不是发明：界面发出不在里面的串，后端会 BAD_REQUEST。
+  const WHITELIST = [
+    'relPath', '-relPath', 'folder', '-folder', 'stem', '-stem',
+    'imageMtime', '-imageMtime', 'imageSize', '-imageSize', 'archiveSize', '-archiveSize',
+  ]
+  assert.equal(WHITELIST.length, 12)
   for (const s of SORTS) assert.ok(WHITELIST.includes(s.wire), `${s.key} 的 wire "${s.wire}" 不在白名单里 ⇒ 后端会 BAD_REQUEST`)
   assert.equal(sortWire('name'), 'relPath')
+  assert.equal(sortWire('size'), '-archiveSize', '「大小」= **包**体积，默认大→小（用户直觉里的大小是包）')
   assert.equal(sortWire('mtime'), '-imageMtime', '时间默认新→旧（方向编在串里）')
   assert.equal(sortWire('folder'), '-folder')
   assert.equal(sortWire('不存在的档'), 'relPath', '认不出来退回默认，不抛')
-  // ⚠️ 界面**不提供**体积排序：S8 的 SORT_COLUMNS 里没有 size 列（见 utils/browse.ts 头部）
-  assert.equal(SORTS.some((s) => /size/i.test(s.wire)), false, '不许给一个点了会被后端拒的排序选项（假承诺）')
-  for (const q of [{ sortKey: 'name' }, { sortKey: 'mtime' }, { sortKey: 'folder' }]) {
+  for (const q of SORTS.map((s) => ({ sortKey: s.key }))) {
     assert.ok(WHITELIST.includes(buildQuery({ libId: 'L1', ...q }).sort))
   }
+})
+
+/**
+ * B22 ⭐⭐ **界面不二次重排**（NULL 位次以后端为准）。
+ *
+ * 为什么这条必须钉：S8b 裁决了 NULL 语义 = SQLite 默认（**正序 NULL 最前 · 倒序 NULL 最后**），
+ * 于是「大→小」时**无包条目排在末尾**。如果界面在拿到 rows 之后再排一次，就会出现
+ * 「后端一套位次、界面另一套」—— 同一份数据，两处各说一套（正是本项目要消灭的病）。
+ * ⇒ store 只允许**原样收下**后端给的顺序；本地排序器（`applyLocal`/`sortRows`）只能服务测试与注入路径。
+ */
+test('B22 ⭐⭐ 后端给的顺序（含 NULL 条目在末尾）界面**原样渲染**，不做二次排序', async () => {
+  // 后端在「大→小（-archiveSize）」下的真实形状：大包在前、**无包（archiveSize=null）在末尾**
+  const fromBackend = [
+    // 故意让**预览**体积的顺序与**包**体积的顺序不同 —— 这样「本地若按预览排」会露馅
+    row({ uid: '1'.repeat(12), stem: 'big', archiveSize: 900, archiveRelPath: 'VR/big.zip', imageSize: 100 }),
+    row({ uid: '2'.repeat(12), stem: 'mid', archiveSize: 500, archiveRelPath: 'VR/mid.zip', imageSize: 999 }),
+    row({ uid: '3'.repeat(12), stem: 'no-archive', archiveRelPath: null, archiveExt: null, archiveSize: null }),
+  ]
+  S().setSortKey('size')
+  const seen = []
+  await S().load(async (q) => { seen.push(q); return { ok: true, data: { rows: fromBackend, total: 3 } } }, 'L1')
+  assert.equal(seen[0].sort, '-archiveSize', '排序档要翻译成 wire 串发出去（而不是本地排）')
+  assert.deepEqual(S().rows.map((r) => r.stem), ['big', 'mid', 'no-archive'],
+    '界面必须**原样**保留后端顺序（NULL 在末尾）—— 二次排序就是第二套位次')
+  // 反证：本地排序器在同样输入下**会**把它排成别的样子（id 前缀 uid 会打乱），说明它绝不能用在真数据路径上
+  const locallySorted = applyLocal({ rows: fromBackend, sort: 'size', direction: 'desc' }).rows.map((r) => r.stem)
+  assert.notDeepEqual(locallySorted, ['big', 'mid', 'no-archive'],
+    '本地排序器与后端位次**不是同一套**（这正是「界面别纠正后端」的理由）')
+  // 无包 = null（不是 0）：显示层据此说「—」，而不是说「0 字节」
+  assert.equal(archiveSizeOf(fromBackend[2]), null)
+  assert.equal(archiveSizeOf(fromBackend[0]), 900)
 })
 
 // ============================================================ 空态（三种「什么都没有」）
@@ -159,11 +195,14 @@ test('B7：facetsOf 只从**给它的那批行**取分类与扩展名（测试/�
   assert.deepEqual(facetsOf([]), { folders: [], exts: [] })
 })
 
-test('B8：SORTS 是三个档，且**标签与 wire 方向一致**（名称升 / 时间新→旧 / 分类 Z→A）', () => {
-  assert.deepEqual(SORTS.map((s) => s.key), ['name', 'mtime', 'folder'])
+test('B8：SORTS 是**四**个档，且**标签与 wire 方向一致**（名称 A→Z / 大小 大→小 / 时间 新→旧 / 分类 Z→A）', () => {
+  assert.deepEqual(SORTS.map((s) => s.key), ['name', 'size', 'mtime', 'folder'])
   assert.equal(sortWire('name'), 'relPath')
+  assert.equal(sortWire('size'), '-archiveSize', '「大小」= 包体积，大→小')
   assert.equal(sortWire('mtime'), '-imageMtime')
   assert.equal(sortWire('folder'), '-folder')
+  // 档数上限是 Lead 定的（≤5）：加档别默默超
+  assert.ok(SORTS.length <= 5, `排序档 ${SORTS.length} 个，超过约定上限 5`)
 })
 
 // ============================================================ store（状态机 + 注入取数）

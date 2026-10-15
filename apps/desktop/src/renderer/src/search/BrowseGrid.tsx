@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import { humanSize } from '../utils/format.ts'
-import { hasArchive, rowLabel, thumbSrc } from '../utils/browse.ts'
+import { archiveSizeOf, hasArchive, rowLabel, thumbSrc } from '../utils/browse.ts'
 import type { BrowseRow } from '../utils/browse.ts'
 
 const FALLBACK_CELL = 148      // 令牌读不到时的兜底宽度（正常路径永远走 var(--layout-browse-cell)）
@@ -69,7 +69,8 @@ function Cell({ row, libId, onOpen }: { row: BrowseRow; libId: string; onOpen: (
       </span>
       <span className="truncate text-caption text-ink">{label}</span>
       <span className="flex items-center gap-1 text-micro muted">
-        <span>{humanSize(row.imageSize) || '—'}</span>
+        {/* 卡上显示**包**体积（排序档「大小」用的也是它）；无包 archiveSize 是 null ⇒ 显示「—」而不是 0 */}
+        <span>{humanSize(archiveSizeOf(row)) || '—'}</span>
         <span aria-hidden="true">·</span>
         <span>{packed ? '有包' : '缺包'}</span>
         {row.folder ? <span className="truncate">· {row.folder}</span> : null}

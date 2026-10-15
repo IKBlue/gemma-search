@@ -46,6 +46,12 @@ export function hasArchive(row: BrowseRow): boolean {
   return typeof row.archiveRelPath === 'string' && row.archiveRelPath.length > 0
 }
 
+/** 包体积：**无包 = null**（不是 0）—— 与后端的 NULL 口径一致；界面显示时自己决定怎么表达「无」 */
+export function archiveSizeOf(row: BrowseRow): number | null {
+  if (!hasArchive(row)) return null
+  return typeof row.archiveSize === 'number' && Number.isFinite(row.archiveSize) ? row.archiveSize : null
+}
+
 /** 展示名：优先 name，退到 stem，再退到 relPath（兜底顺序只在这里写一次） */
 export function rowLabel(row: BrowseRow): string {
   const name = typeof row.name === 'string' ? row.name.trim() : ''
@@ -61,6 +67,8 @@ export type SortOption = { key: string; label: string; wire: string }
 
 export const SORTS: readonly SortOption[] = Object.freeze([
   Object.freeze({ key: 'name', label: '名称 A→Z', wire: 'relPath' }),
+  // 「大小」= **包**体积（用户直觉里的「这个素材多大」是包）；预览体积是另一档，需要再加。
+  Object.freeze({ key: 'size', label: '大小 大→小', wire: '-archiveSize' }),
   Object.freeze({ key: 'mtime', label: '时间 新→旧', wire: '-imageMtime' }),
   Object.freeze({ key: 'folder', label: '分类 Z→A', wire: '-folder' }),
 ])
@@ -70,7 +78,13 @@ export function sortWire(key: string): string {
   return SORTS.find((s) => s.key === key)?.wire ?? 'relPath'
 }
 
-/** 本地排序用的三档（测试/注入路径）；与 wire 语义一一对应 */
+/**
+ * 本地排序用的三档（**测试/注入路径**）；与 wire 语义一一对应。
+ *
+ * ⚠️⚠️ **真数据路径绝不能用它**：NULL 位次由后端的 SQLite 语义决定
+ *   （**正序 NULL 最前 · 倒序 NULL 最后**，S8b 已裁决并写进契约）。本地再排一次 = 第二套位次，
+ *   正是「后端一套、界面另一套」——所以 store 只是**原样收下**后端给的顺序（B22 钉这一条）。
+ */
 export type LocalSortKey = 'name' | 'size' | 'mtime'
 export type SortDir = 'asc' | 'desc'
 
