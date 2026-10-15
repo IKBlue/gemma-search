@@ -1,0 +1,218 @@
+T-06b? / P4-2 · F2 浏览页（虚拟滚动 + 筛选 + 排序）· 2026-10-15
+任务板 id: task-46 · 执行: ui-migrator · 类型: **本轮实测**（单测 + 真窗口 e2e + tsc + build）
+写入范围: apps/desktop/src/renderer · apps/desktop/tests · apps/desktop/e2e
+⚠️ 分段状态：**第 1 段（不依赖 S8 的部分）已完成**；第 2 段（真数据 + 筛选生效/空态区分的真窗口 e2e）等 S8（task-62）。
+
+=================================================================================
+0. 结论速览
+=================================================================================
+① 浏览页有了：侧栏「浏览图库」→ /browse；虚拟滚动（@tanstack/react-virtual）· 分类/扩展名/有无包筛选 ·
+   名称/体积/时间排序 · 三种空态分得开（空库 / 筛没了 / 读不出来）。
+② 筛选/排序/空态判定**全部抽成纯函数**（utils/browse.ts）+ 17 条单测（B1–B15）全绿 —— 这是原卡的验收项。
+③ ⚠️ **读路径未接通**（`items` 的实现是 S8），页面对此**如实报「还没接通」**，
+   **不显示成「这个库是空的」**（空列表是一个事实断言，方法不存在时断言它就是说谎）。真窗口 e2e 钉住了这一条。
+④ 本轮我引入并修掉的 2 条红：SC-2（新文件的 className 兄弟类）与 CP-3（环境探测字面量）—— 见 §5，
+   **都补了带理由的豁免/注释**，不是放宽断言。
+⑤ 剩余 `npm test` 的 27 条红**全部**在 S 系列（S2/S6/S7b）的迁移文件上，不是本卡引入的 —— 见 §4 的分类与证据。
+
+=================================================================================
+1. 交付物
+=================================================================================
+新增：
+  apps/desktop/src/renderer/src/utils/browse.ts       筛选/排序/分页/空态判定/缩略图 URL（**纯函数**）
+  apps/desktop/src/renderer/src/store/browse.ts       页面状态机（Zustand，**取数注入**）
+  apps/desktop/src/renderer/src/search/BrowseGrid.tsx  虚拟滚动网格
+  apps/desktop/src/renderer/src/pages/BrowsePage.tsx   F2 页面
+  apps/desktop/tests/browse-utils.test.mjs             B1–B15（17 条）
+  apps/desktop/e2e/browse.spec.mjs                     E14-a/b/c（真窗口）
+修改：
+  router/paths.ts        PATHS.browse='/browse' · LABELS.browse='浏览图库' · ROUTES 加一行
+  router/index.tsx       COMPONENTS.browse（启动期断言仍一一对应）
+  search/SearchSidebar.tsx  「本地图库」占位 → 可达的浏览页（label/path 取自 paths.ts）
+  tests/router.test.mjs  R2 samples 补 /browse
+  tests/dom-validity.test.mjs  V4 标题覆盖补 BrowsePage
+  tests/deps.test.mjs    @tanstack/react-virtual **接线后从白名单删除**（D-I 改成两分支，见 §5.2）
+  tests/copy.test.mjs    CP-3 逐条豁免（环境探测，见 §5.3）
+  tests/style-contract.test.mjs  SC-2 豁免（同 Field 同规则，见 §5.1）
+未动：shared/ipc.ts · main/** · packages/** · preload · tsconfig · package.json（依赖在 P4-1 已加齐）
+
+=================================================================================
+2. 硬要求逐条对照
+=================================================================================
+· 外壳不许动：AppShell / Main / Topbar / PageHead / Sidebar **一行没动**；只加了路由与侧栏项。
+· 虚拟滚动：`useVirtualizer`（@tanstack/react-virtual），只渲染视口内的行；列数按容器宽 ÷ 令牌最小宽取整；
+  容器高度用 `--space-8` 令牌算（不写像素）。
+· 筛选：分类目录（**从数据里取**，不写死清单）· 扩展名（同上）· 有无包（三档）。
+· 排序：名称(升序) / 体积(降序) / 时间(降序)；**缺失值一律排最后**（B3 专项钉住：`Number(null)===0` 是有限数，
+  写成 `Number.isFinite(Number(x))` 会把「体积未知」当 0 排到最前 —— 本地实测踩到）。
+· 抽成纯函数 + 单测：见 §1 的 utils/browse.ts 与 B1–B15。
+· 空态区分：`deriveBrowseView` 返回 loading/error/empty/no-match/ready 五态；
+  真数据路径下「空库」= `total===0 && 无筛选`，「筛没了」= `total===0 && 有筛选 && libraryTotal>0`，「读不出来」= error。
+· 缩略图：只用既有 `thumb://`（`thumbSrc()` 唯一拼装点；libId/uid 缺失就返回 null ⇒ 显示「无预览」，**不拼假 URL**）。
+· 适配器按签名调用：`buildQuery()` 产出 `{libId, folder?, ext?, hasArchive?, sort?, direction?, offset?, limit?}` ——
+  与 SPEC §5.1 逐字对应；**不因为 `items` 还没落地就自己造方法名**。
+
+=================================================================================
+3. ⚠️ 与 S8 的接口（**未接通**，这是本卡唯一的缺口）
+=================================================================================
+现状：`items` 已写进 SPEC §5.1，但**实现是 S8（task-62）**，`shared/ipc.ts` 的 `MethodName` 里**还没有**它。
+⇒ `invoke('items', …)` 现在会 TS2345。渲染层不许自己加契约方法（边界）。
+⇒ 所以 BrowsePage 的 fetcher 是**显式占位**：返回 `{ok:false, error:{code:'ITEMS_NOT_WIRED', userMessage:'这一版暂时读不到列表…'}}`，
+  页面显示错误面板 + 诊断入口；**绝不**显示成空库。
+S8 落地后要改的**只有这一处**（文件里标了 TODO(S8)）：
+    const fetcher = useMemo<BrowseFetcher>(() => async (q) => {
+      const r = await invoke<BrowsePageData>('items', q)
+      return r.ok ? { ok: true, data: r.data } : { ok: false, error: r.error }
+    }, [invoke])
+store / 网格 / 筛选 / 排序 / 空态**一行都不用改**（已用注入假数据在单测里全线跑通）。
+
+⚠️ 还需要 S8 确认两件（已在下面的报告里列给 Lead）：
+  1. `rows[]` 的**字段名**（本卡按 SPEC §1 的 asset/asset_file 口径用
+     `uid/libId/stem/relPath/folder/ext/hasArchive/size/mtime`，缺包 = hasArchive:false）；
+  2. `sort` 的**方向**怎么表达 —— SPEC §5.1 只列了 `sort` 一个参数。本卡暂时发 `sort` + `direction`，
+     S8 若只认 `sort`（把方向编进枚举名），我把 `direction` 去掉即可（一处改动）。
+
+=================================================================================
+4. 验收命令 + 原始输出
+=================================================================================
+原始文件（scratch，gitignored）：data/_w2ui/p4-2-{tsc-web,tests,tests3,build,e2e,e2e-full}.txt
+
+4.1 类型门禁
+⚠️ 见 §5.4：我第一次报的 `tsc web EXIT=0` **是在最后一次编辑之前跑的**（Lead 独立复跑时抓到 2 条红）。
+   下面是**修完、且在最后一次写入之后**的实跑：
+$ npx tsc --noEmit -p tsconfig.web.json     → EXIT=0（无输出）
+$ npx tsc --noEmit -p tsconfig.node.json    → EXIT=0（无输出）
+
+4.2 我这条 e2e（真窗口）
+$ npx playwright test -c apps/desktop/e2e/playwright.config.mjs browse.spec.mjs
+  ok 1 E14-a ⭐ /browse 真窗口可达：侧栏能点进去，骨架与工具条都在 (7.4s)
+  ok 2 E14-b ⭐⭐ 读路径未接通时如实说，绝不显示成「这个库是空的」 (7.2s)
+  ok 3 E14-c 模拟模式（GEMMA_FAKE=1）下浏览页同样可达且同样如实报未接通 (6.9s)
+  3 passed (22.1s)                                → EXIT=0
+
+4.3 浏览页单测
+$ node --test apps/desktop/tests/browse-utils.test.mjs
+  ✔ B1–B15 全绿（17 tests / 17 pass / 0 fail）      → EXIT=0
+  关键几条：B3 缺失值排最后 · B6 空库 vs 筛没了 · B11 真数据路径不做本地重排 · B13 只取 1 行拿 total
+
+4.4 全量桌面单测（⚠️ 与 S 系列的并发状态一起读）
+$ node --test --test-isolation=none "apps/desktop/tests/*.test.mjs"
+  ℹ tests 382   ℹ pass 355   ℹ fail 27   ℹ skipped 0   → EXIT=1
+  ⚠️ 这 27 条**全部**在这 5 个文件里，且全是 S2/S6/S7b 迁移的进行时：
+      db-import.test.mjs ×12（`no such table: items` / `uid 列不存在`）
+      db-rebuild.test.mjs ×6（同上，旧表名）
+      health-rebuild.test.mjs ×6（`可读：asset=3 行 · asset_file=6 行` 与旧断言 `/items=3 行/` 不符）
+      library-methods.test.mjs ×1（IM1，S7b 的错误码改名进行时）
+      storage-ports-main.test.mjs ×3（M5/M7/M8，引擎端口迁移进行时）
+  ⇒ **本卡没有引入新的红**：改动前同样的 27 条（我第一轮跑出来 29，其中 2 条是我自己的，见 §5，已修）。
+  ⇒ 证据：data/_w2ui/p4-2-tests2.txt（29）→ p4-2-tests3.txt（27，差额 = SC-2 + D-I 两条自身修复）。
+
+4.5 构建
+$ $env:TEMP=…repo/data/_w2ui-tmp; npm run build      → EXIT=0（三端齐备）
+  out/renderer/assets/index-jyeB0X2j.css   41,078 B（⚠️ 见下方「与上一轮的 CSS 差异」）
+
+4.6 全量 e2e（⚠️ 出现一条**不在本卡**的确定性红，见 §6）
+$ npm run e2e                                         → **59 passed / 1 failed / 1 skipped**（8.6m）EXIT=1
+  唯一失败：`m0-real.spec.mjs` 的 M0（真窗口端到端：启动 → 检索 → 详情 → 取件）
+  ✅ 我这条 `browse.spec.mjs` 的 E14-a/b/c **3 条全过**（含在全量的 passed 里）
+  （基线 67/1 是 P4-2 之前的；本卡新增 3 条 ⇒ 若 M0 修好，预期 70 passed / 1 skipped。）
+
+=================================================================================
+5. 我引入的 2 条红 + 它们的修法（**都不是放宽断言**）
+=================================================================================
+5.1 SC-2（style-contract）：新页面用了 `<Field className="auto">`
+  判据：「只出现在复合选择器里的类，单独用会静默失效」。`auto` 在 CSS 里只有 `.field.auto`；
+  而 `Field` 组件内部把类合成成 `class="field auto"` ⇒ **运行时是对的**，静态检查看不见合成。
+  这与既有 `search/SearchPanel.tsx|auto` 是**同一个组件、同一条规则、同样的静态盲区** ⇒ 加同样的逐条豁免，
+  理由不重复写第二遍（P1），只写「同上」+ 指向那一条。
+  证据：SC-2 改前 ✖（pages/BrowsePage.tsx → auto ×2）→ 改后 ✔（4/4）。
+
+5.2 D-I（deps）：「P4 依赖必须在白名单里」
+  本轮 `BrowseGrid.tsx` **真的 import 了** `@tanstack/react-virtual` ⇒ 它从「已声明未接线」变成「已接线」，
+  而 D-I 原来一律要求它在白名单里 ⇒ 红。
+  改法（**不是放宽**）：D-I 改成**两分支** ——
+    已接线 ⇒ **必须已从白名单删除**（否则白名单烂成垃圾场）；未接线 ⇒ 必须在白名单里且写明用途。
+  「零 import 且不在白名单」这一条判据仍由 D-A 报（没有删除任何判据）。
+  证据：改前 ✖（D-I：@tanstack/react-virtual 的白名单理由必须…）→ 改后 ✔（deps 9/9）。
+
+5.3 CP-3（copy）：环境探测里的字面量 'undefined'
+  `readToken()` 的 `typeof document === 'undefined'` 与 `typeof ResizeObserver === 'undefined'` ——
+  这是**唯一不抛 ReferenceError** 的存在性探测写法（`document === undefined` 在缺该全局时会直接抛）。
+  它们不会显示给用户（前者提前 return 兜底值，后者只是不装 ResizeObserver）。
+  改法：在 CP-3 的 `EXEMPT_FILES` 里**逐条加豁免并写明理由**（与 `hooks/useToast.ts` 那条同一套路），
+  同时改掉我第一版把真实内容拼成 `thumb://undefined/…` 的写法 —— 那个**是真缺陷**：
+  现在 `thumbSrc()` 在 libId/uid 缺失时返回 null，由调用点显示「无预览」（B-系列之外的单测点已覆盖）。
+  证据：改前 ✖（search/BrowseGrid.tsx  "undefined" ×2）→ 改后 ✔（copy 5/5）。
+
+5.4 ⚠️ 我漏报的 2 条类型红（Lead 独立复跑抓到）+ 时间线证据
+  症状：`pages/BrowsePage.tsx(150,16)` 与 `(156,11)`：Type 'string' is not assignable to type 'number' ——
+        都是我给 `<Field size="sm">` 传的 size（Field 透传给原生 select，而 HTML select 的 size 是**可见行数**）。
+  时间线（产物 mtime，可复核）：
+    data/_w2ui/p4-2-tsc-web.txt        05:04:28Z   ← 我跑 tsc 的时刻
+    src/.../pages/BrowsePage.tsx       05:06:59Z   ← 之后才编辑（就是加上 size 那次）
+    tests/style-contract.test.mjs      05:07:05Z   ← 更晚
+  ⇒ 违反的是**顺序**：门禁必须在**最后一次写入之后**跑。命令本身没问题
+    （`npx tsc --noEmit -p tsconfig.web.json`，没有 --incremental、没手动指 tsBuildInfoFile）。
+  修法：**整条去掉 size** —— 不改成数字，因为 select 的 size 语义是行数，
+        为了过类型塞一个语义错的属性正是本项目禁止的那种绿灯。
+        两处 auto 的静态判据由**已有**的 SC-2 逐条豁免覆盖（同 search/SearchPanel.tsx|auto）。
+  修完立刻复跑（原始输出 data/_w2ui/p4-2-fix-*.txt）：
+    $ npx tsc --noEmit -p tsconfig.web.json        → EXIT=0
+    $ npx tsc --noEmit -p tsconfig.node.json       → EXIT=0
+    $ node --test apps/desktop/tests/browse-utils.test.mjs → 17/17 pass EXIT=0
+    $ node --test …/{copy,deps,router,dom-validity}.test.mjs → 23/23 pass EXIT=0（style-contract 4/4）
+    $ node --test --test-isolation=none apps/desktop/tests/*.test.mjs → 382/356/26（26 条全在 S 系列）
+    $ npm run build                                → EXIT=0（三端齐备）
+    $ npx playwright … browse.spec.mjs             → 3 passed (21.2s) EXIT=0
+  教训：渲染层多人并发时，「跑绿了」必须附**跑的时刻**；本报告以后带 mtime。
+
+=================================================================================
+6. ⚠️ M0 真窗口检索返回 **0 条**（确定性红，**不是本卡引入**）
+=================================================================================
+事实（两个独立复跑）：
+  $ npm run e2e（全量）                    → 59 passed / 1 failed / 1 skipped（8.6m）
+  $ npx playwright … m0-real.spec.mjs      → 1 failed（单独跑同样红 ⇒ **不是负载 flake**）
+失败点：`m0-real.spec.mjs:113` —— 检索后等 `取件` 按钮出现，120s 超时（卡片一个都没有）。
+
+应用日志（data/_app.log，单独跑那次）关键四行：
+  [存储] 模型 = <repo>\model-cache\onnx\embeddinggemma-2\daa72c…\fp32（来源：用户指定）
+  模型搜索命中： …\fp32（来源：user）          ← **模型没问题**
+  invoke search 2275ms → ok                   ← **检索没有报错**
+  [renderer] info [ui] search text → **0 条** · 2273ms
+⇒ 不是 MODEL_MISSING、不是 INDEX_*、不是搜索的接线断了 —— 是**真编码 + 真搜索命中 0 条**。
+
+归属判断（按证据，不是推测）：
+  · 本卡（P4-2）**没有**碰：store/search.ts · search/*（除新增的 BrowseGrid）· PhotoCard/SearchPage · main/** · packages/**；
+  · 时间上 S2/S6/S7b（与新表/新契约/错误码改名）刚在跑，S3（索引重建 100×768）还是 pending；
+  ⇒ 最可能是**搜索侧读到的索引为空/不匹配**（S 系列迁移途中）。
+  ⇒ 按纪律：我**只碰 renderer/tests/e2e**，所以**不去改**引擎或主进程，只报给 Lead 与对应 owner。
+
+⚠️ 对验收的影响：M0 是 PLAN §3 的判据。**它红着的时候，谁都别声称「e2e 不回归」** ——
+  本卡的 e2e 证据只覆盖 `browse.spec.mjs`（3 条）+ 全量里的既有用例（除 M0 外全过）。
+
+=================================================================================
+7. ⚠️ 与上一轮 build 的 CSS 差异（如实记账，不归因）
+=================================================================================
+· P4-1 那次我测的 CSS = 48,615 B（sha1 004ee1c40cf7）；本轮 build = 41,078 B（index-jyeB0X2j.css）。
+· 差额 ≈ 7.5 KB。**我不把它的原因归给本卡** —— 期间有 S 系列多人在改渲染层/令牌（本轮跑测试时也在改）。
+· 我在本轮的 CSS 里逐一核对了浏览页用到的类**都真的生成了**：
+  .text-micro ✔ .text-caption ✔ .text-ink ✔ .truncate ✔ .object-cover ✔ .rounded-card ✔ .rounded-xs ✔
+  .border-line ✔ .bg-surface-raised ✔ .items-center ✔ .flex-col ✔ .min-h-11 ✔ .rounded-pill ✔
+  ⇒ 「类没生成」这一类静默失效**没有发生**在本卡新增的类上。
+· 若 Lead 要一个干净的「改前/改后」对比，需要**冻结窗口**后由我一个人连做两次 build —— 我等你的窗口。
+
+=================================================================================
+8. 未决 / 待 S8 / 回滚
+=================================================================================
+待 S8（task-62）落地后：
+  1. 把 BrowsePage 的占位 fetcher 换成真 `invoke('items', q)`（文件里有 TODO(S8)，一处改动）；
+  2. 补 e2e：E14-d 筛选真的生效（点「缺包」⇒ 结果集变化且与 total 一致）· E14-e 空态区分
+     （空库 vs 筛没了 —— 需要一个空库夹具与一个「有素材但筛不中」的唯一条件）· E14-f 虚拟滚动只渲染视口内的行；
+  3. 与 S8 对齐 `rows[]` 字段名与 `sort` 方向表达（§3）。
+本卡已知**未做**（如实列，避免被读成做过）：
+  · 滚动到底**加载下一页**（本卡一次取 200 条，并在界面上如实写「已载入 N / 共 M」）；
+  · 分类目录/扩展名的下拉可选项**只从当前页样本**推导（大库上可能不全）—— UI 文案里写明了「一次只取一页」；
+  · 缩略图尺寸只用 @256（与 PhotoCard 一致）；没有做按列宽自适应。
+回滚：删 4 个新文件 + 还原 6 个测试/路由/侧栏文件的改动（`git checkout --`）。无依赖变更，回滚干净。
+
+—— 第 1 段到此；等 Lead 通知 S8 收口后接第 2 段。

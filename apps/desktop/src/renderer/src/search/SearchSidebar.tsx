@@ -14,7 +14,9 @@ import type { LibStatus } from '../hooks/useEngine.ts'
 const NAV: readonly UiNavItem[] = [
   { key: 'search', icon: '⌕', label: '语义搜索', to: '/' },
   { key: 'detail', icon: '▣', label: '图片详情', phase: 'P3c（从结果卡进入）' },
-  { key: 'library', icon: '▦', label: '本地图库', phase: 'P3d' },
+  // ⚠️ 2026-10-15（P4-2）：「本地图库」= F2 浏览页（整库浏览 · 筛选 · 排序），**已实现** ⇒ 给它 `to`。
+  //    原来是 `phase: 'P3d'` 的禁用占位；页面名与路径的唯一来源仍是 router/paths.ts。
+  { key: 'browse', icon: '▦', label: LABELS.browse, to: PATHS.browse },
   // ⚠️ S6（2026-10-15）：`ingest` 已从契约删除（它写的意图层表本轮没建）⇒ 这一项保持**禁用占位**
   //   （点了给说明、不静默），文案改成"等对应的数据表上线"，别让人以为它有后端。
   { key: 'ingest', icon: '＋', label: '入库与增量', phase: 'P4（等对应的数据表上线）' },

@@ -1,0 +1,209 @@
+// apps/desktop/tests/browse-utils.test.mjs —— P4-2：F2 浏览页的**纯函数 + 状态机**单测
+//
+// 为什么能这么测：`utils/browse.ts` 与 `store/browse.ts` 都不 import React、不碰 window.api
+// （取数是**注入**的 `BrowseFetcher`）⇒ 纯 Node 里就能跑完「筛选 → 排序 → 分页 → 空态 → 状态机」。
+//
+// 这一组要钉住的是**判据本身**，尤其是三条容易做错的地方：
+//   B3 缺失值（体积/时间未知）必须排**最后**，不能伪装成 0 或最早；
+//   B6 「空库」与「筛选筛没了」必须是**两种**状态（混起来就是谎报）；
+//   B11 真数据路径下**不许本地重排**（主进程筛/排是唯一判据，本地再排一次就是第二份实现，P1）。
+import { test, beforeEach, afterEach } from 'node:test'
+import assert from 'node:assert/strict'
+
+import {
+  buildQuery, matchesFilters, sortRows, applyLocal, facetsOf, deriveBrowseView,
+  NO_FILTERS, SORTS,
+} from '../src/renderer/src/utils/browse.ts'
+import { useBrowseStore } from '../src/renderer/src/store/browse.ts'
+
+const S = () => useBrowseStore.getState()
+
+function fakeBridge(reply) {
+  const calls = []
+  globalThis.window = {
+    api: {
+      invoke: async (method, params) => { calls.push({ method, params }); return reply(method, params) },
+      onEvent: () => () => {},
+      platform: 'win32',
+    },
+  }
+  return calls
+}
+let savedWindow
+beforeEach(() => { savedWindow = globalThis.window; S().__reset(); globalThis.window = undefined })
+afterEach(() => { globalThis.window = savedWindow })
+
+const row = (over = {}) => Object.assign({
+  uid: 'a'.repeat(12), libId: 'L1', stem: 'x', relPath: 'VR/x.jpg', folder: 'VR',
+  ext: '.jpg', hasArchive: true, size: 1000, mtime: 1000,
+}, over)
+
+const ROWS = [
+  row({ uid: 'b'.repeat(12), stem: 'banana', relPath: 'CR/banana.jpg', folder: 'CR', ext: '.jpg', size: 300, mtime: 3000, hasArchive: false }),
+  row({ uid: 'a'.repeat(12), stem: 'apple', relPath: 'VR/apple.png', folder: 'VR', ext: '.png', size: 200, mtime: 1000, hasArchive: true }),
+  row({ uid: 'c'.repeat(12), stem: 'cherry', relPath: 'VR/cherry.jpg', folder: 'VR', ext: '.jpg', size: 100, mtime: 2000, hasArchive: true, ext2: undefined }),
+]
+
+// ============================================================ 筛选
+
+test('B1：空筛选放行全部；每一维都真的在筛（目录 / 扩展名 / 有无包）', () => {
+  assert.equal(ROWS.filter((r) => matchesFilters(r, NO_FILTERS)).length, 3)
+  assert.deepEqual(ROWS.filter((r) => matchesFilters(r, { ...NO_FILTERS, folder: 'VR' })).map((r) => r.stem), ['apple', 'cherry'])
+  assert.deepEqual(ROWS.filter((r) => matchesFilters(r, { ...NO_FILTERS, ext: '.jpg' })).map((r) => r.stem), ['banana', 'cherry'])
+  assert.deepEqual(ROWS.filter((r) => matchesFilters(r, { ...NO_FILTERS, hasArchive: false })).map((r) => r.stem), ['banana'])
+  // 扩展名大小写不敏感（扫描给的是小写，但用户手填不该被大小写坑）
+  assert.equal(ROWS.filter((r) => matchesFilters(r, { ...NO_FILTERS, ext: '.JPG' })).length, 2)
+})
+
+test('B2：筛选条件是**与**关系（多维同时生效），且缺 folder 的行不会被 folder 筛选误放行', () => {
+  const both = ROWS.filter((r) => matchesFilters(r, { folder: 'VR', ext: '.jpg', hasArchive: true }))
+  assert.deepEqual(both.map((r) => r.stem), ['cherry'])
+  const noFolder = row({ folder: null, stem: 'orphan' })
+  assert.equal(matchesFilters(noFolder, { ...NO_FILTERS, folder: 'VR' }), false)
+})
+
+// ============================================================ 排序
+
+test('B3 ⭐ 排序：名称升序 / 体积降序 / 时间降序，且**缺失值一律排最后**', () => {
+  assert.deepEqual(sortRows(ROWS, 'name', 'asc').map((r) => r.stem), ['apple', 'banana', 'cherry'])
+  assert.deepEqual(sortRows(ROWS, 'size', 'desc').map((r) => r.stem), ['banana', 'apple', 'cherry'])
+  assert.deepEqual(sortRows(ROWS, 'mtime', 'desc').map((r) => r.stem), ['banana', 'cherry', 'apple'])
+  const withMissing = [...ROWS, row({ uid: 'd'.repeat(12), stem: 'unknown-size', size: null, mtime: null })]
+  assert.equal(sortRows(withMissing, 'size', 'desc').at(-1).stem, 'unknown-size', '体积未知必须排最后，不能当成 0')
+  assert.equal(sortRows(withMissing, 'mtime', 'desc').at(-1).stem, 'unknown-size', '时间未知同理')
+})
+
+test('B4：排序**不改原数组**（调用方拿到的 rows 是 store 里的那份，就地改会引发看不见的互相污染）', () => {
+  const before = ROWS.map((r) => r.stem)
+  sortRows(ROWS, 'size', 'desc')
+  assert.deepEqual(ROWS.map((r) => r.stem), before)
+})
+
+// ============================================================ 分页（applyLocal = 注入/测试路径）
+
+test('B5：applyLocal 的 total 是**筛选后**总数，offset/limit 只影响返回的行', () => {
+  const all = applyLocal({ rows: ROWS })
+  assert.equal(all.total, 3)
+  assert.equal(all.rows.length, 3)
+  const page = applyLocal({ rows: ROWS, offset: 1, limit: 1 })
+  assert.equal(page.total, 3, '越界/分页时 total 仍要如实给筛选后的总数')
+  assert.equal(page.rows.length, 1)
+  const filtered = applyLocal({ rows: ROWS, filters: { ...NO_FILTERS, folder: 'VR' } })
+  assert.equal(filtered.total, 2, 'total 必须是筛选后的数量，不是全库数量')
+})
+
+test('B5b：buildQuery 只带**真正要传**的字段（不筛 = 省略，不是传空串/undefined）', () => {
+  const q = buildQuery({ libId: 'L1', filters: NO_FILTERS, sort: 'name', direction: 'asc', offset: 0, limit: 200 })
+  assert.deepEqual(q, { libId: 'L1', sort: 'name', direction: 'asc', limit: 200 })
+  const q2 = buildQuery({ libId: 'L1', filters: { folder: 'VR', ext: '', hasArchive: false }, offset: 5 })
+  assert.deepEqual(q2, { libId: 'L1', folder: 'VR', hasArchive: false, offset: 5 },
+    '空串扩展名 = 不筛（省略）；hasArchive=false 是**真筛选**，必须带上')
+})
+
+// ============================================================ 空态（三种「什么都没有」）
+
+test('B6 ⭐⭐ 「空库」与「筛没了」是两种状态 —— 不许把 0 条一律当「没东西」', () => {
+  const base = { loading: false, error: null, filters: NO_FILTERS }
+  assert.equal(deriveBrowseView({ ...base, libraryTotal: 0, filteredTotal: 0 }), 'empty', '库本身是空的')
+  assert.equal(deriveBrowseView({ ...base, libraryTotal: 10, filteredTotal: 0 }), 'empty',
+    '没筛选却 0 条 ⇒ 仍然是「库是空的」（此时 libraryTotal 与 filteredTotal 应当一致；不一致说明数据源有问题）')
+  assert.equal(
+    deriveBrowseView({ ...base, filters: { folder: 'VR', ext: null, hasArchive: null }, libraryTotal: 10, filteredTotal: 0 }),
+    'no-match', '有素材但被筛掉了 —— 必须与「空库」区分开')
+  assert.equal(deriveBrowseView({ ...base, libraryTotal: 10, filteredTotal: 7 }), 'ready')
+})
+
+test('B6b：loading 与 error 优先于一切（读不出来时绝不能说「库是空的」）', () => {
+  assert.equal(deriveBrowseView({ loading: true, error: null, libraryTotal: null, filteredTotal: 0 }), 'loading')
+  assert.equal(
+    deriveBrowseView({ loading: false, error: { code: 'INDEX_CORRUPT', userMessage: '索引坏了' }, libraryTotal: 0, filteredTotal: 0 }),
+    'error', '「读失败」不是「空库」—— 把 0 条当空库就是谎报（与诊断页同一条纪律）')
+})
+
+test('B7：facetsOf 只从数据里取分类与扩展名（不写死清单），且去重 + 排序', () => {
+  const f = facetsOf(ROWS)
+  assert.deepEqual(f.folders, ['CR', 'VR'])
+  assert.deepEqual(f.exts, ['.jpg', '.png'])
+  assert.deepEqual(facetsOf([]), { folders: [], exts: [] })
+})
+
+test('B8：SORTS 是三个档，且**方向与标签一致**（名称升序 / 体积降序 / 时间降序）', () => {
+  assert.deepEqual(SORTS.map((s) => s.key), ['name', 'size', 'mtime'])
+  assert.equal(SORTS.find((s) => s.key === 'name').dir, 'asc')
+  assert.equal(SORTS.find((s) => s.key === 'size').dir, 'desc')
+  assert.equal(SORTS.find((s) => s.key === 'mtime').dir, 'desc')
+})
+
+// ============================================================ store（状态机 + 注入取数）
+
+test('B9：load 把**注入的 fetcher** 收到的查询参数如实传下去，并收下 rows/total', async () => {
+  const seen = []
+  const fetcher = async (q) => { seen.push(q); return { ok: true, data: { rows: ROWS, total: 3 } } }
+  await S().load(fetcher, 'L1', { limit: 200 })
+  assert.equal(S().loading, false)
+  assert.equal(S().error, null)
+  assert.equal(S().rows.length, 3)
+  assert.equal(S().total, 3)
+  assert.deepEqual(seen[0], { libId: 'L1', sort: 'name', direction: 'asc', limit: 200 })
+})
+
+test('B10：筛选/排序变化**真的进入下一次取数**（不是只改了界面状态）', async () => {
+  const seen = []
+  const fetcher = async (q) => { seen.push(q); return { ok: true, data: { rows: [], total: 0 } } }
+  S().setFilter({ folder: 'VR', hasArchive: true })
+  S().setSort('size', 'desc')
+  await S().load(fetcher, 'L1', { limit: 200 })
+  assert.deepEqual(seen[0], { libId: 'L1', folder: 'VR', hasArchive: true, sort: 'size', direction: 'desc', limit: 200 })
+})
+
+test('B11 ⭐ 真数据路径**不做本地筛选/排序**：store 原样收下主进程给的 rows（同一份判断不许有两处）', async () => {
+  // 故意给一个“乱序且不满足筛选”的行集：store 若本地重排/重筛，这条会红
+  const serverRows = [ROWS[1], ROWS[0]]
+  const fetcher = async () => ({ ok: true, data: { rows: serverRows, total: 2 } })
+  S().setFilter({ folder: 'VR' })
+  await S().load(fetcher, 'L1')
+  assert.deepEqual(S().rows.map((r) => r.stem), ['apple', 'banana'],
+    'store 必须**原样**保留主进程给的顺序/集合 —— 本地再筛一次就是第二份实现（P1），而且会掩盖主进程的 bug')
+})
+
+test('B12：失败路径 —— 收下 Adapter 的错误、清空 rows、且**不**把 0 条当成功', async () => {
+  const err = { code: 'INDEX_CORRUPT', message: 'raw', userMessage: '索引文件已损坏，需要重建。' }
+  await S().load(async () => ({ ok: false, error: err }), 'L1')
+  assert.equal(S().error.userMessage, '索引文件已损坏，需要重建。')
+  assert.deepEqual(S().rows, [])
+  assert.notEqual(S().view(), 'empty', '读失败不能落到「空库」那一支')
+  assert.equal(S().view(), 'error')
+})
+
+test('B13：loadLibraryTotal 只取 1 行来拿 total（不为了一个数字拉全库），并区分空库/筛没了', async () => {
+  const seen = []
+  const fetcher = async (q) => { seen.push(q); return { ok: true, data: { rows: [ROWS[0]], total: 3594 } } }
+  await S().loadLibraryTotal(fetcher, 'L1')
+  assert.equal(S().libraryTotal, 3594)
+  // 只钉两件真正要紧的事：① 只取 1 行（不为了一个数字拉全库）② 不带筛选（要的是库的总数）
+  assert.equal(seen[0].limit, 1, '为了 total 不该拉全库')
+  assert.equal(seen[0].libId, 'L1')
+  assert.equal('folder' in seen[0], false, '总数必须是**未筛选**的总数，否则区分不出「空库」与「筛没了」')
+  assert.equal('ext' in seen[0], false)
+})
+
+test('B14：没有库（libId 为空）⇒ 不取数、不报错、保持空态（页面显示「没有库」而不是「库空了」）', async () => {
+  let called = 0
+  const fetcher = async () => { called += 1; return { ok: true, data: { rows: [], total: 0 } } }
+  await S().load(fetcher, '')
+  await S().loadLibraryTotal(fetcher, '')
+  assert.equal(called, 0, '没有库时一个 IPC 都不该发')
+  assert.equal(S().error, null)
+})
+
+test('B15：没有真 IPC 也没有注入（Adapter 的 NO_BRIDGE）⇒ 如实报错，不静默成功', async () => {
+  // 故意不装 window.api：走 adapter 的真实路径（它会返回 NO_BRIDGE 信封）
+  const fetcher = async () => {
+    const r = await (await import('../src/renderer/src/adapter/api.ts')).invoke('libraryList', {})
+    return r.ok ? { ok: true, data: r.data } : { ok: false, error: r.error }
+  }
+  await S().load(fetcher, 'L1')
+  assert.equal(S().error.code, 'NO_BRIDGE')
+  assert.equal(S().rows.length, 0)
+  assert.equal(S().view(), 'error')
+})

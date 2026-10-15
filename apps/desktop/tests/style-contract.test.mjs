@@ -170,6 +170,10 @@ const EXEMPT = new Map([
   ['search/SearchPanel.tsx|auto',
     '`ui/Field.tsx:4` 写的是 [\'field\', className].filter(Boolean).join(\' \') ⇒ 实际渲染出 class="field auto"，'
     + '`renderer.css:163` 的 `.field.auto { width: auto }` **生效**。静态检查看不见组件内部的合成，故豁免。'],
+  // ⚠️ 2026-10-15（P4-2）：浏览页两处筛选下拉是**同一个组件、同一条规则**（`<Field className="auto">`），
+  //    理由与上一条**逐字相同**（同一个 Field、同一条 .field.auto 规则、同样的静态看不见）。
+  //    这里只写「同上」而不重复一遍理由 —— 重复一遍就是同一份解释的第二处实现（P1）。
+  ['pages/BrowsePage.tsx|auto', '同上：`ui/Field.tsx` 内部合成出 class="field auto"，`renderer.css` 的 `.field.auto` 生效。'],
 ]);
 
 test('SC-2 ⭐ `className="字面量"` 里的每个类都必须真有规则（只作复合选择器一部分的类，单独用无效）', () => {
