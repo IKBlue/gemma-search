@@ -70,8 +70,16 @@ export const Methods = {
     folder: z.string().max(64).optional(),
     ext: z.string().max(16).optional(),
     hasArchive: z.boolean().optional(),
-    /** 'relPath'(默认) | 'folder' | 'stem' | 'imageMtime'；前缀 - 表示倒序（如 -imageMtime） */
-    sort: z.enum(['relPath', 'folder', 'stem', 'imageMtime', '-relPath', '-folder', '-stem', '-imageMtime']).optional(),
+    /**
+     * 排序键（**12 项**）：relPath(默认) · folder · stem · imageMtime · imageSize · archiveSize，
+     * 每个都能加前缀 - 表示倒序（如 -imageSize = 按体积从大到小）。
+     * ⚠️ **NULL 位次**：imageSize/archiveSize 来自 LEFT JOIN，**无包条目的 archiveSize 是 NULL**（不是 0）。
+     *    实现按 SQLite 默认语义：**正序 NULL 排最前，倒序 NULL 排最后** ⇒ -archiveSize 把无包条目放末尾。
+     */
+    sort: z.enum([
+      'relPath', 'folder', 'stem', 'imageMtime', 'imageSize', 'archiveSize',
+      '-relPath', '-folder', '-stem', '-imageMtime', '-imageSize', '-archiveSize',
+    ]).optional(),
     offset: z.number().int().min(0).max(1_000_000).optional(),
     limit: z.number().int().min(1).max(500).optional(),
   }).strict(),

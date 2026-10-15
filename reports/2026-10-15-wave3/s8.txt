@@ -118,3 +118,64 @@ library-methods（IM1）· storage-ports-main（**M5/M8**，M7 已随 S2 的进�
 · 引擎未被改动 ⇒ 无需回滚引擎。未跑 git（AGENTS P7）。
 · 临时物：data/_t62（单测夹具，after() 自清）· data/_verify/*.tsbuildinfo（TypeScript 缓存，可删）。
 ===============================================================================
+================================================================================
+【S8b 追加 · 2026-10-15】items 排序白名单补体积列（task-64）· Lead 裁定
+===============================================================================
+起因：P4-2 逐字核出 SORT_COLUMNS 只有 relPath|folder|stem|imageMtime（8 串）⇒ 没有体积列，
+      而 F2 浏览页的计划写着「排序（名称 / 大小 / 时间）」⇒ 体积排序是**要求**（上一张卡漏了一列）。
+
+【1. 白名单 8 → **12 项（逐字，界面可直接接）**】
+  relPath · -relPath · folder · -folder · stem · -stem
+  imageMtime · -imageMtime · imageSize · -imageSize · archiveSize · -archiveSize
+  · imageSize = preview 行体积（asset_file role=preview.size_bytes）
+  · archiveSize = 包行体积（role=archive.size_bytes）
+  · 界面「大小（大→小）」= **-imageSize**；「包大小（大→小）」= **-archiveSize**
+  · 契约（shared/ipc.ts 的 sort enum）与实现（main/items-ipc.ts 的 SORT_COLUMNS）**逐字一致**，
+    由 I12 **双向**核对：12 项全部 validateCall 通过 + 4 个野键（size/imageSizes/-archiveSizeBytes/bytes）必须被拒。
+
+【2. NULL 位次（写明 + 断言钉住）】
+  imageSize / archiveSize 来自 **LEFT JOIN** ⇒ **没有那一行的条目是 NULL**
+  （最常见：**无包条目**的 archiveSize —— schema 上「缺包 = 少一行」，**不是 0 字节**）。
+  实现用 SQLite 默认语义，并**写进 shared/ipc.ts 的契约注释与 items-ipc.ts 的 SORT_COLUMNS 注释**：
+    · 正序（imageSize / archiveSize）：**NULL 排最前**；
+    · 倒序（-imageSize / -archiveSize）：**NULL 排最后** ⇒ 界面「大→小」时无包条目落在末尾。
+  为什么保留默认而不改成「永远 NULL 最后」：默认就是 SQLite 的确定语义，两端都可预测；
+  改语义要多写 CASE，且没有证据说需要 —— 先不发明（要改请开卡，我会同步契约注释）。
+  断言：I10 正序 ['a2','b2','c1','zz1',110,130,160] / 倒序 [160,130,110,'a2','b2','c1','zz1']；
+        I11 含 NULL 时逐页拼起来与一次取完**同序同集合**；I10 另断言 **rows.length = 7**
+        （无包条目不许被 INNER JOIN 丢掉）且 **archiveSize 是 null 而非 0**。
+
+【3. 排序仍带 a.uid 兜底】⇒ NULL 之间、同值之间按 uid 升序 ⇒ 分页确定（I11）。
+
+【4. 新增测试（items-ipc.test.mjs 现 12 条，全绿）】
+  I9  imageSize 正序/倒序各一条 + 与分页同用 + total/facets 不受排序影响
+  I10 ⭐⭐ archiveSize 正序/倒序 + **NULL 位次** + NULL≠0 + 无包行不丢
+  I11 ⭐ 体积键分页在含 NULL 时仍确定（逐页拼接 == 一次取完）
+  I12 ⭐⭐ 白名单 ↔ 实现**双向对齐**（12 项逐字；契约比实现宽也要红）
+  既有 I1–I8 未改（total/分页/facets/只读/别名耦合照旧）。
+
+【5. ⭐ 能红实测（变异注入 → 失败 → 回滚）】
+变异：把 archiveSize: 'r.size_bytes' 从 SORT_COLUMNS 拿掉
+  $ node --test apps/desktop/tests/items-ipc.test.mjs
+  ✖ I10 archiveSize 排序 + NULL 位次 · ✖ I11 体积键分页 · ✖ I12 白名单双向对齐
+  ⇒ tests 12 / pass 9 / fail 3
+  断言原文：AssertionError: archiveSize 必须是合法排序键（实得 BAD_REQUEST） / actual: false, expected: true
+  ⇒ 回滚后 12/12 绿。
+
+【6. 门禁（干净跑，纪律 16）】
+$ npx tsc --noEmit -p tsconfig.web.json --tsBuildInfoFile data/_verify/web.tsbuildinfo   ⇒ WEB_TSC=0
+$ npx tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile data/_verify/node.tsbuildinfo ⇒ NODE_TSC=0
+$ npm run build                                                                          ⇒ BUILD=0
+$ npm test ⇒ 573 tests · pass 548 · fail 24 · skipped 1（24 条仍是 S2 读路径红窗口，清单见上一节 §8）
+  · items-ipc **12/12 全绿**（单独跑，见 §4/§5）。
+  （总数 565 → 573 含其它 worker 同时在落的用例；本卡只加 4 条。）
+$ 未跑 e2e：本卡只改排序白名单与注释，不涉及启动/管线；上一节已给冒烟 7 passed + out/ 指纹一致。
+
+【7. 边界 / 未做】
+· 只碰 shared/ipc.ts · main/items-ipc.ts · tests/items-ipc.test.mjs（Lead 指定）；
+  renderer/** 一行没动（界面归 ui-migrator）· S2 的文件没动 · packages/indexer/** 没动。
+· 未测：十万条级库上的体积排序性能（没有那种夹具，不做性能声称）；
+  sort 的 UI 接线由 ui-migrator 在 P4-2/B21 落地 —— 12 项白名单已在上文逐字给出。
+· 回滚：sort enum 收回 8 项 + SORT_COLUMNS 去掉两行 + 删 I9–I12（契约注释里的 NULL 段可留可删）。
+===============================================================================
+

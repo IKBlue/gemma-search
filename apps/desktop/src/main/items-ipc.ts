@@ -83,12 +83,32 @@ export const FACET_LIMIT: number = 200;
 export const DEFAULT_LIMIT: number = 100;
 export const MAX_LIMIT: number = 500;
 
+/**
+ * 排序白名单（**列名 → SQL 列**）。键必须与 shared/ipc.ts 的 sort enum **逐字对上** ——
+ * tests/items-ipc.test.mjs 的 I12 双向核对（少一个 ⇒ 界面点不动；多一个 ⇒ 契约先拒掉）。
+ *
+ * ⚠️ **NULL 位次（写明，不让调用方猜）**：
+ *   imageSize / archiveSize 来自 **LEFT JOIN** ⇒ **没有那一行的条目是 NULL**
+ *   （最常见的是**无包条目**的 archiveSize —— schema 上「缺包 = 少一行」，**不是 0 字节**）。
+ *   SQLite 把 NULL 当**最小**值 ⇒ 本实现用默认语义：
+ *     · 正序（imageSize / archiveSize）：**NULL 排最前**；
+ *     · 倒序（-imageSize / -archiveSize）：**NULL 排最后**。
+ *   ⇒ 界面「大小（大→小）」用 -imageSize 时，无预览/无包的条目落在**末尾**，不会被当成 0 混进中间。
+ *   位次由 I10/I11 断言钉住（含「NULL ≠ 0」这一点）。
+ */
 const SORT_COLUMNS: Readonly<Record<string, string>> = Object.freeze({
   relPath: 'a.rel_path',
   folder: 'a.folder',
   stem: 'a.stem',
   imageMtime: 'p.mtime_ms',
+  imageSize: 'p.size_bytes',
+  archiveSize: 'r.size_bytes',
 });
+
+/** 白名单键（每列正倒各一）—— 契约与实现对得上这件事靠它断言，不在测试里再抄一份 */
+export const SORT_KEYS: readonly string[] = Object.freeze(
+  Object.keys(SORT_COLUMNS).flatMap((k) => [k, '-' + k]),
+);
 
 /**
  * 列（表.列）→ 别名 的**唯一配对表**。

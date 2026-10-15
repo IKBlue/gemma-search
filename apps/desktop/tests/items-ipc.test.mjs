@@ -9,7 +9,7 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { runItemsQuery, ITEMS_ALIASES, FACET_LIMIT } from '../src/main/items-ipc.ts';
+import { runItemsQuery, ITEMS_ALIASES, FACET_LIMIT, SORT_KEYS } from '../src/main/items-ipc.ts';
 import { joinedRowToItemRecord } from '../src/main/db/row-types.ts';
 import { openGsDb } from '../src/main/db/open.ts';
 import { validateCall, METHOD_NAMES } from '../src/shared/ipc.ts';
@@ -211,4 +211,79 @@ test('I8 ⭐ 耦合：本文件的列别名必须能被 S2 的 joinedRowToItemRe
     'image_ext', 'image_size', 'image_mtime',
     'archive_rel_path', 'archive_ext', 'archive_size', 'archive_mtime', 'vector_row',
   ]);
+});
+
+test('I9 ⭐ 按体积排序：imageSize 正序/倒序各一条（F2 浏览页「大小」列要的）', () => {
+  // 夹具 preview 体积 = 11,12,13,14,15,16,17（各不同 ⇒ 顺序无歧义）
+  const asc = q({ sort: 'imageSize' });
+  assert.equal(asc.ok, true, 'imageSize 必须是合法排序键（实得 ' + (asc.ok ? '' : asc.error.code) + '）');
+  assert.deepEqual(asc.data.rows.map((r) => r.imageSize), [11, 12, 13, 14, 15, 16, 17], '小 → 大');
+  assert.deepEqual(asc.data.rows.map((r) => r.stem), ['a1', 'a2', 'b1', 'b2', 'c1', 'd1', 'zz1']);
+
+  const desc = q({ sort: '-imageSize' });
+  assert.equal(desc.ok, true);
+  assert.deepEqual(desc.data.rows.map((r) => r.imageSize), [17, 16, 15, 14, 13, 12, 11], '大 → 小（界面「大小（大→小）」就是它）');
+  assert.deepEqual(desc.data.rows.map((r) => r.stem), ['zz1', 'd1', 'c1', 'b2', 'b1', 'a2', 'a1']);
+
+  // 排序**不影响** total 与 facets（SPEC §5.1：facets 恒按全库）
+  assert.equal(asc.data.total, 7);
+  assert.equal(desc.data.total, 7);
+  assert.deepEqual(desc.data.facets.folders.map((f) => f.value).sort(), ['AA', 'BB', 'CC', 'DD', 'ZZ']);
+
+  // 分页 + 排序一起用：两页不重叠、合起来正好 7 条
+  const p1 = q({ sort: '-imageSize', limit: 3 });
+  const p2 = q({ sort: '-imageSize', limit: 3, offset: 3 });
+  assert.deepEqual(p1.data.rows.map((r) => r.stem), ['zz1', 'd1', 'c1']);
+  assert.deepEqual(p2.data.rows.map((r) => r.stem), ['b2', 'b1', 'a2']);
+  assert.equal(p1.data.total, 7, 'total 与排序/分页无关');
+  assert.deepEqual(p1.data.rows.filter((a) => p2.data.rows.some((b) => b.uid === a.uid)), []);
+});
+
+test('I10 ⭐⭐ archiveSize 排序 + **NULL 位次**（无包条目 = NULL，不是 0）', () => {
+  // 夹具：有包 a1=110 / b1=130 / d1=160；无包 a2 / b2 / c1 / zz1 ⇒ archiveSize = NULL
+  const asc = q({ sort: 'archiveSize' });
+  assert.equal(asc.ok, true, 'archiveSize 必须是合法排序键（实得 ' + (asc.ok ? '' : asc.error.code) + '）');
+  // ⚠️ **NULL 排最前**（SQLite 把 NULL 当最小值）+ NULL 之间按 a.uid 兜底 ⇒ 分页确定
+  assert.deepEqual(asc.data.rows.map((r) => r.stem), ['a2', 'b2', 'c1', 'zz1', 'a1', 'b1', 'd1']);
+  assert.deepEqual(asc.data.rows.slice(0, 4).map((r) => r.archiveSize), [null, null, null, null]);
+  assert.deepEqual(asc.data.rows.slice(4).map((r) => r.archiveSize), [110, 130, 160]);
+
+  const desc = q({ sort: '-archiveSize' });
+  assert.equal(desc.ok, true);
+  // ⚠️ **NULL 排最后** ⇒ 界面按「包大小（大→小）」时无包条目落在末尾
+  assert.deepEqual(desc.data.rows.map((r) => r.stem), ['d1', 'b1', 'a1', 'a2', 'b2', 'c1', 'zz1']);
+  assert.deepEqual(desc.data.rows.slice(0, 3).map((r) => r.archiveSize), [160, 130, 110]);
+  assert.deepEqual(desc.data.rows.slice(3).map((r) => r.archiveSize), [null, null, null, null]);
+
+  // NULL 是 **null 而不是 0**：界面显示「无包」而不是「0 B」
+  assert.equal(asc.data.rows[0].archiveSize, null);
+  assert.ok(!asc.data.rows.some((r) => r.archiveSize === 0), '无包条目不许被写成 0 字节');
+  // 常见的错法：按包体积排序时用 INNER JOIN ⇒ 无包条目**整行消失**（7 → 3）
+  assert.equal(asc.data.rows.length, 7, '无包条目必须仍在列表里（不是被 INNER JOIN 丢掉）');
+  assert.equal(asc.data.total, 7);
+  assert.equal(desc.data.total, 7);
+});
+
+test('I11 ⭐ 体积键分页在**含 NULL** 时仍然确定（不会同一行出现在两页）', () => {
+  const all = q({ sort: 'archiveSize', limit: 100 }).data.rows.map((r) => r.uid);
+  const pages = [];
+  for (let off = 0; off < 7; off += 2) pages.push(...q({ sort: 'archiveSize', limit: 2, offset: off }).data.rows.map((r) => r.uid));
+  assert.deepEqual(pages, all, '逐页拼起来必须与一次取完**同序同集合**');
+  assert.equal(new Set(pages).size, 7, '不许有重复行');
+});
+
+test('I12 ⭐⭐ 白名单 ↔ 实现**双向对齐**（12 项逐字；少一个界面点不动、多一个契约先拒）', () => {
+  assert.deepEqual([...SORT_KEYS], [
+    'relPath', '-relPath', 'folder', '-folder', 'stem', '-stem',
+    'imageMtime', '-imageMtime', 'imageSize', '-imageSize', 'archiveSize', '-archiveSize',
+  ], 'SORT_KEYS 必须是这 12 项');
+  assert.equal(SORT_KEYS.length, 12);
+  // 契约侧：12 项**全部**通过校验（少一个/多一个都会在这条红）
+  for (const k of SORT_KEYS) {
+    assert.equal(validateCall('items', { libId: 'L1', sort: k }).ok, true, '契约不认排序键：' + k);
+  }
+  // 反向：不在实现里的键不许被契约放行（防止契约比实现宽 → 排不动却不报错）
+  for (const bogus of ['size', 'imageSizes', '-archiveSizeBytes', 'bytes']) {
+    assert.equal(validateCall('items', { libId: 'L1', sort: bogus }).ok, false, '契约不该放行：' + bogus);
+  }
 });
