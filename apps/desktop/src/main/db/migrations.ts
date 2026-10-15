@@ -97,12 +97,16 @@ CREATE TABLE IF NOT EXISTS asset_index_state (
   encoded_at_ms    INTEGER,
   encoded_mtime_ms INTEGER,
   compat_key       TEXT,
+  vector_row       INTEGER,
   attempt_count    INTEGER NOT NULL DEFAULT 0,
   last_error       TEXT,
   last_error_at_ms INTEGER,
   excluded_at_ms   INTEGER,
   checked_at_ms    INTEGER
 );`,
+  // ⚠️ 2026-10-15 **绿地修正**：加 `vector_row`（该条目在 `.gs-index.bin` 里的行号）。
+  //    理由：GSIDX v1 是**稠密矩阵**（行优先），引擎靠 `Item.vectorRow` 把命中行映射回条目 ——
+  //    没有这一列，索引与条目就对不上。它属**过程层**（索引任务写，由 S3 写入），不是「迟早要用」的列。
   // ⚠️ 本批**不物化** `needs_reencode`（提案有）：待重编码 = "当前 mtime ≠ encoded_mtime_ms" 或
   //    "库 compat_key ≠ 本行 compat_key"，都是**跨表比较**，物化成一列既无法索引又要对账
   //    （设计基线 §1.2）。等浏览页真要筛这一档，再加列 + 对账检查（一条迁移）。

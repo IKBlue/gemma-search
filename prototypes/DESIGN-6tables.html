@@ -211,6 +211,7 @@ pre .c { color: #86868b; } pre .k { color: #ff9f0a; } pre .s { color: #7fd6a0; }
       <tr><td class="f">encoded_at_ms</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d"><b>成功编码时刻</b>；NULL = 从未成功。</td></tr>
       <tr><td class="f">encoded_mtime_ms</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d">编码时该文件的 mtime ⇒ 与当前 mtime 不等 = <b>待重编码</b>。</td></tr>
       <tr><td class="f">compat_key</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d">编码时用的兼容键 ⇒ 与库的 compat_key 不等 = 待重编码（模型换了）。</td></tr>
+      <tr><td class="f">vector_row</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d"><b>该条目在 <span class="mono">.gs-index.bin</span> 里的行号</b>（索引任务写）—— GSIDX 是稠密矩阵，引擎靠它把命中行映射回条目（2026-10-15 绿地修正）。</td></tr>
       <tr><td class="f">attempt_count</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">DEFAULT 0</span></td><td class="d">尝试次数。</td></tr>
       <tr><td class="f">last_error · last_error_at_ms</td><td class="t">TEXT · INTEGER</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d"><b>失败原因</b> —— 没有它，「编码失败」这一档无法解释。</td></tr>
       <tr><td class="f">excluded_at_ms</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d">用户<b>主动排除</b>索引（意图，优先级最高）。</td></tr>

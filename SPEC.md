@@ -90,6 +90,7 @@
 | `encoded_at_ms` | INTEGER NULL | **成功编码时刻**；NULL = 从未成功 |
 | `encoded_mtime_ms` | INTEGER NULL | 编码时该文件的 mtime ⇒ 与当前 mtime 不等 = **待重编码（算出来的，不是存的）** |
 | `compat_key` | TEXT NULL | 编码时用的兼容键 ⇒ 与库的 `compat_key` 不等 = 待重编码（模型换了） |
+| `vector_row` | INTEGER NULL | **该条目在 `.gs-index.bin` 里的行号**（索引任务写）。GSIDX 是**稠密矩阵**，引擎靠它把命中行映射回条目 —— 没有它索引与条目对不上（2026-10-15 绿地修正） |
 | `attempt_count` | INTEGER NOT NULL DEFAULT 0 | 尝试次数 |
 | `last_error` · `last_error_at_ms` | TEXT · INTEGER NULL | 失败原因（没有它，「编码失败」这一档无法解释） |
 | `excluded_at_ms` | INTEGER NULL | 用户**主动排除**索引（意图，优先级最高） |

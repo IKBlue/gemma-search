@@ -322,7 +322,7 @@ test('G7 ⭐ 列集 = 设计基线 §1（本批刻意不加的列一个都不许
     assert.deepEqual(cols('asset_file'),
       ['uid', 'role', 'rel_path', 'ext', 'size_bytes', 'mtime_ms', 'width', 'height']);
     assert.deepEqual(cols('asset_index_state'),
-      ['uid', 'encoded_at_ms', 'encoded_mtime_ms', 'compat_key', 'attempt_count', 'last_error', 'last_error_at_ms', 'excluded_at_ms', 'checked_at_ms']);
+      ['uid', 'encoded_at_ms', 'encoded_mtime_ms', 'compat_key', 'vector_row', 'attempt_count', 'last_error', 'last_error_at_ms', 'excluded_at_ms', 'checked_at_ms']);
 
     // 提案里有、本批**刻意不加**的列（加列 = 一条迁移；"迟早要用"不是理由）
     for (const [table, gone] of [
