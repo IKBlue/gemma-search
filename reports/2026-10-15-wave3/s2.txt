@@ -469,3 +469,31 @@ S2 证据 · 100 条素材建库 + 导入（绿地 6 张表）  task-59  执行:
      命中 **0** ✓（这次才是真正的 0 残留）
      这正是纪律 17 的用处：如果我先写结论，就会又错一次。
 ================================================================================
+
+================================================================================
+【⑳ 子切片 3：**注入式能红**（用我自己的 row-types.ts）+ 还原 + 0 残留 —— 卡成】
+  ① 注入（改我自己的产品文件 row-types.ts）：把 **必填**字段 imageSize 错标进 ITEM_NULLABLE_FIELDS，
+     即在集合开头插一行 `'imageSize',   // ← ④ 注入探针（临时）`。
+     命令：node --test --test-isolation=none --test-name-pattern I11 apps/desktop/tests/db-import.test.mjs
+     结果：**✖ I11**（tests 1 · pass 0 · fail 1），断言原文：
+       AssertionError [ERR_ASSERTION]: **imageSize 必须**不可空**（它由 NOT NULL 列/库根合成承载）**
+     ⇒ 证明 I11 的**契约侧**断言不是恒真：契约一漂移它当场红。
+  ② 还原（撤掉探针行）⇒ 探针残留 grep = **0** ⇒ 复跑整个文件：**EXIT=0 · tests 17 · pass 17 · fail 0**。
+  ③ 0 残留 grep（**先跑、贴输出、后结论**，纪律 17）：
+     rg "FROM items|INTO items|UPDATE items|FROM library\b|item_count|registered_at\b|vector_row\b|ITEM_FIELD_COLUMNS\["
+        apps/desktop/tests/db-import.test.mjs ⇒ **命中 0**
+
+  两类红的区别（如实标注，不混为一谈）：
+    · **真红**（§19）：I11 两次被真实 DDL 拦住（uid 主键 / attempt_count 计数器）—— 证明 DDL 侧断言非恒真；
+    · **注入红**（本节）：契约侧被我自己改坏 ⇒ 证明契约侧断言非恒真。
+    两侧各有一次能红证据 ⇒ I11 这两个方向都不是「摆设断言」。
+
+  ⭐ task-59 验收对照：
+    · 100 条素材自洽（含缺包）：asset 100 · asset_file 200 · 缺包 0 ✓（§2）
+    · 幂等 + UNIQUE(lib_id, rel_path) 真拒绝 ✓（§2）
+    · 源库摘要不变（sha1 变化 0）✓（§2）
+    · **M0 绿**（0 → 60 条 + 取件真出文件）✓（§14）
+    · db-rebuild **5/5** ✓ · db-import **17/17** ✓（§17/§19）
+    · 6 个测试文件里本卡负责的 2 个全部过线；其余 3 个归 S2b（main-migrator）、
+      sqlite-tmp-dir 已由 S6 改成纯 SQLite 负载且绿（§更正记录）
+================================================================================

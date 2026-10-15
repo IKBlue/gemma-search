@@ -26,7 +26,7 @@ import type { ImageFormat } from './magic.ts';
 import { normRelDir, uidOf } from './uid.ts';
 import { messageOf } from './errors.ts';
 // ⚠️ 「库内产物」的判据**只有一份**：engine/src/gs-names.ts（U11：'.gs-' 前缀不够，.gs.db 家族不匹配）
-import { isReservedLibraryName } from './gs-names.ts';
+import { classifyEntryName } from './gs-names.ts';
 
 /** 配对到的压缩包 */
 export interface ScannedArchive {
@@ -135,13 +135,15 @@ export function scanLibrary(root: string, { libId = '', maxSkippedListed = 50 }:
     for (const ent of entries) {
       const full = path.join(dir, ent.name);
       const rel = path.relative(root, full);
-      // ① 跳过库内产物（唯一判据）与隐藏项 —— **目录也不进**（`.gs-staging` 里的暂存图不是素材）
-      if (isReservedLibraryName(ent.name)) {
+      // ① 跳过库内产物与隐藏项 —— **目录也不进**（`.gs-staging` 里的暂存图不是素材）。
+      //    分类判据**只有一份**：gs-names.ts 的 classifyEntryName（DF-3 起指纹/素材摘要也用它）。
+      const cls = classifyEntryName(ent.name);
+      if (cls === 'reserved') {
         reservedCount += 1;
         if (reservedListed.length < maxSkippedListed) reservedListed.push(rel);
         continue;
       }
-      if (ent.name.startsWith('.')) {
+      if (cls === 'hidden') {
         hiddenCount += 1;
         if (hiddenListed.length < maxSkippedListed) hiddenListed.push(rel);
         continue;
