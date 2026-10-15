@@ -35,14 +35,20 @@ import { LABELS, itemPath } from '../router/paths.ts'
 import { useDocumentTitle } from '../utils/useDocumentTitle.ts'
 import { resolveLibrary } from '../utils/library-root.ts'
 import useLibraryConfig from '../hooks/useLibraryConfig.ts'
+import { useEngine } from '../hooks/useEngine.ts'
 import useToast from '../hooks/useToast.ts'
 import { useBrowseStore } from '../store/browse.ts'
 import type { BrowseFetcher, BrowsePageData } from '../store/browse.ts'
 import { SORTS, facetOptions, facetHidden } from '../utils/browse.ts'
-import type { BrowseRow, SortDir, SortKey } from '../utils/browse.ts'
+import type { BrowseRow } from '../utils/browse.ts'
 
-/** 一次取多少条（S8 支持 offset/limit；滚动到底再取下一页 = 后续卡片） */
+/** 一次取多少条（S8：limit 默认 100 / **上限 500**；滚动到底再取下一页 = 后续卡片） */
 const PAGE_SIZE = 200
+
+/** 主进程回显的 wire sort 串 → 中文（**认不出来原样显示**，不猜）—— `page.sort` 是权威 */
+function sortLabel(wire: string): string {
+  return SORTS.find((s) => s.wire === wire)?.label ?? wire
+}
 
 /** 有包/缺包的三个档（null = 不筛） */
 const ARCHIVE_CHOICES: ReadonlyArray<{ key: string; label: string; value: boolean | null }> = Object.freeze([
@@ -53,11 +59,12 @@ const ARCHIVE_CHOICES: ReadonlyArray<{ key: string; label: string; value: boolea
 
 export default function BrowsePage() {
   useDocumentTitle(LABELS.browse)
+  const { invoke } = useEngine()
   const { message, tone, show } = useToast()
   const { data: configData, loading: configLoading } = useLibraryConfig()
   const {
-    loading, error, rows, total, libraryTotal, facets, filters, sort, direction,
-    setFilter, resetFilters, setSort, load, loadLibraryTotal, view,
+    loading, error, rows, total, libraryTotal, facets, page, filters, sortKey,
+    setFilter, resetFilters, setSortKey, load, loadLibraryTotal, view,
   } = useBrowseStore()
 
   const lib = resolveLibrary(configData)
@@ -80,15 +87,13 @@ export default function BrowsePage() {
    * 其余（store / 网格 / 空态 / 筛选排序）一行都不用改。
    */
   const fetcher = useMemo<BrowseFetcher>(() => {
-    return async () => ({
-      ok: false,
-      error: {
-        code: 'ITEMS_NOT_WIRED',
-        message: 'items 方法尚未接通（等待 S8 落地）',
-        userMessage: '这一版暂时读不到列表：只读列表方法（items）还没接通。检索与诊断页仍可用。',
-      },
-    })
-  }, [])
+    return async (q) => {
+      // S8 已落地：`items` 在契约白名单里（`{rows,total,facets,page}`）。
+      // Adapter 保证：永不抛、成功给 data、失败给非空 userMessage ⇒ 这里不需要第二套错误处理。
+      const r = await invoke<BrowsePageData>('items', q)
+      return r.ok ? { ok: true, data: r.data } : { ok: false, error: r.error }
+    }
+  }, [invoke])
 
   // 进页面（或库变了）时：拉一次总数 + 当前页
   const bootRef = useRef('')
@@ -102,7 +107,7 @@ export default function BrowsePage() {
   }, [libId, fetcher, load, loadLibraryTotal])
 
   // 筛选/排序变了 ⇒ 重新取（真数据路径由主进程筛/排；本地不重排，避免第二份判断）
-  const filterKey = JSON.stringify({ filters, sort, direction })
+  const filterKey = JSON.stringify({ filters, sortKey })
   const lastKeyRef = useRef(filterKey)
   useEffect(() => {
     if (!libId) return
@@ -167,11 +172,8 @@ export default function BrowsePage() {
             「可见行数」（number），不是尺寸档 —— 传 `size="sm"` 会 TS2322，传数字又会改下拉外观。 */}
         <Field
           className="auto"
-          value={sort}
-          onChange={(e) => {
-            const hit = SORTS.find((s) => s.key === e.target.value)
-            setSort((hit?.key ?? 'name') as SortKey, (hit?.dir ?? 'asc') as SortDir)
-          }}
+          value={sortKey}
+          onChange={(e) => setSortKey(e.target.value)}
           aria-label="排序方式"
         >
           {SORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
@@ -249,6 +251,15 @@ export default function BrowsePage() {
           </div>
 
           {toolbar}
+
+          {/* 如实报「已载入 N / 共 M」与「按什么排」—— 主进程回显的 page 就是这两句的出处。
+              不写的话用户会以为屏幕上这些就是全部（而这一版一次只取一页）。 */}
+          {v === 'ready' ? (
+            <p className="muted small mb-2" data-testid="browse-count">
+              已载入 <b>{rows.length}</b> / 共 <b>{total}</b> 条
+              {page ? ` · 按 ${sortLabel(page.sort)} 排序` : ''}
+            </p>
+          ) : null}
 
           {v === 'loading' && rows.length === 0 ? (
             <div className="panel"><p className="muted small">正在读取列表…</p></div>

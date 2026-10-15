@@ -2,17 +2,17 @@
 //
 // ── 为什么必须虚拟化（SPEC：3594+ 条不虚拟化会卡死）──────────────────────────
 //   每一格都要挂 <img>（走 thumb://），全量渲染 = 几千个请求 + 几千个 DOM 节点。
-//   所以只渲染**视口内的那几行**，其余用两个撑高的占位块顶着（`useVirtualizer` 的标准做法）。
-//   ⚠️ 用 `@tanstack/react-virtual`（AGENTS §1 选定的轮子），**不自己写滚动数学**。
+//   所以只渲染**视口内的那几行**（`@tanstack/react-virtual`，AGENTS §1 选定的轮子；
+//   不自己写滚动数学）。
 //
-// ── 布局取整为什么这么写 ──────────────────────────────────────────────────
+// ── 布局取整 ──────────────────────────────────────────────────────────────
 //   卡片最小宽度 / 间距都从**令牌**读（`--layout-browse-cell` / `--space-3`），不写像素；
-//   列数由「容器宽 ÷ 卡片最小宽」取整得出。写死 4 列会在窄窗口下挤成一条缝。
+//   列数 = 容器宽 ÷ 卡片最小宽 取整。写死 4 列会在窄窗口下挤成一条缝。
 import { useEffect, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import { humanSize } from '../utils/format.ts'
-import { thumbSrc } from '../utils/browse.ts'
+import { hasArchive, rowLabel, thumbSrc } from '../utils/browse.ts'
 import type { BrowseRow } from '../utils/browse.ts'
 
 const FALLBACK_CELL = 148      // 令牌读不到时的兜底宽度（正常路径永远走 var(--layout-browse-cell)）
@@ -20,11 +20,9 @@ const FALLBACK_GAP = 12
 const ROW_H = 196              // 单行高度（缩略图 + 两行文字）；固定值才能让虚拟滚动精确
 
 function readToken(name: string, fallback: number): number {
-  // ⚠️ 这里的 `typeof document === 'undefined'` 是**刻意的**，不是疏忽：
-  //    `document` 在 DOM lib 里是非可选全局，但 node:test / SSR 下它可能真的不存在 ——
-  //    `typeof x === 'undefined'` 是唯一**不会抛 ReferenceError** 的探测写法。
-  //    ⚠️ 它同时是 `copy.test.mjs` 的 **CP-3**（界面字符串里不许出现字面量 undefined）命中的地方，
-  //       所以本文件在 CP-3 的 EXEMPT_FILES 里有**逐条豁免**（见那里的理由）—— 别把它当成漏网。
+  // ⚠️ 这里的 `typeof document === 'undefined'` 是**刻意的**（node:test / SSR 下 document 可能不存在，
+  //    而 `document === undefined` 在缺该全局的环境里会抛 ReferenceError）。
+  //    它也是 `copy.test.mjs` 的 CP-3 命中的地方 ⇒ 本文件在 CP-3 的 EXEMPT_FILES 里有**逐条豁免**。
   if (typeof document === 'undefined') return fallback
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
   const n = Number.parseFloat(v)
@@ -32,9 +30,10 @@ function readToken(name: string, fallback: number): number {
 }
 
 export type BrowseGridProps = {
+  /** 当前库（行里的 libId 与它一致；行没带就用它 —— 缺任何一个都不拼 URL） */
   libId: string
   rows: BrowseRow[]
-  /** 行总数（= 主进程给的 `total`，**可能大于已拉到的行数**）——只用于滚动高度的诚实呈现 */
+  /** 行总数（= `items` 的 `total`，**可能大于已拉到的行数**）——只用于诚实呈现 */
   total: number
   onOpen: (row: BrowseRow) => void
 }
@@ -42,8 +41,8 @@ export type BrowseGridProps = {
 /** 一格：缩略图 + 名称 + 体积/包角标。整格可点（不是链接套按钮 —— 见 dom-validity V1/V2） */
 function Cell({ row, libId, onOpen }: { row: BrowseRow; libId: string; onOpen: (row: BrowseRow) => void }) {
   const [failed, setFailed] = useState(false)
-  const label = row.stem || row.relPath || row.uid
-  // 库里一份素材的 libId 与页面当前库一致；行里没带就用页面的（缺任何一个都不拼 URL）
+  const label = rowLabel(row)
+  const packed = hasArchive(row)
   const src = thumbSrc(row.libId || libId, row.uid)
   const noPreview = failed || src === null
   return (
@@ -51,7 +50,7 @@ function Cell({ row, libId, onOpen }: { row: BrowseRow; libId: string; onOpen: (
       type="button"
       onClick={() => onOpen(row)}
       data-browse-cell={row.uid}
-      data-hasarchive={row.hasArchive ? 'yes' : 'no'}
+      data-hasarchive={packed ? 'yes' : 'no'}
       className="flex flex-col items-stretch gap-1 border border-line rounded-card bg-surface-raised p-2 text-left hover:border-accent"
       title={row.relPath || label}
     >
@@ -70,9 +69,9 @@ function Cell({ row, libId, onOpen }: { row: BrowseRow; libId: string; onOpen: (
       </span>
       <span className="truncate text-caption text-ink">{label}</span>
       <span className="flex items-center gap-1 text-micro muted">
-        <span>{humanSize(row.size) || '—'}</span>
+        <span>{humanSize(row.imageSize) || '—'}</span>
         <span aria-hidden="true">·</span>
-        <span>{row.hasArchive ? '有包' : '缺包'}</span>
+        <span>{packed ? '有包' : '缺包'}</span>
         {row.folder ? <span className="truncate">· {row.folder}</span> : null}
       </span>
     </button>
@@ -99,7 +98,7 @@ export default function BrowseGrid({ libId, rows, total, onOpen }: BrowseGridPro
       setCellW(min)
     }
     measure()
-    // 同上：`typeof X === 'undefined'` 是不抛错的探测写法（ResizeObserver 在旧环境可能没有）
+    // 同上：`typeof X === 'undefined'` 是不抛错的存在性探测（旧环境可能没有 ResizeObserver）
     if (typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(measure)
     ro.observe(el)
