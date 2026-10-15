@@ -18,6 +18,8 @@
 //   · vectorRow / vectorSource —— 刚登记、还没入索引的条目没有行号，也不该发明 -1 哨兵
 //   · 其余 10 个 —— 定义上必然存在（没有 preview 图就不算一条条目），一律 NOT NULL
 
+import path from 'node:path';
+
 import { GsDbError } from './errors.ts';
 import type { SqlValue } from './sqlite-adapter.ts';
 
@@ -246,6 +248,100 @@ export function sqlRowToItemRecord(row: Record<string, unknown>, where: string):
     archiveMtime: optionalInteger(rec, 'archiveMtime', where),
     vectorRow: optionalInteger(rec, 'vectorRow', where),
     vectorSource: optionalText(rec, 'vectorSource', where),
+  };
+}
+
+/**
+ * 读条目用的**唯一** SELECT（S2；ItemStorePort 与测试**共用同一条**）。
+ *
+ * ⚠️ 为什么要提成常量（AGENTS P1）：测试里再抄一份 SQL 就是**第二份实现** ——
+ *    两份会各自漂移，测试最终会去验证一个**已经不存在**的查询。
+ * ⚠️ 只提**只读** SELECT：写语句（INSERT/UPDATE/DELETE）不进这里，测试也不该拿它改夹具库。
+ */
+const ASSET_ITEM_COLUMNS: string =
+  'a.uid AS uid, a.lib_id AS lib_id, a.folder AS folder, a.stem AS stem, a.display_name AS display_name,' +
+  ' a.rel_path AS rel_path,' +
+  ' p.ext AS image_ext, p.size_bytes AS image_size, p.mtime_ms AS image_mtime,' +
+  ' r.rel_path AS archive_rel_path, r.ext AS archive_ext, r.size_bytes AS archive_size, r.mtime_ms AS archive_mtime,' +
+  ' s.vector_row AS vector_row';
+const ASSET_ITEM_JOINS: string =
+  ' FROM asset a' +
+  " LEFT JOIN asset_file p ON p.uid = a.uid AND p.role = 'preview'" +
+  " LEFT JOIN asset_file r ON r.uid = a.uid AND r.role = 'archive'" +
+  ' LEFT JOIN asset_index_state s ON s.uid = a.uid';
+
+/** 全库条目（按 rel_path 升序 —— 摘要/对账用同一个次序，免得两边各有各的顺序） */
+export const ASSET_ITEM_SELECT_ALL_SQL: string =
+  'SELECT ' + ASSET_ITEM_COLUMNS + ASSET_ITEM_JOINS + ' WHERE a.lib_id = ? ORDER BY a.rel_path';
+
+/** 单条（getItem 用） */
+export const ASSET_ITEM_SELECT_ONE_SQL: string =
+  'SELECT ' + ASSET_ITEM_COLUMNS + ASSET_ITEM_JOINS + ' WHERE a.lib_id = ? AND a.uid = ?';
+
+/**
+ * **绿地口径**：三表连接行 → ItemRecord（S2；ItemStorePort 的读路径用）。
+ *
+ * 为什么需要它：旧 `items` 是一张宽表（18 列正好等于 ItemRecord 的 18 个字段），
+ * 新 schema 把它拆成 `asset`（条目）+ `asset_file`（文件角色）+ `asset_index_state`（索引状态）
+ * ⇒ 读路径必须**合成**。取值器与 sqlRowToItemRecord **同一套**（类型/可空性判据仍然只有一份）。
+ *
+ * 三处**新 schema 里没有、只能合成**的字段（写在这里，而不是散到各个调用点）：
+ *   · `absPath` / `archiveAbsPath` —— 新 schema 只存**相对路径**（设计基线 §1.2）
+ *     ⇒ 绝对路径 = 库根 + 相对路径（`root` 由调用方给，本层不猜库根）；
+ *   · `archiveName` —— = archiveRelPath 的主干名（没有包 ⇒ null）；
+ *   · `vectorSource` —— 新 schema **不存**它（旧宽表的诊断列）⇒ 恒 null。
+ *
+ * 列名约定（SQL 里的别名与这里一一对应，改别名就要改这里）：
+ *   uid · lib_id · folder · stem · display_name · rel_path
+ *   image_ext/image_size/image_mtime（preview 行）· archive_rel_path/archive_ext/archive_size/archive_mtime（archive 行，LEFT JOIN ⇒ 可 null）
+ *   vector_row（asset_index_state，LEFT JOIN ⇒ 未编码的条目为 null）
+ *
+ * @throws GsDbError(IMPORT_RECORD_INVALID) —— 缺列/类型不符**响亮报**，不把 null 悄悄塞进条目
+ */
+export function joinedRowToItemRecord(
+  row: Record<string, unknown>,
+  root: string,
+  where: string,
+): ItemRecord {
+  const g = (key: string): unknown => (Object.hasOwn(row, key) ? row[key] : undefined);
+  // 先把**别名列**翻成 ItemRecord 的字段名，再交给同一套取值器（不重写类型检查）
+  const byField: Record<string, unknown> = {
+    uid: g('uid'),
+    libId: g('lib_id'),
+    folder: g('folder'),
+    stem: g('stem'),
+    name: g('display_name'),
+    relPath: g('rel_path'),
+    imageExt: g('image_ext'),
+    imageSize: g('image_size'),
+    imageMtime: g('image_mtime'),
+    archiveRelPath: g('archive_rel_path'),
+    archiveExt: g('archive_ext'),
+    archiveSize: g('archive_size'),
+    archiveMtime: g('archive_mtime'),
+    vectorRow: g('vector_row'),
+  };
+  const relPath = requireText(byField, 'relPath', where);
+  const archiveRelPath = optionalText(byField, 'archiveRelPath', where);
+  return {
+    uid: requireText(byField, 'uid', where),
+    libId: requireText(byField, 'libId', where),
+    folder: requireText(byField, 'folder', where),
+    stem: requireText(byField, 'stem', where),
+    name: requireText(byField, 'name', where),
+    relPath,
+    absPath: path.join(root, relPath),
+    imageExt: requireText(byField, 'imageExt', where),
+    imageSize: requireInteger(byField, 'imageSize', where),
+    imageMtime: requireInteger(byField, 'imageMtime', where),
+    archiveName: archiveRelPath === null ? null : path.basename(archiveRelPath),
+    archiveRelPath,
+    archiveAbsPath: archiveRelPath === null ? null : path.join(root, archiveRelPath),
+    archiveExt: optionalText(byField, 'archiveExt', where),
+    archiveSize: optionalInteger(byField, 'archiveSize', where),
+    archiveMtime: optionalInteger(byField, 'archiveMtime', where),
+    vectorRow: optionalInteger(byField, 'vectorRow', where),
+    vectorSource: null,
   };
 }
 

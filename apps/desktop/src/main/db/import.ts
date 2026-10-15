@@ -7,11 +7,19 @@
 //     —— 解析一律交给引擎的 readIndexBin，本层不实现第二份 GSIDX 解析（AGENTS P1）
 //   · 落点路径 = 由调用方先用 openGsDb() 打开并把连接传进来
 //
+// ── 2026-10-15 · S2 改写：落点从**旧表**（library / items）换成**绿地 6 张表**的事实层 ──────
+//   · 写 `asset`（条目）+ `asset_file`（文件角色，**缺包 = 少一行**，不是 NULL 块）；
+//   · **不再**写 `library`：绿地口径下库注册表是 `library_registry`，它在 **app.db**（应用级），
+//     唯一写入口是 library* 那组方法（DESIGN-6tables §1.1/§2.3）；本层只需要 libId 做 `asset.lib_id`。
+//   · uid **认领**：先按 (lib_id, rel_path) 命中 ⇒ 沿用库里原 uid（"路径才是身份"，见 §1.2）；
+//   · `discovered_at_ms` = **首次**被发现时刻 ⇒ 更新时**不覆盖**；
+//   · 旧表时代的那条外键前置条件（先建 library 行）**随之消失**：`asset.lib_id` 是普通 TEXT（§0）。
+//
 // ── 导入语义：**镜像**（这件事必须写死，不能让下一个人猜）────────────────────────
-//   导入完成后，items 表里属于该库的行集 == items.json 里的 uid 集：
+//   导入完成后，`asset` 里属于该库的行集 == items.json 里的 rel_path 集：
 //     · 源里有、库里没有 ⇒ INSERT          （inserted）
-//     · 源里有、库里也有 ⇒ 整行覆盖为源值   （updated，ITEM_UPSERT_SQL 的 DO UPDATE）
-//     · 源里没有、库里有 ⇒ **删除**         （deleted；否则库里会留幽灵行，且在库变小时计数必然对不上）
+//     · 源里有、库里也有 ⇒ 整行覆盖为源值   （updated；**discovered_at_ms 除外**，它是首次时刻）
+//     · 源里没有、库里有 ⇒ **删除**         （deleted；asset_file 由 ON DELETE CASCADE 跟着走）
 //   ⇒ 本函数只接受**全量** items.json，不要拿它导增量/片段文件。
 //   ⇒ 镜像让"导入后行数 == 文件行数"成为可断言的等式（要求①的计数校验就建立在它上面）。
 //
@@ -28,12 +36,7 @@
 import { readIndexBin, readItems } from '../../../../../packages/engine/src/index.ts';
 import type { IndexItem } from '../../../../../packages/engine/src/index.ts';
 import { GsDbError, describeError } from './errors.ts';
-import {
-  ITEM_UPSERT_SQL,
-  itemRecordToSqlValues,
-  parseItemRecord,
-  type ItemRecord,
-} from './row-types.ts';
+import { parseItemRecord, type ItemRecord } from './row-types.ts';
 import type { SqlDatabase } from './sqlite-adapter.ts';
 
 /** 被导入的那个库（library 表的行；FK 的前置条件就是它） */
@@ -94,8 +97,10 @@ export interface ImportItemsReport {
   dbCount: number;
   /** 源记录里出现的、18 字段之外的键（不致命，如实报出来） */
   unknownFields: string[];
-  /** library 行是本次新建的（false = 已存在，只更新） */
+  /** 旧表时代是"library 行本次新建"；绿地后恒为 false（库注册表归 library* 方法写，本层不写） */
   libraryCreated: boolean;
+  /** 本次写入的 asset_file 行里的**包行**数（预览行数 = 条目数；缺包的条目少一行） */
+  archiveFileRows?: number;
   /** 恒为 'mirror'：见文件头的语义说明 */
   mode: 'mirror';
 }
@@ -105,20 +110,48 @@ export interface ImportItemsReport {
 // 先插入（已存在则什么都不做），再单独 UPDATE：
 // 这样"哪些可选字段本次没提供"就能用 null 表达（COALESCE(null, 旧值) = 保留旧值），
 // 而 fallback 是 NOT NULL，不能靠 null 表达"没提供" —— 所以插入与更新分成两条语句。
-const INSERT_LIBRARY_SQL: string =
-  'INSERT INTO library (lib_id, root, fallback, registered_at, updated_at) VALUES (?, ?, ?, ?, ?)' +
-  ' ON CONFLICT(lib_id) DO NOTHING';
+// 绿地 6 张表口径的 SQL（DESIGN-6tables §1.2）：只有 asset / asset_file，**没有** items / library。
+const SELECT_ASSET_UIDS_SQL: string = 'SELECT uid FROM asset WHERE lib_id = ?';
+const SELECT_ASSET_UID_BY_PATH_SQL: string = 'SELECT uid FROM asset WHERE lib_id = ? AND rel_path = ?';
+const INSERT_ASSET_SQL: string =
+  'INSERT INTO asset (uid, lib_id, folder, stem, display_name, rel_dir, rel_path, discovered_at_ms)' +
+  ' VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
+/** 更新**不碰** discovered_at_ms：它是"首次被发现时刻"，认领与改名都要保留第一次的值 */
+const UPDATE_ASSET_SQL: string =
+  'UPDATE asset SET lib_id = ?, folder = ?, stem = ?, display_name = ?, rel_dir = ?, rel_path = ? WHERE uid = ?';
+const DELETE_ASSET_SQL: string = 'DELETE FROM asset WHERE uid = ? AND lib_id = ?';
+const COUNT_ASSETS_SQL: string = 'SELECT COUNT(*) AS n FROM asset WHERE lib_id = ?';
+const DELETE_ASSET_FILES_SQL: string = 'DELETE FROM asset_file WHERE uid = ?';
+/**
+ * \`asset_index_state\` 的 1:1 行（设计基线 §1.2「1:1 于条目」）。
+ *
+ * ⚠️ S2 修 M0（真根因）：源 items.json **带着 vectorRow**，而它是"命中行 → 条目"的**唯一映射** ——
+ *    GSIDX 是稠密矩阵，引擎靠 \`Item.vectorRow\` 把命中行还原成条目。
+ *    只写 asset/asset_file 会让 vector_row 全 NULL ⇒ 检索命中一条都映射不回来 ⇒ **界面 0 条**
+ *    （e2e m0-real 实测：invoke search → ok，但结果 0 条）。
+ *    这里**只种这一列**；encoded_at_ms / compat_key 等编码态仍归索引任务写（唯一写入口不变）。
+ */
+const UPSERT_STATE_VECTOR_ROW_SQL: string =
+  'INSERT INTO asset_index_state (uid, vector_row) VALUES (?, ?)' +
+  ' ON CONFLICT(uid) DO UPDATE SET vector_row = excluded.vector_row';
 
-const UPDATE_LIBRARY_SQL: string =
-  'UPDATE library SET root = ?, fallback = COALESCE(?, fallback), compat = COALESCE(?, compat),' +
-  ' compat_key_version = COALESCE(?, compat_key_version), model_repo = COALESCE(?, model_repo),' +
-  ' model_revision = COALESCE(?, model_revision), dim = COALESCE(?, dim), seq = COALESCE(?, seq),' +
-  ' meta_json = COALESCE(?, meta_json), updated_at = ? WHERE lib_id = ?';
+const UPSERT_ASSET_FILE_SQL: string =
+  'INSERT INTO asset_file (uid, role, rel_path, ext, size_bytes, mtime_ms, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?)' +
+  ' ON CONFLICT(uid, role) DO UPDATE SET rel_path = excluded.rel_path, ext = excluded.ext,' +
+  ' size_bytes = excluded.size_bytes, mtime_ms = excluded.mtime_ms, width = excluded.width, height = excluded.height';
 
-const SELECT_UIDS_SQL: string = 'SELECT uid FROM items WHERE lib_id = ?';
-const DELETE_ITEM_SQL: string = 'DELETE FROM items WHERE uid = ? AND lib_id = ?';
-const COUNT_ITEMS_SQL: string = 'SELECT COUNT(*) AS n FROM items WHERE lib_id = ?';
-const UPDATE_ITEM_COUNT_SQL: string = 'UPDATE library SET item_count = ?, updated_at = ? WHERE lib_id = ?';
+/** relPath ⇒ 相对目录的**规范形**（库根 ⇒ 空串）；'\' 与 '/' 都认（items.json 用 '\'） */
+function relDirOf(relPath: string): string {
+  const i = Math.max(relPath.lastIndexOf('\\'), relPath.lastIndexOf('/'));
+  return i < 0 ? '' : relPath.slice(0, i);
+}
+
+/** 扩展名（含点、小写）；没有扩展名就给空串 —— 只在源里缺 ext 时兜底 */
+function extOf(relPath: string): string {
+  const base = relPath.slice(Math.max(relPath.lastIndexOf('\\'), relPath.lastIndexOf('/')) + 1);
+  const dot = base.lastIndexOf('.');
+  return dot <= 0 ? '' : base.slice(dot).toLowerCase();
+}
 
 // ---------------------------------------------------------------- 入参校验
 
@@ -162,7 +195,7 @@ export function readIndexItemCount(indexBinPath: string): number {
 }
 
 function readCount(db: SqlDatabase, libId: string): number {
-  const row = db.prepare(COUNT_ITEMS_SQL).get(libId);
+  const row = db.prepare(COUNT_ASSETS_SQL).get(libId);
   const n = row === undefined ? undefined : row['n'];
   if (typeof n !== 'number') {
     throw new GsDbError('UNEXPECTED_SQL_VALUE', 'COUNT(*) 没有返回数字：实际 ' + String(n));
@@ -251,40 +284,72 @@ export function importItemsFromJson(options: ImportItemsOptions): ImportItemsRep
     }
   }
 
-  // ---- ③ 单事务写：library upsert → items upsert → 删幽灵行 → 计数复核
+  // ---- ③ 单事务写：asset upsert（uid 认领）→ asset_file（每图一行 + 每包一行，缺包少一行）
+  //      → 删幽灵行 → 计数复核
   const startedAt = now();
   db.exec('BEGIN IMMEDIATE');
   try {
-    const fallback = options.library.fallback === true ? 1 : 0;
-    const libraryCreated =
-      db.prepare(INSERT_LIBRARY_SQL).run(libId, root, fallback, startedAt, startedAt).changes === 1;
-    db.prepare(UPDATE_LIBRARY_SQL).run(
-      root,
-      options.library.fallback === undefined ? null : fallback,
-      options.library.compat ?? null,
-      options.library.compatKeyVersion ?? null,
-      options.library.modelRepo ?? null,
-      options.library.modelRevision ?? null,
-      options.library.dim ?? null,
-      options.library.seq ?? null,
-      options.library.metaJson ?? null,
-      startedAt,
-      libId,
-    );
-
     const existing = new Set<string>();
-    for (const row of db.prepare(SELECT_UIDS_SQL).all(libId)) {
+    for (const row of db.prepare(SELECT_ASSET_UIDS_SQL).all(libId)) {
       const uid = row['uid'];
       if (typeof uid === 'string') existing.add(uid);
     }
 
-    const upsert = db.prepare(ITEM_UPSERT_SQL);
-    for (const record of records) upsert.run(...itemRecordToSqlValues(record));
+    const selectByPath = db.prepare(SELECT_ASSET_UID_BY_PATH_SQL);
+    const insertAsset = db.prepare(INSERT_ASSET_SQL);
+    const updateAsset = db.prepare(UPDATE_ASSET_SQL);
+    const deleteFiles = db.prepare(DELETE_ASSET_FILES_SQL);
+    const upsertFile = db.prepare(UPSERT_ASSET_FILE_SQL);
+    const upsertStateVectorRow = db.prepare(UPSERT_STATE_VECTOR_ROW_SQL);
 
-    const remove = db.prepare(DELETE_ITEM_SQL);
+    const claimed = new Set<string>();
+    let inserted = 0;
+    let updated = 0;
+    let archiveRows = 0;
+
+    for (const record of records) {
+      const relPath = record.relPath;
+      const relDir = relDirOf(relPath);
+      // 认领：先按 (lib_id, rel_path) 命中 ⇒ 沿用库里那个 uid（"路径才是身份"，DESIGN §1.2）
+      const hit = selectByPath.get(libId, relPath);
+      const hitUid = hit === undefined ? undefined : hit['uid'];
+      let uid: string;
+      if (typeof hitUid === 'string') {
+        uid = hitUid;
+        updateAsset.run(libId, record.folder, record.stem, record.name, relDir, relPath, uid);
+        updated += 1;
+      } else if (existing.has(record.uid)) {
+        uid = record.uid;   // 同一 uid、路径变了（改名）⇒ 就地更新，不新建
+        updateAsset.run(libId, record.folder, record.stem, record.name, relDir, relPath, uid);
+        updated += 1;
+      } else {
+        uid = record.uid;
+        insertAsset.run(uid, libId, record.folder, record.stem, record.name, relDir, relPath, startedAt);
+        inserted += 1;
+      }
+      claimed.add(uid);
+
+      // 文件角色：**每图一行 + 每包一行**；缺包就**少一行**（不补 NULL 块）
+      // width/height 留 NULL：只有扫描器才解像素（本层只搬 items.json 里已有的事实）
+      deleteFiles.run(uid);
+      upsertFile.run(uid, 'preview', relPath, record.imageExt || extOf(relPath),
+        record.imageSize, record.imageMtime, null, null);
+      // 命中行 → 条目的映射（M0 的根因就在这一行缺失；见 UPSERT_STATE_VECTOR_ROW_SQL 的注释）
+      upsertStateVectorRow.run(uid, record.vectorRow);
+      if (record.archiveRelPath !== null && record.archiveRelPath !== '') {
+        // size/mtime 在 DDL 里是 NOT NULL；源里"包存在但没给 size/mtime"是源的不一致，
+        // 这里记 0 而不是让整条导入失败（下一次扫描会用磁盘事实修正它）。
+        upsertFile.run(uid, 'archive', record.archiveRelPath, record.archiveExt ?? extOf(record.archiveRelPath),
+          record.archiveSize ?? 0, record.archiveMtime ?? 0, null, null);
+        archiveRows += 1;
+      }
+    }
+
+    // 镜像：源里没有的条目 ⇒ 删（asset_file 由 ON DELETE CASCADE 跟着走）
+    const remove = db.prepare(DELETE_ASSET_SQL);
     let deleted = 0;
     for (const uid of existing) {
-      if (uids.has(uid)) continue;
+      if (claimed.has(uid)) continue;
       remove.run(uid, libId);
       deleted += 1;
     }
@@ -296,15 +361,7 @@ export function importItemsFromJson(options: ImportItemsOptions): ImportItemsRep
         '入库后计数不符：期望 ' + String(records.length) + '，库里实际 ' + String(dbCount) + ' —— 已回滚',
       );
     }
-    db.prepare(UPDATE_ITEM_COUNT_SQL).run(dbCount, now(), libId);
     db.exec('COMMIT');
-
-    let inserted = 0;
-    let updated = 0;
-    for (const uid of uids) {
-      if (existing.has(uid)) updated += 1;
-      else inserted += 1;
-    }
 
     return {
       libId,
@@ -320,7 +377,10 @@ export function importItemsFromJson(options: ImportItemsOptions): ImportItemsRep
       deleted,
       dbCount,
       unknownFields: [...unknownFields].sort(),
-      libraryCreated,
+      archiveFileRows: archiveRows,
+      // 绿地后库注册表 = app.db 的 library_registry，唯一写入口是 library* 那组方法
+      // ⇒ 导入不建库行，这个字段恒为 false（保留字段是为了不动调用方的读取点）
+      libraryCreated: false,
       mode: 'mirror',
     };
   } catch (e) {

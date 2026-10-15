@@ -352,14 +352,18 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
       }
 
       // 能不能读（最朴素的一步：真去数一下）
+      // ⚠️ S2：绿地口径下**没有 items / library 两张表**（旧宽表已拆成 asset + asset_file + asset_index_state，
+      //    库注册表搬到 app.db 的 library_registry）⇒ 照旧读旧表会抛 no such table，
+      //    于是**好库被判成坏库**（db-read: SQLITE_ERROR）。这里改成数事实层的两张表。
       try {
-        const items = db.prepare('SELECT COUNT(*) AS n FROM items').get();
-        const libs = db.prepare('SELECT COUNT(*) AS n FROM library').get();
+        const assets = db.prepare('SELECT COUNT(*) AS n FROM asset').get();
+        const files = db.prepare('SELECT COUNT(*) AS n FROM asset_file').get();
         checks.push({
           id: 'db-read',
           ok: true,
           code: '',
-          reason: '可读：items=' + String(items === undefined ? '?' : items['n']) + ' 行 · library=' + String(libs === undefined ? '?' : libs['n']) + ' 行',
+          reason: '可读：asset=' + String(assets === undefined ? '?' : assets['n']) +
+            ' 行 · asset_file=' + String(files === undefined ? '?' : files['n']) + ' 行',
           rebuildable: false,
         });
       } catch (e) {
@@ -367,7 +371,7 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
           id: 'db-read',
           ok: false,
           code: codeOf(e),
-          reason: '读 items / library 失败：' + describeError(e),
+          reason: '读 asset / asset_file 失败：' + describeError(e),
           rebuildable: true,
         });
       }

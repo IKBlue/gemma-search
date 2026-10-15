@@ -1,0 +1,334 @@
+================================================================================
+S2 证据 · 100 条素材建库 + 导入（绿地 6 张表）  task-59  执行: storage-worker  2026-10-15
+================================================================================
+
+【改动文件】
+  · apps/desktop/src/main/db/import.ts —— **旧表（library/items）→ 绿地事实层（asset/asset_file）**
+      落点：写 asset（条目）+ asset_file（文件角色，**缺包=少一行**，不补 NULL 块）；
+      **不再写 library**（绿地口径下库注册表 = app.db 的 library_registry，唯一写入口是 library* 方法）；
+      uid **认领**：先按 (lib_id, rel_path) 命中 ⇒ 沿用库里原 uid；discovered_at_ms 更新时**不覆盖**；
+      width/height 留 NULL（只有扫描器解像素）；旧表时代那条「先建 library 行」的外键前置条件随之消失。
+  · data/_schema100/build.mjs（新增，夹具脚本）· data/_schema100/{lib,app.db}（产物）
+  · 未碰：migrations.ts / app-migrations.ts / shared/ipc.ts（按边界）
+
+【① 改前为什么红（原始记录，data/_s2-red-baseline.txt）】
+  6 个测试全红，根因统一且可复现：
+    GsDbError: 导入写入阶段失败，已回滚（库里没有半份导入）：**no such table: library**
+      code: 'IMPORT_FAILED' · [cause]: Error: no such table: library
+  ⇒ 旧 import.ts 的第一条 SQL 就是 INSERT INTO library，而绿地 6 张表里**没有 library 表**。
+  （另：断言「library 行必须是这次建的（FK 前置条件）」本身也是旧口径。）
+
+【② 改后：100 条自洽（原始输出 data/_schema100/build.log · BUILD_EXIT=0）】
+  命令：node data/_schema100/build.mjs <源库根> 100
+    （源库只读、只拷副本；应用级 3 张表走产品自己的 app-db.ts 写入口，不重抄 SQL）
+    取样：按 relPath 排序前 100 条（源 3594 条）
+    拷贝：预览 100 · 包 100 · 源文件哈希变化 0 个（必须 0）
+    === ③ .gs.db 导入结果 ===
+    report: read=100 inserted=0 updated=100 deleted=0 dbCount=100 archiveFileRows=100
+    asset 行数        = 100
+    asset_file 行数   = 200（preview 100 + archive 100）
+    缺包条目数        = 0
+    rel_dir 抽样       = [{"rel_path":"CR+VR\\ID-10083808.jpg","rel_dir":"CR+VR"},{"rel_path":"CR+VR\\ID-101207034.jpg","rel_dir":"CR+VR"}]
+    discovered_at_ms 非空 = 100
+    === ④ 幂等（再导一次）===
+    第二次 report: inserted=0 updated=100 deleted=0
+    asset 行数 100 · asset_file 行数 200 ⇒ **幂等 ✓**
+    === ⑤ UNIQUE(lib_id, rel_path) 生效？===
+    插入同路径第二条 ⇒ **被拒 ✓**：UNIQUE constraint failed: asset.lib_id, asset.rel_path
+    === ⑥ app.db（应用级 3 张表；走 app-db.ts 的唯一写入口）===
+    应用级迁移 = {"from":0,"to":1,"applied":1}
+    library_registry 行数 = 1 · 内容 = {"libId":"L1","root":"D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_schema100\\lib","displayName":"S2 一百条","enabled":true,"compatKey":null,"sortOrder":0,"registeredAtMs":1792038533854,"updatedAtMs":1792038533854}
+    root 规范化后 = "D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_schema100\\lib"（== 规范化前的 "D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_schema100\\lib" ? 是）
+    collect_dir 行数      = 1 · 内容 = {"dirId":"2726b051-a26e-457f-8ef4-3109079061f6","label":"默认取件目录","absPath":"D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\_schema100\\out","isDefault":true,"createdAtMs":1792038534284}
+    app_meta = {"schemaVersion":1,"createdAtMs":1792038533585,"updatedAtMs":1792038533709}
+    === 落点 ===
+    源文件哈希变化总数 = 0（0 = 源库只读成立）
+
+  ⇒ 逐条对验收：
+    · **100 条自洽（含缺包）**：asset 100 · asset_file 200 = preview 100 + archive 100 · 缺包条目 0
+      （「每图一行 + 每包一行，缺包少一行」由 SQL 结构保证：没有 archive 就**不插那一行**，不是插 NULL 块）
+    · **幂等**：第二次导入 inserted=0 / updated=100 / deleted=0 ⇒ 行数仍是 100 / 200
+    · **源库摘要不变**：拷贝前后对 200 个源文件逐个算 sha1，**变化 0 个**（复用副本时也重算）
+    · **UNIQUE(lib_id, rel_path) 生效**：插同路径第二条 ⇒ UNIQUE constraint failed: asset.lib_id, asset.rel_path
+    · **6 张表就位**：库级 asset/asset_file/asset_index_state（openGsDb 迁移）+ 应用级 app_meta/library_registry/collect_dir
+      （openAppDb 迁移 0→1；library_registry 1 行且 root 经 normalizeRootPath；collect_dir 1 条且 is_default 走 setDefaultCollectDir）
+
+【③ 红窗口现状（**未关闭** —— 如实报）】
+  · import.ts 侧已通：tsc node EXIT=0；`no such table: library` 消失；db-import 单跑从 0 通过 → **5 通过 / 12 失败**，
+    余下失败**全部来自测试文件自己**：`Error: no such table: items`（断言/夹具仍在查旧表）、
+    以及「library 行必须是这次建的」这类**旧口径断言**。
+  · 需要改的测试（都在我 writeScopes 内）：db-import · db-rebuild · health-rebuild · library-methods · sqlite-tmp-dir。
+  ⚠️ **但 storage-ports-main.test.mjs 关不掉（scope 冲突，需 Lead 裁定）**：
+     它走 apps/desktop/src/main/storage-ports.ts，而该文件第 317/318 行仍是
+       SELECT ITEM_COLUMNS ... FROM items WHERE lib_id = ?   （旧表）
+     而 storage-ports.ts **不在**我的 writeScopes（main/db · tests · data/_schema100）里。
+     ⇒ 要么把它划给我（改那 2 条 SQL + 列映射），要么归 S6/另一张卡；我不越界改。
+
+【④ 【未测】/ 边界】
+  · data/_schema100/lib 副本约 2.8 GB（100 组含包）—— 这是**夹具**，已 gitignore（data/_*）；
+  · asset_file.width/height 本批为 NULL：import 只搬 items.json 里已有的事实，解像素是扫描器的事（设计基线 §1.2）；
+  · archive 的 size/mtime 若源里缺失，记 0 而不是让整条导入失败（DDL 是 NOT NULL）—— 注释里写了，等扫描器用磁盘事实修正。
+
+【⑤ 回滚】
+  · import.ts：恢复旧表 SQL（INSERT/UPDATE library + items upsert + item_count 更新）—— 逐段都在 git 历史里；
+  · 删 data/_schema100/（夹具 2.8 GB，可随时重建：node data/_schema100/build.mjs <源库根> 100）；
+  · 核对：npm run typecheck · node --test apps/desktop/tests/db-import.test.mjs
+================================================================================
+
+【⑥ 独立复核（不引用 build.mjs 的自述：直接查产物 data/_schema100/verify.mjs）】
+  gs.db 表 = [asset, asset_file, asset_index_state, schema_version]   ← 库级 3 张 + 账本
+  asset = 100 · asset_file = 200（preview 100 + archive 100）· 缺包条目 = 0
+  asset 抽样 = [{uid:8a70380a9575, folder:CR+VR, stem:ID-10083808, display_name:ID-10083808.jpg, rel_dir:CR+VR, rel_path:CR+VR\ID-10083808.jpg}, …]
+  asset_file 抽样 = [{uid:022a00481875, role:archive, rel_path:CR\ID-032109719124396.rar, ext:.rar, size_bytes:195505925, width:null, height:null},
+                     {uid:022a00481875, role:preview, rel_path:CR\ID-032109719124396.png, ext:.png, size_bytes:4057470, width:null, height:null}, …]
+  app.db 表 = [app_meta, collect_dir, library_registry]              ← 应用级 3 张
+  library_registry = [{libId:L1, root:D:\…\data\_schema100\lib, displayName:S2 一百条, enabled:true, sortOrder:0, …}]
+  collect_dir = [{dirId:2726b051-…, label:默认取件目录, absPath:D:\…\data\_schema100\out, isDefault:true, …}]
+  app_meta = {schemaVersion:1, …}
+  ⇒ 6 张表齐、100/200 行自洽、root 规范化、白名单 is_default 生效 —— **与 build.mjs 自述一致**（两处独立取得）。
+================================================================================
+
+================================================================================
+【⑦ S2 续：ItemStorePort 搬到新表（Lead 裁定 ① storage-ports.ts 归 S2）+ 新列 vector_row（裁定 ②）】
+  改动：
+   · main/db/row-types.ts：新增 **joinedRowToItemRecord(row, root, where)** —— 三表连接行 → ItemRecord 的**合成**：
+       · 复用同一套取值器（requireText/optionalInteger…）⇒ 列名/可空性判据仍只有一份；
+       · 三处新 schema 里没有、只能合成的字段写在这一处：absPath / archiveAbsPath（= 库根 + 相对路径，§1.2 只存相对路径）·
+         archiveName（= archiveRelPath 的主干名）· vectorSource（新 schema 不存 ⇒ 恒 null）；
+       · vectorRow ← **asset_index_state.vector_row**（裁定 ② 新增的列；未编码 ⇒ LEFT JOIN 出 null）。
+   · main/storage-ports.ts：ItemStorePort 的两条 SQL 从 `FROM items` 换成 asset + asset_file(preview/archive) + asset_index_state 的
+       LEFT JOIN；readItemsFromDb 增加 `root` 参数（合成绝对路径用）；错误文案 items→asset。
+   · main/db/index.ts：转出 joinedRowToItemRecord。
+   ⇒ tsc node **EXIT=0**（改完即验）。
+
+  夹具重建（新 DDL 多一列 vector_row；**不需要迁移**，删 .gs.db 重建即可）：
+   · 命令：删 data/_schema100/lib/.gs.db* 后重跑 build.mjs（复用已拷副本，很快）
+   · BUILD_EXIT=0 · 拷贝 预览 100 + 包 100 · 源文件哈希变化 **0** · asset 100 · asset_file 200 · 幂等 ✓ · app.db library_registry 1 / collect_dir 1
+
+  6 个测试现状（**未关闭**，逐条如实）：
+   · 命令：node --test db-import db-rebuild health-rebuild library-methods storage-ports-main sqlite-tmp-dir
+   · 结果：**tests 56 · pass 25 · fail 31**（原始输出 data/_s2-tests-after.txt）
+   · 失败面仍在**测试文件自己**：它们用 `SELECT … FROM items` / `SELECT * FROM library` 取数、
+     并断言旧口径（如「library 行必须是这次建的」）。这些断言在新 schema 下**没有对应物**，
+     需要按新口径重写成等价断言（例如：条目字段往返改为读 asset+asset_file 的连接行；
+     「library 行」那条改为「导入**不**建库行（库注册表归 library* 方法）」+ asset 计数）。
+   · 下一步（未做，需继续）：给 db-import / db-rebuild / health-rebuild / library-methods / sqlite-tmp-dir / storage-ports-main
+     各写一个「新 schema 读回」的测试助手（复用 joinedRowToItemRecord + 同一条连接 SQL），再逐条改断言。
+     ⚠️ 为避免**第二份 SQL**（P1），建议把那条连接 SQL 从 storage-ports.ts 提到可导出的常量（如 row-types.ts）供测试复用 —— 这一步我还没做。
+
+  诚实边界：①②（交付物）与 ⑦（端口搬迁）已完成；**红窗口未关闭**（25/56）。
+     没有把「跑通脚本」当成「测试全绿」——两者的差别正是这条卡要收口的东西。
+================================================================================
+
+================================================================================
+【⑧ S2 续：读 SQL 提成常量（裁定 ①，已批准）+ IM1/ST3 查证（裁定 ③）】
+  ① 读 SQL 提常量（P1）：
+   · row-types.ts 新增并导出 **ASSET_ITEM_SELECT_ALL_SQL / ASSET_ITEM_SELECT_ONE_SQL**
+     （列 + 三表 LEFT JOIN 只写这一份；**只提只读 SELECT**，写语句不提）；
+   · storage-ports.ts 改为 `const selectAll = ASSET_ITEM_SELECT_ALL_SQL` / `selectOne = ..._ONE_SQL`；
+   · db/index.ts 转出两个常量（测试可 import，端口与测试共用同一条 SELECT）。
+   · tsc node **EXIT=0**。U22 的痕迹**原样保留**（storage-ports.ts:57「已知边界…待所有者裁定」未被触碰）。
+   ⚠️ 还差一条（裁定 ① 的附加要求 1）：**至少留一条测试走端口**（而不是直接拿 SQL 常量查）——
+     这条在改 storage-ports-main.test.mjs 时一起做（未完成）。
+
+  ③ IM1 / ST3 查证（两个都跑，原始输出 data/_s2-st3-im1.txt）：
+   · 命令：node --test sqlite-tmp-dir.test.mjs library-methods.test.mjs ⇒ tests 11 · pass 6 · fail 5
+   · **ST3 现状**：OK ST1 · OK ST2，✖ ST3。失败断言两条：
+       ①「临时目录不可写时导入必须失败（这就是复现路径）」 ②「只设 SQLITE_TMPDIR 是不够的（实测被忽略）」
+       ⇒ 两种坏 TMP 配置下，**导入都成功了**（ok=true），与断言预期相反。
+   · **对 Lead 假设（= T-42 的临时目录修复让它不再失败）的查证结果：证据不支持这个解释。**
+       理由（可复现）：`configureProcessTempDir` 的调用点**只有两处，都在 main/index.ts**（import :52 · 调用 :1209）；
+       而 ST3 的子进程脚本只 import 了 `db/open.ts` 与 `db/import.ts` 并直接调 openGsDb/importItemsFromJson
+       ⇒ **它根本不走 main/index.ts**，也就吃不到 T-42 那步修复。
+   · 那为什么现在成功？**最可能的原因：S2 改写了写入路径的形状** ——
+       旧路径在宽表上做 upsert（INSERT … ON CONFLICT DO UPDATE）+ DELETE + COUNT + UPDATE library；
+       新路径是较简单的 INSERT/DELETE。SQLite 只在需要排序/大事务时才建临时文件 ⇒
+       **这个工作负载在新形状下可能压根不需要 temp**，于是「坏 TMP ⇒ 导入失败」这条前提随之失效。
+   · ⚠️ 上面这条是**推断，未证实**（我没有做「用旧写入路径复现失败」的对照实验）。
+       决定性实验（建议下一步做）：在子进程里用一个**必然需要临时文件**的操作（例如大表 ORDER BY / 大事务）
+       复验「坏 TMP ⇒ 失败、只设 SQLITE_TMPDIR ⇒ 仍失败」，据此重写 ST3；
+       **不要**把断言改成「导入成功就行」——那会把这条机制钉子的意义抹掉。
+   · **IM1 现状**：✖ 失败，错误是 `健康库应当 ok=true：自检发现 1 项问题：db-read(ERR_SQLITE_ERROR)`。
+       即它的**前置条件**（体检认为库健康）已经不成立 ⇒ 体检/自检那条读路径与新 schema 不一致
+       （很可能是它读旧表/旧表清单）。这条的归属要你定：体检模块是否也归 S2？（不在我当前 writeScopes 的**明示**范围里，
+       虽然 storage-ports.ts 已划给我。）
+
+  诚实边界：②（断言改写四条硬规矩 + 能红证明）**尚未开始**；本轮只做到「把共用 SQL 提出去」与「把 IM1/ST3 查清」。
+================================================================================
+
+================================================================================
+【⑨ 旧 schema 残留清单（裁定 ④：先有全貌再动手；不拿测试当探测器）】
+  可复跑命令（仓库根执行；下面每条都实际跑过，行号即结果）：
+    rg -n "(FROM|INTO|UPDATE|JOIN|DELETE FROM)\s+items\b" apps/desktop
+    rg -n "(FROM|INTO|UPDATE|JOIN|DELETE FROM)\s+library\b" apps/desktop      # 需人工过滤 library_registry
+    rg -n "item_count|compat_key_version|model_repo|model_revision|meta_json|vector_source|registered_at\b" apps/desktop
+    rg -n "(FROM|INTO|UPDATE|JOIN|DELETE FROM)\s+(items|library)\b" packages
+
+  A) 旧表 items（SQL 里真的在读/写它）：
+    · tests/db-import.test.mjs: 137 · 164 · 176 · 190 · 208 · 232 · 263 · 337 · 362 · 379 · 401 · 416 · 516 · 529   → **S2**
+    · tests/health-rebuild.test.mjs: 132                                                                          → **S2**
+    · tests/db-rebuild.test.mjs: 83 · 92 · 93 · 94 · 95 · 96 · 301                                                 → **S2**
+    · tests/storage-ports-main.test.mjs: 409（UPDATE items SET image_size …）                                      → **S2**
+    · src/main/library-health.ts: 356（SELECT COUNT(*) FROM items）                                                → **S2（本轮刚划入）**
+    · src/main/db/row-types.ts: 129 · 140（ITEM_INSERT_SQL / ITEM_UPSERT_SQL 两个**字符串常量**）                   → **S2**
+        ⚠️ 它们现在是**死代码**：import.ts 已不再使用（写路径改直连 asset/asset_file）⇒ 建议连同 ITEM_COLUMNS/
+           itemRecordToSqlValues/sqlRowToItemRecord 一起评估删除；但它们同时被 db/index.ts 转出、被测试 import，
+           所以要和测试改写**同批**处理（不然测试 import 就断）。
+    （storage-ports.ts 已清干净：本轮 grep 结果里它 0 命中 ✓）
+
+  B) 旧表 library（SQL）：
+    · tests/db-rebuild.test.mjs: 101（snap 里读 library 行）                          → **S2**
+    · tests/health-rebuild.test.mjs: 138                                              → **S2**
+    · tests/db-import.test.mjs: 129 · 264 · 338 · 519                                 → **S2**
+    · src/main/library-health.ts: 357（SELECT COUNT(*) FROM library）                 → **S2（本轮刚划入）**
+    · src/main/app-db.ts: 121 · 125 · 164 · 183 · 202 · 207 · 219 · 225               → **不动**：这些全是 library_registry（新表，绿地口径的唯一写入口）
+      ⇒ 人工过滤规则：library_registry / libraryList / library-config 都不是旧表。
+
+  C) 旧宽表列名：
+    · tests/db-rebuild.test.mjs: 170（断言文案里的 item_count）                        → **S2**
+    · tests/db-import.test.mjs: 133 · 134 · 524 · 525（item_count / registered_at）    → **S2**
+    · src/main/storage-ports.ts: 254（注释提到 vector_row / vector_source）            → **S2**（注释，顺手更新）
+    · src/main/db/row-types.ts: 50（['vectorSource','vector_source'] 字段↔列配对）     → **S2**
+        ⚠️ 注意区分：vector_source 作为 **items.json 的源格式字段**仍然存在（import 校验后**有意丢弃**，
+           新 schema 不存它）—— 它不是「残留的 DB 列」，而是「源格式里的一列、落库时有意不存」。
+        vector_row 不同：它**确实要落库**（asset_index_state.vector_row，本轮刚补的列）。
+
+  D) packages/ 与 e2e/：
+    · packages/：`rg` 结果 **0 命中** ✓（引擎零依赖、不碰 SQL）
+    · apps/desktop/e2e/m0-real.spec.mjs: 32 —— 只是注释里的 model_revision（meta.json 的字段名，不是 DB 列） → **不动**
+
+  结论（全貌）：旧 schema 残留共 **3 个产品文件**（library-health.ts · row-types.ts 的两个死常量 · storage-ports.ts 的一处注释）
+  + **4 个测试文件**（db-import · db-rebuild · health-rebuild · storage-ports-main）。sqlite-tmp-dir 与 library-methods 里没有旧表 SQL。
+================================================================================
+
+================================================================================
+【⑩ S2 续：library-health 读路径搬到新表（裁定 ③）+ 裁定 ③ 要的因果链】
+  改动（main/library-health.ts，本轮划入）：
+   · db-read 检查原本 `SELECT COUNT(*) FROM items` + `FROM library` —— 绿地 schema 里**这两张表都不存在**
+     ⇒ 抛 no such table ⇒ **好库被判成坏库**（这正是 IM1 那条 `db-read(ERR_SQLITE_ERROR)` 的来源）；
+   · 改成数**事实层**两张表：asset / asset_file，理由文案同步改成 `可读：asset=N 行 · asset_file=M 行`。
+   · tsc node **EXIT=0**。
+
+  改后现状（node --test library-methods + health-rebuild + sqlite-tmp-dir）：**tests 24 · pass 16 · fail 8**
+  原始输出 data/_s2-after-health.txt。逐条因果链（回答裁定 ③「为什么红、会不会自动绿」）：
+
+  ① sqlite-tmp-dir（1 红 = ST3）—— **不是**自己查旧表：
+     失败断言：「临时目录不可写时导入必须失败」（actual true / expected false）
+     「只设 SQLITE_TMPDIR 是不够的」（actual true / expected false）
+     因果：**断言的前提死了** —— S2 的写入路径形状（简单 INSERT/DELETE）不再需要临时文件，
+     所以坏 TMP 下导入照样成功。⇒ **不会自动转绿**，需要按裁定 ② 重做（换触发器 + 补旧写入路径的对照实验）。
+
+  ② library-methods（IM1 等）—— **通过共享代码红**：
+     IM1 的前置条件是「体检认为库健康」，而体检的 db-read 在读 items/library（旧表）⇒ 好库被判坏。
+     本轮把 library-health 的读路径改到 asset/asset_file 后 tsc 绿，但 IM1 **仍✖**（另有原因，见下）。
+     ⇒ **不会自动转绿**：IM1 还需按新口径重写断言（它同时依赖 readItemsFromDb 那条读路径的码透出）。
+
+  ③ health-rebuild（H3/H6/H7/H8 红 + 一个文件级错）—— **它自己的旧口径**，三处可指名：
+     · :194 断言 `/items=3 行/` —— 体检理由文案已变成 `asset=3 行 · asset_file=6 行` ⇒ 文案要跟着改（actual 已实测）；
+     · :199 硬编码旧表清单（doc_chunks · doc_dirs · documents · health_ledger · health_runs · items · library · schema_version）⇒
+       「缺表 ⇒ 点名」那条现在是拿**绿地不存在的表**当真值 ⇒ 报 `no such table: doc_chunks`（H7 实测）；
+     · :257 `DROP TABLE doc_chunks` + :263 断言理由里有 doc_chunks ⇒ 同样要换成新 schema 的表；
+     · 另有一个**环境性**失败：rmSync EPERM（data/_t15/health-rebuild-test-20452）—— 不是 schema 问题，已在证据里标注。
+     ⇒ **不会自动转绿**：这三处都是测试自己的旧口径，按裁定 ② 逐条改写。
+
+  ⚠️ 交叉发现（不在我 scope，报备）：`doc_chunks` 只剩测试文件这 3 处 + migrations.ts:7 的一句**历史注释**
+     （rg doc_chunks 结果）；没有产品代码在查它。
+================================================================================
+
+================================================================================
+【⑪ EPERM 判据（裁定：必须二选一 + 给证据，不许写「环境性」略过）】
+  现象：health-rebuild.test.mjs 的 after() 清理 `rmSync(data/_t15/health-rebuild-test-<pid>)` 抛
+        `Error: EPERM, Permission denied: \\?\D:\…\data\_t15\health-rebuild-test-16508`。
+  三条判据（都是本轮实测）：
+   ① **并发假设 ⇒ 证伪**：按要求**单独**跑该文件（跑前确认当时另有 3 个测试进程=别的线），
+      结果 **仍然 EPERM** ⇒ 与「多进程共用 data/_* 撞车」不成立。
+      （原始输出 data/_s2-eperm-alone.txt：tests 13 · pass 7 · fail 6，含同一句 EPERM）
+   ② **沙箱禁止删除 ⇒ 证伪**：无测试进程时，用 PowerShell 手动删那两个残留目录
+      （health-rebuild-test-16508 / -20452）⇒ **两次都删除成功** ⇒ 不是「沙箱不让删这个路径」。
+      （若真是沙箱/权限，手动删也会被拒。）
+   ③ **它是失败的次生现象**：data/_t15 下按 PID 累积残留目录（每个失败的 run 留一个，删掉两个还剩 5 个），
+      而失败面正是 H3/H6/H7/H8 这四条断言 ⇒ 用例在断言处抛出、**没走到 db.close()**，
+      Windows 不允许删除仍有打开的 SQLite 句柄（.gs.db / -wal / -shm）所在的目录 ⇒ 清理阶段 EPERM。
+  ⇒ **结论（二选一里选「都不是」并指明真因）**：既不是并发、也不是沙箱，
+     而是**测试进程内的 EPERM：清理时仍有未关闭的 SQLite 句柄**；它是断言失败的**次生现象**。
+  ⇒ 处置建议（属测试自身健壮性，与断言改写同批）：
+     · 用例用 try/finally 保证关闭连接（现在失败路径会漏关）；
+     · after() 的清理改成「失败也不致命」并**重试**（现有代码对删不掉只是 try/catch 吞掉，但仍有未关句柄）；
+     · 断言改写完成后复跑确认 EPERM 是否随之消失 —— 若消失，即证明它是次生现象（这条也要有前后对比）。
+================================================================================
+
+================================================================================
+【⑫ 产品侧句柄审计（裁定 ②：EPERM 的产品影子 —— 压在 A11「用户能自救」上）】
+  枚举命令：rg -n "openGsDb\(|openAppDb\(|new DatabaseSync" apps/desktop/src
+  产品侧**真实**调用点共 5 处（另 20 处在 tests/，不在产品审计范围）：
+
+  | # | 调用点 | 关闭方式 | 判定 |
+  |---|---|---|---|
+  | 1 | main/index.ts:218 openAppDb（经 withAppDb 包装） | try(:219) { fn } **finally { app.close() }**(:221-223) | ✓ |
+  | 2 | main/library-health.ts:238 openGsDb(readOnly) | finally { db.close() }（:374-380） | ✓ |
+  | 3 | main/library-rebuild.ts:227 openGsDb | try { importItemsFromJson } **finally { opened.db.close() }**（:239-246） | ✓ |
+  | 4 | main/storage-ports.ts:302 openGsDb（读条目） | finally { db.close() }（:307-316 区域） | ✓ |
+  | 5 | main/db/sqlite-adapter.ts:105 new DatabaseSync | **唯一驱动构造点**（薄适配层；按设计只此处 import node:sqlite） | ✓ 设计如此 |
+
+  ⇒ **结论：产品侧 0 处漏关** —— 4 个真实调用点**全部在 finally 里关**（错误分支同样关）。
+     其中 #1 更进一步：app.db **不是长期持有**，而是 `withAppDb()` 每次操作**开→用→关**（:215-228），
+     这正是 Windows 上最安全的形状（不留长句柄 ⇒ 不会挡住删库/重建）。
+     #3 的注释还明写了这条语义：「关掉再动索引：Windows 上文件被占着 rename 会失败」。
+  ⇒ 因此 §11 那个 EPERM 是**测试侧独有**的现象（用例跨断言持有连接、失败路径漏关），
+     与产品句柄管理无关 —— 这条对 A11（删库重建自救）是**好消息**，但**测试侧仍要按 §11 的处置修**，
+     否则下一个人还会看到「删不掉」而误判成产品问题。
+
+  ⚠️ 处置补充（Lead 裁定 ①）：测试的清理重试**不许静默吞** —— 重试仍失败时要把**残留路径打出来**，
+     可见即可（否则又要有人重查一遍）。
+================================================================================
+
+================================================================================
+【⑬ S7b（task-61）：DB_OPEN_FAILED 收进引擎码空间 —— 四步做完 + 一个**重要的探针失效发现**】
+  先决条件自核（不看转述）：ERR.DB_OPEN_FAILED 存在 · Object.keys(ERR).length === 28 ✓
+  ① 删 storage-ports.ts 的「已知边界…待所有者裁定」注释（它描述的正是被修掉的行为）✓
+  ② 删 case 'DB_OPEN_FAILED':（其余映射不动）✓ —— 但见③的发现：
+     ⚠️ **S7a 落地后这条 case 已是不可达代码**：engineCodeOf 第①步 `if (ENGINE_CODES.has(code)) return code`
+        会先把它原样透出 ⇒ 删它只是**清理死代码**，不是行为修复。真正的修复是 S7a（码进引擎空间）。
+  ③ 新增端到端断言 **M9c**（tests/storage-ports-main.test.mjs）：破 .gs.db 头部 ⇒ 经**引擎端口**
+     （createStoragePorts → engine.item）读 ⇒ 断言 ERR.DB_OPEN_FAILED，且 !== INDEX_CORRUPT、!== INTERNAL；
+     口径与体检路径**同名**（health-rebuild H5 :226/:233/:436 断的也是 'DB_OPEN_FAILED'）。
+     同时把 **M9b 的 SKIP 去掉**（S2 改线后它可执行了）：UPDATE 目标从 items.image_size 换成
+     asset_file.size_bytes WHERE role='preview' ⇒ **M9b 现在真跑并绿**。
+  ④ 能红证明 —— **你给的探针（把 case 加回去）已失效**（原因见②），实测：
+     加回 case ⇒ M9c **仍然绿**（探针无效，因为该分支不可达）。
+     改用**正确位置**的探针（在 engineCodeOf **第①步之前**强行 if (code === 'DB_OPEN_FAILED') return ERR.INDEX_CORRUPT;）：
+       ⇒ M9c **红**，且错误文案正是要抓的那句：库文件坏 ⇒ 必须报 DB_OPEN_FAILED（与体检路径同名）；**实得 INDEX_CORRUPT** ✓
+       ⇒ 还原后 **M9b ✔ / M9c ✔**（tests 2 · pass 2 · fail 0）✓
+  ⚠️ 过程如实记录一处事故：第一次还原探针时 ReplaceFileW EIO (Win32 32) 写入失败 ⇒ 探针行**留在了产品文件里**；
+     我用 grep 立刻发现（命中 1 处）并第二次还原成功，随后确认**探针残留 = 0** 且两个用例全绿。
+     教训：**能红探针必须以「改完立刻验证残留」收尾**，不能假设还原一定成功。
+  ⚠️ 推论（供你判断治理方式）：既然 case 已不可达，S7b 的长期价值**不在**删那两行，而在于
+     「引擎码空间里必须有 DB_OPEN_FAILED（S7a）」+「端口第①步不得在它之前改名」这两条不变式；
+     M9c 正是这两条的机械守卫（探针位置也证明了这一点）。
+================================================================================
+
+================================================================================
+【⑭ M0 红 —— **根因在 S2 写路径，已修**（task-59 硬验收达成）】
+  根因（实测，不是猜）：源 items.json **100/100 都带 vectorRow**，但 S2 改写后的 import 只写 asset + asset_file，
+  **从不建 asset_index_state** ⇒ 修前实测：asset=100 · **asset_index_state=0** · vector_row 非空=0。
+  为什么这会让界面 0 条：GSIDX 是**稠密矩阵**，引擎靠 Item.vectorRow 把**命中行**映射回**条目**；
+  vector_row 全 NULL ⇒ 一条命中都映射不回来 ⇒ invoke search 返回 ok 但**结果 0 条**（m0-real 复现的正是这个）。
+  （旧 items 宽表有 vector_row 一列，拆表后它落在 asset_index_state —— 我改写时漏了「种这一列」。）
+
+  修复：import 增加 asset_index_state(uid, vector_row) 的 1:1 行（设计基线 §1.2「1:1 于条目」），
+  **只种 vector_row**；encoded_at_ms / compat_key / attempt_count 等**编码态仍归索引任务写**（唯一写入口不变）。
+  SQL：INSERT INTO asset_index_state (uid, vector_row) VALUES (?, ?) ON CONFLICT(uid) DO UPDATE SET vector_row = excluded.vector_row
+
+  修后实测（重建夹具 + 直接查库）：
+    · asset = 100 · asset_file = 200（preview 100 + archive 100）· 幂等 ✓ · 源文件 sha1 变化 0 ✓
+    · **asset_index_state = 100 行 · vector_row 非空 = 100**
+    · 经三表连接读到 **vectorRow 非空 = 100**（即每条都能被命中行映射到）
+    · tsc node **EXIT=0** · npm run build **EXIT=0**
+
+  ⭐ 硬验收（m0-real，**未放宽任何断言**、spec 一行未改）：
+    · M0_EXIT=**0** · ok 1 m0-real.spec.mjs › M0 ⭐⭐ 真窗口端到端…(5.6s) · 1 passed
+    · [M0] 结果条数 = **60**（修前是 0）· 命中 uid=7251fa882ae6 · relPath=VR\ID-15302998.jpg
+    · 取件链路也正常：落点 data/_m0-*/out/ID-15302998.7z · 23 字节 · sha1=52d168d6… · 目标目录内容 = [ID-15302998.7z]
+    · 原始输出 data/_s2-m0.txt（跑前确认无其它 e2e 在跑：playwright=0/electron=0）
+  ⚠️ 跑前先 build（e2e 跑的是 out/）—— 已按纪律 12 先确认机器空闲再构建。
+================================================================================

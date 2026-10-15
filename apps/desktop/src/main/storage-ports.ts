@@ -35,21 +35,35 @@ import { codeOf, messageOf } from './errors.ts';
 import { resolveIndexLocation } from '../../../../packages/engine/src/index-layout.ts';
 import { GS_DB_NAME, GS_INDEX_NAME, resolveLibraryStorage } from './storage-roots.ts';
 import type { LibraryStorage, LibraryRootInput, StorageFs } from './storage-roots.ts';
-import { ITEM_COLUMNS, sqlRowToItemRecord } from './db/row-types.ts';
+import { ASSET_ITEM_SELECT_ALL_SQL, ASSET_ITEM_SELECT_ONE_SQL, joinedRowToItemRecord } from './db/row-types.ts';
 import { openGsDb } from './db/open.ts';
 import type { SqlDatabase } from './db/sqlite-adapter.ts';
 import { readIndexBinAt } from './index-file.ts';
 
 // ---------------------------------------------------------------- 错误转换（端口契约）
 
-/** .gs.db 层的错误码 → 引擎错误码（引擎没有 DB_* 码；元数据坏了最贴切的既有码就是 INDEX_CORRUPT） */
+/** 引擎契约码集合（唯一来源 = 引擎的 ERR；与 library-ipc.ts 的 ENGINE_CODES 同一判据） */
+const ENGINE_CODES: ReadonlySet<string> = new Set<string>(Object.values(ERR));
+
+/**
+ * .gs.db 层的错误码 → 引擎错误码。
+ *
+ * ⚠️ **顺序不能反**（与 library-ipc.ts 的 normalizeCode 同一顺序，T-45）：
+ *   ① **已经是引擎契约码的原样透出** —— 导入族 IMPORT_* 自 T-45 起就在引擎码表里（SPEC §5，27 码）。
+ *      改动前它们在 default 分支被归成 INDEX_CORRUPT ⇒ **假因果**：用户看到「索引文件已损坏」，
+ *      而同一时刻体检说索引是好的（T-15b / T-42 实测；SPEC §5 明写这一族"不得归成 INDEX_CORRUPT"）。
+ *   ② **其余** main 私有码才走下面的映射表。
+ *
+ */
 function engineCodeOf(e: unknown): ErrorCode {
   const code = codeOf(e);
+  if (ENGINE_CODES.has(code)) return code as ErrorCode;
   switch (code) {
     case 'DB_PATH_REQUIRED':
       // 没有落点 = 这个库没有元数据可读（与"还没有索引"同一处置：先建一次）
       return ERR.INDEX_MISSING;
-    case 'DB_OPEN_FAILED':
+    // ⚠️ S7b：DB_OPEN_FAILED 已进引擎码空间（SPEC §5.2 的 28 码）⇒ 上面第 ① 步就原样透出了，
+    //    这里**不再**把它改名成 INDEX_CORRUPT（"库坏 ≠ 索引坏"，两者文案与处置都不同）。
     case 'META_ROW_MISSING':
     case 'SCHEMA_TOO_NEW':
     case 'MIGRATION_FAILED':
@@ -57,8 +71,8 @@ function engineCodeOf(e: unknown): ErrorCode {
     case 'UNEXPECTED_SQL_VALUE':
       return ERR.INDEX_CORRUPT;
     default:
-      // 导入族的错误码（IMPORT_*）与"读不动/对不上"都按元数据损坏处理
-      return code.startsWith('IMPORT_') ? ERR.INDEX_CORRUPT : ERR.INTERNAL;
+      // 既不是引擎契约码、也不在映射表里 ⇒ INTERNAL（不猜）
+      return ERR.INTERNAL;
   }
 }
 
@@ -266,10 +280,18 @@ function toIndexItem(rec: ItemRecord): IndexItem {
   return item;
 }
 
-/** 从 .gs.db 读条目（读不出来 → 带码的引擎错误） */
+/**
+ * 从 .gs.db 读条目（读不出来 → 带码的引擎错误）。
+ *
+ * ⚠️ S2：绿地口径下条目**分散在三张表**（asset / asset_file / asset_index_state）⇒
+ *    SQL 负责连接（见 createItemStorePort 里的 SELECT_COLUMNS + FROM_JOINS），
+ *    行 → ItemRecord 的合成在 row-types.joinedRowToItemRecord（与写路径同一套字段判据）。
+ *    `root` 是**合成绝对路径**用的库根（新 schema 只存相对路径，设计基线 §1.2）。
+ */
 function readItemsFromDb(
   dbPath: string,
   libId: string,
+  root: string,
   sql: string,
   params: Array<string | number>,
 ): IndexItem[] {
@@ -283,14 +305,14 @@ function readItemsFromDb(
     const rows = db.prepare(sql).all(...params);
     return rows.map((row, i) => {
       try {
-        return toIndexItem(sqlRowToItemRecord(row, '.gs.db ' + libId + ' items[' + String(i) + ']'));
+        return toIndexItem(joinedRowToItemRecord(row, root, '.gs.db ' + libId + ' asset[' + String(i) + ']'));
       } catch (e) {
         // 列被改过 / 库损坏：读路径也要响亮（不能让错值溜进检索结果）
-        throw asEngineError(e, '读 items 行失败：' + dbPath);
+        throw asEngineError(e, '读 asset 行失败：' + dbPath);
       }
     });
   } catch (e) {
-    throw asEngineError(e, '查 items 表失败：' + dbPath);
+    throw asEngineError(e, '查 asset 表失败：' + dbPath);
   } finally {
     try {
       db.close();
@@ -314,8 +336,14 @@ export function createItemStorePort(opts: ItemStorePortOptions): ItemStorePort {
   const libraries = opts.libraries;
   const fsImpl = opts.fs ?? NODE_ITEM_STORE_FS;
   const say = opts.onFallback ?? ((m: string) => console.warn(m));
-  const selectAll = 'SELECT ' + ITEM_COLUMNS.join(', ') + ' FROM items WHERE lib_id = ?';
-  const selectOne = 'SELECT ' + ITEM_COLUMNS.join(', ') + ' FROM items WHERE lib_id = ? AND uid = ?';
+  // 绿地 6 张表口径（DESIGN-6tables §1.2）：
+  //   · 条目在 asset；文件角色在 asset_file（preview / archive 各一行；**缺包 ⇒ archive 那行不存在**）；
+  //   · 索引状态（含 vector_row）在 asset_index_state（未编码 ⇒ LEFT JOIN 出 null）；
+  //   · 三张 LEFT JOIN 成"旧宽表"的形状，再交给 joinedRowToItemRecord 合成 ItemRecord。
+  // ⚠️ SQL 本体**只写一份**、在 row-types.ts 里（ASSET_ITEM_SELECT_ALL_SQL / _ONE_SQL）：
+  //    端口与测试共用同一条 SELECT，免得测试去验证一个"已经不存在"的查询（P1）。
+  const selectAll = ASSET_ITEM_SELECT_ALL_SQL;
+  const selectOne = ASSET_ITEM_SELECT_ONE_SQL;
 
   let jsonCache: { path: string; mtimeMs: number; items: IndexItem[] } | null = null;
 
@@ -337,13 +365,13 @@ export function createItemStorePort(opts: ItemStorePortOptions): ItemStorePort {
   return {
     listItems: (libId: string): IndexItem[] => {
       const layout = libraries.storageOf(libId);
-      if (fsImpl.existsSync(layout.dbPath)) return readItemsFromDb(layout.dbPath, libId, selectAll, [libId]);
+      if (fsImpl.existsSync(layout.dbPath)) return readItemsFromDb(layout.dbPath, libId, libraries.get(libId).root, selectAll, [libId]);
       return readFromJson(libId, '没有 .gs.db（' + layout.dbPath + '）');
     },
     getItem: (libId: string, uid: string): IndexItem | null => {
       const layout = libraries.storageOf(libId);
       if (fsImpl.existsSync(layout.dbPath)) {
-        const rows = readItemsFromDb(layout.dbPath, libId, selectOne, [libId, uid]);
+        const rows = readItemsFromDb(layout.dbPath, libId, libraries.get(libId).root, selectOne, [libId, uid]);
         return rows.length ? rows[0] : null;
       }
       const items = readFromJson(libId, '没有 .gs.db（' + layout.dbPath + '）');

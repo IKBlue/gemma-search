@@ -77,8 +77,11 @@ export {
   ITEM_FIELDS,
   ITEM_INSERT_SQL,
   ITEM_NULLABLE_FIELDS,
+  ASSET_ITEM_SELECT_ALL_SQL,
+  ASSET_ITEM_SELECT_ONE_SQL,
   ITEM_UPSERT_SQL,
   itemRecordToSqlValues,
+  joinedRowToItemRecord,
   parseItemRecord,
 } from './row-types.ts';
 export type { ItemColumn, ItemField, ItemRecord, ParsedItem } from './row-types.ts';
