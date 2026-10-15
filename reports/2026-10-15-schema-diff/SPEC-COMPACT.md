@@ -1,3 +1,6 @@
+> ⚠️ **提案快照，勿作依据**：本文是 `prototypes/PROPOSAL-schema-v1.html`（v1.2）在 **2026-10-15 11:51** 的机械提取，用于当时写 DDL。
+> 本轮**已采用 6 张表**（U19/U20），**权威在 `SPEC.md §1` 与真 DDL**（`apps/desktop/src/main/db/migrations.ts`）。保留本文仅为**追溯**提案与最终设计的差异。
+
 # 提案 schema 的**机械提取**（给实现者用，不必再读 103KB HTML）
 
 来源：`prototypes/PROPOSAL-schema-v1.html`（v1.2）；由 Lead 用正则从 HTML 表卡提取字段/类型/约束/说明。
