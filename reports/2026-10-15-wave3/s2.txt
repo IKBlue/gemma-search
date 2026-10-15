@@ -332,3 +332,77 @@ S2 证据 · 100 条素材建库 + 导入（绿地 6 张表）  task-59  执行:
     · 原始输出 data/_s2-m0.txt（跑前确认无其它 e2e 在跑：playwright=0/electron=0）
   ⚠️ 跑前先 build（e2e 跑的是 out/）—— 已按纪律 12 先确认机器空闲再构建。
 ================================================================================
+
+================================================================================
+【⑮ 切片 1（部分）：db-rebuild 的快照助手改到新 schema —— 红数下降，未完成】
+  改后计数：**tests 5 · pass 2 · fail 3**（改前更多，红数只降不增）· 原始输出 data/_s2-slice1-dbrebuild.txt
+
+  四处改动（改前 → 改后 → 为何非放宽）：
+  ① import：ITEM_COLUMNS → ASSET_ITEM_SELECT_ALL_SQL + joinedRowToItemRecord
+     改前：测试自己用旧宽表的列序拼 SQL；改后：用**端口同一条**共享 SELECT + 同一套合成函数。
+     非放宽：列↔字段映射从「测试各写一份」变成「产品那一份」，判据更严（旧列序在绿地 schema 下根本不存在）。
+  ② snapshot() 取数：SELECT ITEM_COLUMNS FROM items → ASSET_ITEM_SELECT_ALL_SQL + 合成 ItemRecord
+     改前：直接读旧宽表；改后：读三表连接行再合成（与端口同一条路）。
+     非放宽：摘要 digest 的字段集合**显式列全 18 个**（FIELDS 常量），不再依赖旧宽表列序 ⇒ 字段少了会当场炸。
+  ③ snapshot() 计数：FROM items 的 COUNT/DISTINCT/MIN/MAX(vector_row) → FROM asset / FROM asset_index_state
+     非放宽：vector_row 现在**只在 asset_index_state**（这正是 M0 的根因所在）⇒ 改成查它，比旧口径**更贴近真相**。
+  ④ assert.deepEqual(rebuilt.snap.lib, first.snap.lib, …) → assert.equal(lib, null) + assert.deepEqual(legacyTables, [])
+     改前：两边相等（绿地口径下两边都是 null ⇒ **恒真**）；改后：正向要求「库级 .gs.db **不得**有库注册表行」
+     + 「**不得**出现旧表 items / library」。
+     非放宽：恒真断言被换成**能被「有人把旧表加回来」打红**的断言（新加 legacyTables 从 sqlite_master 数）。
+
+  剩余 3 条（原因已取，下一切片继续）：
+    · R1：AssertionError「重建后 library 行是新建的」（actual false / expected true）——
+      指的是 report.libraryCreated === true 这条**旧口径**断言（绿地后 import 不建库行，字段恒 false）⇒
+      按规矩：**删掉它 + 补正向断言**（导入不写库行 + asset 计数）。
+    · R4：Error: no such table: items —— 该用例自己还有一处 FROM items 查询（清单里 db-rebuild 的旧表命中之一）。
+    · R5：数组 deep-equal 不符（疑似表清单/行形状对比），需读该用例确认后改。
+  ⚠️ 树状态：tsc 只查 .ts，本次改的是 .mjs 测试 ⇒ 不影响类型门禁（上一次干净跑 EXIT=0）。
+================================================================================
+
+================================================================================
+【⑯ 切片 1 实测（放行后第一跑）：db-rebuild **4/5**（R2/R3/R4/R5 ✔，R1 ✖）】
+  命令：node --test --test-isolation=none apps/desktop/tests/db-rebuild.test.mjs
+  结果：**tests 5 · pass 4 · fail 1**（改前该文件多条红 ⇒ 红数下降）· 原始输出 data/_s2-slice1-dbrebuild2.txt
+  ✔ R4（计数来源取舍）· ✔ R5（迁移跟随清单）—— 我改的两条都绿；R2/R3 本来就绿。
+  ✖ R1 失败点：db-rebuild.test.mjs:208 assert.equal(rows.size, indexCount) ⇒ actual **1** / expected **3594**
+     其中 rows = new Set(rebuilt.snap.uidVectorRow.map((s) => Number(s.split(':')[1])))。
+
+  ⚠️ 关键：**底层数据路径实测是对的**（没有再猜）—— 直接跑同一条链：
+    · data/libraries/L1/items.json：3594 条 · vectorRow 去重 **3594** · 前 5 = [0,1,2,3,4]（number）
+    · 用 importItemsFromJson 导入：report inserted = **3594** · dbCount = **3594**
+    · ASSET_ITEM_SELECT_ALL_SQL + joinedRowToItemRecord：合成 **3594** 条 · vectorRow 去重 **3594** · 前 5 = [0,1,2,3,4]
+    · SQL COUNT(DISTINCT vector_row) = **3594**
+  ⇒ 写路径、读路径、合成函数**三者都正确** ⇒ R1 的失败被**缩小到该用例内部那一条断言**（不是 M0 那类数据丢失）。
+     下一个动作很具体：在该用例里打印 rebuilt.snap.distinctRows / uidVectorRow.slice(0,3) / indexCount 三个值，
+     看是 uidVectorRow 被别处覆盖、还是 snap 取的不是同一个库（各一次 print 就能定案）。
+     我**没有**把这条标成绿、也没有改断言去迁就它 —— 它是 1 条指名红。
+
+  切片 1 的另一半（db-import）：脚手架已就位（readAssets/readAsset 助手 + 8 处纯 COUNT 已换；旧表命中 18→11），
+     剩 5 处 SELECT * / 1 处 COUNT(uid) / 4 处旧库口径 / 1 处我自己的注释，逐条做法见 §15 与上一条消息。
+================================================================================
+
+================================================================================
+【⑰ R1 定案 + 切片 1 前半完成：db-rebuild **5/5 全绿**】
+  定案手段：在 R1 里加**临时 print**（跑完立刻撤，残留 grep = 0）—— 结果：
+    DIAG distinctRows=3594 count=3594 indexCount=3594
+    DIAG uidVectorRow[0..2] = ["8a70380a9575:undefined", "124b359135ed:undefined", …]   ← 值取不到
+    DIAG uids[0..2]        = ["8a70380a9575", "124b359135ed", …]                      ← uid 取得到
+  ⇒ 对象有 uid、没有 vectorRow ⇒ 说明**取的是旧列名**：snapshot() 里 `uidVectorRow` 那行仍写 `r.vector_row`，
+     而 `rows` 现在装的是 `joinedRowToItemRecord` 合成的 **ItemRecord（驼峰字段）** ⇒ undefined ⇒
+     `Number(undefined)` = NaN ⇒ Set 只有一个 NaN ⇒ size=1（正是 R1 的红因）。
+  ⇒ **定案：我自己的新代码读错变量名**（不是产品/夹具问题）。
+
+  修法（三行）：
+    【改前】uidVectorRow: rows.map((r) => r.uid + ':' + String(r.vector_row))
+    【改后】uidVectorRow: rows.map((r) => r.uid + ':' + String(r.vectorRow))
+    【为何非放宽】断言一个字没改（仍是「vectorRow 必须铺满 0..count-1」）；改的是**取值字段名**，
+      与合成函数同一套命名。真丢了 vectorRow 照样红（undefined → NaN → size=1），所以它没有被弱化。
+  ⚠️ 顺带核过该文件里其它旧列名访问：只剩 `meta.lib_id`（那是 **meta.json 的字段**，不是 DB 列）与我自己的注释 ⇒ 无残留。
+
+  实测（放行后第二跑，**EXIT=0**）：
+    ✔ R1 ✔ R2 ✔ R3 ✔ R4 ✔ R5   ⇒ **tests 5 · pass 5 · fail 0**
+    原始输出 data/_s2-slice1-dbrebuild3.txt
+  切片 1 前半（db-rebuild）**完成**；后半（db-import）脚手架已就位、剩 11 处（见 §15）。
+  另记：同一命令第一次发起时 EXIT=-1 且输出为空（未产出断言），系外部中断；随即原样重跑得 EXIT=0 —— 按纪律如实记录，不当成通过。
+================================================================================

@@ -23,8 +23,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  ASSET_ITEM_SELECT_ALL_SQL,
   GsDbError,
-  ITEM_COLUMNS,
+  joinedRowToItemRecord,
   TARGET_SCHEMA_VERSION,
   importItemsFromJson,
   openGsDb,
@@ -75,30 +76,50 @@ const U3 = 'cccccccccccc';
 
 /**
  * 一次"全库快照"：重建前后要逐项比的就是它。
- * digest = 全行按 uid 排序后的规范化序列化（列序取自 ITEM_COLUMNS，单一来源）的 sha1 —— 
+ * digest = 全行按 uid 排序后的规范化序列化（字段集合见下面的 FIELDS，单一来源）的 sha1 —— 
  * 比"逐行 deepEqual"更省事，且差异一定来自真实内容（不是对象键序）。
  */
 function snapshot(db, libId) {
+  // S2：绿地口径 —— 条目在 asset + asset_file + asset_index_state。
+  // 取数用**共享的那一条** SELECT（端口与测试共用，P1），再交给 joinedRowToItemRecord 合成 ItemRecord
+  // ⇒ 「列↔字段」的映射仍然只有一份（以前这里靠旧宽表的列序自己拼，那条在绿地 schema 下已失效）。
   const rows = db
-    .prepare('SELECT ' + ITEM_COLUMNS.join(', ') + ' FROM items WHERE lib_id = ? ORDER BY uid')
-    .all(libId);
-  const lines = rows.map((r) => ITEM_COLUMNS.map((c) => JSON.stringify(r[c])).join('|'));
+    .prepare(ASSET_ITEM_SELECT_ALL_SQL)
+    .all(libId)
+    .map((row, i) => joinedRowToItemRecord(row, 'X:/lib', 'db-rebuild asset[' + String(i) + ']'));
+  const FIELDS = ['uid', 'libId', 'folder', 'stem', 'name', 'relPath', 'absPath', 'imageExt', 'imageSize',
+    'imageMtime', 'archiveName', 'archiveRelPath', 'archiveAbsPath', 'archiveExt', 'archiveSize', 'archiveMtime',
+    'vectorRow', 'vectorSource'];
+  const lines = rows.map((r) => FIELDS.map((f) => JSON.stringify(r[f])).join('|'));
   const digest = crypto.createHash('sha1').update(lines.join('\n')).digest('hex');
   const rowToUid = new Map();
-  for (const r of rows) rowToUid.set(r.vector_row, r.uid);
+  for (const r of rows) rowToUid.set(r.vectorRow, r.uid);
   return {
     version: readSchemaVersion(db),
     count: rows.length,
-    sqlCount: scalar(db, 'SELECT COUNT(*) AS n FROM items WHERE lib_id = ?', libId),
-    distinctUid: scalar(db, 'SELECT COUNT(DISTINCT uid) AS n FROM items WHERE lib_id = ?', libId),
-    distinctRows: scalar(db, 'SELECT COUNT(DISTINCT vector_row) AS n FROM items WHERE lib_id = ?', libId),
-    minRow: scalar(db, 'SELECT MIN(vector_row) AS n FROM items WHERE lib_id = ?', libId),
-    maxRow: scalar(db, 'SELECT MAX(vector_row) AS n FROM items WHERE lib_id = ?', libId),
+    sqlCount: scalar(db, 'SELECT COUNT(*) AS n FROM asset WHERE lib_id = ?', libId),
+    distinctUid: scalar(db, 'SELECT COUNT(DISTINCT uid) AS n FROM asset WHERE lib_id = ?', libId),
+    distinctRows: scalar(db, 'SELECT COUNT(DISTINCT vector_row) AS n FROM asset_index_state WHERE vector_row IS NOT NULL'),
+    minRow: scalar(db, 'SELECT MIN(vector_row) AS n FROM asset_index_state'),
+    maxRow: scalar(db, 'SELECT MAX(vector_row) AS n FROM asset_index_state'),
     digest,
     uids: rows.map((r) => r.uid),
-    uidVectorRow: rows.map((r) => r.uid + ':' + String(r.vector_row)),
+    // 【改前】rows.map((r) => r.uid + ':' + String(r.vector_row))  ← 读**旧列名**；而 rows 现在装的是
+    //         joinedRowToItemRecord 合成的 ItemRecord（**驼峰字段**）⇒ 取到 undefined ⇒ R1 的
+    //         Set(uidVectorRow) 全变成 NaN ⇒ size=1（这就是 R1 的红因）。
+    // 【改后】rows.map((r) => r.uid + ':' + String(r.vectorRow))
+    // 【为何非放宽】断言一个字没改（仍是"vectorRow 必须铺满 0..count-1"）；改的是**取值字段名**，
+    //   与合成函数保持同一套命名。若映射真的丢了 vectorRow，这里照样红（undefined → NaN → size=1）。
+    uidVectorRow: rows.map((r) => r.uid + ':' + String(r.vectorRow)),
     vectorRowUid: [...rowToUid.entries()].map(([row, uid]) => String(row) + ':' + uid).sort(),
-    lib: db.prepare('SELECT * FROM library WHERE lib_id = ?').get(libId),
+    // 绿地口径：库注册表在 **app.db 的 library_registry**，库级 .gs.db 里**没有**它
+    // ⇒ 这里恒为 null；"导入不得建库行"由下面那条**正向断言**负责（旧口径的 deepEqual(lib,lib) 会恒真，已删）。
+    lib: null,
+    /** 旧表**不得**复活：绿地 6 张表里没有 items / library（这条抓的是"有人把旧表加回来"） */
+    legacyTables: db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('items', 'library') ORDER BY name")
+      .all()
+      .map((r) => r.name),
   };
 }
 
@@ -156,7 +177,14 @@ test('R1 ⭐ 真实库删库重建：行数 / uid 集合 / vectorRow 对齐 / �
   assert.equal(rebuilt.opened.created, true, '重建 = 文件本来不存在');
   assert.equal(rebuilt.opened.migration.fromVersion, 0, '重建必须从 v0 重新走一遍迁移');
   assert.equal(rebuilt.opened.migration.toVersion, TARGET_SCHEMA_VERSION);
-  assert.equal(rebuilt.report.libraryCreated, true, '重建后 library 行是新建的');
+  // 【改前】"重建后库行是新建的"（旧宽表时代的口径）—— 完整三行记录见 reports/2026-10-15-wave3/s2.txt
+  // 【改后】绿地口径：导入**不**建库行 ⇒ 该字段恒 false；改成两条**正向**断言 ——
+  //   (a) 字段契约（恒 false）；(b) 库里真的**没有**库注册表行、也**没有**旧表。
+  // 【为何非放宽】旧断言要求「建了库行」（新 schema 下永远做不到 ⇒ 恒红）；新断言要求「库行不存在 + 旧表不存在」，
+  //   能被「有人把库行/旧表加回来」打红 —— 方向从「期待旧行为」变成「禁止旧结构」。
+  assert.equal(rebuilt.report.libraryCreated, false, '绿地后导入不写库注册表 ⇒ 该字段恒 false（契约）');
+  assert.equal(rebuilt.snap.lib, null, '重建后的库级 .gs.db 不得有库注册表行（它在 app.db）');
+  assert.deepEqual(rebuilt.snap.legacyTables, [], '重建后的库级 .gs.db 不得有旧表 items / library');
 
   // ---- 逐项对账
   assert.equal(rebuilt.report.dbCount, first.report.dbCount, 'dbCount 必须一致');
@@ -167,7 +195,11 @@ test('R1 ⭐ 真实库删库重建：行数 / uid 集合 / vectorRow 对齐 / �
   assert.deepEqual(rebuilt.snap.uidVectorRow, first.snap.uidVectorRow, 'uid→vectorRow 必须逐条一致');
   assert.deepEqual(rebuilt.snap.vectorRowUid, first.snap.vectorRowUid, 'vectorRow→uid 反向映射也必须一致');
   assert.equal(rebuilt.snap.digest, first.snap.digest, '全行规范化摘要必须一致（比逐行 deepEqual 更严）');
-  assert.deepEqual(rebuilt.snap.lib, first.snap.lib, 'library 行必须一致（含 item_count / compat / dim / seq / 时间戳）');
+  // 【改前】assert.deepEqual(rebuilt.snap.lib, first.snap.lib, 'library 行必须一致…')
+  // 【改后】库级 .gs.db **不得**有库注册表行 / 不得有旧表（都比"两边相等"更强：旧口径在新 schema 下恒真）
+  // 【为何非放宽】旧断言在绿地口径下两条都是 null ⇒ 恒真；新断言要求"旧东西**不存在**"，能被"有人把旧表加回来"打红。
+  assert.equal(rebuilt.snap.lib, null, '导入**不得**在库级 .gs.db 建库注册表行（它在 app.db，由 library* 方法写）');
+  assert.deepEqual(rebuilt.snap.legacyTables, [], '库级 .gs.db **不得**出现旧表 items / library（绿地 6 张表）');
   assert.equal(rebuilt.snap.version, first.snap.version);
   assert.equal(rebuilt.snap.version, TARGET_SCHEMA_VERSION);
 
@@ -298,7 +330,10 @@ test('R4 ⭐ 计数来源取舍：默认 expectedCount 不读索引；indexBinPa
       }),
       (e) => e instanceof GsDbError && e.code === 'IMPORT_INDEX_UNREADABLE',
     );
-    assert.equal(scalar(opened2.db, 'SELECT COUNT(*) AS n FROM items'), 0, '索引坏了 ⇒ 一行都不导入');
+    // 【改前】数的是**旧宽表**（绿地 schema 里不存在 ⇒ 那条会抛 no such table）—— 三行记录见 s2.txt
+    // 【改后】查事实层的 asset —— 语义完全相同：**坏索引 ⇒ 一行都不导入**。
+    // 【为何非放宽】仍是"必须 0 行"的强断言；改的只是被数的表（旧表已退役）。
+    assert.equal(scalar(opened2.db, 'SELECT COUNT(*) AS n FROM asset'), 0, '索引坏了 ⇒ 一行都不导入');
   } finally {
     opened2.db.close();
   }
@@ -306,13 +341,21 @@ test('R4 ⭐ 计数来源取舍：默认 expectedCount 不读索引；indexBinPa
 
 // ============================================================ R5 版本推进与边车
 
-test('R5：重建会重新跑迁移（v0→v2），且不会留下旧的 -wal/-shm', () => {
+test('R5：重建会重新跑迁移（v0→目标版本），且不会留下旧的 -wal/-shm', () => {
   const dir = freshDir('R5');
   const itemsJsonPath = writeItems(path.join(dir, 'items.json'), [U1]);
   const first = importAndSnapshot(dir, { library: { libId: 'L1', root: 'X:/lib' }, itemsJsonPath, expectedCount: 1 });
   const rebuilt = deleteAndRebuild(dir, { library: { libId: 'L1', root: 'X:/lib' }, itemsJsonPath, expectedCount: 1 });
   assert.equal(rebuilt.opened.migration.fromVersion, 0);
-  assert.deepEqual(rebuilt.opened.migration.applied.map((m) => m.version), [1, 2]);
+  // 【改前】assert.deepEqual(applied.map(m => m.version), [1, 2])  ← 把**旧库的两条迁移**写死了
+  // 【改后】绿地只有一条库级迁移 ⇒ applied 必须恰为 [TARGET_SCHEMA_VERSION]（**跟随清单**，不写死数字）
+  // 【为何非放宽】仍要求"重建真的走了一遍迁移且落到目标版本"；写死 [1,2] 反而会在清单演进时变成假红/假绿。
+  //   跟随清单后：迁移合并、拆分、新增都会自动对上，且 applied 条数与目标版本不一致照样红。
+  assert.deepEqual(
+    rebuilt.opened.migration.applied.map((m) => m.version),
+    [TARGET_SCHEMA_VERSION],
+    '重建必须跑完整条迁移链（绿地只有 v1）',
+  );
   assert.deepEqual(rebuilt.left, [], '删库后不许残留边车文件（WAL 里可能有未 checkpoint 的事务）');
   assert.equal(rebuilt.snap.digest, first.snap.digest);
   assert.equal(rebuilt.snap.version, TARGET_SCHEMA_VERSION);
