@@ -147,7 +147,12 @@ userData/app.db          应用级 3 张 —— 跨库的配置与注册表
 | appMeta | app_meta | — | — | {schemaVersion, …}（诊断页显示版本） |
 | reveal | —（用 itemPaths） | — | {uid} | ok |
 
-**本批不开的方法**（等对应的表）：libraryHealth（体检台账 = health_run/finding）· ingest / mutate / transactions（意图层标注表）· indexStart / indexCancel / indexResume（job 表）· 标签/评分/集合/交付历史相关的一切。
+**本批不开的方法**（等对应的表）：ingest / mutate / transactions（意图层标注表）· indexStart / indexCancel / indexResume（job 表）· 标签 / 评分 / 集合 / 交付历史相关的一切。
+
+✅ **保留（既有能力，不依赖没建的表）**：**libraryHealth** · **libraryRebuild** ——
+它们只读 `.gs-index.bin` 与 `.gs.db`（那 6 张表）；**体检台账**（`health_run` / `health_finding`）才是第二批的事，
+「体检**历史**」推迟 ≠ 「体检**与重建**」推迟。
+（删掉 rebuild 会直接撤掉 SPEC 的 **A11「用户能自救」** —— 2026-10-15 Lead 裁定：**甲 · 保留**。）
 
 ⚠️ 现有契约里那 6 个**诚实桩**（ingest / mutate / transactions / indexStart / indexCancel / indexResume）在绿地口径下**应当删除**，而不是继续挂着 —— 它们对应的表还没建。
 
@@ -183,7 +188,7 @@ userData/app.db          应用级 3 张 —— 跨库的配置与注册表
 | asset_file 10 列 | **7 列** | 砍 thumb_hash（UI 占位）与 content_hash_*（去重要真算哈希） |
 | asset_index_state 物化 needs_reencode | **不物化** | 跨表比较无法索引；等要筛再加列并对账 |
 | recent_view 跨库 FK | **删掉该表** | 进第二批；顺带回避了跨库外键这个死结 |
-| 体检 / 任务 / 标签 / 集合 / 导出 / 设置 / 历史 | **全部推迟** | 对应的表随功能上线 |
+| 体检**台账** / 任务 / 标签 / 集合 / 导出 / 设置 / 历史 | **推迟** | 对应的表随功能上线；⚠️ **体检（即时检查）与重建保留**（只依赖已有 6 张表 + 索引文件） |
 
 ---
 

@@ -302,7 +302,7 @@ pre .c { color: #86868b; } pre .k { color: #ff9f0a; } pre .s { color: #7fd6a0; }
     <tr><td class="f">reveal</td><td class="c"><span class="pill p-keep">保留</span></td><td class="d">—（用 itemPaths）</td><td class="d">—</td><td class="d">在文件管理器里定位。</td></tr>
     <tr><td class="f">ingest · mutate · transactions</td><td class="c"><span class="pill p-drop">删除</span></td><td class="d">—</td><td class="d">—</td><td class="d">要「意图层」标注表，<b>表还没建</b>。</td></tr>
     <tr><td class="f">indexStart · indexCancel · indexResume</td><td class="c"><span class="pill p-drop">删除</span></td><td class="d">—</td><td class="d">—</td><td class="d">要 job 表，<b>表还没建</b>。</td></tr>
-    <tr><td class="f">libraryHealth</td><td class="c"><span class="pill p-drop">不开</span></td><td class="d">—</td><td class="d">—</td><td class="d">体检台账 = health_run / health_finding，属第二批。</td></tr>
+    <tr><td class="f">libraryHealth · libraryRebuild</td><td class="c"><span class="pill p-keep">保留</span></td><td class="d">asset · asset_file · asset_index_state · .gs-index.bin</td><td class="d">重建可写 asset_index_state</td><td class="d"><b>既有能力，不依赖没建的表</b>；推迟的是体检<b>台账</b>（health_run/finding），不是体检与重建。删 rebuild 会撤掉 SPEC A11「用户能自救」。</td></tr>
   </tbody>
 </table></div>
 <p class="note">绿地口径下那 6 个<b>诚实桩</b>（<span class="mono">ingest / mutate / transactions / indexStart / indexCancel / indexResume</span>）<b>应当删除</b>，而不是继续挂着 —— 它们对应的表还没建。</p>
@@ -355,6 +355,7 @@ pre .c { color: #86868b; } pre .k { color: #ff9f0a; } pre .s { color: #7fd6a0; }
 <ul>
   <li>字段取舍是<b>按 field-map 的操作引用数</b>做的判断，不是实测（没跑过 100 条之外的数据量）。</li>
   <li>「6 张够用」的边界是 <b>S1–S4 这条链路</b>（扫描 → 索引 → 检索 → 详情 → 取件）。</li>
+  <li>本页 §2.2 的「保留」清单是 <b>2026-10-15 Lead 裁定</b>后的版本：<span class="mono">libraryHealth / libraryRebuild</span> <b>保留</b>（它们不依赖没建的表）。</li>
   <li>状态 8 档的<b>派生规则</b>写全了，但<b>实不实际</b>要等 S3 / S4 用真数据验。</li>
 </ul>
 
