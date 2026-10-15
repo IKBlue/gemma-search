@@ -1,0 +1,138 @@
+================================================================================
+S6 证据 · IPC 契约重列（删 6 诚实桩 + libraryConfig→libraryList + 新增 9 个）
+任务板 id: task-58   执行: db-worker   日期: 2026-10-15
+依据：reports/2026-10-15-schema-diff/DESIGN-6tables-and-contract.md §2.2（所有者批准）
+写入范围（Lead 已扩）：apps/desktop/src/{shared,main,renderer} · apps/desktop/{tests,e2e}
+===============================================================================
+
+【结论】
+· 契约重列完成：白名单 **20 个方法**（删 7 个名字 / 新增 9 个 / 保留 11 个），**删旧名不留两套**。
+· 主进程：新增应用级 `main/app-db.ts`（app.db 3 张表的**唯一写入口**），`library* / collectDir* / appMeta` 全部接线；
+  `enabled=0` 的库**不参与检索与入库**；`libraryAdd` 改写 app.db（不再写 userData 的 JSON 注册表）。
+· renderer：`libraryConfig→libraryList`；被删方法的**用户可见入口全部改成诚实态**（清单见 §4）。
+· e2e：桩改名 + E8-d 断言**变强** + tasks/activity 两个 spec 重写成诚实态。
+· 门禁：tsc 两工程 **EXIT=0** · build **EXIT=0** · 单测 **532 / pass 506 / fail 25 / skipped 1**
+  （25 条全部落在 **S2 的读路径红窗口**，逐条列在 §7；S6 自己的文件全绿）。
+· e2e：**56 passed / 1 failed / 1 skipped**，唯一失败是 `m0-real`，**判定为 S2 窗口**（证据见 §6）。
+
+【1. 契约（shared/ipc.ts）—— 删 / 增 / 保留】
+删除（7 个名字，§2.2）：
+  ingest · mutate · transactions · indexStart · indexCancel · indexResume —— 6 个诚实桩（对应的表本轮没建）
+  libraryConfig —— **改名** libraryList（删旧名，不留两套）
+新增（9 个名字）：
+  libraryList（取代 libraryConfig）· librarySetEnabled · libraryReorder · libraryRemove
+  collectDirs · collectDirAdd · collectDirRemove · collectDirSetDefault · appMeta
+保留（11 个）：
+  search · item · itemPaths · indexStatus · scan · reveal · collect · libraryPickDir · libraryAdd
+  libraryHealth · libraryRebuild  ← 所有者 2026-10-15 正式裁定**保留**（TASKS U21：它们只读
+  .gs-index.bin/.gs.db，**不依赖** health_run/finding，属于"6 张表支持得了的方法"）
+参数口径：新方法一律 `.strict()`；路径不进契约（只有 libId / dirId / sortOrder 这类）；
+  保留方法的参数形状**没动**（基线 §2.2 的参数列是示意；改名/收紧是破坏性改动，且渲染层已依赖 —— 见 §8 的 deviation）
+
+【2. 主进程接线】
+· **新增 apps/desktop/src/main/app-db.ts**（不 import electron，可被 node:test 直接跑）：
+  `openAppDb()`（建/迁移 <userData>/app.db）· `listLibraries/getLibrary/insertLibrary/updateLibraryEnabled/
+  updateLibrarySortOrder/updateLibraryRootAndName/deleteLibrary` · `listCollectDirs/insertCollectDir/
+  deleteCollectDir/setDefaultCollectDir` · `readAppMeta` · `normalizeRootPath`（真实大小写+长名+无尾分隔符）。
+  **为什么单独一个文件**：库级 `.gs.db` 被 S2 改着（import.ts/row-types.ts/storage-ports.ts 都不许我碰），
+  应用级是另一个库文件、另一套账本（schema-layers.ts 的落点裁定）⇒ 3 张应用表的读写全部收在这一个文件里。
+· `main/index.ts`：分派名单换成新方法；`withAppDb()` 包一层（**永不抛**，失败给 `INTERNAL` 信封 + 日志原文）；
+  `libraryList` = 发现来源（env/config/自举/注册表）× app.db 的 enabled/sort_order/display_name 合并，
+  **登记过但这次没发现**的库也列出来（不猜，只如实显示）；`libraryAdd` 写 app.db（root 先规范化）；
+  `libraryRemove` 默认只取消登记，`deleteDb:true` 才删库内 `.gs-*`（**素材永远不动**）；
+  `collectDir*` 写 collect_dir（默认项唯一由**数据库唯一索引**保证，先清后设在一个事务里）；
+  `appMeta` 只读（app_meta 的写入口只有迁移）。
+· `buildEngine()`：`enabled=0` 的库过滤掉（日志写明"停用的库不参与检索：N 个"）。
+· **唯一写入口**由静态测试钉住（§5 D4）：`library_registry`/`collect_dir` 只许 app-db.ts 写；
+  `app_meta` 只许 app-migrations.ts（迁移账本）写 —— 我第一版在 index.ts 里手写了两条 UPDATE，**当场被 D4 抓红**，已收进 app-db.ts。
+
+【3. 没有动的东西（边界）】
+· `main/storage-ports.ts` · `main/db/row-types.ts` · `main/library-health.ts` · `main/db/import.ts` —— **一行没动**（S2 的）。
+· `shared/ipc.ts` 的通道名（CH_INVOKE/CH_EVENT）与 `preload` —— 没动（preload 仍只暴露 invoke/onEvent/platform 三键）。
+· 引擎侧 6 个桩（packages/engine 的 UNIMPLEMENTED_METHODS 与 fake.ts）—— **保留**（按 Lead 裁定：白名单删掉后自然不可达）。
+
+【4. ⭐ 用户可见变化清单（逐个；Lead 要拿它去告诉所有者）】
+| # | 位置 | 改前 | 改后（诚实态） |
+|---|---|---|---|
+| 1 | pages/ActivityPage.tsx（操作记录） | 事务表 + 撤销状态 +「回退」+「重试」+ 待处理面板 + blocked 提示 | 外壳照旧（侧栏/返回搜索都在），正文换成一句「该功能等对应的数据表上线」+ 为什么（transactions/mutate 已删、意图层表未建）+ 明确写「**不会**给你看一张空表」 |
+| 2 | pages/TasksPage.tsx（索引任务） | 阶段条 + 已处理/总数 + 条/秒 + ETA + 失败项 +「开始索引」+「取消」+「续跑」+ GPU 回退提示 | 同上：一句「等对应的数据表上线」+ 为什么（job 表未建、indexStart/Cancel/Resume 已删）+ 明确写「灰色假按钮比没有按钮更坏」 |
+| 3 | utils/item-actions.ts（详情页动作） | 改 ID / 改分类 / 重新配对压缩包 / 移出素材库 四个按钮按领域条件可点（走后端 mutate） | 四个一律 **op:null + 禁用**，理由「该功能等对应的数据表上线」；**保留**取件（collect 仍存在）与「重新编码这一条」（本来就 op:null） |
+| 4 | pages/ItemPage.tsx | runAction 里有一条 `invoke('mutate')` 死分支 + busy 态 | 死分支与 busy 态删除（动作到不了那里）；按钮仍按 disabled 渲染 |
+| 5 | search/SearchSidebar.tsx | 占位项「入库与增量」phase='P4' | 仍是**禁用占位**（点了给说明、不静默），phase 文案改为「P4（等对应的数据表上线）」 |
+| 6 | hooks/useLibraryConfig.ts | `invoke('libraryConfig')` | `invoke('libraryList')`（载荷形状不变：libraries/chosen/warnings/diagnostics/registryPath） |
+| 7 | 诊断页（T-15b 的体检/重建） | —— | **不变**（libraryHealth/libraryRebuild 保留；health-stub 只改了 libraryConfig→libraryList 这个 case） |
+| 8 | 侧栏其它项（语义搜索/图片详情/本地图库/设置） | —— | 不变 |
+
+【5. 单元测试】
+· 新增 **apps/desktop/tests/ipc-contract-s6.test.mjs**（3 条）：C1 白名单**集合相等**（= 基线 §2.2 的 20 个，多一个少一个都红）·
+  C2 已删 7 个名字都不在白名单/无 schema · C3 未登记名字（含已删除的 + exec/__proto__/constructor）**真跑一次**全被拒，且保留方法能过（对照）。
+· 新增 **apps/desktop/tests/app-db.test.mjs**（4 条）：D1 app.db 落点 + 应用级 3 张表 + 账本版本 ·
+  D2 登记/规范化 root/重复 root 被 UNIQUE 拦/停用/排序/删除 · D3 collect_dir 默认项**唯一**（含"绕过写入口硬插第二条"必须被**数据库**拦住）·
+  D4 ⭐⭐ **唯一写入口静态扫描**（library_registry/collect_dir 只许 app-db.ts 写、app_meta 只许迁移写、读也只许 app-db.ts）。
+· 改 **permissions.test.mjs**：S15 = 已删 7 个名字逐条**真跑**被拒 + 保留方法反向对照；S16 = 新增 9 个方法登记 + 形状/边界/`.strict()`。
+· 改 **item-actions.test.mjs**：IA3 改成**通用**核对（动作声称的方法必须在白名单里；并自检已删名字不在解析结果里）·
+  IA3b 改成「四个改数据动作一律 op:null + 禁用 + 说明」+ 取件反向对照 · IA2e 口径更新（盘上没了：取件理由仍是「文件不在盘上」；
+  四个改数据动作与盘上状态无关，理由指向「等表上线」）。
+· 改 **sqlite-tmp-dir.test.mjs 的 ST3**：负载从 `importItemsFromJson` 换成**纯 SQLite 负载**（自建表 + 需要 temp 的排序 + cache_size=1）——
+  原来它依赖库级读路径，会跟着 S2 的红窗口一起红，而它要证的只是「SQLite 临时目录」。现 3/3 绿。
+· **未动** `apps/desktop/tests/library-methods.test.mjs`（Lead 划定归 S2）。
+
+【6. e2e（apps/desktop/e2e）】
+· 桩改名：`helpers/engine-stub.mjs` · `helpers/health-stub.mjs` 的 `case 'libraryConfig'` → `'libraryList'`（含注释）。
+· `fake-mode.spec.mjs` **E8-d 断言变强**（Lead 要求的三行）：
+    改前：`indexStart` 在模拟模式下**必须成功**（断言 jobId 匹配 /^j-fake-/）；
+    改后：`indexStart`（已删除）**无论如何都被拒**（BAD_REQUEST），`exec` 同样被拒，**同一窗口内** `libraryList` 必须可用（正向对照）；
+    为什么不是放宽：旧断言证「某方法能跑」，新断言证「删掉的方法在任何模式下都跑不了」+ 多一条对照 —— 覆盖的是**更严格**的性质。
+  E8-f 相应改成「两种模式口径一致」（旧断言"模拟放行/真实拒绝"的差异已随方法删除消失）。
+· `tasks.spec.mjs` · `activity.spec.mjs` **重写**为诚实态断言：页面可见 + 文案说清「等对应的数据表上线」+
+  **一个假按钮都不许有**（断言 "开始索引/续跑/回退" 这类按钮计数为 0）+ 窗口标题仍来自 router/paths.ts。
+· 全量 e2e：**56 passed / 1 failed / 1 skipped**（4.9m）· `OUT_UNCHANGED=True`
+  （纪律 12：跑前跑后各记一次 `out/` 全量 SHA256 指纹，**一致** ⇒ 这一轮有效；跑前确认无其它 electron 进程）。
+· 唯一失败 `m0-real.spec.mjs` —— **判定为 S2 的读路径窗口，不是 S6**，证据（该次运行应用自己的日志）：
+    `invoke libraryList 4ms → ok` · `[ui] libraryList → 1 个库 · 来源 env`
+    `invoke indexStatus 92ms → ok` · `[ui] indexStatus → L1 3594/3594 dim=768 healthy=true`
+    `invoke search 2351ms → ok` · `[ui] search text → **0 条** · 2350ms`
+  ⇒ 索引健康、库在、方法都 ok，**但检索 0 条**：检索要用引擎的 ItemStorePort 读条目，而那条读路径
+    （`main/storage-ports.ts` → 从 items 搬到 asset/asset_file）正是 S2 在改的地方；M0 的夹具又用**旧导入器**建库。
+    S6 没有碰 search / storage-ports / import / row-types（§3），也不改条目读取。
+· 顺带记一条教训（写进 TasksPage 注释）：我第一版把整页换成一段裸文本，**把 AppShell/侧栏/返回搜索链接一起删了** ⇒
+  a11y E5-b、uiux E12-e、routing E2-e/E6-b 四条同时红；恢复外壳后全部转绿。**改页面文案不许动外壳。**
+
+【7. 交接给 S2 的清单（我按边界没动；25 条失败全部出在这里）】
+| 文件/范围 | 失败用例 | 原因 |
+|---|---|---|
+| apps/desktop/tests/db-import.test.mjs | I1–I12（12 条） | import 侧仍是旧 items 口径（items→asset/asset_file 迁移中） |
+| apps/desktop/tests/db-rebuild.test.mjs | R1–R5（5 条） | 重建走 import 的写入阶段 |
+| apps/desktop/tests/health-rebuild.test.mjs | H3/H6/H7/H8/H9/H12（6 条） | 体检/自检读旧表（`main/library-health.ts` 归 S2） |
+| apps/desktop/tests/library-methods.test.mjs | **IM1**（T-42 那条）·（L2/L4/L7 本轮已随 S2 的改动通过/波动） | 走 runLibraryRebuild → import |
+| apps/desktop/tests/storage-ports-main.test.mjs | **M7** | 夹具用旧导入器建库，而 storage-ports 已改读新表 |
+| apps/desktop/e2e/m0-real.spec.mjs | M0 | 同上（见 §6 的日志证据） |
+⇒ 都是"运行时/夹具还在旧 items 口径"的同一件事。**要我把 M7 的夹具改成新表口径的话请说一声**（它在 tests/ 我的范围里，
+  但它断的是 storage-ports 的行为，改它需要跟 S2 的列映射对齐，所以我按边界先不动）。
+
+【8. 偏差与取舍（如实写）】
+· `scan / indexStatus / search / item / itemPaths / collect / reveal` 的**参数形状没按基线 §2.2 的示意列改**
+  （基线写 `search {query|image, scope, limit}`、`item {uid}` 等）。理由：① 那是示意列，不是要改名的指令；
+  ② 改名/收紧参数属**破坏性**（§9.1），而渲染层与 e2e 已按现形状接线；③ 任务书对本组写的是"保留**或**改造"。
+  ⇒ 我把"改造"落在这两件事上：**删桩**与**新增**。若所有者要按基线收紧参数，请单独开任务（会同时动 renderer/e2e）。
+· `libraryAdd` 保留了可选的 `libId`（基线只写 `{root, label?}`）——超集，不破坏任何调用；主进程在省略时仍自动分配 L1/L2…
+· app.db 与**旧的 userData/library-registry.json**：S6 之后**只写 app.db**；JSON 仅作为 `library-config` 的**只读**发现来源
+  （老用户升级时还能被认出来）。**没有**做"JSON→app.db 一次性导入"（绿地口径不迁就旧实现）——若要，请开任务。
+· 体检/重建（libraryHealth/Rebuild）按所有者裁定保留，但**它们的读路径仍归 S2**（IM1 现在红着，见 §7）。
+
+【9. 门禁原始输出】
+$ npx tsc --noEmit -p tsconfig.node.json   ⇒ NODE_TSC=0
+$ npx tsc --noEmit -p tsconfig.web.json    ⇒ WEB_TSC=0
+$ npm run build                            ⇒ BUILD=0（三端产物齐）
+$ npm test                                 ⇒ tests 532 · pass 506 · fail 25 · skipped 1（25 条见 §7，全部 S2 窗口）
+$ npx playwright test …（全量）             ⇒ 56 passed · 1 failed（m0-real，S2 窗口）· 1 skipped（perf.spec 默认跳过）·
+                                             OUT_UNCHANGED=True
+
+【10. 回滚】
+· 契约：`shared/ipc.ts` 恢复 6 桩 + libraryConfig（并去掉 9 个新方法）—— 但**不建议**：那是绿地重列的反面。
+· 主进程：删 `main/app-db.ts`；`main/index.ts` 去掉 `withAppDb/registryMeta/ensureLibraryRow/appDbErrorEnvelope/LibraryView`
+  与新分支，`libraryAdd` 恢复写 JSON 注册表（需恢复 `saveRegistry/loadRegistry/normalizeLibraries` 的 import）。
+· renderer：`useLibraryConfig.ts` 改回 libraryConfig；两个页面恢复旧实现（git 历史）；item-actions 四个动作恢复 op。
+· e2e/测试：删 `ipc-contract-s6.test.mjs`、`app-db.test.mjs`；permissions/item-actions 的两处改回；ST3 可保留（它与 S6 无关）。
+· 未跑 git（AGENTS P7）。临时物：data/_t58（app-db 测试临时目录，测试 after() 自清）· data/_m0-*（m0-real 自清）。
+===============================================================================

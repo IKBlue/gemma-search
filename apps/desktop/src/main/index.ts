@@ -29,7 +29,7 @@ import { ROOT, log } from './log.ts';   // ← 必须最先导入：导入即初
 import { createEngine, UNIMPLEMENTED_METHODS } from '../../../../packages/engine/src/engine.ts';
 import { CH_INVOKE, CH_EVENT, validateCall, METHOD_NAMES } from '../shared/ipc.ts';
 import type { Envelope, MethodName, Req } from '../shared/ipc.ts';
-import { resolveLibraries, loadRegistry, saveRegistry, normalizeLibraries, registryPath } from './library-config.ts';
+import { resolveLibraries, registryPath } from './library-config.ts';
 import type { MainConfig, ResolveLibrariesResult } from './library-config.ts';
 import { resolveStorageRoots, describeStorageRoots, probeWritable, resolveModels } from './storage-roots.ts';
 import type { ModelResolution } from './storage-roots.ts';
@@ -40,6 +40,15 @@ import type { BoundsDecision } from './window-state.ts';
 import { createRevealPort } from './ports.ts';
 import { createLibraryResolverPort, createStoragePorts } from './storage-ports.ts';
 import { runLibraryHealth, runLibraryRebuild } from './library-ipc.ts';
+import {
+  appDbPath, deleteCollectDir, deleteLibrary, getLibrary, insertCollectDir, insertLibrary,
+  listCollectDirs, listLibraries, normalizeRootPath, openAppDb, readAppMeta, setDefaultCollectDir,
+  updateLibraryEnabled, updateLibraryRootAndName, updateLibrarySortOrder,
+} from './app-db.ts';
+import { removeGsDbFiles } from './db/index.ts';
+import { GS_DB_NAME, GS_INDEX_NAME } from './storage-roots.ts';
+import type { CollectDirRow, LibraryRow } from './app-db.ts';
+import type { SqlDatabase } from './db/index.ts';
 import { configureProcessTempDir } from './db/tmp-dir.ts';
 import type { StoragePorts } from '../../../../packages/engine/src/storage-ports.ts';
 import { parseThumbUrl, createLibIdResolver } from './thumb-url.ts';
@@ -195,6 +204,74 @@ const DATA_DIR: string = config.data_dir || path.join(ROOT, 'data');
 // 也不会"只是启动了一下"就往用户目录写东西（写注册表只发生在 libraryAdd 被调用时）。
 let USER_DATA_DIR: string | null = null;
 let RESOLVED: ResolveLibrariesResult | null = null;
+
+/**
+ * 应用级 app.db 的一次性访问（打开 → 用 → 关）。
+ *
+ * ⚠️ 应用级 = **app.db**（<userData>/app.db），与库级 `.gs.db` 是**两套账本**（schema-layers.ts 的落点裁定）。
+ * ⚠️ 任何失败都**不抛给 IPC**：返回 {ok:false} 并记日志，由调用方给出诚实结果 —— 信封要求"永不抛"。
+ * ⚠️ app.db 的读写**只走 main/app-db.ts**（那里是 3 张应用表的唯一写入口，测试会静态钉住）。
+ */
+function withAppDb<T>(fn: (db: SqlDatabase) => T): { ok: true; value: T } | { ok: false; why: string } {
+  if (!USER_DATA_DIR) return { ok: false, why: 'userData 未初始化（应用还没准备好）' };
+  try {
+    const app = openAppDb({ userDataDir: USER_DATA_DIR });
+    try {
+      return { ok: true, value: fn(app.db) };
+    } finally {
+      app.close();
+    }
+  } catch (e) {
+    log('!! app.db 操作失败:', stackText(e));
+    return { ok: false, why: messageText(e) };
+  }
+}
+
+/**
+ * app.db 里的库元数据（enabled / sort_order）。
+ * **缺行 = 默认启用**：绿地口径下只有"用户显式停用/排序过"的库才有行（注册表记录的是用户意图）。
+ */
+/** `libraryList` 里一个库的形状（发现结果 + app.db 里的用户意图） */
+interface LibraryView {
+  libId: string;
+  root: string;
+  label: string;
+  source: string;
+  enabled: boolean;
+  sortOrder: number;
+  itemCount: number | null;
+  registered: boolean;
+}
+
+/** app.db 操作失败 → 失败信封（**永不抛**；userMessage 恒非空） */
+function appDbErrorEnvelope(why: string, what: string): Envelope {
+  return { ok: false, error: {
+    code: 'INTERNAL',
+    message: what + '失败：' + why,
+    userMessage: '应用数据（app.db）读写失败，这次改动没有生效。详情见日志。',
+    details: { what },
+  } };
+}
+
+function registryMeta(): Map<string, LibraryRow> {
+  const r = withAppDb((db) => listLibraries(db));
+  return r.ok ? new Map(r.value.map((row: LibraryRow) => [row.libId, row])) : new Map();
+}
+
+/** 给「没登记过的库」补一行（用户第一次对它做写操作时）—— 只被写操作调用 */
+function ensureLibraryRow(libId: string, root: string, label: string): { ok: true } | { ok: false; why: string } {
+  const r = withAppDb((db) => {
+    const existing = getLibrary(db, libId);
+    if (existing) {
+      // 库根可能变了（盘符/目录改名）：以**当前发现到的 root** 为准，如实更新
+      // ⚠️ 走 app-db 的写入口（§2.3 唯一写入口；静态测试 D4 会抓"调用方自己写 SQL"）
+      return updateLibraryRootAndName(db, libId, root, existing.displayName);
+    }
+    insertLibrary(db, { libId, root, displayName: label });
+    return getLibrary(db, libId);
+  });
+  return r.ok ? { ok: true } : { ok: false, why: r.why };
+}
 function librariesResolved(): ResolveLibrariesResult {
   if (!RESOLVED) {
     RESOLVED = resolveLibraries({
@@ -336,7 +413,15 @@ function buildStoragePorts(r: ResolveLibrariesResult): StoragePorts | null {
 }
 
 function buildEngine(): ResolveLibrariesResult {
-  const r = librariesResolved();
+  const resolved = librariesResolved();
+  // ⚠️ S6：`enabled = 0` 的库**不参与检索与入库**（设计基线 §1.1 的 DDL 注释）。
+  //    注意：**不动任何文件** —— 停用只是"这次不给引擎"；库列表（libraryList）照样把它列出来。
+  const meta = registryMeta();
+  const active = resolved.libraries.filter((l) => meta.get(l.libId)?.enabled !== false);
+  if (active.length !== resolved.libraries.length) {
+    log('[库] 停用的库不参与检索：', resolved.libraries.length - active.length, '个（共', resolved.libraries.length, '）');
+  }
+  const r: ResolveLibrariesResult = { ...resolved, libraries: active };
   engine = createEngine({
     config: { libraries: r.libraries, data_dir: DATA_DIR, collect: { dirs: r.collect.dirs, default: r.collect.default } },
     encoder: {
@@ -523,10 +608,16 @@ function registerIpc(): void {
     }
     if (!engine) buildEngine();
 
-    // 库配置是由主进程处理的方法（不是引擎方法）——首启向导用
-    // ⚠️ libraryHealth / libraryRebuild 也在这里分派：它们**不是引擎方法**（体检要读索引 + 只读开 .gs.db；
-    //    重建要删/建文件），但走同一条 IPC 通道、同一套 zod 白名单与信封（2026-10-15 所有者批准新增）。
-    if (v.method === 'libraryConfig' || v.method === 'libraryAdd' || v.method === 'libraryPickDir'
+    // 「外壳方法」（不是引擎方法）：库注册表 / 取件白名单 / 应用账本 / 体检重建。
+    // ⚠️ S6（2026-10-15）按基线 §2.2 重列：`libraryConfig` 已改名 `libraryList`（不留两套），
+    //    并新增 librarySetEnabled / libraryReorder / libraryRemove / collectDirs / collectDir* / appMeta。
+    //    这些方法读写的**只有 6 张表**（应用级 app.db 3 张 + 库级 .gs.db 3 张），实现分别在
+    //    main/app-db.ts（应用级唯一写入口）与 main/library-ipc.ts（体检/重建）。
+    if (v.method === 'libraryList' || v.method === 'libraryAdd' || v.method === 'libraryPickDir'
+        || v.method === 'librarySetEnabled' || v.method === 'libraryReorder' || v.method === 'libraryRemove'
+        || v.method === 'collectDirs' || v.method === 'collectDirAdd'
+        || v.method === 'collectDirRemove' || v.method === 'collectDirSetDefault'
+        || v.method === 'appMeta'
         || v.method === 'libraryHealth' || v.method === 'libraryRebuild') {
       const res = await handleLibraryMethod(v.method, v.params);
       log(`invoke ${v.method} ${(Date.now() - started)}ms → ${resultCode(res)}`);
@@ -585,14 +676,14 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
     return method === 'libraryHealth' ? runLibraryHealth(input) : runLibraryRebuild(input);
   }
 
-  if (method === 'libraryConfig') {
+  if (method === 'libraryList') {
     // 模拟模式：给一个**自洽的假世界**。少了这一步会出现很别扭的错配 ——
     // 引擎侧 `indexStatus` 报着 3 个样例库，而门禁（`decideGate` 判的是**本方法**的 `libraries.length`）
     // 因为一条真实库来源都没配而判成 `wizard` ⇒ **显示首启向导、检索界面根本不挂载**。
-    // 实测踩过：E8-a/E8-b 卡在"找不到 #query"，看起来像选择器问题，其实是"没有库"。
+    // 实测踩过：E8-a/E8-b 卡在「找不到 #query」，看起来像选择器问题，其实是「没有库」。
     if (FAKE_MODE) {
       return { ok: true, data: {
-        libraries: [{ libId: 'L1', label: '示例库（模拟）', root: FAKE_LIB_ROOT, source: 'fake' }],
+        libraries: [{ libId: 'L1', label: '示例库（模拟）', root: FAKE_LIB_ROOT, source: 'fake', enabled: true, sortOrder: 0, itemCount: null, registered: false }],
         collect: { dirs: {}, default: '' },
         chosen: 'fake（GEMMA_FAKE=1，没有真实素材库）',
         diagnostics: ['模拟模式：库列表来自 fixtures/sample-index.json，不是真实配置'],
@@ -600,14 +691,145 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
         registryPath: null,
       } };
     }
+    // app.db 的 library_registry 是**用户意图**的权威（enabled / sort_order / display_name）；
+    // 库根仍来自四条发现来源（env / 注册表 / config / 自举）—— 两者合并，缺行 = 默认启用。
     const r = librariesResolved();
+    const meta = registryMeta();
+    const libraries: LibraryView[] = r.libraries.map((l) => {
+      const row = meta.get(l.libId);
+      return {
+        libId: l.libId,
+        root: l.root,
+        label: row ? row.displayName : l.label,
+        source: l.source,
+        enabled: row ? row.enabled : true,
+        sortOrder: row ? row.sortOrder : 0,
+        itemCount: typeof l.count === 'number' ? l.count : null,
+        registered: row !== undefined,
+      };
+    });
+    // 登记过、但四条来源都没发现它（盘没挂 / 被移走）⇒ **也要列出来**：
+    // 否则用户会以为「明明加过，怎么没了」（绿地口径下不猜，只如实显示）。
+    for (const row of meta.values()) {
+      if (!libraries.some((l) => l.libId === row.libId)) {
+        libraries.push({ libId: row.libId, root: row.root, label: row.displayName, source: 'registry',
+                         enabled: row.enabled, sortOrder: row.sortOrder, itemCount: null, registered: true });
+      }
+    }
+    libraries.sort((a, b) => (a.sortOrder - b.sortOrder) || a.libId.localeCompare(b.libId));
     return { ok: true, data: {
-      libraries: r.libraries.map(({ libId, root, label, source }) => ({ libId, root, label, source })),
+      libraries,
       collect: r.collect,
       chosen: r.chosen,
       diagnostics: r.diagnostics,
       warnings: r.warnings,
       registryPath: r.registryPath,
+      appDbPath: USER_DATA_DIR ? appDbPath(USER_DATA_DIR) : null,
+    } };
+  }
+
+  // ---- 基线 §2.2 新增：库注册表写入口（library_registry 的唯一写入口之一）----
+  if (method === 'librarySetEnabled' || method === 'libraryReorder' || method === 'libraryRemove') {
+    const p = (params && typeof params === 'object' ? params : {}) as { libId?: unknown; enabled?: unknown; sortOrder?: unknown; deleteDb?: unknown };
+    const libId = String(p.libId ?? '');
+    const found = librariesResolved();
+    const target = found.libraries.find((l) => l.libId === libId);
+    const known = target ?? (registryMeta().get(libId) ? { libId, root: registryMeta().get(libId)!.root, label: libId } : null);
+    if (!known) {
+      return { ok: false, error: { code: 'LIB_NOT_FOUND', message: '未登记的库：' + libId,
+        userMessage: '找不到这个素材库，可能已被移除。', details: { libId } } };
+    }
+    if (method === 'librarySetEnabled') {
+      const enabled = p.enabled === true;
+      const prep = ensureLibraryRow(known.libId, known.root, known.label);
+      if (!prep.ok) return appDbErrorEnvelope(prep.why, '更新库状态');
+      const r = withAppDb((db) => updateLibraryEnabled(db, libId, enabled));
+      if (!r.ok) return appDbErrorEnvelope(r.why, '更新库状态');
+      invalidateLibraries();
+      log('[库] 停用/启用', libId, '→', enabled);
+      return { ok: true, data: { libId, enabled } };
+    }
+    if (method === 'libraryReorder') {
+      const sortOrder = typeof p.sortOrder === 'number' ? p.sortOrder : 0;
+      const prep = ensureLibraryRow(known.libId, known.root, known.label);
+      if (!prep.ok) return appDbErrorEnvelope(prep.why, '调整库顺序');
+      const r = withAppDb((db) => updateLibrarySortOrder(db, libId, sortOrder));
+      if (!r.ok) return appDbErrorEnvelope(r.why, '调整库顺序');
+      if (r.value === null) {
+        return { ok: false, error: { code: 'LIB_NOT_FOUND', message: '未登记的库：' + libId,
+          userMessage: '找不到这个素材库，可能已被移除。', details: { libId } } };
+      }
+      invalidateLibraries();
+      log('[库] 顺序', libId, '→', sortOrder);
+      return { ok: true, data: { libId, sortOrder } };
+    }
+    // libraryRemove —— **默认只取消登记**；deleteDb:true 才删库内 .gs-*（素材永远不动）
+    const deleteDb = p.deleteDb === true;
+    const removedFiles: string[] = [];
+    if (deleteDb && target) {
+      try {
+        removedFiles.push(...removeGsDbFiles(path.join(target.root, GS_DB_NAME)));
+        const idx = path.join(target.root, GS_INDEX_NAME);
+        if (fs.existsSync(idx)) { fs.rmSync(idx, { force: true }); removedFiles.push(idx); }
+      } catch (e) {
+        log('!! 删库文件失败（只取消登记）：', stackText(e));
+      }
+    }
+    const rm = withAppDb((db) => deleteLibrary(db, libId));
+    if (!rm.ok) return appDbErrorEnvelope(rm.why, '取消登记');
+    invalidateLibraries();
+    log('[库] 取消登记', libId, '· 删库文件 =', String(deleteDb), '· 删了', removedFiles.length, '个');
+    return { ok: true, data: { libId, registryRowRemoved: rm.value, deletedFiles: removedFiles, materialsUntouched: true } };
+  }
+
+  // ---- 基线 §2.2 新增：取件白名单（应用级 collect_dir 的唯一写入口）----
+  if (method === 'collectDirs') {
+    const r = withAppDb((db) => listCollectDirs(db));
+    if (!r.ok) return appDbErrorEnvelope(r.why, '读取取件白名单');
+    return { ok: true, data: { dirs: r.value } };
+  }
+
+  if (method === 'collectDirAdd' || method === 'collectDirRemove' || method === 'collectDirSetDefault') {
+    const p = (params && typeof params === 'object' ? params : {}) as { absPath?: unknown; label?: unknown; dirId?: unknown; makeDefault?: unknown };
+    if (method === 'collectDirAdd') {
+      const r = withAppDb((db) => insertCollectDir(db, {
+        absPath: String(p.absPath ?? ''),
+        label: String(p.label ?? ''),
+        makeDefault: p.makeDefault === true,
+      }));
+      if (!r.ok) return appDbErrorEnvelope(r.why, '添加取件目录');
+      invalidateLibraries();   // 取件白名单进引擎 config ⇒ 解析结果要重建
+      const all = withAppDb((db) => listCollectDirs(db));
+      return { ok: true, data: { added: r.value, dirs: all.ok ? all.value : [r.value] } };
+    }
+    const dirId = String(p.dirId ?? '');
+    if (method === 'collectDirRemove') {
+      const r = withAppDb((db) => deleteCollectDir(db, dirId));
+      if (!r.ok) return appDbErrorEnvelope(r.why, '移除取件目录');
+      invalidateLibraries();
+      const all = withAppDb((db) => listCollectDirs(db));
+      return { ok: true, data: { removed: r.value, dirs: all.ok ? all.value : [] } };
+    }
+    const r = withAppDb((db) => setDefaultCollectDir(db, dirId));
+    if (!r.ok) return appDbErrorEnvelope(r.why, '设置默认取件目录');
+    if (r.value === null) {
+      return { ok: false, error: { code: 'BAD_REQUEST', message: '白名单里没有这个目录：' + dirId,
+        userMessage: '这条目录已经不在白名单里了。', details: { dirId } } };
+    }
+    invalidateLibraries();
+    const all = withAppDb((db) => listCollectDirs(db));
+    return { ok: true, data: { dir: r.value, dirs: all.ok ? all.value : [r.value] } };
+  }
+
+  // ---- 基线 §2.2 新增：应用级账本（app_meta）—— **只读**（写它的只有迁移）----
+  if (method === 'appMeta') {
+    const r = withAppDb((db) => readAppMeta(db));
+    if (!r.ok) return appDbErrorEnvelope(r.why, '读取应用信息');
+    return { ok: true, data: {
+      schemaVersion: r.value ? r.value.schemaVersion : null,
+      appDbPath: USER_DATA_DIR ? appDbPath(USER_DATA_DIR) : null,
+      fakeMode: FAKE_MODE,
+      appVersion: app.getVersion(),
     } };
   }
 
@@ -638,36 +860,35 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
       userMessage: '应用还没准备好，请稍后重试。', details: {} } };
   }
 
-  const reg = loadRegistry(USER_DATA_DIR);
-  const existing = normalizeLibraries(reg && reg.data ? reg.data.libraries : []).kept;
-  const { kept: incoming } = normalizeLibraries([{ libId: p.libId || '', root, label: p.label }]);
-  if (!incoming.length) {
-    return { ok: false, error: { code: 'BAD_REQUEST', message: '库条目不合法',
-      userMessage: '请求参数不合法。', details: { root } } };
+  // ⚠️ S6（基线 §2.2/§2.3）：库注册的**唯一写入口** = 应用级 app.db 的 `library_registry`。
+  //    旧 `userData/library-registry.json` **不再写**（绿地口径：不留两套真相）；
+  //    它只在 library-config 的发现顺序里作为**只读**来源存在（老用户升级时还能被认出来）。
+  const existing = withAppDb((db) => listLibraries(db));
+  if (!existing.ok) return appDbErrorEnvelope(existing.why, '读取库注册表');
+  const used = new Set(existing.value.map((l) => l.libId));
+  let libId = typeof p.libId === 'string' && p.libId.trim() ? p.libId.trim() : '';
+  if (!libId) {
+    let n = 1;
+    while (used.has('L' + n)) n += 1;   // 省略 libId 时自动分配：L1、L2…（跳过已占用的）
+    libId = 'L' + n;
   }
-  let entry = incoming[0];
-
-  // 省略 libId 时自动分配：L1、L2…（跳过已占用的）
-  if (!p.libId) {
-    const used = new Set(existing.map((l) => l.libId));
-    let n = 1; while (used.has(`L${n}`)) n++;
-    entry = { ...entry, libId: `L${n}` };
-  }
-
-  const next = existing.filter((l) => l.libId !== entry.libId).concat([entry]);
-  const saved = saveRegistry(USER_DATA_DIR, {
-    libraries: next,
-    collect: (reg && reg.data && reg.data.collect) || undefined,
+  const label = typeof p.label === 'string' && p.label.trim() ? p.label.trim() : libId;
+  const normalized = normalizeRootPath(root);
+  const saved = withAppDb((db) => {
+    const row = getLibrary(db, libId);
+    if (row) {
+      // 已登记：更新 root/名字（**保持** enabled 与 sort_order —— 那两个是用户的意图）
+      // ⚠️ 走 app-db 的写入口：§2.3 唯一写入口，静态测试 D4 会抓调用方自己写 SQL
+      return updateLibraryRootAndName(db, libId, normalized, label);
+    }
+    return insertLibrary(db, { libId, root: normalized, displayName: label });
   });
-  if (!saved.ok) {
-    return { ok: false, error: { code: 'INTERNAL', message: `注册表写入失败：${saved.error}`,
-      userMessage: '保存失败，库没有加上。请检查磁盘权限或空间。', details: { path: saved.path } } };
-  }
+  if (!saved.ok) return appDbErrorEnvelope(saved.why, '登记库');
 
   invalidateLibraries();          // 解析结果与引擎都作废，下次调用会用新列表重建
-  log('已注册库', entry.libId, '→', entry.root, '（注册表', saved.path, '）');
+  log('已登记库', libId, '→', normalized, '（app.db library_registry）');
   const r = librariesResolved();
-  return { ok: true, data: { added: entry, registryPath: saved.path,
+  return { ok: true, data: { added: saved.value, registryPath: USER_DATA_DIR ? appDbPath(USER_DATA_DIR) : null,
     libraries: r.libraries, warnings: r.warnings, diagnostics: r.diagnostics } };
 }
 

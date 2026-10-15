@@ -52,9 +52,6 @@ type ItemData = SearchItem & {
 /** `itemPaths` 的 data（契约 §2.2a：两条绝对路径） */
 type ItemPaths = { imagePath?: string; archivePath?: string }
 
-/** `mutate` 的 data（事务 id；Adapter 保证成功路径一定有信封） */
-type MutateData = { txId?: string }
-
 type PageState = {
   loading: boolean
   item: ItemData | null
@@ -102,7 +99,6 @@ export default function ItemPage() {
   const [scanning, setScanning] = useState(false)
   const [fit, setFit] = useState(true)          // 适应窗口 / 原始大小
   const [imgFailed, setImgFailed] = useState(false)
-  const [busy, setBusy] = useState<string | null>(null)
 
   const load = useCallback(async (): Promise<void> => {
     setData((d) => ({ ...d, loading: true, error: null }))
@@ -136,22 +132,18 @@ export default function ItemPage() {
     show(n ? `发现 ${n} 处变更（新增 ${(r.data?.added || []).length}）` : '没有发现变更')
   }, [invoke, libId, show])
 
-  /** 动作分发。禁用的一律不进来（`disabled` 时按钮本身就不可点） */
+  /**
+   * 动作分发。禁用的一律不进来（`disabled` 时按钮本身就不可点）。
+   *
+   * ⚠️ 2026-10-15 · S6：原来这里还有一条 `invoke('mutate', …)` 的分支（改名/移动/重配对/移出库）。
+   *    mutate 已按绿地契约 §2.2 删除（意图层标注表本轮没建）⇒ 那些动作在 item-actions 里
+   *    已经统一成 op:null + 禁用，**到不了这里**；这条死分支随之删掉（留着就是第二份「以为有后端」的代码）。
+   */
   const runAction = useCallback(async (action: ItemAction): Promise<void> => {
-    if (action.id === 'collect') {
-      const it = data.item
-      if (it) requestCollect({ uid: it.uid, libId: it.libId, stem: it.stem, exists: it.exists })
-      return
-    }
-    if (!action.op || !action.op.startsWith('mutate:')) return
-    const op = action.op.slice('mutate:'.length)
-    setBusy(action.id)
-    const r = await invoke<MutateData>('mutate', { libId, uid, op, params: {} })
-    setBusy(null)
-    // 引擎的 `userMessage` 永远非空（Adapter 保证）⇒ 成功失败都能给一句人话
-    show(r.ok ? `已提交：${action.label}（事务 ${r.data.txId}）` : r.error.userMessage, r.ok ? 'info' : 'err')
-    if (r.ok) load()
-  }, [data.item, invoke, libId, uid, requestCollect, show, load])
+    if (action.id !== 'collect') return
+    const it = data.item
+    if (it) requestCollect({ uid: it.uid, libId: it.libId, stem: it.stem, exists: it.exists })
+  }, [data.item, requestCollect])
 
   const item = data.item
   const archive = item ? archiveOf(item) : null
@@ -298,12 +290,12 @@ export default function ItemPage() {
                           <Button
                             size="sm"
                             variant={g.key === 'danger' ? 'outline-accent' : 'default'}
-                            disabled={a.disabled || busy === a.id}
+                            disabled={a.disabled}
                             title={a.reason || ''}
                             onClick={() => runAction(a)}
                             data-action={a.id}
                           >
-                            {busy === a.id ? '处理中…' : a.label}
+                            {a.label}
                           </Button>
                           <span
                             className="text-caption"

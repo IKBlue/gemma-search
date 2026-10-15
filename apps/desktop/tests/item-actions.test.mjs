@@ -126,62 +126,81 @@ test('IA2d 「重新编码」：**需要与否**与**能否点**是两件事（�
   }
 });
 
-test('IA2e 盘上没了的条目：取件/改 ID/移出库都不可点（理由都是"文件不在盘上"）', () => {
+test('IA2e 盘上没了的条目：取件不可点（理由「文件不在盘上」）；改数据那四个一律不可点（理由「等表上线」）', () => {
+  // ⚠️ 2026-10-15 · S6：口径变了 —— 原来这四个「改数据」动作是按**领域条件**（盘上在不在、有没有包）决定可点，
+  //    因为当时它们背后有 mutate。mutate 已从契约删除 ⇒ 它们现在与盘上状态无关，**永远**不可点，
+  //    理由也不该再说是「文件不在盘上」（那是另一回事，会让用户以为：文件回来了就能改）。
   const gone = buildItemActions({ item: { ...ITEM, exists: { image: false, archive: false } }, indexState: INDEX_STATES.removed });
-  for (const id of ['collect', 'rename', 'moveFolder', 'moveOutOfLibrary']) {
+
+  // 取件：仍然由**领域条件**决定（它背后有真方法 collect）
+  const collect = gone.find((x) => x.id === 'collect');
+  assert.equal(collect.disabled, true, '取件不该可点');
+  assert.match(collect.reason, /不在盘上/, '取件的理由要说清是「文件不在盘上」');
+
+  // 改数据那四个：与盘上状态无关，一律「等对应的数据表上线」
+  for (const id of ['rename', 'moveFolder', 'reattachArchive', 'moveOutOfLibrary']) {
     const a = gone.find((x) => x.id === id);
     assert.equal(a.disabled, true, `${id} 不该可点`);
-    assert.match(a.reason, /不在盘上/, `${id} 的理由要说清是"文件不在盘上"`);
+    assert.equal(a.op, null, `${id} 不该声称有后端（mutate 已删除）`);
+    assert.match(a.reason, /等对应的数据表上线/, `${id} 的理由要指向真实原因（表没建）`);
   }
-  assert.equal(gone.find((a) => a.id === 'reattachArchive').disabled, true);
+
+  // 对照：盘上**在**的条目，取件可点，而改数据那四个仍然不可点（证明不是「一律禁用」蒙对了）
+  const here = buildItemActions({ item: ITEM, indexState: INDEX_STATES.encoded });
+  assert.equal(here.find((x) => x.id === 'collect').disabled, false);
+  for (const id of ['rename', 'moveFolder', 'reattachArchive', 'moveOutOfLibrary']) {
+    assert.equal(here.find((x) => x.id === id).disabled, true, `${id} 在盘上也不该可点（没有后端方法）`);
+  }
 });
 
 // ============================================================ 与契约交叉核对
 
-test('IA3 ⭐⭐ 界面上的"有没有后端"必须与 `ipc.ts` 的白名单**逐条对上**（防漂移）', () => {
+test('IA3 ⭐⭐ 界面上的「有没有后端」必须与 `ipc.ts` 的白名单**逐条对上**（防漂移）', () => {
   const ipc = fs.readFileSync(path.join(ROOT, 'apps/desktop/src/shared/ipc.ts'), 'utf8');
 
-  // 从契约唯一来源里读出 mutate 的 op 白名单
-  const m = ipc.match(/mutate:\s*z\.object\(\{[\s\S]*?op:\s*z\.enum\(\[([^\]]+)\]\)/);
-  assert.ok(m, '没从 ipc.ts 里解析出 mutate 的 op 白名单 —— 解析器要跟着 schema 改');
-  const ops = new Set([...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]));
-  assert.ok(ops.has('rename') && ops.has('moveOutOfLibrary'), `解析出的 op 集合可疑：${[...ops].join(',')}`);
-
-  // 方法白名单（用来核 `indexStart` / `collect` 这类非 mutate 的动作）
+  // ⚠️ 2026-10-15 · S6：原版从 ipc.ts 解析 **mutate 的 op 白名单** 来核对动作 ——
+  //    而 mutate 已按绿地契约 §2.2 **删除**（意图层标注表没建）⇒ 解析器本身失去对象。
+  //    改成**通用**核对：动作声称走哪个方法，那个方法就必须在方法白名单里。
+  //    （这样比原版更强：契约里任何方法被删掉，只要界面还挂着它，这条就红。）
   const methods = new Set(
     [...ipc.matchAll(/^  ([a-zA-Z]+):\s*z\./gm)].map((x) => x[1]),
   );
-  assert.ok(methods.has('mutate') && methods.has('indexStart'), `方法白名单解析可疑：${[...methods].join(',')}`);
+  assert.ok(methods.has('collect') && methods.has('item'), `方法白名单解析可疑：${[...methods].join(',')}`);
+  // 已删除的方法**不该**再出现在白名单里（解析器自检，避免它悄悄失效）
+  for (const gone of ['mutate', 'indexStart', 'libraryConfig']) {
+    assert.ok(!methods.has(gone), `已删除的方法仍被解析到：${gone} —— 解析器或契约有一边不对`);
+  }
 
   for (const a of buildItemActions({ item: ITEM, indexState: INDEX_STATES.stale })) {
     if (a.op === null) {
-      // 声称"契约里没有"的动作：必须真的不在任何白名单里
-      assert.ok(!ops.has(a.id) && !methods.has(a.id),
-        `${a.id} 标了 op:null（"契约里还没有"），但白名单里出现了它 —— 该把它接上了`);
+      // 声称「契约里没有」的动作：必须真的不在方法白名单里
+      assert.ok(!methods.has(a.id),
+        `${a.id} 标了 op:null（契约里还没有），但白名单里出现了它 —— 该把它接上了`);
       assert.equal(a.disabled, true, `${a.id} 既然没有后端方法，就必须禁用`);
-      assert.match(a.reason, /还没|没有|不支持/, `${a.id} 的 reason 要说清是"没做"，不能含糊`);
+      assert.match(a.reason, /还没|没有|不支持|等对应/, `${a.id} 的 reason 要说清是「没做」，不能含糊`);
       continue;
     }
     const [kind, name] = a.op.includes(':') ? a.op.split(':') : ['method', a.op];
-    if (kind === 'mutate') {
-      assert.ok(ops.has(name), `动作 ${a.id} 声称走 mutate:${name}，但白名单里没有它`);
-    } else {
-      assert.ok(methods.has(name), `动作 ${a.id} 声称走方法 ${name}，但白名单里没有它`);
-    }
+    assert.equal(kind, 'method', `动作 ${a.id} 还在用 op:${a.op} —— S6 之后动作只该标方法名（mutate 已删除）`);
+    assert.ok(methods.has(name), `动作 ${a.id} 声称走方法 ${name}，但白名单里没有它`);
   }
 });
 
-test('IA3b 反过来：`mutate` 白名单里的每个 op，界面上都要有对应的动作（或有据不显示）', () => {
-  const ipc = fs.readFileSync(path.join(ROOT, 'apps/desktop/src/shared/ipc.ts'), 'utf8');
-  const m = ipc.match(/op:\s*z\.enum\(\[([^\]]+)\]\)/);
-  const ops = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]).filter((o) => o !== 'undo');
-
-  const covered = new Set(
-    buildItemActions({ item: ITEM, indexState: INDEX_STATES.encoded })
-      .filter((a) => a.op && a.op.startsWith('mutate:'))
-      .map((a) => a.op.slice('mutate:'.length)),
-  );
-  for (const op of ops) {
-    assert.ok(covered.has(op), `契约支持 mutate:${op}，但详情页没有对应动作 —— 用户看不到这个能力`);
+test('IA3b ⭐ S6 之后：四个「改数据」动作一律 op:null + 禁用 + 说明（不留假按钮）', () => {
+  // 原版 IA3b 是「mutate 白名单里的每个 op 界面都要有入口」—— mutat 被删除后它失去前提。
+  // 新口径（Lead 2026-10-15 裁定）：那几个入口改成**诚实态**，而且这条要用断言钉住：
+  //   rename / moveFolder / reattachArchive / moveOutOfLibrary 四个动作**不许**再声称有后端。
+  const actions = buildItemActions({ item: ITEM, indexState: INDEX_STATES.encoded });
+  const byId = Object.fromEntries(actions.map((a) => [a.id, a]));
+  for (const id of ['rename', 'moveFolder', 'reattachArchive', 'moveOutOfLibrary']) {
+    const a = byId[id];
+    assert.ok(a, `动作丢了：${id}（分区与按钮是规格的一部分，不能顺手删）`);
+    assert.equal(a.op, null, `${id} 不许再声称有后端方法（mutate 已从契约删除）`);
+    assert.equal(a.unavailable, 'contract-no-method', `${id} 要标成「契约里没有」`);
+    assert.equal(a.disabled, true, `${id} 必须禁用 —— 假按钮比没有按钮更坏`);
+    assert.ok(a.reason && a.reason.length > 0, `${id} 要给一句人话理由`);
   }
+  // `collect` 仍有后端（它是保留方法）⇒ 必须**不**被这条误伤
+  assert.equal(byId.collect.op, 'collect');
+  assert.equal(byId.collect.disabled, false);
 });

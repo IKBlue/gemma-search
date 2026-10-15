@@ -11,7 +11,7 @@
 //   那些由 `apps/desktop/tests/permissions.test.mjs` 与引擎单测覆盖，**不在这里**。
 //
 // ── 两条踩过的坑（写在 helper 里，新的 spec 自动继承）─────────────────────
-//   ① **必须覆盖启动期方法**（`libraryConfig` / `indexStatus`），且形状要对 ——
+//   ① **必须覆盖启动期方法**（`libraryList` / `indexStatus`），且形状要对 ——
 //      漏了或形状错了，门禁会把界面判成"没有库"⇒ 显示**首启向导**、压根没有搜索框，
 //      症状伪装成"选择器不对"、全部用例卡在 `locator.fill` 超时 30s。
 //   ② **装桩之后必须 `reload()`** —— `firstWindow()` 只等 `domcontentloaded`，React 还没挂载；
@@ -40,7 +40,9 @@ export async function stubEngine(app) {
 
       switch (method) {
         // ── 启动期：这两个决定"显示向导还是应用"
-        case 'libraryConfig':
+        // ⚠️ S6（2026-10-15）：方法名从 libraryConfig 改成 **libraryList**（基线 §2.2，删旧名不留两套）。
+        //    桩必须跟着改：名字不对，界面启动就判成 wizard（"找不到 #query"那种症状）。
+        case 'libraryList':
           return ok({ libraries: [{ libId: 'L1', root: 'X:\\fake' }], chosen: 'env', warnings: [], diagnostics: [] })
         case 'indexStatus':
           return ok({ libs: [{ libId: 'L1', root: 'X:\\fake', dim: 768, indexed: 2, encoded: 2, healthy: true }] })

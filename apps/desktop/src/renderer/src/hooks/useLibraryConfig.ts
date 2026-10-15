@@ -56,14 +56,16 @@ export default function useLibraryConfig(): LibraryConfigApi {
 
   const refresh = useCallback(async (): Promise<void> => {
     // Adapter 永不抛 ⇒ 不再需要"调用异常"那套并列文案
-    const r = await apiInvoke<LibraryConfigData>('libraryConfig', {})
+    // ⚠️ S6（2026-10-15）：`libraryConfig` 已改名 `libraryList`（基线 §2.2，删旧名不留两套）。
+    //    载荷形状不变：libraries / chosen / warnings / diagnostics / registryPath（发现诊断照旧透出）。
+    const r = await apiInvoke<LibraryConfigData>('libraryList', {})
     if (!r.ok) {
       setState({ loading: false, data: null, error: r.error.userMessage })
       return
     }
     setState({ loading: false, data: r.data, error: null })
     const n = (r.data.libraries || []).length
-    console.log(`[ui] libraryConfig → ${n} 个库 · 来源 ${r.data.chosen || '(无)'}` +
+    console.log(`[ui] libraryList → ${n} 个库 · 来源 ${r.data.chosen || '(无)'}` +
                 (r.data.warnings && r.data.warnings.length ? ` · ${r.data.warnings.length} 条警告` : ''))
   }, [])
 

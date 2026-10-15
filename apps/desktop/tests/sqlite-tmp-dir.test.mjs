@@ -67,18 +67,24 @@ test('ST2 显式覆盖不可用时：**不假装成功**（保持环境原样，
 });
 
 test('ST3 ⭐ 机制钉住：TMP 才是被读的那个，SQLITE_TMPDIR 单独设没用', () => {
-  const script = path.join(TMP, 'child-import.mjs');
+  // ⚠️ 2026-10-15 · S6 修正：这段负载**不能再依赖 importItemsFromJson** —— 库级那条读路径正被 S2
+  //    从 items 搬到 asset/asset_file（红窗口），那样 ST3 会因为**别的原因**失败，而它要证的只是
+  //    「SQLite 临时目录」这一件事。改成**纯 SQLite 负载**（自建表 + 需要 temp 的排序 + 极小 cache），
+  //    与任何业务 schema 无关，红窗口里也照常有效。
+  const script = path.join(TMP, 'child-temp.mjs');
   fs.mkdirSync(TMP, { recursive: true });
   fs.writeFileSync(script, [
-    'import { openGsDb } from ' + JSON.stringify(pathToFileURL(path.join(ROOT, 'apps/desktop/src/main/db/open.ts')).href) + ';',
-    'import { importItemsFromJson } from ' + JSON.stringify(pathToFileURL(path.join(ROOT, 'apps/desktop/src/main/db/import.ts')).href) + ';',
+    'import { openNodeSqlite } from ' + JSON.stringify(pathToFileURL(path.join(ROOT, 'apps/desktop/src/main/db/sqlite-adapter.ts')).href) + ';',
     'const lib = process.env.CHILD_LIB;',
-    'const opened = openGsDb({ dbPath: lib + "/.gs.db" });',
+    'const db = openNodeSqlite(lib + "/probe.db", { timeoutMs: 5000 });',
     'try {',
-    '  const rep = importItemsFromJson({ db: opened.db, library: { libId: "L1", root: lib }, itemsJsonPath: lib + "/items.json", expectedCount: 3594 });',
-    '  console.log("RESULT" + JSON.stringify({ ok: true, dbCount: rep.dbCount }));',
-    '} catch (e) { console.log("RESULT" + JSON.stringify({ ok: false, code: e && e.code })); }',
-    'finally { try { opened.db.close(); } catch {} }',
+    '  db.exec("PRAGMA cache_size = 1;");',
+    '  db.exec("CREATE TABLE t (a TEXT, b TEXT);");',
+    '  db.exec("INSERT INTO t SELECT hex(randomblob(8)), hex(randomblob(8)) FROM (WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x < 20000) SELECT x FROM c);");',
+    '  const rows = db.prepare("SELECT count(*) AS n FROM (SELECT a FROM t ORDER BY b, a)").all();',
+    '  console.log("RESULT" + JSON.stringify({ ok: true, n: rows[0] && rows[0].n }));',
+    '} catch (e) { console.log("RESULT" + JSON.stringify({ ok: false, message: String(e && e.message).slice(0, 140) })); }',
+    'finally { try { db.close(); } catch {} }',
   ].join('\n'), 'utf8');
 
   const good = path.join(TMP, 'app-owned-tmp');
@@ -99,15 +105,15 @@ test('ST3 ⭐ 机制钉住：TMP 才是被读的那个，SQLITE_TMPDIR 单独设
   // (1) 应用自己的目录（四个变量全指向它）⇒ 成功 —— 这就是 index.ts 里那一步在做的事
   const fixed = run({ TEMP: good, TMP: good, TMPDIR: good, SQLITE_TMPDIR: good });
   assert.equal(fixed.ok, true, '临时目录可写 ⇒ 必须成功：' + JSON.stringify(fixed));
-  assert.equal(fixed.dbCount, 3594);
+  assert.equal(fixed.n, 20000);
 
-  // (2) 只把 SQLITE_TMPDIR 指到可写目录 ⇒ **仍然失败**（这个构建忽略它）—— 证明"为什么必须设 TMP"
+  // (2) 只把 SQLITE_TMPDIR 指到可写目录 ⇒ **仍然失败**（这个构建忽略它）—— 证明「为什么必须设 TMP」
   const onlySqlite = run({ SQLITE_TMPDIR: good });
   assert.equal(onlySqlite.ok, false, '只设 SQLITE_TMPDIR 是不够的（实测被忽略）');
-  assert.equal(onlySqlite.code, 'IMPORT_FAILED');
+  assert.match(onlySqlite.message, /unable to open database file/i, '失败原因必须是 SQLITE_CANTOPEN（临时文件建不出来）');
 
-  // (3) 对照：一个可写的都没有 ⇒ 失败，且码是 IMPORT_FAILED（不是 INDEX_CORRUPT）
+  // (3) 对照：一个可写的都没有 ⇒ 同样失败（证明 (1) 不是恒真）
   const control = run({});
   assert.equal(control.ok, false, '对照组必须失败，证明上面两条不是恒真');
-  assert.equal(control.code, 'IMPORT_FAILED');
+  assert.match(control.message, /unable to open database file/i);
 });

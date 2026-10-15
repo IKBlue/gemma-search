@@ -65,16 +65,28 @@ test('E8-c `indexStatus` 在模拟模式下报 3 个库，且含"索引损坏"�
   }
 })
 
-test('E8-d ⭐ 写方法在模拟模式下**不再被主进程拒绝**（契约 §8 的那条路通了）', async () => {
+test('E8-d ⭐⭐ 未登记方法在**模拟模式下也被拒**（白名单是唯一闸门，模拟模式不放行任何未登记方法）', async () => {
+  // ⚠️ 2026-10-15 · S6：**断言变强**，不是放宽。
+  //   改前：indexStart 在模拟模式下**必须成功**（返回值里 jobId 匹配 /^j-fake-/）——
+  //         那是「引擎桩为诚实桩提供假实现」的年代。
+  //   改后：indexStart 已按绿地基线 §2.2 从契约删除 ⇒ 现在要求它**无论如何都被拒**（BAD_REQUEST），
+  //         并且**同一个窗口里** libraryList（启动期方法）照常可用 —— 证明拒绝来自白名单，而不是整个 IPC 坏了。
+  //   为什么这不是放宽：旧断言保证「某个方法能跑」；新断言保证「删掉的方法在任何模式下都跑不了」，
+  //         而且多了一条正向对照。删掉的方法越多，这条负向断言越有价值。
   const { app, cleanup } = await launchFake()
   try {
     const win = await firstWindow(app)
     const r = await win.evaluate(async () => {
-      const res = await window.api.invoke('indexStart', { libId: 'L1', device: 'cpu' })
-      return res.ok ? { jobId: res.data.jobId } : { err: res.error.code, msg: res.error.userMessage }
+      const started = await window.api.invoke('indexStart', { libId: 'L1', device: 'cpu' })
+      const bogus = await window.api.invoke('exec', { cmd: 'whoami' })
+      const alive = await window.api.invoke('libraryList', {})
+      const code = (res) => (res.ok ? null : res.error.code)
+      return { started: code(started), bogus: code(bogus), aliveOk: alive.ok, aliveN: alive.ok ? alive.data.libraries.length : null }
     })
-    expect(r.err, `indexStart 不该被拒（实得 ${r.err}）：模拟模式存在的意义就是让它可跑`).toBeUndefined()
-    expect(r.jobId).toMatch(/^j-fake-/)
+    expect(r.started, 'indexStart 已从契约删除 ⇒ 模拟模式下也必须 BAD_REQUEST').toBe('BAD_REQUEST')
+    expect(r.bogus, '未登记方法（exec）同样必须 BAD_REQUEST').toBe('BAD_REQUEST')
+    expect(r.aliveOk, '对照：已登记的启动期方法在同一个窗口里必须可用').toBe(true)
+    expect(r.aliveN).toBeGreaterThan(0)
   } finally {
     await app.close()
     cleanup()
@@ -98,19 +110,10 @@ test('E8-e `itemPaths` 在真窗口里返回两条绝对路径（P3c 的数据�
   }
 })
 
-test('E8-f ⭐ 真实模式（不设 GEMMA_FAKE）**仍然拒绝**写方法 —— 模拟不许渗进生产', async () => {
-  const { app, cleanup } = await launchFake()
-  try {
-    const win = await firstWindow(app)
-    // 同样的调用在**模拟模式**下成功（E8-d 已证）⇒ 下面换一个真实模式的窗口再证一次"被拒"
-    const on = await win.evaluate(async () => (await window.api.invoke('indexStart', { libId: 'L1' })).ok)
-    expect(on, '模拟模式应放行（作为对照）').toBe(true)
-  } finally {
-    await app.close()
-    cleanup()
-  }
-
-  // 对照：真实模式（不设 GEMMA_FAKE）必须拒绝 —— 与 E8-a…E8-e 同一个断言的反面
+test('E8-f ⭐ 真实模式（不设 GEMMA_FAKE）**也拒绝**已删除的方法 —— 两种模式下口径一致', async () => {
+  // ⚠️ 2026-10-15 · S6：这条原先证「模拟放行 / 真实拒绝」的**模式差异**；
+  //   方法删除之后那个差异**不存在了** ⇒ 改成证「两种模式都拒」，并且都拒在**白名单**这一层。
+  //   （旧断言在此已无意义：它要求模拟模式放行一个现在不存在的方法。）
   const real = await launchWithLibrary()
   try {
     const win = await firstWindow(real.app)
@@ -119,7 +122,7 @@ test('E8-f ⭐ 真实模式（不设 GEMMA_FAKE）**仍然拒绝**写方法 —�
       return res.ok ? { ok: true } : { ok: false, code: res.error.code, msg: res.error.userMessage }
     })
     expect(off.ok, '真实模式不许假装成功').toBe(false)
-    expect(off.code).toBe('INTERNAL')
+    expect(off.code, '删掉的方法在真实模式下也必须是白名单拒绝（BAD_REQUEST）').toBe('BAD_REQUEST')
     expect(off.msg).toBeTruthy()
 
     // `itemPaths` 是**只读**方法，两种模式都该可用（它不是模拟专属）。

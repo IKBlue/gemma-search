@@ -254,36 +254,55 @@ test('thumb:// 的合法形状能正常解出三要素（防止"全拒"骗过上
   assert.equal(r2.rawHost, 'l1', 'URL 规范会小写 host —— 这正是必须做还原的原因');
 });
 
-// ============================================================ `mutate` 的 uid 规则（2026-10-13）
+// ============================================ 已删除的方法一律被拒（2026-10-15 · S6）
 
-test('S15 ⭐ `mutate`：`undo` **不需要** uid，其余 op **必须**带 —— 两头都要断言', () => {
-  // 契约 §2.7 的表里写明「`undo` = 撤销**指定事务**」，由 `params.txId` 定位 ⇒ uid 对它无意义。
-  // 而 schema 原先把 uid 写死成必填 ⇒ 操作记录页的"回退"被 BAD_REQUEST 拦掉、状态不变
-  //（E2E E11-d 实测到了这件事）。修法是把 uid 放宽为可选 + `superRefine` 保证其余 op 仍必填。
-  //
-  // ⚠️ 只断言"undo 能过"是不够的：那样把 uid 整个删掉也能过。**两条都要有**。
-  const undo = validateCall('mutate', { libId: 'L1', op: 'undo', params: { txId: 'tx-1' } });
-  assert.equal(undo.ok, true, `undo 不该要求 uid：${undo.ok ? '' : undo.reason}`);
-
-  for (const op of ['rename', 'moveFolder', 'reattachArchive', 'moveOutOfLibrary']) {
-    const bad = validateCall('mutate', { libId: 'L1', op });
-    assert.equal(bad.ok, false, `${op} **必须**要 uid —— 不然改的是哪一条都不知道`);
-    assert.match(bad.reason, /uid/);
-    const good = validateCall('mutate', { libId: 'L1', uid: '0123456789ab', op });
-    assert.equal(good.ok, true, `${op} 带 uid 应通过：${good.ok ? '' : good.reason}`);
+test('S15 ⭐⭐ 6 个诚实桩 + libraryConfig 已从契约删除 ⇒ validateCall **真跑一次**必须全部拒绝', () => {
+  // ⚠️ 2026-10-15 · S6（绿地基线 §2.2）：ingest / mutate / transactions / indexStart / indexCancel / indexResume
+  //    全部删除（对应的表还没建）；libraryConfig 改名 libraryList（删旧名，不留两套）。
+  //    这条**逐条真跑**（不是查数组）：把它们当合法调用发出去，必须被白名单拦成 ok:false。
+  //    旧版 S15 断言的是「mutate 的 undo 不要求 uid」—— mutate 已不存在，那条随之退场。
+  const deleted = ['ingest', 'mutate', 'transactions', 'indexStart', 'indexCancel', 'indexResume', 'libraryConfig'];
+  for (const name of deleted) {
+    assert.ok(!METHOD_NAMES.includes(name), `${name} 不该还在白名单里：${METHOD_NAMES.join(',')}`);
+    const r = validateCall(name, { libId: 'L1', op: 'undo', jobId: 'j-1', limit: 1 });
+    assert.equal(r.ok, false, `${name} 已删除，但 validateCall 放行了`);
+    assert.match(r.reason, /未登记|不认识|不允许|未知/, `${name} 的拒绝理由要说清是「没登记」：${r.reason}`);
   }
 
-  // `strict()` 不能被这次放宽破坏
-  assert.equal(validateCall('mutate', { libId: 'L1', op: 'undo', params: {}, 多余的键: 1 }).ok, false,
-    '未知字段仍须被拒（strict 没被 .superRefine 弄丢）');
+  // 反向对照：保留下来的方法不能被误删（否则上面对空集合也成立）
+  for (const name of ['search', 'item', 'itemPaths', 'indexStatus', 'scan', 'reveal', 'collect',
+                      'libraryList', 'libraryPickDir', 'libraryAdd', 'libraryHealth', 'libraryRebuild']) {
+    assert.ok(METHOD_NAMES.includes(name), `${name} 是**保留**方法，不该被删：${METHOD_NAMES.join(',')}`);
+  }
 });
 
-test('S16 ⭐ `transactions` 已登记进白名单，且 `txId`/`limit` 有边界（契约 §2.11）', () => {
-  assert.ok(METHOD_NAMES.includes('transactions'), `transactions 未登记：${METHOD_NAMES.join(',')}`);
-  assert.equal(validateCall('transactions', {}).ok, true);
-  assert.equal(validateCall('transactions', { libId: 'L1', txId: 'tx-1', limit: 5 }).ok, true);
-  assert.equal(validateCall('transactions', { limit: 0 }).ok, false, 'limit 下界是 1');
-  assert.equal(validateCall('transactions', { limit: 201 }).ok, false, 'limit 上界是 200');
-  assert.equal(validateCall('transactions', { txId: 'x'.repeat(65) }).ok, false, 'txId 长度设了上限');
-  assert.equal(validateCall('transactions', { 多余: 1 }).ok, false);
+test('S16 ⭐ 新增的 8 个方法都登记了，且形状/`.strict()` 都对（2026-10-15 · S6）', () => {
+  // 基线 §2.2 的新增方法：libraryList · librarySetEnabled · libraryReorder · libraryRemove ·
+  //   collectDirs · collectDirAdd · collectDirRemove · collectDirSetDefault · appMeta（另 libraryRemove 见下）
+  const added = ['libraryList', 'librarySetEnabled', 'libraryReorder', 'libraryRemove',
+                 'collectDirs', 'collectDirAdd', 'collectDirRemove', 'collectDirSetDefault', 'appMeta'];
+  for (const name of added) {
+    assert.ok(METHOD_NAMES.includes(name), `${name} 未登记：${METHOD_NAMES.join(',')}`);
+  }
+
+  // 零参方法
+  assert.equal(validateCall('libraryList', {}).ok, true);
+  assert.equal(validateCall('collectDirs', {}).ok, true);
+  assert.equal(validateCall('appMeta', {}).ok, true);
+
+  // 带参 + 边界 + `.strict()`（多传字段一律拒）
+  assert.equal(validateCall('librarySetEnabled', { libId: 'L1', enabled: true }).ok, true);
+  assert.equal(validateCall('librarySetEnabled', { libId: 'L1', enabled: 'yes' }).ok, false, 'enabled 必须是 boolean');
+  assert.equal(validateCall('librarySetEnabled', { libId: 'L1', enabled: true, 多余: 1 }).ok, false, '.strict() 拒多传');
+  assert.equal(validateCall('libraryReorder', { libId: 'L1', sortOrder: -1 }).ok, false, 'sortOrder 下界 0');
+  assert.equal(validateCall('libraryReorder', { libId: 'L1', sortOrder: 3 }).ok, true);
+  assert.equal(validateCall('libraryRemove', { libId: 'L1' }).ok, true, 'deleteDb 是可选的');
+  assert.equal(validateCall('libraryRemove', { libId: 'L1', deleteDb: true }).ok, true);
+  assert.equal(validateCall('libraryRemove', { libId: 'L1', 删库: true }).ok, false, '.strict() 拒多传');
+  assert.equal(validateCall('collectDirAdd', { absPath: 'E:\\素材', label: '待用' }).ok, true);
+  assert.equal(validateCall('collectDirAdd', { absPath: 'E:\\素材' }).ok, false, 'label 必填（表上有 UNIQUE）');
+  assert.equal(validateCall('collectDirAdd', { absPath: '', label: 'x' }).ok, false, 'absPath 不许为空');
+  assert.equal(validateCall('collectDirRemove', { dirId: 'd-1' }).ok, true);
+  assert.equal(validateCall('collectDirRemove', {}).ok, false);
+  assert.equal(validateCall('collectDirSetDefault', { dirId: 'd-1', 多余: 1 }).ok, false, '.strict() 拒多传');
 });

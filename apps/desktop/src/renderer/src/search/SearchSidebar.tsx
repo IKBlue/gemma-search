@@ -15,7 +15,9 @@ const NAV: readonly UiNavItem[] = [
   { key: 'search', icon: '⌕', label: '语义搜索', to: '/' },
   { key: 'detail', icon: '▣', label: '图片详情', phase: 'P3c（从结果卡进入）' },
   { key: 'library', icon: '▦', label: '本地图库', phase: 'P3d' },
-  { key: 'ingest', icon: '＋', label: '入库与增量', phase: 'P4' },
+  // ⚠️ S6（2026-10-15）：`ingest` 已从契约删除（它写的意图层表本轮没建）⇒ 这一项保持**禁用占位**
+  //   （点了给说明、不静默），文案改成"等对应的数据表上线"，别让人以为它有后端。
+  { key: 'ingest', icon: '＋', label: '入库与增量', phase: 'P4（等对应的数据表上线）' },
   { key: 'tasks', icon: '◴', label: '索引任务', to: '/tasks' },
   { key: 'records', icon: '↺', label: '操作记录', to: '/activity' },
   // ⚠️ 2026-10-15（T-15b）：诊断页是**真的可达**的（体检 + 重建元数据），所以它给 `to`；

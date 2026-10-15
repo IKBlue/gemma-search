@@ -75,22 +75,26 @@ export function buildItemActions({ item = null, indexState = null }: { item?: Ac
       ...off(onDisk, '文件不在盘上（已从索引移除）'),
     },
     {
-      id: 'rename', group: 'reuse', label: '改 ID', needsReencode: false, op: 'mutate:rename', unavailable: null,
-      ...off(onDisk, '文件不在盘上'),
+      // ⚠️ S6（2026-10-15）：`mutate` 已从契约删除（它写的**意图层标注表**本轮没建）
+      //    ⇒ 不再冒充"能改"：op=null + 永远禁用 + 一句说明（与 replaceImage / reencode 同一形态）。
+      id: 'rename', group: 'reuse', label: '改 ID', needsReencode: false,
+      op: null, unavailable: 'contract-no-method',
+      ...off(false, '该功能等对应的数据表上线（契约里的 mutate 已按绿地口径删除）'),
     },
     {
-      id: 'moveFolder', group: 'reuse', label: '改分类', needsReencode: false, op: 'mutate:moveFolder', unavailable: null,
-      ...off(onDisk, '文件不在盘上'),
+      id: 'moveFolder', group: 'reuse', label: '改分类', needsReencode: false,
+      op: null, unavailable: 'contract-no-method',
+      ...off(false, '该功能等对应的数据表上线（契约里的 mutate 已按绿地口径删除）'),
     },
     {
-      id: 'reattachArchive', group: 'reuse', label: '重新配对压缩包', needsReencode: false, op: 'mutate:reattachArchive', unavailable: null,
-      // ⚠️ 两个条件都要：盘上得在，**且**确实有个包可配。
-      //    第一版只判 `hasArchive` ⇒ 条目已从盘上消失（exists.image=false，`archive` 对象还在）时
-      //    按钮仍可点 —— 测试 IA2e 当场抓到。理由也要分清是哪一个。
-      ...off(onDisk && hasArchive, onDisk ? '这条没有同名压缩包，无需配对' : '文件不在盘上'),
+      id: 'reattachArchive', group: 'reuse', label: '重新配对压缩包', needsReencode: false,
+      op: null, unavailable: 'contract-no-method',
+      // 历史：这里原先按"盘上在 + 确实有包可配"决定是否可点（IA2e 抓到过第一版的漏判）；
+      // 现在 `mutate` 已从契约删除 ⇒ 与上面三条同样只报"等对应的表上线"，不再按领域条件装作可点。
+      ...off(false, '该功能等对应的数据表上线（契约里的 mutate 已按绿地口径删除）'),
     },
     {
-      // ⚠️ 契约里**没有**对应方法（`mutate` 的 op 白名单里没有它）⇒ `op: null` + 如实说明。
+      // ⚠️ 契约里**没有**对应方法（S6 之后连 `mutate` 本身也删了）⇒ `op: null` + 如实说明。
       //    按钮照规格画出来，是因为"是否需要重编码"正是要让人看见的判断（UI-REVIEW:237）。
       id: 'replaceImage', group: 'reencode', label: '替换预览图', needsReencode: true,
       op: null, unavailable: 'contract-no-method',
@@ -109,8 +113,9 @@ export function buildItemActions({ item = null, indexState = null }: { item?: Ac
         : `当前不需要：索引状态是「${state.label}」`),
     },
     {
-      id: 'moveOutOfLibrary', group: 'danger', label: '移出素材库', needsReencode: false, op: 'mutate:moveOutOfLibrary', unavailable: null,
-      ...off(onDisk && !gone, '文件不在盘上，没有可移出的东西'),
+      id: 'moveOutOfLibrary', group: 'danger', label: '移出素材库', needsReencode: false,
+      op: null, unavailable: 'contract-no-method',
+      ...off(false, '该功能等对应的数据表上线（契约里的 mutate 已按绿地口径删除）'),
     },
   ];
 }

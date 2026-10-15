@@ -65,70 +65,18 @@ export const Methods = {
     targetDirName: z.string().max(64).optional(),
   }).strict(),
 
-  // 下述方法在引擎里尚未实现（P1 后续切片），这里先登记形状，
-  // 引擎返回 UNSUPPORTED 之外仍会被 zod 拦住非法参数。
-  ingest: z.object({
-    libId: LibId,
-    sourcePaths: z.array(z.string().max(4096)).min(1).max(200),
-    destFolder: z.string().max(64),
-  }).strict(),
+  // ⚠️⚠️ 2026-10-15 · S6（所有者批准的设计基线 §2.2）：**6 个诚实桩已删除** ——
+  //   ingest / mutate / transactions / indexStart / indexCancel / indexResume。
+  //   绿地口径：契约**只暴露 6 张表支持得了的方法**；这 6 个对应的表（意图层标注表 · job 表）还没建，
+  //   继续挂着就是「看起来能用」的假承诺。等表上线时**重新登记**（新增方法 = 兼容改动，§9.1）。
+  //   ⚠️ 引擎侧那 6 个桩**保留**（packages/engine/src/engine.ts 的 UNIMPLEMENTED_METHODS）：
+  //      它们是引擎自己的诚实桩；白名单删掉后**自然不可达**，删它们只会牵动 fake.ts 与 e2e，收益为零。
 
-  mutate: z.object({
-    libId: LibId,
-    /**
-     * ⚠️ **`uid` 对 `undo` 是可选的**（2026-10-13 更正）。
-     *
-     * 契约 §2.7 的表里写得很清楚：`undo` 的语义是「**撤销指定事务**」—— 由 `params.txId` 定位，
-     * `uid` 对这件事**没有意义**。而 schema 原先把它写死成必填 ⇒ 调用方只能瞎塞一个 uid，
-     * 否则连"撤销"都发不出去（实测：操作记录页的回退被 `BAD_REQUEST` 拦掉，状态没变）。
-     * 折中：`uid` 改为可选 + `superRefine` 保证**除 undo 外仍然必填**。
-     * 这属于**放宽**（原先合法的调用照旧合法）⇒ 契约 §9.1 口径的兼容改动。
-     */
-    uid: Uid.optional(),
-    op: z.enum(['rename', 'moveFolder', 'reattachArchive', 'moveOutOfLibrary', 'undo']),
-    params: z.record(z.string(), z.unknown()).optional(),
-  }).strict()
-    .superRefine((v, ctx) => {
-      if (v.op !== 'undo' && typeof v.uid !== 'string') {
-        ctx.addIssue({ code: 'custom', message: '除 undo 外，mutate 必须带 uid（undo 由 params.txId 定位）' });
-      }
-    }),
-
-  indexStart: z.object({
-    libId: LibId,
-    device: z.enum(['webgpu', 'cpu']).optional(),
-    seq: z.number().int().min(70).max(280).optional(),
-    rebuild: z.boolean().optional(),
-  }).strict(),
-
-  indexCancel: z.object({ jobId: z.string().max(64) }).strict(),
-
-  /**
-   * `indexResume` —— 续跑（2026-10-13 补登记）。
-   *
-   * ⚠️ **契约 §2.10 早就写了这个方法**（"`indexResume { jobId }` 复用已编码行，按 `compat` 判定"），
-   *   但**这张白名单里一直漏了它** ⇒ 它此前会被当成"引擎无此方法"拒掉（`BAD_REQUEST`）。
-   *   是"契约正文"与"契约 schema"之间的漂移。P3d 的「续跑」要用它，故补登记。
-   */
-  indexResume: z.object({ jobId: z.string().max(64) }).strict(),
-
-  /**
-   * `transactions` —— 事务台账（2026-10-13 新增，契约 §2.11）。
-   *
-   * 依据 `docs/spec/SPEC-transactions.md:229`：「界面据 id 查询状态、提供撤销入口」。
-   * 一个方法同时支持"列最近 N 条"与"查某一条"（`txId` 可选）。
-   * ⚠️ 与 `itemPaths` 同一条规矩：**单独一个只读方法**，而不是把事务塞进别的方法的返回里 ——
-   *    暴露面收在明处、可审计。
-   */
-  transactions: z.object({
-    libId: LibId.optional(),
-    txId: z.string().max(64).optional(),
-    limit: z.number().int().min(1).max(200).optional(),
-  }).strict(),
-
-  // ---- 库配置（D2 修复：首启向导需要读/写"库从哪来"）----
-  // 只读：返回解析结果 + 诊断 + 警告（库来自环境变量/注册表/config/索引自举 四条路哪一条）
-  libraryConfig: z.object({}).strict(),
+  // ---- 库：读（library_registry + 发现来源）与写（library_registry 是唯一写入口）----
+  // 基线 §2.2：`libraryConfig` → **`libraryList`**（改名，不留两套）。
+  // 载荷保留原有形状（libraries / chosen / warnings / diagnostics / registryPath）——
+  // 那些是**发现诊断**，不是表；界面（LibraryGate / 首启向导）已经依赖它们。
+  libraryList: z.object({}).strict(),
 
   // 首启向导：让用户**亲自**选一个目录（主进程弹系统对话框）。
   // 渲染层本就拿不到 `dialog`；这是它唯一的间接通道，且必须由用户点击触发。
@@ -158,6 +106,38 @@ export const Methods = {
   libraryHealth: z.object({ libId: LibId }).strict(),
 
   libraryRebuild: z.object({ libId: LibId }).strict(),
+
+  // ---- 基线 §2.2 新增：库注册表的写入口（唯一写 library_registry 的就是这 4 个 + libraryAdd）----
+  // ⚠️ 库里只存**规范化后的 root**（大小写/短名/尾分隔符）—— 规范化在 main/app-db.ts，见那里的注释。
+  /** 停用/启用：**不动任何文件**（停用 ≠ 删除）；enabled=0 的库不参与检索与入库 */
+  librarySetEnabled: z.object({ libId: LibId, enabled: z.boolean() }).strict(),
+
+  /** 排序：sort_order 越小越靠前（列表与检索顺序都读它） */
+  libraryReorder: z.object({ libId: LibId, sortOrder: z.number().int().min(0).max(100000) }).strict(),
+
+  /**
+   * 取消登记（**默认只取消登记，不删任何文件**）；`deleteDb: true` 才删库内的 `.gs-*`。
+   * ⚠️ 删库是破坏性操作 ⇒ 两段式（请求 → 确认）由界面负责，主进程只按这个显式开关执行；
+   *    **任何情况下都不碰素材**（素材只有用户自己能动）。
+   */
+  libraryRemove: z.object({ libId: LibId, deleteDb: z.boolean().optional() }).strict(),
+
+  // ---- 基线 §2.2 新增：取件白名单（应用级 collect_dir，唯一写入口就是这 3 个）----
+  /** 白名单（含 is_default）；空数组是**合法**的（那表示「还没有允许的目录」，不是错误） */
+  collectDirs: z.object({}).strict(),
+
+  collectDirAdd: z.object({
+    absPath: z.string().min(1).max(4096),
+    label: z.string().min(1).max(64),
+    makeDefault: z.boolean().optional(),
+  }).strict(),
+
+  collectDirRemove: z.object({ dirId: z.string().min(1).max(128) }).strict(),
+
+  collectDirSetDefault: z.object({ dirId: z.string().min(1).max(128) }).strict(),
+
+  // ---- 基线 §2.2 新增：应用级账本（app_meta）—— **只读**；写它的只有迁移 ----
+  appMeta: z.object({}).strict(),
 };
 
 export const METHOD_NAMES = Object.freeze(Object.keys(Methods));

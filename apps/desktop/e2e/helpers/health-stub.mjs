@@ -11,7 +11,7 @@
 //    那些由 apps/desktop/tests/library-methods.test.mjs（L1–L7）与 health-rebuild.test.mjs 覆盖，
 //    **不在这里**。真正过 IPC 的那一遍在 health.spec.mjs 的 E13-d（真库、真实现）。
 //
-// ⚠️ 桩**必须覆盖启动期方法**（libraryConfig / indexStatus）：漏了或形状错了，
+// ⚠️ 桩**必须覆盖启动期方法**（libraryList / indexStatus）：漏了或形状错了，
 //    门禁会把界面判成「没有库」⇒ 显示首启向导、压根没有诊断页（同 engine-stub 的坑①）。
 import { expect } from '@playwright/test'
 
@@ -90,7 +90,8 @@ export async function stubHealthEngine(app, opts = {}) {
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
       switch (method) {
-        case 'libraryConfig':
+        // ⚠️ S6（2026-10-15）：libraryConfig → **libraryList**（基线 §2.2）；libraryHealth/Rebuild 保留
+        case 'libraryList':
           return ok({ libraries: [{ libId: 'L1', root: cfg.root }], chosen: 'L1', warnings: [], diagnostics: [] })
         case 'indexStatus':
           return ok({ libs: [{ libId: 'L1', root: cfg.root, dim: 768, indexed: 2, encoded: 2, healthy: !stub.rebuilt }] })
