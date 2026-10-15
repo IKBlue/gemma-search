@@ -42,6 +42,7 @@ import { createLibraryResolverPort, createStoragePorts } from './storage-ports.t
 import { runLibraryHealth, runLibraryRebuild } from './library-ipc.ts';
 import { runItemsQuery } from './items-ipc.ts';
 import type { ItemsQueryParams } from './items-ipc.ts';
+import { installCrashPolicy } from './crash-policy.ts';
 import {
   appDbPath, deleteCollectDir, deleteLibrary, getLibrary, insertCollectDir, insertLibrary,
   listCollectDirs, listLibraries, normalizeRootPath, openAppDb, readAppMeta, setDefaultCollectDir,
@@ -1138,6 +1139,9 @@ function createWindow(): electron.BrowserWindow {
   });
 
   // F12 → DevTools（生产态也留：本机自用工具，排障收益 > 风险，见 SPEC-security §9 决定 3）
+  // ⚠️ DF-6：**只有这一条手动路径** —— 生产态**不自动打开** DevTools。
+  //    口径落点是 crash-policy.shouldAutoOpenDevTools()（恒 false），并由单测做源码扫描守着；
+  //    要改成"自动开"必须同时改那个函数与扫描断言。
   win.webContents.on('before-input-event', (_e, input) => {
     if (input.type === 'keyDown' && input.key === 'F12') win.webContents.toggleDevTools();
   });
@@ -1251,5 +1255,17 @@ async function startApp(): Promise<void> {
 if (SINGLE_INSTANCE) app.whenReady().then(startApp);
 
 app.on('window-all-closed', () => { app.quit(); });        // 关窗即退出（不做托盘）
-process.on('uncaughtException', (e) => log('未捕获异常', stackText(e)));
-process.on('unhandledRejection', (e) => log('未处理的 rejection', stackText(e)));
+// ------------------------------------------------ 未捕获异常 / 未处理 rejection（DF-6）
+//
+// 策略的**唯一落点**是 crash-policy.ts（文件头写着三条裁决与"为什么不用 app_meta"）：
+//   · uncaughtException ⇒ 先把原因与"即将退出"落盘（log 是同步 appendFileSync，调用返回即已写盘），
+//     再 app.exit(1)：进程此刻可能停在半初始化/半写状态，继续跑会把"引擎没装配完"当成正常；
+//   · unhandledRejection ⇒ 记日志 + 标记进程内只读的"不健康"态（诊断可读），**不退出** ——
+//     良性 rejection 不该杀掉应用。
+// ⚠️ exit 钩子注入的是 app.exit：不用 process.exit —— 后者会跳过 Electron 的收尾，
+//    而 app.exit 让渲染进程/协议一起有序退出；测试注入记录式钩子，不会真杀进程。
+installCrashPolicy({
+  log,
+  exit: (code: number) => { app.exit(code); },
+  isPackaged: app.isPackaged,
+});

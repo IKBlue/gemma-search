@@ -1,0 +1,123 @@
+==============================================================================
+DF-6 / task-73 · 未捕获异常策略（退出 / 标记不健康）+ 生产态 DevTools 收口
+日期：2026-10-15 · 执行：main-migrator · 环境：Windows / Node v24.14.0 / TS 7.0.2
+==============================================================================
+
+## 0. 交付物（3 个文件）
+  [新增] apps/desktop/src/main/crash-policy.ts       —— 策略唯一落点（含三条裁决与"为什么不用 app_meta"）
+  [改]   apps/desktop/src/main/index.ts              —— 接线 + DevTools 口径注释（删掉原先只 log 的两行）
+  [新增] apps/desktop/tests/crash-policy.test.mjs    —— 7 条单测（C0–C6）
+
+## 1. 改前 → 改后 → 为什么不是放宽
+
+### 1.1 uncaughtException
+  改前：process.on('uncaughtException', (e) => log('未捕获异常', stackText(e)));
+  改后：crash-policy 的处理器 —— ① log 三行（原因 / "为什么不能继续跑" / 即将退出的码）
+        ② 调 deps.flush（可选 drain 点）③ deps.exit(1)；index.ts 注入的 exit = app.exit(1)。
+  为何非放宽：这是**收紧**。旧行为只记日志、进程继续跑（Node 有监听器时不会自动崩），
+    而此刻可能停在半初始化/半写状态（引擎没装配完、库打开一半）⇒ 继续运行会把异常当成正常。
+    新行为把"静默半死"改成"大声停下"。退出码非 0，外部脚本可区分。
+    ⚠️ 顺序是契约（先落盘 → flush → 退出），由 C1 的 trace 断言钉死：exit 必须是最后一步。
+    ⚠️ 用 app.exit 而不是 process.exit：后者跳过 Electron 收尾（渲染进程/协议不会有序退出）。
+
+### 1.2 unhandledRejection
+  改前：process.on('unhandledRejection', (e) => log('未处理的 rejection', stackText(e)));
+  改后：log（明确写"不退出；已标记全局不健康，诊断可见"）+ 标记进程内只读不健康态（unhealthy/reason/count）。
+  为何非放宽：**退出行为不变**（都不退出 —— 裁决 #2 明确要求不退出，良性 rejection 不该杀应用），
+    新增的是**可观测性**：旧写法读日志才知道出过事，现在有机器可读的状态（C2/C3/C6 钉住）；
+    并且原因取**第一条**（根因不被后续余波覆盖，C3 钉住）。
+
+### 1.3 不健康标记放在哪（裁决 #3 的二选一）
+  选择：**进程内只读态**（导出 isUnhealthy / unhealthyReason / unhealthyCount / crashUnhealthyState），
+        每次同时落一行日志；**不写 app_meta**。
+  理由：app_meta 是**迁移账本**，唯一写入口是迁移（DESIGN §2.3 + SPEC §5.2）；运行期写它会同时破坏
+    "唯一写入口"与"账本只属于迁移"两条口径。而不健康是**进程生命周期内**的事实 —— 进程没了它也没意义，
+    落库只会留下一个下次启动必然过期的假标记（与本项目"最怕静默"同源：过期数据比没有数据更坏）。
+
+### 1.4 生产态 DevTools
+  改前：无任何 openDevTools 调用（只有 F12 的 toggleDevTools 手动路径）—— 但这条口径是**隐式**的，
+        没有任何东西挡着后来者加一行 win.webContents.openDevTools()。
+  改后：口径显式化 —— crash-policy.shouldAutoOpenDevTools() 恒 false（唯一落点，注释写明"能力保留、
+        自动打开禁止"及其与 SPEC-security §9 决定 3 的关系）+ C5 做**源码扫描**：index.ts 不许出现
+        openDevTools(；toggleDevTools( 与 devTools: true 必须还在；index.ts 不许再散挂 process.on 的两个事件。
+  为何非放宽：这是把"目前恰好没有"升级成"显式禁止 + 回归守卫"，能力（F12 / devTools:true）一字未减。
+
+## 2. 能红证明（注入 ⇒ 必红 ⇒ 还原复绿；AGENTS §3.7：副本在 data/_df6/，未用 git checkout）
+
+### R1 去掉 exit 请求（crash-policy.ts）
+命令：node --test --test-isolation=none --test-name-pattern="C1 " apps/desktop/tests/crash-policy.test.mjs
+  ✖ C1 ⭐ uncaughtException ⇒ 先落盘(flush) 再 exit(1)，并记录可读原因 (1.9483ms)
+  ℹ tests 1
+  ℹ pass 0
+  ℹ fail 1
+  ✖ failing tests:
+  ✖ C1 ⭐ uncaughtException ⇒ 先落盘(flush) 再 exit(1)，并记录可读原因 (1.9483ms)
+    AssertionError [ERR_ASSERTION]: 未捕获异常必须请求退出（code=1）
+      actual: [],
+  restored identical = true；该文件复跑 7/7 绿
+
+### R2 unhandledRejection 不标记不健康（crash-policy.ts）
+命令：node --test --test-isolation=none --test-name-pattern="C2 |C3 " apps/desktop/tests/crash-policy.test.mjs
+  ✖ C2 ⭐ unhandledRejection ⇒ 记日志 + 标记不健康，**不退出** (2.1182ms)
+  ✖ C3 ⭐ 状态可观测：第一条原因优先（根因不被余波覆盖）+ 次数累加 (0.3597ms)
+  ℹ tests 2
+  ℹ pass 0
+  ℹ fail 2
+  ✖ failing tests:
+  ✖ C2 ⭐ unhandledRejection ⇒ 记日志 + 标记不健康，**不退出** (2.1182ms)
+    AssertionError [ERR_ASSERTION]: 必须被标记为不健康
+  restored identical = true；复跑 7/7 绿
+
+### R3 注入自动打开 DevTools（index.ts）
+命令：node --test --test-isolation=none --test-name-pattern="C5 " apps/desktop/tests/crash-policy.test.mjs
+  ✖ C5 ⭐ 生产态不自动打开 DevTools；手动 F12 路径仍在 (11.1097ms)
+  ℹ tests 1
+  ℹ pass 0
+  ℹ fail 1
+  ✖ failing tests:
+  ✖ C5 ⭐ 生产态不自动打开 DevTools；手动 F12 路径仍在 (11.1097ms)
+    AssertionError [ERR_ASSERTION]: index.ts 不许出现自动打开 DevTools 的调用
+      actual: true,
+  restored identical = true；复跑 7/7 绿（接线复核见 §3.3，openDevTools 已不在）
+
+## 3. 门禁原始输出
+
+### 3.1 tsc -p tsconfig.node.json
+EXIT=1，输出 1 行；**本卡范围（crash-policy.ts / main/index.ts）= 0 错误**。
+剩下这一行属**别的在飞卡片**的中间态（gs-names 导出被改 / library-rebuild 还没跟上），不是本卡引入：
+  apps/desktop/src/main/library-rebuild.ts(35,10): error TS2305: Module '"./gs-names.ts"' has no exported member 'isMaterialEntryName'.
+
+### 3.2 crash-policy.test.mjs
+EXIT=0
+  ✔ C0：没安装过策略时 crashUnhealthyState() 不编一个"健康"的假象（全 false/0） (1.0721ms)
+  ✔ C1 ⭐ uncaughtException ⇒ 先落盘(flush) 再 exit(1)，并记录可读原因 (0.7009ms)
+  ✔ C2 ⭐ unhandledRejection ⇒ 记日志 + 标记不健康，**不退出** (0.1781ms)
+  ✔ C3 ⭐ 状态可观测：第一条原因优先（根因不被余波覆盖）+ 次数累加 (0.2931ms)
+  ✔ C4：install 注册两个事件且幂等；dispose 摘干净 (0.2337ms)
+  ✔ C5 ⭐ 生产态不自动打开 DevTools；手动 F12 路径仍在 (5.6927ms)
+  ✔ C6：installCrashPolicy 后 crashUnhealthyState() 读得到已安装策略的状态 (0.3747ms)
+  ℹ tests 7
+  ℹ pass 7
+  ℹ fail 0
+  ℹ skipped 0
+
+### 3.3 index.ts 接线复核（grep）
+  45:   import { installCrashPolicy } from './crash-policy.ts';
+  1143: //    口径落点是 crash-policy.shouldAutoOpenDevTools()（恒 false），并由单测做源码扫描守着；
+  1146: if (input.type === 'keyDown' && input.key === 'F12') win.webContents.toggleDevTools();
+  1267: installCrashPolicy({
+  ⇒ 原先只 log 的两行（process.on uncaughtException / unhandledRejection）已不存在；无 openDevTools 调用。
+
+## 4. 未决 / 边界内做不到的一件
+  · "在诊断面可见"目前落在两处：每次落一行日志（诊断面板可看 / 导出日志）+ 可导入的 crashUnhealthyState()。
+    **没有**接成 IPC 方法让渲染层直接显示 —— 那需要改 shared/ipc.ts（本卡明令不动）。
+    建议后续卡：新增一个只读方法（例如 appHealth）返回 { unhealthy, reason, count }；
+    在那之前诊断面只能看日志行，这一点如实写明，不声称"面板上能看到"。
+  · 未跑全量 npm test / build / e2e：纪律 §3.6 + 纪律 6（db-worker / storage-worker / indexer-migrator 在飞），
+    全量门禁归 Lead 在树安静时跑。本卡只跑了 tsc + 单文件单测。
+
+## 5. 回滚方式
+  · 本卡 3 个文件：撤销该提交即可（git revert <commit>）；
+  · 若要只回滚接线：删 index.ts 的 installCrashPolicy({...}) 调用并恢复原先两行 process.on —— 但那是退化，不建议；
+  · 注入副本：data/_df6/crash-policy.ts.bak · data/_df6/index.ts.bak（均已与工作树逐字节一致）。
+==============================================================================
