@@ -182,6 +182,14 @@
 
 ## 5. 环境限制（别当成产品事实）
 
+**工具链限制（2026-10-15 实测 · 不是产品事实）**：`typescript-eslint` **与仓库锁定的 TypeScript 7.0.2 硬冲突** —— 不是 peer 警告，是 **import 即抛**：
+`~
+node -e "require('typescript-eslint')"  =>  typescript-eslint does not support TS 7.0.
+npm view typescript-eslint@latest peerDependencies  =>  typescript: ">=4.8.4 <6.1.0"
+node_modules/typescript-eslint/dist/index.js:45-53  =>  if (versionMajor >= 7) throw …（源码硬门槛）
+底层 @typescript-eslint/parser 与 eslint-plugin 同样抛；latest 8.71.2 / canary 8.71.3-alpha.5 全都不支持（上游 issue #10940，等 TS >= 7.1）
+`~
+⇒ **在 typescript-eslint 支持 TS >= 7.1 之前**：ESLint 只覆盖 **JS 家族**（`.js/.mjs/.cjs/.jsx`）；**TS 规则**要么等上游，要么由所有者批准「并行装一个 TS 6 + overrides」（**架构级决定：仓库会出现第二个 TS 大版本**）。**不要**装一个 import 即崩的包当依赖。
 本会话沙箱把 **electron.exe 的写限制在仓库工作目录内**（仓库内可写；`G:\` 与 `AppData` 一律 EPERM），普通 node 不受限。
 ⇒ 「库根不可写 ⇒ 回退」这类行为，**有效证据必须来自显式 ACL 拒绝**（如 `icacls` 拒绝后普通 node 也被拒），
 而『G:\model 写不进去』在本机是**环境噪声**。要验收真实的库根写入（`.gs-index.bin` / `.gs.db` 落到 `G:\model`），**必须在沙箱外跑**，并在证据里写明是环境还是产品。
