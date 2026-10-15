@@ -5,7 +5,8 @@
 
 /**
  * 契约 §1.3 的错误码（SPEC §5 的**唯一来源**）。
- * 20 个原始 + 2026-10-12 F-01 的 PORT_MISSING + 2026-10-15 T-45 的 7 个 IMPORT_* = **27**。
+ * 20 个原始 + 2026-10-12 F-01 的 PORT_MISSING + 2026-10-15 T-45 的 7 个 IMPORT_*
+ * + 2026-10-15 S7a 的 DB_OPEN_FAILED = **28**。
  * 冻结后新增 = 兼容，改名 = 破坏性。
  */
 export const ERR = Object.freeze({
@@ -43,6 +44,11 @@ export const ERR = Object.freeze({
   IMPORT_RECORD_INVALID: 'IMPORT_RECORD_INVALID',
   IMPORT_DUPLICATE_UID: 'IMPORT_DUPLICATE_UID',
   IMPORT_COUNT_MISMATCH: 'IMPORT_COUNT_MISMATCH',
+  // 2026-10-15 新增（S7a）：`.gs.db` 打不开（损坏 / 被占用）时**唯一**的名字。
+  // SPEC §5.2 明写「库坏 ≠ 索引坏」并且**不得**归成 INDEX_CORRUPT —— 索引可能完好，
+  // 让用户去「重建索引」是**指错方向**（T-45 实测：同一个坏库，经引擎端口那条路报
+  // INDEX_CORRUPT、体检那条路报 DB_OPEN_FAILED ⇒ 一颗坏库两个名字）。
+  DB_OPEN_FAILED: 'DB_OPEN_FAILED',
 });
 
 /** ERR 的取值联合。有了它，`USER_MESSAGE[code]` 这类查表在编译期就能被检查（不必用 any）。 */
@@ -92,6 +98,11 @@ export const USER_MESSAGE = Object.freeze({
   IMPORT_RECORD_INVALID: '条目表里有不合法的条目，重建没有开始（详情见日志）。',
   IMPORT_DUPLICATE_UID: '条目表里有重复的 uid，重建没有开始（详情见日志）。',
   IMPORT_COUNT_MISMATCH: '条目表与索引的条数对不上，重建没有开始（详情见日志）。',
+  // SPEC §5.2 的用户文案（唯一来源）。
+  // ⚠️ SPEC 原文用 Markdown 加粗标了「索引文件没坏」几个字 —— 那是文档的强调标记，
+  //    不是用户可见字符（本仓库 V-40/CP-2：非注释里的加粗标记会按字面显示给用户）
+  //    ⇒ 这里去掉标记，文字逐字相同。
+  DB_OPEN_FAILED: '这个库的元数据打不开（文件可能损坏或被占用）。索引文件没坏 —— 先试「重建元数据」，不行再看诊断。',
 });
 
 /** 引擎内部的类型化错误。**不直接抛给调用方** —— 由 envelope() 转成 §1.1 的信封。 */

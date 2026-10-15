@@ -255,6 +255,24 @@ test('T45-E1 ⭐⭐ 任意 IMPORT_* 经**引擎端口**抛进信封 ⇒ 原样�
   }
 });
 
+test('S7a-E1 ⭐⭐ DB_OPEN_FAILED 经**引擎端口**抛出 ⇒ 原样带出（不依赖 main 的映射表）', async () => {
+  const s = setup();
+  const ports = makePorts({ libRoot: s.libRoot, items: s.fx.items });
+  ports.items.getItem = () => { throw fail(ERR.DB_OPEN_FAILED, '模拟：.gs.db 打不开'); };
+  ports.items.listItems = () => { throw fail(ERR.DB_OPEN_FAILED, '模拟：.gs.db 打不开'); };
+  const e = enginePorts(s, ports);
+
+  const r = await e.item({ libId: 'L1', uid: s.fx.items[0].uid });
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, 'DB_OPEN_FAILED', 'item 信封必须原样带出 DB_OPEN_FAILED，实得 ' + r.error.code);
+  assert.notEqual(r.error.code, ERR.INDEX_CORRUPT, '库坏 ≠ 索引坏（SPEC §5.2：不得归成 INDEX_CORRUPT）');
+  assert.notEqual(r.error.code, ERR.INTERNAL, '不许被吞成 INTERNAL');
+  assert.ok(r.error.userMessage && r.error.userMessage.length > 0, 'userMessage 必须非空');
+  assert.notEqual(r.error.userMessage, USER_MESSAGE[ERR.INDEX_CORRUPT], '文案也不许说成"索引文件已损坏"');
+
+  const st = await e.indexStatus();
+  assert.equal(st.data.libs[0].problems[0].code, 'DB_OPEN_FAILED', 'indexStatus 的 problems[].code 也必须如实');
+});
 test('T45-E2 每个 IMPORT_* 都有**自己的**用户文案（不冒充"索引损坏"、不含绝对路径）', () => {
   const corruptMsg = USER_MESSAGE[ERR.INDEX_CORRUPT];
   for (const code of IMPORT_CODES) {

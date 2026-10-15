@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { readIndexBin, readItems, readMeta, relOf, MAGIC, HEAD_OFF, LEN_OFF } from '../src/index.ts';
 import { compatKey, compatComplete, compatMismatches, compatEqual, compatReason,
          COMPAT_FIELDS } from '../src/compat.ts';
-import { EngineError, ERR, envelope, err, ok } from '../src/errors.ts';
+import { EngineError, ERR, USER_MESSAGE, envelope, err, ok } from '../src/errors.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // 仓库根：测试现在跟着引擎包走（`packages/engine/tests/`），但 `data/` 仍留在**仓库根** ——
@@ -202,6 +202,24 @@ test('errors: 每个错误码都有用户可见文案（且不含绝对路径）
     assert.ok(e.error.userMessage && e.error.userMessage.length > 0, `${code} 缺 userMessage`);
     assert.ok(!/[A-Za-z]:\\/.test(e.error.userMessage), `${code} 的 userMessage 含绝对路径`);
   }
+});
+
+/**
+ * S7a：错误码表的大小必须**机械可核** —— SPEC §5 写的就是「28 个（新增=兼容，改名=破坏性）」。
+ * 为什么单列一条：码空间是契约面，多一个码/少一个码都是需求变更，不该靠人眼数。
+ * 第 28 个 = DB_OPEN_FAILED（.gs.db 打不开）：SPEC §5.2 要求它**不得**归成 INDEX_CORRUPT。
+ */
+test('S7a ⭐ 错误码表 == SPEC §5 的 28 个，且 DB_OPEN_FAILED 有自己的文案（库坏 ≠ 索引坏）', () => {
+  const codes = Object.values(ERR);
+  assert.equal(codes.length, 28, 'ERR 大小必须 == SPEC §5 的 28（实得 ' + codes.length + '）');
+  assert.equal(new Set(codes).size, 28, 'ERR 不许有重复值');
+  assert.equal(ERR.DB_OPEN_FAILED, 'DB_OPEN_FAILED', '第 28 个码必须是 DB_OPEN_FAILED');
+
+  const msg = USER_MESSAGE[ERR.DB_OPEN_FAILED];
+  assert.ok(typeof msg === 'string' && msg.length > 0, 'DB_OPEN_FAILED 缺 userMessage');
+  assert.notEqual(msg, USER_MESSAGE[ERR.INDEX_CORRUPT], '库坏 ≠ 索引坏：文案不能与 INDEX_CORRUPT 相同');
+  assert.ok(!msg.includes('**'), 'userMessage 不许出现 Markdown 加粗标记（V-40：界面会按字面显示）');
+  assert.ok(!/[A-Za-z]:\\/.test(msg), 'userMessage 不许含绝对路径');
 });
 
 test('errors: envelope 永不抛异常给调用方', async () => {

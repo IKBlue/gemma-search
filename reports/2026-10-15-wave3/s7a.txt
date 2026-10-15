@@ -1,0 +1,97 @@
+===============================================================================
+S7a 证据 · DB_OPEN_FAILED 进引擎码空间（27 → 28）
+worker: indexer-migrator · 任务板 task-60 · 2026-10-15
+===============================================================================
+
+【0 范围 / 时间线（含一次误判的纠正，只作事实记录）】
+· 范围：packages/engine/**。src/errors.ts 的 4 行写入于 **12:54:18**（文件 mtime），
+  本卡后半段（断言 + 能红 + 本证据）全部在 packages/engine/tests/** 与本文件。
+· Lead 曾据一次**滞后**的 `rg DB_OPEN_FAILED packages/engine/src`（0 命中）判「没人开工」并宣布接管；
+  我用 **mtime 12:54:18 + board（rev2 / owner=indexer-migrator / in_progress）** 两条证据纠正；
+  Lead 已复验、道歉，并立「纪律 15：判谁在干活至少要 board owner/revision + 文件 mtime/diff 两条证据」。
+· 本证据只回报 S7a 自身；上述一句是为可追溯，不作为通过依据。
+
+【1 做了什么】
+1) packages/engine/src/errors.ts（未再改动）：`ERR` 增 `DB_OPEN_FAILED`（第 28 码）；`USER_MESSAGE` 增一句
+   （照 SPEC §5.2，**去掉 Markdown 加粗标记**、文字逐字相同 —— 理由见 §3）；头部注释 27 → 28。
+2) packages/engine/tests/index.test.mjs：+ `S7a` —— ERR 键数 == 28、无重复值、第 28 个是 DB_OPEN_FAILED、
+   文案非空 / 不含 Markdown 加粗标记 / 不含绝对路径 / 不等于 INDEX_CORRUPT 的文案（库坏 ≠ 索引坏）。
+3) packages/engine/tests/storage-ports.test.mjs：+ `S7a-E1` —— DB_OPEN_FAILED 经**引擎端口**抛出时，
+   item 信封与 indexStatus 的 problems[].code 都**原样带出**（注入 fake，不依赖 main 的映射表）。
+4) 未动 main/**（storage-ports.ts 归 S7b · storage-worker）、未新增依赖、引擎保持零依赖。
+
+===============================================================================
+【2 命令 + 原始输出】
+===============================================================================
+--- 2.1 机械核：ERR 键数 == 28（任务书点名要给的命令）---
+命令:
+  node --input-type=module -e "const m = await import('./packages/engine/src/errors.ts'); const k = Object.keys(m.ERR);
+    console.log('ERR keys = ' + k.length + ' | USER_MESSAGE keys = ' + Object.keys(m.USER_MESSAGE).length);
+    console.log('has DB_OPEN_FAILED = ' + k.includes('DB_OPEN_FAILED') + ' | msg = ' + JSON.stringify(m.USER_MESSAGE[m.ERR.DB_OPEN_FAILED]));"
+原始输出:
+  ERR keys = 28 | USER_MESSAGE keys = 28
+  has DB_OPEN_FAILED = true | msg = "这个库的元数据打不开（文件可能损坏或被占用）。索引文件没坏 —— 先试「重建元数据」，不行再看诊断。"
+
+--- 2.2 S7a 两条断言（绿）---
+命令: node --test --test-name-pattern="S7a" packages/engine/tests/index.test.mjs packages/engine/tests/storage-ports.test.mjs
+原始输出:
+  ok S7a ⭐ 错误码表 == SPEC §5 的 28 个，且 DB_OPEN_FAILED 有自己的文案（库坏 ≠ 索引坏）
+  ok S7a-E1 ⭐⭐ DB_OPEN_FAILED 经**引擎端口**抛出 ⇒ 原样带出（不依赖 main 的映射表）
+  i tests 2 / pass 2 / fail 0 / skipped 0        GREEN_EXIT=0
+
+--- 2.3 能红（两条路径，均已还原）---
+RED-A（临时删掉 `ERR.DB_OPEN_FAILED`）:
+  x S7a     AssertionError: ERR 大小必须 == SPEC §5 的 28（实得 27）
+  x S7a-E1  AssertionError: item 信封必须原样带出 DB_OPEN_FAILED，实得 undefined
+  i tests 2 / pass 0 / fail 2        REDA_EXIT=1
+RED-B（临时删掉 `USER_MESSAGE.DB_OPEN_FAILED`）:
+  x S7a     AssertionError: DB_OPEN_FAILED 缺 userMessage
+  ok S7a-E1（端口那条看的是"码 + 文案≠INDEX_CORRUPT 的文案"，缺文案时会回落到 INTERNAL 文案 ⇒ 如实不红，见 §3 分工）
+  i tests 2 / pass 1 / fail 1        REDB_EXIT=1
+还原后复跑: 两条都 ok / pass 2 / fail 0 / GREEN_EXIT=0
+
+--- 2.4 tsc（node 工程）---
+命令: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "data/_esbuild-tmp/tsbi_s7a_node.tsbuildinfo"
+原始输出: TSC_NODE_EXIT=0 · error TS 行数 = 0
+（用仓库内 tsBuildInfoFile，避免与其他 worker 抢根 tsbuildinfo。）
+
+--- 2.5 引擎单测（全绿）---
+命令: node --test --test-isolation=none packages/engine/tests/*.test.mjs    （与 Lead 的复验同一条写法）
+原始摘要:
+  i tests 170
+  i suites 0
+  i pass 169
+  i fail 0
+  i cancelled 0
+  i skipped 1
+  i todo 0
+  i duration_ms 23690.1138
+  ENGINE_EXIT=0
+（相对 S7a 之前：tests 168 → **170**，正是本卡新增的 S7a + S7a-E1 两条；fail 始终 0。
+  注：上一轮我报的 168 条 / 326s 是**未加 --test-isolation=none** 的跑法，本轮与 Lead 复验口径对齐。）
+
+--- 2.6 还原 / 残留核验 ---
+· `grep RED-PROOF` 全仓 = 0 命中（本轮没写这类标记）。
+· 还原后 `ERR keys` 复跑 = 28、`USER_MESSAGE` = 28（见 2.1 的同一条命令）。
+
+===============================================================================
+【3 说明 / 交代】
+===============================================================================
+· **文案里的 Markdown 加粗标记**：SPEC §5.2 原文是「…。**索引文件没坏** —— 先试「重建元数据」，…」，
+  而 USER_MESSAGE 是**用户可见纯文本**（本仓库 V-40/CP-2：非注释里的加粗标记会按字面显示给用户）。
+  ⇒ 落库文字与 SPEC **逐字相同**，只去掉 `**` 这对标记；并用 `assert.ok(!msg.includes('**'))` 把这条钉住，
+  将来谁把标记抄回来就会红。
+· **两条断言的分工**（解释 RED-B 下 S7a-E1 为何不红）：S7a 守**码表与文案表**（大小/存在性/文案质量）；
+  S7a-E1 守**端口 → 信封的透传**（码原样、不 INDEX_CORRUPT、不 INTERNAL、文案≠INDEX_CORRUPT 的文案）。
+  `err()` 在缺文案时回落到 INTERNAL 的文案，所以"文案表完整性"必须由 S7a 守 —— 这正是它存在的位置。
+· 未跑 main 侧：S7b（task-61）是 storage-worker 的卡（删 storage-ports 里那条 DB_OPEN_FAILED→INDEX_CORRUPT
+  改名映射 + 端到端断言），与本卡是两个文件、不冲突。
+· 未跑 git（AGENTS P7）；未跑 build/e2e（并发纪律 + 本卡不涉及）。
+
+===============================================================================
+【4 改动文件 / 回滚】
+===============================================================================
+· packages/engine/src/errors.ts               （+1 码 +1 文案 + 头部注释 27 → 28）
+· packages/engine/tests/index.test.mjs         （+USER_MESSAGE import；+S7a 一条）
+· packages/engine/tests/storage-ports.test.mjs （+S7a-E1 一条）
+回滚：删掉 errors.ts 的码与文案（键数回 27），删两处新测试即可；无数据/落点副作用。
