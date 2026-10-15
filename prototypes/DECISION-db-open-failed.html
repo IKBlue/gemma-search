@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>裁定：DB_OPEN_FAILED 收进引擎码空间（27 → 28）？</title>
+<!-- 单文件 · 无外部依赖 · 无 JS · file:// 直接打开。依据：T-45 实测 + SPEC §5 + storage-ports.ts:57-68 -->
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+:root {
+  --line: #2c2c2e; --line-strong: #3a3a3c;
+  --surface: #161618; --raised: #1d1d1f; --hover: rgba(255,255,255,.055);
+  --text: #f5f5f7; --text-2: #a1a1a6; --text-3: #86868b;
+  --accent: #0d6fdb; --accent-text: #4da3ff; --accent-soft: rgba(77,163,255,.18);
+  --ok-text: #30d158; --warn-text: #ff9f0a; --crit-text: #ff685f;
+  --ok-soft: rgba(48,209,88,.22); --warn-soft: rgba(255,159,10,.22); --crit-soft: rgba(255,69,58,.22);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --r-panel: 18px; --r-pill: 999px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --line: #e5e5ea; --line-strong: #d2d2d7;
+    --surface: #fff; --raised: #fff; --hover: rgba(0,0,0,.045);
+    --text: #1d1d1f; --text-2: #6e6e73; --text-3: #707078;
+    --accent: #0071e3; --accent-text: #2b6fd4; --accent-soft: rgba(0,113,227,.10);
+    --ok-text: #217f3a; --warn-text: #a06406; --crit-text: #cd0014;
+    --ok-soft: rgba(52,199,89,.14); --warn-soft: rgba(255,159,10,.09); --crit-soft: rgba(255,59,48,.14);
+  }
+}
+body {
+  margin: 0; padding: 44px 32px 120px; font-size: 14px; line-height: 1.45;
+  background: #000; color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Hiragino Sans GB", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+@media (prefers-color-scheme: light) { body { background: #fff; } }
+.wrap { max-width: 1240px; margin: 0 auto; }
+h1 { font-size: 27px; font-weight: 680; letter-spacing: -.022em; margin: 0 0 6px; }
+h2 { font-size: 20px; font-weight: 660; letter-spacing: -.018em; margin: 54px 0 6px;
+     padding-top: 22px; border-top: 1px solid var(--line); }
+h2:first-of-type { border-top: 0; margin-top: 34px; }
+h3 { font-size: 15px; font-weight: 640; margin: 0; }
+h4 { font-size: 13px; font-weight: 640; margin: 0; }
+p { margin: 0; }
+.mono, code { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.lede { color: var(--text-2); font-size: 15px; max-width: 78ch; }
+.sub { color: var(--text-3); font-size: 12.5px; margin-top: 5px; max-width: 84ch; }
+.muted { color: var(--text-2); } .faint { color: var(--text-3); }
+
+/* 分层色带 */
+.band { display: flex; align-items: center; gap: 10px; margin: 26px 0 10px; }
+.band .tag { font-size: 11px; font-weight: 660; letter-spacing: .05em; text-transform: uppercase;
+  padding: 3px 10px; border-radius: var(--r-pill); }
+.b-fact { background: rgba(120,120,255,.16); color: #9b9bff; }
+.b-proc { background: var(--warn-soft); color: var(--warn-text); }
+.b-intent { background: var(--ok-soft); color: var(--ok-text); }
+.b-app { background: var(--accent-soft); color: var(--accent-text); }
+.band .ln { flex: 1; height: 1px; background: var(--line); }
+.band .note { font-size: 12px; color: var(--text-3); }
+
+.tbl { border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface);
+       margin-top: 14px; overflow: hidden; }
+.tbl-h { display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+         padding: 13px 18px; border-bottom: 1px solid var(--line);
+         background: color-mix(in srgb, var(--text) 3%, transparent); }
+.tbl-h h3 { font-family: var(--mono); font-size: 14px; letter-spacing: -.01em; }
+.tbl-h .why { flex-basis: 100%; font-size: 12.5px; color: var(--text-2); line-height: 1.6; }
+.tbl table { width: 100%; border-collapse: collapse; }
+.tbl th, .tbl td { text-align: left; padding: 8px 18px; border-top: 1px solid var(--line); vertical-align: top; }
+.tbl thead th { border-top: 0; font-size: 10.5px; font-weight: 620; letter-spacing: .05em;
+                text-transform: uppercase; color: var(--text-3); padding-top: 10px; padding-bottom: 6px; }
+.tbl td.f { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+.tbl td.t { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); white-space: nowrap; }
+.tbl td.c { white-space: nowrap; }
+.tbl td.d { font-size: 12.5px; color: var(--text-2); }
+
+.pill { display: inline-block; padding: 1px 6px; margin: 1px 3px 1px 0; border-radius: 5px;
+        font-size: 10px; font-weight: 620; letter-spacing: .02em; white-space: nowrap; }
+.p-pk { background: var(--accent-soft); color: var(--accent-text); }
+.p-fk { background: rgba(120,120,255,.16); color: #9b9bff; }
+.p-nn { background: var(--hover); color: var(--text-2); }
+.p-idx { background: var(--ok-soft); color: var(--ok-text); }
+.p-ck { background: var(--warn-soft); color: var(--warn-text); }
+.p-new { background: var(--ok-soft); color: var(--ok-text); }
+.p-now { background: var(--accent-soft); color: var(--accent-text); }
+.p-later { background: var(--hover); color: var(--text-3); }
+
+.note { display: flex; gap: 10px; padding: 12px 15px; border-radius: 11px; margin-top: 14px;
+        background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+        font-size: 12.5px; line-height: 1.6; }
+.note svg { width: 15px; height: 15px; flex: none; margin-top: 2px; color: var(--accent-text); }
+.note.warn { background: var(--warn-soft); border-color: color-mix(in srgb, #ff9f0a 30%, transparent); color: var(--warn-text); }
+.note.warn svg { color: var(--warn-text); }
+.note.crit { background: var(--crit-soft); border-color: color-mix(in srgb, #ff685f 30%, transparent); color: var(--crit-text); }
+.note.crit svg { color: var(--crit-text); }
+.note.ok { background: var(--ok-soft); border-color: color-mix(in srgb, #30d158 30%, transparent); color: var(--ok-text); }
+.note.ok svg { color: var(--ok-text); }
+.note b { font-weight: 660; }
+
+pre { margin: 14px 0 0; padding: 15px 17px; border-radius: 13px; overflow-x: auto;
+      background: #0d0d0f; border: 1px solid var(--line);
+      font-family: var(--mono); font-size: 12px; line-height: 1.75; color: #e8e8ea; }
+@media (prefers-color-scheme: light) { pre { background: #f6f6f8; color: #1d1d1f; } }
+pre .c { color: #86868b; } pre .k { color: #ff9f0a; } pre .s { color: #7fd6a0; }
+
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px;
+         border-radius: var(--r-pill); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.b-ok { background: var(--ok-soft); color: var(--ok-text); }
+.b-warn { background: var(--warn-soft); color: var(--warn-text); }
+.b-crit { background: var(--crit-soft); color: var(--crit-text); }
+.b-neutral { background: var(--hover); color: var(--text-2); }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 14px; }
+.box { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; background: var(--surface); }
+.box .n { font-family: var(--mono); font-size: 13px; font-weight: 620; }
+.box ul { margin: 8px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--text-2); }
+.box li { padding: 2px 0; } .box li b { color: var(--text); font-weight: 580; }
+
+.steps { margin-top: 12px; }
+.steps .st { display: flex; gap: 14px; padding: 11px 0; border-top: 1px solid var(--line); }
+.steps .st:first-child { border-top: 0; }
+.steps .st .no { flex: none; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent-text); font-size: 12px; font-weight: 660;
+  display: grid; place-items: center; }
+.steps .st .bd .t { font-size: 13.5px; font-weight: 620; }
+.steps .st .bd .d { font-size: 12.5px; color: var(--text-2); margin-top: 2px; line-height: 1.55; }
+</style>
+<style>
+  /* 本页新增的三个 pill 变体（颜色全部复用既有变量，不引入新色值） */
+  .pill.p-keep { background: var(--ok-soft); color: var(--ok-text); }
+  .pill.p-add  { background: var(--accent-soft); color: var(--accent-text); }
+  .pill.p-drop { background: var(--crit-soft); color: var(--crit-text); }
+  /* 既有 .note 是 display:flex（为多子元素设计），本页的 note 是纯文本 + <br> ⇒ 必须覆盖回 block，否则被挤成窄列 */
+  .note { display: block; }
+  .note .mono { white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>裁定：<span class="mono">DB_OPEN_FAILED</span> 收进引擎码空间（27 → 28）？</h1>
+<p class="lede">一句话：现在<b>库坏了、检索却说「索引文件已损坏」</b> —— 用户按提示去重建索引，白折腾。这不是新概念，而是把<b>已经存在</b>的一个码升进引擎码空间。</p>
+<p class="band"><span class="badge b-warn">待你裁定</span> 2026-10-15 · 记录在 <span class="mono">TASKS §4 · U22</span> · 依据 T-45 实测（<span class="mono">reports/2026-10-15-wave3/45.txt</span>）</p>
+
+<h2>1 · 现象：同一个坏库，两条路给出两个名字</h2>
+<div class="grid2">
+  <div class="box"><h3>路径 A · 检索 / 详情（引擎端口）</h3>
+    <p>库的 <span class="mono">.gs.db</span> 打不开时，用户看到：<br>
+    <b>码</b> <span class="mono">INDEX_CORRUPT</span><br><b>文案</b>「索引文件已损坏，需要重建。」<br>
+    ⇒ 但<b>索引是好的</b>（<span class="mono">.gs-index.bin</span> 通过五道校验）。</p></div>
+  <div class="box"><h3>路径 B · 体检</h3>
+    <p>同一个坏库，用户看到：<br>
+    <b>码</b> <span class="mono">DB_OPEN_FAILED</span><br><b>可重建</b> true<br>
+    ⇒ 名词对、处置对。</p></div>
+</div>
+<p class="warn"><b>两条路对同一件事给了两个名字</b> —— 一个说「索引坏了」，一个说「库打不开」。用户无法判断该信谁，支持也无从下手。</p>
+
+<h2>2 · 为什么这算问题（三条）</h2>
+<div class="tbl"><table>
+  <thead><tr><th style="width:230px">问题</th><th>后果</th></tr></thead>
+  <tbody>
+    <tr><td class="f">按提示操作<b>解决不了</b></td><td class="d">文案让用户去「重建索引」，而坏的是库 ⇒ 重建索引后<b>问题照旧</b>，用户会认为「这软件修不好」。</td></tr>
+    <tr><td class="f">同一件事两个名字</td><td class="d">检索说索引坏、体检说库坏 ⇒ 用户与支持<b>无法用同一个词沟通</b>。</td></tr>
+    <tr><td class="f">这正是已经修过的那类<b>假因果</b></td><td class="d">2026-10-15 T-45 刚把 <span class="mono">IMPORT_*</span> 一族从「被归成 <span class="mono">INDEX_CORRUPT</span>」里拆出来（当时也是：导入失败被说成索引损坏）。<span class="mono">DB_OPEN_FAILED</span> 是<b>同一类</b>里剩下的一例。</td></tr>
+  </tbody>
+</table></div>
+
+<h2>3 · 关键事实：这个码<b>已经存在</b>，只是没进引擎</h2>
+<div class="tbl"><table>
+  <thead><tr><th style="width:300px">事实</th><th>证据（文件:行）</th></tr></thead>
+  <tbody>
+    <tr><td class="f">它已经是 main 侧的<b>正式错误码</b></td><td class="d"><span class="mono">main/db/errors.ts:18</span></td></tr>
+    <tr><td class="f">它由打开库的适配层<b>产出</b>（裸 SqliteError 统一收成它）</td><td class="d"><span class="mono">main/db/open.ts:147-149</span></td></tr>
+    <tr><td class="f"><b>体检路径已经在报它</b>，且有测试断言</td><td class="d"><span class="mono">tests/health-rebuild.test.mjs:226 / 436</span>（H5「.gs.db 损坏 ⇒ DB_OPEN_FAILED，可重建」）</td></tr>
+    <tr><td class="f">只有「经引擎端口」这条路把它<b>改名</b>了</td><td class="d"><span class="mono">main/storage-ports.ts:68</span> <span class="mono">case 'DB_OPEN_FAILED': → INDEX_CORRUPT</span>（注释明写「已知边界，未擅自扩码空间」）</td></tr>
+    <tr><td class="f">引擎码空间当前 <b>27 个</b>，SPEC 与代码一致</td><td class="d"><span class="mono">SPEC §5「错误码（27 个：新增=兼容，改名=破坏性）」</span> · <span class="mono">packages/engine/src/errors.ts</span></td></tr>
+  </tbody>
+</table></div>
+<p class="note">⇒ 所以这不是「发明新概念」，而是 <b>把一个已经在用、已经在界面出现的码，升进引擎码空间</b> —— 属于<b>收敛</b>，不是扩张。</p>
+
+<h2>4 · 两个选项</h2>
+<div class="tbl"><table>
+  <thead><tr><th style="width:150px">选项</th><th style="width:330px">改什么</th><th style="width:180px">成本 / 风险</th><th>后果</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="f"><span class="pill p-keep">A · 加</span><br>27 → 28</td>
+      <td class="d">引擎 <span class="mono">errors.ts</span> 加 <span class="mono">DB_OPEN_FAILED</span> + 一句文案；删掉 <span class="mono">storage-ports.ts:68</span> 那条改名映射；SPEC §5 码数 27 → 28，并写「DB 类不得归成 INDEX_CORRUPT」；补一条能红断言。</td>
+      <td class="d"><b>小</b>：1 个码 + 1 句文案 + 删 1 条 case + SPEC 一行。<br>无新表、无迁移、无契约方法变化、无格式变化。</td>
+      <td class="d">两条路<b>同名同因</b>；用户按提示走对路（重建元数据）。</td>
+    </tr>
+    <tr>
+      <td class="f"><span class="pill p-later">B · 不加</span><br>保持 27</td>
+      <td class="d">什么都不改；把这条如实留成 <span class="mono">TASKS · U22</span> 的已知残差。</td>
+      <td class="d"><b>零</b>成本，但保留一处假因果。</td>
+      <td class="d">库坏时用户仍看到「索引文件已损坏」⇒ 按提示操作无效。</td>
+    </tr>
+  </tbody>
+</table></div>
+
+<h2>5 · 若选 A：完整改动预览（before → after）</h2>
+<div class="tbl">
+  <div class="tbl-h"><h3>① 引擎码空间</h3><span class="pill p-add">新增一码</span>
+    <span class="why">与其余 27 个同形：一个常量 + 一句用户文案（文案只允许一份）。</span></div>
+  <table>
+    <thead><tr><th style="width:190px">文件</th><th>改动</th></tr></thead>
+    <tbody>
+      <tr><td class="f">packages/engine/src/errors.ts</td><td class="d"><span class="mono">ERR</span> 增 <span class="mono">DB_OPEN_FAILED: 'DB_OPEN_FAILED'</span>；<span class="mono">USER_MESSAGE</span> 增一句（候选：「这个库的元数据打不开（文件可能损坏或被占用）。<b>索引文件没坏</b> —— 先试「重建元数据」，不行再看诊断。」）</td></tr>
+      <tr><td class="f">SPEC.md §5.2</td><td class="d">「错误码（<b>27</b> 个…）」→「（<b>28</b> 个…）」；在 <span class="mono">IMPORT_*</span> 那条「不得归成 INDEX_CORRUPT」旁补一句：<b>DB 类同理</b>。</td></tr>
+      <tr><td class="f">main/storage-ports.ts:68</td><td class="d">删掉 <span class="mono">case 'DB_OPEN_FAILED': → INDEX_CORRUPT</span>（引擎契约码<b>原样透出</b> ⇒ 这行变多余）；同时删掉 :57 那句「已知边界」注释（它描述的正是被修掉的行为）。</td></tr>
+      <tr><td class="f">新断言（能红）</td><td class="d">破一个 <span class="mono">.gs.db</span> ⇒ 经<b>引擎端口</b>读 ⇒ 必须得到 <span class="mono">DB_OPEN_FAILED</span>，<b>不得</b>是 <span class="mono">INDEX_CORRUPT</span>；把映射改回去 ⇒ 必须红。</td></tr>
+    </tbody>
+  </table>
+</div>
+<div class="tbl"><table>
+  <thead><tr><th style="width:220px">明确<b>不动</b></th><th>为什么</th></tr></thead>
+  <tbody>
+    <tr><td class="f">不加表、不加迁移</td><td class="d">错误码不是数据表；29 张里没有它的事。</td></tr>
+    <tr><td class="f">不改 IPC 契约</td><td class="d">码走的是既有信封的 <span class="mono">error.code</span> 字段，方法集合不变。</td></tr>
+    <tr><td class="f">不改 <span class="mono">.gs.db</span> 格式</td><td class="d">只改「怎么说」，不改「怎么存」。</td></tr>
+    <tr><td class="f">不加新按钮 / 新页面</td><td class="d">“重建元数据”这条自救路<b>已经存在</b>（libraryRebuild，U21 已裁定保留）。</td></tr>
+  </tbody>
+</table></div>
+
+<h2>6 · 验收（怎么算改对了）</h2>
+<ol>
+  <li><b>两条路同名</b>：同一个坏库，经<b>引擎端口</b>与经<b>体检</b>都必须得到 <span class="mono">DB_OPEN_FAILED</span>（现在一个 INDEX_CORRUPT、一个 DB_OPEN_FAILED）；</li>
+  <li><b>能红</b>：把改名映射加回去 ⇒ 断言必须红；还原后复绿（原始输出进证据）；</li>
+  <li><b>码数可断言</b>：SPEC §5 的「28」== 引擎 <span class="mono">ERR</span> 的键数（机械核，不靠人肉数）；</li>
+  <li>引擎单测全绿 · <span class="mono">tsc</span> 两工程 0 · 既有 27 码行为不变（新增=兼容）。</li>
+</ol>
+
+<h2>7 · 我的建议</h2>
+<div class="grid2">
+  <div class="box"><h3>选 <b>A</b>（加）</h3><p>理由：① 它<b>已经存在</b>、已经在界面出现 ⇒ 加它是<b>收敛</b>；② 假因果是本项目明令要杀掉的失败模式（T-45 刚为同类问题杀过一次）；③ 成本是一个码 + 一句文案 + 删一行 case。</p></div>
+  <div class="box"><h3>若选 <b>B</b>（不加）</h3><p>我会把它如实留在 <span class="mono">TASKS · U22</span>，并在 <span class="mono">storage-ports.ts:57</span> 保留「已知边界」注释 —— <b>不假装它不存在</b>。但用户那条错误路径会继续指错方向。</p></div>
+</div>
+
+<h2>8 · 这份页面证明不了什么</h2>
+<ul>
+  <li>它<b>不修</b>「库打不开」本身（文件损坏、被占用、磁盘满）—— 只把<b>名词与因果</b>改对，让提示指向正确的自救动作；</li>
+  <li>它<b>不处理</b>「库被别的进程占用」这种情形（那需要句柄/重试策略，是另一件事）；</li>
+  <li>码数 27 → 28 会让 SPEC 与代码的既有机械核对变一次；除此之外<b>不改任何行为阈值</b>。</li>
+</ul>
+
+<p class="faint">同源记录：<span class="mono">TASKS §4 · U22</span> · <span class="mono">reports/2026-10-15-wave3/45.txt</span>（T-45 实测）· <span class="mono">SPEC.md §5</span> · <span class="mono">main/storage-ports.ts:57-68</span></p>
+</div>
+</body>
+</html>
