@@ -3,7 +3,7 @@
 日期：2026-10-15 · 口径：**只有「命令 + 原始输出」才算已验**；未验/部分一律写明，**不许含糊成「应该没问题」**。
 判据正文在 `SPEC §7`；本文件只做**索引**（哪条 · 现状 · 证据在哪 · 还缺什么）。
 
-> ✅ **权威门禁（2026-10-15 · **冻结窗口** · Lead 实跑 · commit `c4ab9d9`）**：单测 **600 / pass 599 / fail 0 / cancelled 0 / skipped 1 / EXIT=0** · `npm run typecheck` **0** · `npm run build` **0** · `npm run e2e` **63 passed / 1 skipped / 0 failed（2.8 分钟）** · 验收脚本 `s4-accept.mjs` **PASS 13 / FAIL 0 / SKIP 0** · `out/` 指纹 build 后与 e2e 后**一致**（`05959455…`）。
+> ✅ **权威门禁（2026-10-15 · **冻结窗口** · Lead 实跑 · commit `461e5e7`）**：单测 **613 / pass 612 / fail 0 / cancelled 0 / skipped 1 / EXIT=0**（**已含 `packages/indexer/tests`** —— 编码线的测试此前不在门禁里）· `npm run typecheck` **0** · `npm run build` **0** · `npm run e2e` **63 passed / 1 skipped / 0 failed（2.9 分钟）** · `s4-accept.mjs` **PASS 13 / FAIL 0 / SKIP 0** · `out/` 指纹 build 后 = e2e 后（`05EB8B70…`）。
 > ✅ **DF-1 / DF-2（第三方审查的两条 P0）修完后门禁复跑**：单测 **583 / pass 582 / fail 0 / skipped 1 / EXIT=0**（Lead 实跑）。
 > ⚠️ **波动如实记录**：全量 e2e 的**第一次**跑出 `62 passed / 1 failed`（`E11-a`）；`E11-a` **单跑 6.7s 绿**，随后**全量复跑 63/1/0 绿** ⇒ 判为**偶发**。第一次那次与我方另一张卡的**能红探针**（临时改 `main/storage-ports.ts`，而部分 spec 会转译 `src`）在时间上重叠 ⇒ 记在此处备查，**不当作已修复**。
 
@@ -86,9 +86,12 @@
 | DF-5 | 删 `row-types.ts` 死 SQL（S2 漏做那条） | ✅ 已提交（`7005795`） |
 | DF-6 | 未捕获异常策略 + 生产态 DevTools 收口 | ✅ 已提交（`3d100bf`） |
 | DF-8 | `index-file.ts` 写入编排收敛到 `atomic-write.ts`（P1 唯一实现） | ✅ 已提交（`d1eeb0d`） |
-| **DF-7** | `readImageAny` 只读头 · `resolveInLibrary` **安全复核** · `engineMethod` 强转 | ⛔ 待派 |
-| **T-09** | ESLint + Prettier（全仓，**独占窗口**） | ⛔ 待派（须最后做） |
-| 待裁 | `appHealth`（第 22 个方法，只读，暴露「不健康」） | **等所有者** |
+| **DF-7** | 路径逃逸（B）+ `engineMethod` 类型收口 + `footLen` 校验；**驳回 4 条**（D2/D3/D4/checkSpace）| ✅ 已提交（`091eac5`） |
+| **DF-9** | `assertCollectDirAllowed` 纯词法 ⇒ junction 绕过白名单（**第二条逃逸**，与 B **共用**同一份逐段实现） | ✅ 已提交（`b27541b`） |
+| **ENC-1** | `readImageAny` 有界头读 + `pickEmbedding` **全零拒绝**并把 **5 份副本收敛成 1 份**（**改前/改后同一编码基线**：Top-5 逐位一致） | ✅ 已提交（`1ab9a5f`） |
+| 门禁范围 | 把 `packages/indexer/tests/*.test.mjs` 纳入 `npm test`（**不在门禁里的测试等于白写**） | ✅ 已提交（`461e5e7`） |
+| **T-09** | ESLint + Prettier（全仓，**独占窗口**） | ◐ 已派（Prettier 落地 + ESLint 报告制，不长臂修复） |
+| 待裁 | `appHealth`（第 22 个方法，只读，暴露「不健康」） | **等所有者**（一句话即可派卡） |
 
 ## 今日新增纪律（TASKS §3 · 14–19）
 全部来自今日实况，其中 **16/19 是 Lead 自己的错**：「最后一次写入之后」与「门禁窗口要冻结写入面+测试面」。
