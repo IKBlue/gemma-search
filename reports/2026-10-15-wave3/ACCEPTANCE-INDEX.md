@@ -3,7 +3,7 @@
 日期：2026-10-15 · 口径：**只有「命令 + 原始输出」才算已验**；未验/部分一律写明，**不许含糊成「应该没问题」**。
 判据正文在 `SPEC §7`；本文件只做**索引**（哪条 · 现状 · 证据在哪 · 还缺什么）。
 
-> ✅ **权威门禁（2026-10-15 · Lead 实跑）**：单测 **574 / pass 573 / fail 0 / skipped 1 / EXIT=0** · `npm run typecheck` **0** · `npm run build` **0** · `npm run e2e` **63 passed / 1 skipped / 0 failed（6.6 分钟）** · 验收脚本 `s4-accept.mjs` **PASS 13 / FAIL 0 / SKIP 0**。
+> ✅ **权威门禁（2026-10-15 · **冻结窗口** · Lead 实跑 · commit `c4ab9d9`）**：单测 **600 / pass 599 / fail 0 / cancelled 0 / skipped 1 / EXIT=0** · `npm run typecheck` **0** · `npm run build` **0** · `npm run e2e` **63 passed / 1 skipped / 0 failed（2.8 分钟）** · 验收脚本 `s4-accept.mjs` **PASS 13 / FAIL 0 / SKIP 0** · `out/` 指纹 build 后与 e2e 后**一致**（`05959455…`）。
 > ✅ **DF-1 / DF-2（第三方审查的两条 P0）修完后门禁复跑**：单测 **583 / pass 582 / fail 0 / skipped 1 / EXIT=0**（Lead 实跑）。
 > ⚠️ **波动如实记录**：全量 e2e 的**第一次**跑出 `62 passed / 1 failed`（`E11-a`）；`E11-a` **单跑 6.7s 绿**，随后**全量复跑 63/1/0 绿** ⇒ 判为**偶发**。第一次那次与我方另一张卡的**能红探针**（临时改 `main/storage-ports.ts`，而部分 spec 会转译 `src`）在时间上重叠 ⇒ 记在此处备查，**不当作已修复**。
 
@@ -66,11 +66,29 @@
 |---|---|---|
 | **P0** 指纹漏跳保留命名空间（与 `materialDigest` 两套口径） | ✅ **真**（`fingerprint.ts` 无跳过） | ✅ **已修** DF-1（`task-68`）：修后 203 vs 203 · 指纹 `G:\model` 未变 |
 | **P0** `app-db.ts` `num()/text()` 静默降级 bigint | ✅ **真**（`:91-92`） | ✅ **已修** DF-2（`task-69`）：收窄只留一份（`numberOf/flagOf/…`）· 显式 `readBigInts: false` · **自查发现并修了 `items-ipc.ts` 同类缺陷** · 全仓 31 处逐条判定 · 三组能红 |
-| **P1** `engine.ts:613` 用 `Math.random` 生成 jobId | ✅ **真** | ⛔ 待派 |
-| **P1** `thumb-cache` 写入非原子（截断文件永久缓存） | ✅ **真**（`writeFileSync` 裸写） | ⛔ 待派 |
-| **P1** `uncaughtException` 只记日志不退出 | ✅ **真**（`index.ts:1254-1255`） | ⛔ 待派（**退出策略属产品行为，需所有者定**） |
-| **债务** `row-types.ts` 残留死 SQL | ✅ **真**（`ITEM_INSERT_SQL/UPSERT_SQL/sqlRowToItemRecord` 仍在、仍被 barrel 转出） | ⛔ 待派（**S2 清单第 4 条漏做**，Lead 认漏检） |
+| **P1** `engine.ts:613` 用 `Math.random` 生成 jobId | ✅ **真** | ✅ **已修** DF-3（`crypto.randomUUID` + 固定种子红锚） |
+| **P1** `thumb-cache` 写入非原子（截断文件永久缓存） | ✅ **真**（`writeFileSync` 裸写） | ✅ **已修** DF-4（`atomic-write.ts` 唯一实现 + EOI 判据 + 假 fs 真跑失败路径） |
+| **P1** `uncaughtException` 只记日志不退出 | ✅ **真**（`index.ts:1254-1255`） | ✅ **已修** DF-6（落盘→flush→`app.exit(1)`；`unhandledRejection` 只标记不退出 —— **所有者已授权该策略**） |
+| **债务** `row-types.ts` 残留死 SQL | ✅ **真**（`ITEM_INSERT_SQL/UPSERT_SQL/sqlRowToItemRecord` 仍在、仍被 barrel 转出） | ✅ **已修** DF-5（0 残留 grep 命中 0） |
 | 债务 引擎 6 个下线桩 / 索引布局双轨 / CSS 双轨 / 配置多路 / BANDS 暂定 | ✅ 真，但**属已知设计取舍** | 见 SPEC §8 与 `BATCH2-PLAN.md` |
 | 「20 个方法、无 `items`」「BrowsePage 恒返回 `ITEMS_NOT_WIRED`」 | ❌ **已被今日改动超越**（现 21 方法 · 浏览页已接真数据 · 6 条 e2e 绿） | 无需处理 |
 | 产品判断 R1/R2/R3/M4/M6（模型自备 · 建索引是桩 · 质量无凭据 · 内存峰值 · 串行推进） | ✅ 成立 | 对应 `BATCH2-PLAN.md` **B2-1（job）** 与 P8/P2 |
 | ⚠️ 口径待裁：指纹是否也对齐扫描器的「跳过隐藏项」 | 实现者标注为**有意差异**（指纹=「被动过没」；扫描器=「有哪些素材」） | **待所有者** |
+
+## 修复台账（DF 系列 · 由两份第三方审查驱动）
+
+| 卡 | 内容 | 状态 |
+|---|---|---|
+| DF-1 | 指纹漏跳保留命名空间（与 `materialDigest` 两套口径） | ✅ 已提交（`7ef28e0`） |
+| DF-2 | `num()/text()` 静默降级 bigint（+ 自查 `items-ipc` 同类） | ✅ 已提交（`3ae79b0`） |
+| DF-3 | `jobId` 换 CSPRNG + 「什么算素材」收敛**一份实现** | ✅ 已提交（`ade8523` + 补 `c4ab9d9`） |
+| DF-4 | thumb-cache 原子写 + 截断不再永久命中 | ✅ 已提交（`90c5a9b`） |
+| DF-5 | 删 `row-types.ts` 死 SQL（S2 漏做那条） | ✅ 已提交（`7005795`） |
+| DF-6 | 未捕获异常策略 + 生产态 DevTools 收口 | ✅ 已提交（`3d100bf`） |
+| DF-8 | `index-file.ts` 写入编排收敛到 `atomic-write.ts`（P1 唯一实现） | ✅ 已提交（`d1eeb0d`） |
+| **DF-7** | `readImageAny` 只读头 · `resolveInLibrary` **安全复核** · `engineMethod` 强转 | ⛔ 待派 |
+| **T-09** | ESLint + Prettier（全仓，**独占窗口**） | ⛔ 待派（须最后做） |
+| 待裁 | `appHealth`（第 22 个方法，只读，暴露「不健康」） | **等所有者** |
+
+## 今日新增纪律（TASKS §3 · 14–19）
+全部来自今日实况，其中 **16/19 是 Lead 自己的错**：「最后一次写入之后」与「门禁窗口要冻结写入面+测试面」。
