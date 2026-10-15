@@ -395,7 +395,12 @@
 **新增**：`librarySetEnabled` · `libraryReorder` · `libraryRemove` · `collectDirs` · `collectDirAdd` · `collectDirRemove` · `collectDirSetDefault` · `appMeta`（诊断页显示应用级版本）
 
 **`items`（只读列表 · 2026-10-15 补 · 属兼容）** —— F2「逛整库」要的读路径。**Lead 基线的遗漏**：`scan` 只返回**差异**（`new/missing/changed` + 指纹）、`search` 空查询会 `BAD_REQUEST`（「查询文本为空」）、`item` 只读一条 ⇒ 三者**都不能**列全部。
-签名（S8 定稿实现）：`items { libId, folder?, ext?, hasArchive?, sort?, offset?, limit? }` → `{ rows, total }`；**只读**：不触发扫描、不进向量、越界时**如实返回 total**。由 `asset` + `asset_file` 支持，不违反「唯一写入口」。
+签名（S8 定稿实现）：`items { libId, folder?, ext?, hasArchive?, sort?, offset?, limit? }` → `{ rows, total, facets }`。
+· **只读**：不触发扫描、不进向量；`total` = **筛选后**总数，**越界也如实给**；
+· **`facets`（2026-10-15 追加 · 解决「下拉只能从当前页样本推导」）**：`{ folders: [{value,count}], exts: [{value,count}], foldersTotal, extsTotal }` ——
+  **按库统计、不受筛选影响**（下拉里永远能看到全库有哪些分类 / 扩展名）。⚠️ **禁止**从当前页样本推导：那会漏掉不在本页的值，而且**会随分页跳动**（同一份数据翻页看到不同下拉项 = 说谎）。
+  一条 `GROUP BY` 得出；按 count 降序取前 200，配 `foldersTotal` / `extsTotal` 让界面能如实说「还有 N 个」。
+· 由 `asset` + `asset_file` 支持，不违反「唯一写入口」。
 
 **删除**（对应的表本轮不存在 ⇒ **不为不存在的表开接口**）
 
