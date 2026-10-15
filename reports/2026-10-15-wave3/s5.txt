@@ -1,0 +1,95 @@
+==============================================================================
+S5 / task-57 · 把设计基线写进 SPEC.md（所有者已批准 · TASKS §4 U20）
+日期：2026-10-15 · 执行：main-migrator · **只改 SPEC.md 一个文件**（未碰 shared/ipc.ts / main/ / packages/）
+==============================================================================
+
+## 1. 逐条对照：设计基线 → SPEC
+基线 = reports/2026-10-15-schema-diff/DESIGN-6tables-and-contract.md（所有者 2026-10-15 批准）
+
+| 基线 | SPEC（本次写入） | 落了什么 |
+|---|---|---|
+| §0 两个数据库 + 跨库外键不存在 | §1.1 总览 · §2「两个数据库」表 | app.db / .gs.db 落点；`asset.lib_id` 普通 TEXT、不做 REFERENCES 写明 |
+| §0 三种基线原则（只建现在要用的表 / 每字段有出处 / 接口只暴露表能支持的） | §1.1 · §1.2「本批刻意不加的列」 · §5.1 删除段 | 提前加列/加表被显式禁止 |
+| §1.1 app_meta（4 列） | §1.3 app_meta | 字段 + CHECK(id=1)/CHECK(>=0) + 单行守卫 |
+| §1.1 library_registry（8 列） | §1.3 library_registry · §1.5 库 | root UNIQUE + 规范化要求；enabled 停用不动文件；sort_order 稳定兜底；idx_library_registry_sort |
+| §1.1 collect_dir（5 列） | §1.3 collect_dir | 含 created_at_ms；偏唯一索引 `uniq_collect_default`（只允许一个默认） |
+| §1.2 asset（8 列） | §1.2 asset | 8 列；UNIQUE(lib_id, rel_path)；idx_asset_lib_folder / idx_asset_stem；**本批不加** deleted_at_ms / dup_group_id / content_created_at_ms |
+| §1.2 asset_file（role preview/archive） | §1.2 asset_file | FK CASCADE；PRIMARY KEY(uid, role)；idx_asset_file_path；**本批不加** thumb_hash / content_hash_* |
+| §1.2 asset_index_state（不物化 needs_reencode） | §1.2 asset_index_state | 存时刻不存枚举；状态 8 档全部派生；idx_state_pending / idx_state_excluded |
+| §2.2 方法表（保留 / 改造 / 新增 / 删除） | §5.1 | libraryConfig→libraryList；scan/item/indexStatus/collect 改读写新表；新增 8 个方法；删除 6 桩 + libraryHealth + libraryRebuild + 文档类 |
+| §2.2「本批不开的方法」 | §5.1 删除段 + §3 F3/F5/F7 ⏳ 标注 | 与 §3 不再自相矛盾 |
+| §2.3 每张表的唯一写入口 | §5.2 | 5 张表逐条写入口（asset/asset_file 只有 scan；asset_index_state 只有索引任务 + 排除操作） |
+| §3 迁移机制（一套实现 + 两套账本） | §1.1 · §2 · §5.1 尾注 | 库级 schema_version / 应用级 app_meta.schema_version，各自独立 |
+| §3 重建规则（丢事实、留过程与意图） | §2 四层持久性表 + §2.3 + A11 | 可断言写法 |
+| §3 旧库不支持升级 | §2 + §2.3 + A16 | 「丢弃重建 + 如实告知，不静默迁移」 |
+| §3 保留命名空间（app.db 不属于库内保留名） | §2.1（保留命名空间条） | 未改判据，仅布局图里把 app.db 放到 userData |
+| §4 与提案差异（6 张 / 列更少 / 其余推迟） | §1.1 · §1.6 | 6 张点名；14 张第二批 + 门控文档三表 |
+| 批准后四件事之 ①（写进 SPEC §1/§2/§5） | 本卡 | ② 由 S1b/S6 落（DDL + 契约代码） |
+
+## 2. 旧设计清除点（验收：SPEC 里不再出现旧设计）
+  · §1.1 旧的"条目 18 字段"表（uid/libId/relPath/absPath/imageExt/imageSize/imageMtime/archive*/vectorRow/vectorSource）**整段删除**；
+    只在 §1 头留一行**非规范性**的废弃声明（`items` 18 字段宽表等），避免后来者把它当设计复活。
+  · §1.2「文档与分块」三张旧表（docId/chunkId/dirId 字段表）**整段删除** → 收纳为 §1.6 第二批 + F7 口径；
+  · §2 布局图里 `.gs.db = 元数据 / 文档分块 / 体检台账` 的旧描述删除 → 改为"库级 3 张 + 账本"；
+  · §5 旧方法表（含 libraryHealth/libraryRebuild/6 桩/文档类）删除 → §5.1 四分类；
+  · §5 旧错误码清单（把 job/事务码当作本轮可用）删除 → §5.2 分「本轮 23 / 第二批 4」。
+
+## 3. 原样保留、未动的部分（避免"顺手改"）
+  · §0 定位与范围边界 · §2.2 GSIDX 格式与五道校验 · §2.1 保留命名空间判据（U11）· §3 的 F1/F2/F4/F6
+    · §4 界面规格 · §5 信封/通道/事件 · §5.3 thumb 状态映射 · §6 非功能 · §9 功能全景
+  · 只有两处"旧文件名"改成现状：`packages/engine/src/index.mjs` → `.ts`；F7 的 `vectorRow` 字样改成「向量行号（列名随 F7 迁移定）」。
+
+## 4. 机械核对（本轮实测）
+  · SPEC.md 行数：372 → 529
+  · 章节骨架（grep "^#{2,4} "）：
+      ## 0. 定位
+      ## 1. 数据模型
+      ### 1.1 总览：两个数据库 · 6 张表 · 四层持久性
+      ### 1.2 库级 `<库根>/.gs.db`（3 张）
+      #### `asset` —— 条目（一个条目 = 一张预览图 + 可选同名包）
+      #### `asset_file` —— 文件角色（**缺包 = 少一行**，不是一个 NULL 块）
+      #### `asset_index_state` —— 索引状态（**存时刻，不存枚举**）
+      ### 1.3 应用级 `userData/app.db`（3 张）
+      #### `app_meta` —— 版本与迁移账本（1 行，id=1）
+      #### `library_registry` —— 库注册表
+      #### `collect_dir` —— 取件白名单（**安全边界**）
+      ### 1.4 向量与索引
+      ### 1.5 库
+      ### 1.6 第二批（**未建表**：随功能上线，各加一条迁移）
+      ## 2. 存储布局（唯一权威）
+      ### 2.1 写入不变式（可断言）
+      ### 2.2 `.gs-index.bin` 格式（GSIDX v1）
+      ### 2.3 便携与迁移
+      ## 3. 功能规格（F1–F7）
+      ### F1 找 → 取
+      ### F2 逛（浏览整库）
+      ### F3 收（入库 / 增量 / 建索引）
+      ### F4 多库
+      ### F5 体检
+      ### F6 交付（把东西给出去）
+      ### F7 文档检索（只定位，不生成）
+      ## 4. 界面规格
+      ## 5. 契约（引擎 / IPC）
+      ### 5.1 方法表（按设计基线 §2.2 重列；**唯一来源仍是 `shared/ipc.ts`**）
+      ### 5.2 每张表的**唯一写入口**（防漂移）
+      ### 5.3 `thumb://` 协议与失败状态映射
+      ## 6. 非功能
+      ## 7. 验收判据（阈值唯一出处）
+      ## 8. 未验证 / 未定（**不得声称可用**）
+      ## 9. 功能全景与优先级（PM 视角 · 2026-10-14 补）
+  · 旧字段名残留自查：
+      absPath/abs_path 字段表 → 0 处
+      18 字段旧表 → 35: > ⚠️ **旧设计已废弃**：`items` 18 字段宽表 · `library` 表 · 文档三表 · 体检两表 —— **不再出现在本规格里**（第二批
+      vectorRow → 0 处
+      doc_chunk/doc_dir/documents 旧表名 → 173: | 🔒 门控 F7 | `doc_dir` · `document` · `doc_chunk`（文档检索；进入条件 = 先有 10–30 份真实文档） | ; 335: > ⏳ **表进第二批**：`doc_dir` / `document` / `doc_chunk` 本轮不建（§1.6）；门控进入条件不变。
+      health_ledger/health_runs → 0 处
+      items → 仅 2 处，且都是「已废弃」声明（§1 头 · §5.1 改造表），不是设计正文
+
+## 5. 未决 / 阻塞
+  · 无阻塞。一处需要你确认：§5.2 把 `JOB_NOT_FOUND/JOB_BUSY/RECOVERY_NEEDED/UNDO_EXPIRED` 标为"随第二批（本轮不该出现）"——
+    引擎的错误码联合体里它们仍在；若你要求 SPEC 与代码此刻就一致，那要等 S6 改 `shared/ipc.ts`/引擎（不在本卡范围）。
+  · `libraryRebuild` 我在 §5.1 写成"本批不新开 IPC（重建本身仍按 §2 执行）"——若你要把它保留成 IPC 方法，请裁决。
+
+## 6. 回滚方式
+  · 只改了一个文件：撤销该提交即可（`git revert <commit>`）；不存在跨文件残留。
+==============================================================================

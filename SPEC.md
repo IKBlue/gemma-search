@@ -1,7 +1,7 @@
 # SPEC.md · 规格书（行为与阈值的唯一出处）
 
 > 做成什么样、怎么验收。**改本文件 = 改需求。**
-> 最后核对：2026-10-14 · 配套：[`/AGENTS.md`](/AGENTS.md)（规范）· [`/PLAN.md`](/PLAN.md)（顺序）· [`/TASKS.md`](/TASKS.md)（动作）
+> 最后核对：2026-10-15 · 配套：[`/AGENTS.md`](/AGENTS.md)（规范）· [`/PLAN.md`](/PLAN.md)（顺序）· [`/TASKS.md`](/TASKS.md)（动作）
 
 ## 0. 定位
 
@@ -30,37 +30,112 @@
 
 ## 1. 数据模型
 
-### 1.1 条目（素材）
+> **2026-10-15 所有者批准设计基线**（`reports/2026-10-15-schema-diff/DESIGN-6tables-and-contract.md`；HTML 版 `prototypes/DESIGN-6tables.html`）。
+> 本轮**只建 6 张表**（所有者裁定 B · `TASKS §4 U19/U20`），其余随功能上线。
+> ⚠️ **旧设计已废弃**：`items` 18 字段宽表 · `library` 表 · 文档三表 · 体检两表 —— **不再出现在本规格里**（第二批名单见 §1.6）。
 
-一条记录 = 一张**预览图** + 一个**同名压缩包**（**允许缺包**）。字段（实测来自现有索引，3594 条）：
+### 1.1 总览：两个数据库 · 6 张表 · 四层持久性
 
-| 字段 | 说明 |
-|---|---|
-| `uid` | 12 位小写 hex，由 `libId + 相对目录 + 文件名主干` 派生；**稳定**，改名会变 |
-| `libId` | 所属库 |
-| `folder` | 一级分类目录（现有：`CR` · `CR+VR` · `VR` · `其他`） |
-| `stem` / `name` | 文件名主干 / 预览图文件名 |
-| `relPath` / `absPath` | 预览图相对库根路径 / 绝对路径 |
-| `imageExt` / `imageSize` / `imageMtime` | 预览图属性 |
-| `archiveName` / `archiveRelPath` / `archiveAbsPath` / `archiveExt` / `archiveSize` / `archiveMtime` | 压缩包属性；**缺包时全部为空** |
-| `vectorRow` | 在向量索引里的行号 |
-| `vectorSource` | `native` 或 `bmp-fallback`（名为 .jpg 实为 BMP 的 **20 张**走回退；全库「扩展名与内容不符」共 **105** 条，见 F5 验收） |
+| 层 | 表 | 落在 | 丢了会怎样 |
+|---|---|---|---|
+| **事实** | `asset` · `asset_file` | 库级 `.gs.db` | 可丢：扫描素材即可重建 |
+| **过程** | `asset_index_state` | 库级 `.gs.db` | 尽量留：丢了要重编码（能重算） |
+| **意图** | （本轮为空） | 库级 `.gs.db` | **必须留**：用户自己做的，丢了不可再生 |
+| **应用** | `app_meta` · `library_registry` · `collect_dir` | 应用级 `userData/app.db` | 不参与库级重建 |
 
-**配对规则**：同目录、同文件名主干、扩展名在 `{.rar,.zip,.7z}` 内 ⇒ 认成一套。**缺包**是合法状态（登记为 `missing-archive`），不是错误。
+- **物理落点与层一一对应**：库级 3 张 + 迁移账本 `schema_version`；应用级 3 张（`app_meta` **兼应用级账本**）。
+- ⚠️ **跨库外键不存在**（SQLite 无此能力）：`asset.lib_id` 是普通 TEXT，**不做** REFERENCES —— 这是"两个数据库"划分的必然代价。
+- 每张表的**唯一写入口**见 §5.2；迁移机制与四层分类的实现见 `main/db/{migration-engine,schema-layers}.ts`。
 
-### 1.2 文档与分块
+### 1.2 库级 `<库根>/.gs.db`（3 张）
 
-| 实体 | 字段 |
-|---|---|
-| 文档 | `docId` · `libId` · `absPath` · `ext` · `size` · `mtime` · `sha1` · `pages`（PDF 可数时） · `status`(ok/unextractable/error) |
-| 分块 | `chunkId` · `docId` · `seq` · `text` · `vectorRow` · `page`（PDF 的页号，能取到就写） |
-| 文档目录登记 | `dirId` · `absPath` · `addedAt` · `enabled` · `lastScanAt` |
+#### `asset` —— 条目（一个条目 = 一张预览图 + 可选同名包）
 
-**抽取**：PDF（可抽取文本层）· DOCX · Markdown · TXT。**不做 OCR**。抽取失败 ⇒ `status=unextractable`，界面显示「无法提取文本」并保留条目。
+| 字段 | 类型 / 约束 | 说明 |
+|---|---|---|
+| `uid` | TEXT PK | 12 位小写 hex；**扫描时匹配认领**（先按 `(lib_id, rel_path)` 命中就保留原 uid） |
+| `lib_id` | TEXT NOT NULL | 所属库（**普通 TEXT，无外键**） |
+| `folder` | TEXT NOT NULL | 分类目录（浏览与筛选的主维度） |
+| `stem` | TEXT NOT NULL | 文件名主干（配对靠它；唯一来源在扫描器） |
+| `display_name` | TEXT NOT NULL | 界面显示名（默认 = 主干 + 扩展名，可改，**不改磁盘**） |
+| `rel_dir` | TEXT NOT NULL | 相对目录的**规范形**（库根 ⇒ 空串） |
+| `rel_path` | TEXT NOT NULL | 相对路径（**扫描匹配与唯一性的落点**） |
+| `discovered_at_ms` | INTEGER NOT NULL | 首次被发现时刻 |
 
-**分块默认值（可配置，首次实现后按实测校准）**：目标 600–900 字符/块，相邻块重叠约 12%；优先在段落/句末切分；PDF 记录页号。
+- **唯一约束**：`UNIQUE (lib_id, rel_path)` —— 防止同一个文件被登记两次（uid 不再由路径派生，路径唯一性必须**显式声明**）。
+- **索引**：`idx_asset_lib_folder (lib_id, folder)` · `idx_asset_stem (stem)`。
+- **本批刻意不加的列**（随功能上线）：`deleted_at_ms`（回收站）· `dup_group_id`（重复分组）· `content_created_at_ms`（按内容时间浏览）。加列 = **一条迁移**。
+- `uid` 的 12-hex 形状与 `rel_dir` 的规范形由**唯一写入口**（扫描器）保证，DDL 只保证 NOT NULL —— 约束集以设计基线 §1.2 为准。
 
-### 1.3 向量与索引
+#### `asset_file` —— 文件角色（**缺包 = 少一行**，不是一个 NULL 块）
+
+| 字段 | 类型 / 约束 | 说明 |
+|---|---|---|
+| `uid` | TEXT NOT NULL, **REFERENCES asset(uid) ON DELETE CASCADE** | 同库外键 ✅ |
+| `role` | TEXT NOT NULL, CHECK in (`preview`,`archive`) | 预览图 / 同名包 |
+| `rel_path` | TEXT NOT NULL | 相对路径 |
+| `ext` | TEXT NOT NULL | 扩展名 |
+| `size_bytes` | INTEGER NOT NULL | 大小（扫描事实） |
+| `mtime_ms` | INTEGER NOT NULL | 修改时刻（**统一口径**：`BigInt mtimeNs / 1_000_000n` 截断，全库唯一写入口） |
+| `width` · `height` | INTEGER NULL | 像素尺寸（只有 `role='preview'` 有值；**扫描就能拿到** ⇒ 现在就存，免得以后重扫） |
+
+- **主键**：`PRIMARY KEY (uid, role)` · **索引**：`idx_asset_file_path (rel_path)`。
+- **本批不加**：`thumb_hash`（首屏占位图，UI 增强）· `content_hash_kind/value`（去重功能，且要真算哈希）。
+
+#### `asset_index_state` —— 索引状态（**存时刻，不存枚举**）
+
+| 字段 | 类型 / 约束 | 说明 |
+|---|---|---|
+| `uid` | TEXT PK, **REFERENCES asset(uid) ON DELETE CASCADE** | 1:1 于条目 |
+| `encoded_at_ms` | INTEGER NULL | **成功编码时刻**；NULL = 从未成功 |
+| `encoded_mtime_ms` | INTEGER NULL | 编码时该文件的 mtime ⇒ 与当前 mtime 不等 = **待重编码（算出来的，不是存的）** |
+| `compat_key` | TEXT NULL | 编码时用的兼容键 ⇒ 与库的 `compat_key` 不等 = 待重编码（模型换了） |
+| `attempt_count` | INTEGER NOT NULL DEFAULT 0 | 尝试次数 |
+| `last_error` · `last_error_at_ms` | TEXT · INTEGER NULL | 失败原因（没有它，「编码失败」这一档无法解释） |
+| `excluded_at_ms` | INTEGER NULL | 用户**主动排除**索引（意图，优先级最高） |
+| `checked_at_ms` | INTEGER NULL | 上次核对时刻（界面要能说「这是上次已知状态，可能过期」） |
+
+- **索引**：`idx_state_pending (encoded_at_ms) WHERE encoded_at_ms IS NULL` · `idx_state_excluded (excluded_at_ms) WHERE excluded_at_ms IS NOT NULL`。
+- **状态 8 档全部派生**（一个字都不存）：已排除 > 编码失败 > 编码中 > 图片丢失 > 已移除 > 待重编码 > 待编码 > 已编码。
+- **本批不物化 `needs_reencode`**：跨表比较无法索引；等浏览页要筛再加列 + 对账检查（一条迁移）。
+
+### 1.3 应用级 `userData/app.db`（3 张）
+
+#### `app_meta` —— 版本与迁移账本（1 行，id=1）
+
+| 字段 | 类型 / 约束 | 说明 |
+|---|---|---|
+| `id` | INTEGER PK, CHECK (`id = 1`) | 单行守卫（不变式由 CHECK 保证，不靠调用方自觉） |
+| `schema_version` | INTEGER NOT NULL, CHECK (`>= 0`) | 应用级迁移版本；**只有这一处真相** |
+| `created_at_ms` · `updated_at_ms` | INTEGER NOT NULL | 建立 / 上次迁移时刻 |
+
+#### `library_registry` —— 库注册表
+
+| 字段 | 类型 / 约束 | 说明 |
+|---|---|---|
+| `lib_id` | TEXT PK | 库标识（1–32 字符）；写进 uid 派生公式 ⇒ **一旦分配不可改** |
+| `root` | TEXT NOT NULL **UNIQUE** | 库根绝对路径；登记前**规范化**（大小写 / 8.3 短名 / 尾斜杠 / 分隔符），否则 Windows 上同一目录能登两次 |
+| `display_name` | TEXT NOT NULL | 界面显示名（名字是你的，路径是事实） |
+| `enabled` | INTEGER NOT NULL DEFAULT 1, CHECK in (0,1) | 是否参与检索/入库；**停用不动任何文件** |
+| `compat_key` | TEXT NULL | 这个库的索引是用哪套兼容键建的（合并检索的门限） |
+| `sort_order` | INTEGER NOT NULL DEFAULT 0 | 侧栏顺序（同值按 `lib_id` 兜底，保证稳定） |
+| `registered_at_ms` · `updated_at_ms` | INTEGER NOT NULL | 登记 / 修改时刻 |
+
+- **索引**：`idx_library_registry_sort (sort_order, lib_id)`。
+
+#### `collect_dir` —— 取件白名单（**安全边界**）
+
+| 字段 | 类型 / 约束 | 说明 |
+|---|---|---|
+| `dir_id` | TEXT PK | nanoid |
+| `label` | TEXT NOT NULL **UNIQUE** | 目录名（界面显示） |
+| `abs_path` | TEXT NOT NULL | **取件只允许写进这些目录**，其余一律拒绝 |
+| `is_default` | INTEGER NOT NULL DEFAULT 0, CHECK in (0,1) | 默认取件目标 |
+| `created_at_ms` | INTEGER NOT NULL | 加入时刻 |
+
+- **偏唯一索引（只允许一个默认）**：`uniq_collect_default ON collect_dir ((1)) WHERE is_default = 1`。
+
+### 1.4 向量与索引
 
 | 项 | 值 |
 |---|---|
@@ -73,13 +148,33 @@
 
 **`compat` 键**（只有相等才能合并检索）：`模型仓库 \| revision \| dtype \| preprocessing_version \| seq \| dim \| normalization \| pooling`（8 段，与现有实现一致）。
 
-### 1.4 库
+### 1.5 库
 
 | 项 | 值 |
 |---|---|
 | 库根 | 素材库目录（示例：`G:\model`）；索引与 SQL **写在库根下**（点前缀文件） |
+| 注册表落点 | **`userData/app.db` 的 `library_registry` 表**（唯一权威；`userData/library-registry.json` 退役） |
 | 多库 | 可登记多个库；**默认跨库合并检索**（只合并 `compat` 相同的库），可限定单库 |
+| 启用/停用 | `library_registry.enabled`；**停用不动任何文件**（不删素材、不删索引） |
+| 顺序 | `library_registry.sort_order`（同值按 `lib_id` 兜底）——顺序是你的，不该由路径字母序决定 |
+| `root` 规范化 | 登记前规范化（大小写 / 8.3 短名 / 尾斜杠 / 分隔符），库里**只存规范形**；否则 Windows 上同一目录能登两次（UNIQUE 是文本比较） |
 | 库指纹 | 库根 + 条目数 + compat + 构建时间；用于判断「索引是否还是这个库的」 |
+
+### 1.6 第二批（**未建表**：随功能上线，各加一条迁移）
+
+本轮**不建**的表（表名与字段口径见提案与设计基线 §4；**不要**因为"迟早要用"提前建）：
+
+| 归属 | 表 |
+|---|---|
+| 库级·事实 | `asset_name_fts`（文件名 FTS5） |
+| 库级·过程 | `job`（任务台账）· `health_run` · `health_finding`（体检台账）· `recent_view` |
+| 库级·意图 | `asset_user_meta` · `tag` · `asset_tag` · `collection` · `collection_item` · `asset_export` |
+| 应用级 | `app_setting` · `activity` · `recent_query` |
+| 🔒 门控 F7 | `doc_dir` · `document` · `doc_chunk`（文档检索；进入条件 = 先有 10–30 份真实文档） |
+
+> **加表 = 一条迁移**（迁移机制与四层分类已就位，见 `main/db/migration-engine.ts` / `schema-layers.ts`）。
+> **第二波加表会被测试逼着分类**：`db-schema.test.mjs` 强制「迁移建出的每一张表都必须在四层里被点名」（临时删一条分类 ⇒ 立即变红）。
+> F7 的抽取/分块口径（PDF/DOCX/MD/TXT；不做 OCR；目标 600–900 字符/块、重叠约 12%、优先段落/句末切分、PDF 记页号）在 F7 生效时随迁移一起定稿。
 
 ---
 
@@ -90,13 +185,36 @@
 ├── models/                 模型（用户自备；搜索顺序见下）
 └── ...                     应用本体
 
+<userData>/
+└── app.db                  应用级 3 张：app_meta（兼应用级账本）· library_registry · collect_dir
+
 <库根>/
 ├── CR\  CR+VR\  VR\  其他\        素材（**只读**）
 ├── .gs-index.bin           向量索引（格式见 §2.2）
-├── .gs.db                  元数据 / 文档分块 / 体检台账（SQLite，可重建）
+├── .gs.db                  库级 3 张：asset · asset_file · asset_index_state（+ 迁移账本 schema_version）
 ├── .gs-journal/            事务日志（txn-*.json → archive/）
 └── .gs-staging/<txnId>/    事务暂存（写入类工作流期间存在）
 ```
+
+**两个数据库**
+
+| 库 | 落点 | 内容 | 参与库级重建？ |
+|---|---|---|---|
+| 应用级 | `userData/app.db` | `app_meta`（兼账本）· `library_registry` · `collect_dir` | ❌ 不参与（跨库的配置与注册表） |
+| 库级 | `<库根>/.gs.db` | `asset` · `asset_file` · `asset_index_state`（+ 账本 `schema_version`） | ✅ 跟着库走，**拷库即带走** |
+
+**四层持久性（重建时怎么处理）**
+
+| 层 | 本轮的表 | 重建规则 |
+|---|---|---|
+| **事实** | `asset` · `asset_file` | **丢**（可从素材扫描重建） |
+| **过程** | `asset_index_state` | **留**（尽量保留；真丢了要重编码） |
+| **意图** | （本轮为空） | **留**（用户自己做的，不可再生） |
+| **应用** | `app_meta` · `library_registry` · `collect_dir` | **不参与库级重建**（在 userData） |
+
+**重建规则（可断言）**：重建 = 删 `.gs.db` 家族并重建 ⇒ **丢事实层、留过程层与意图层**；重建**不得碰素材**（§2.1）；重建期间界面必须显示「正在重建元数据」，不许装作没事。
+
+**旧库不支持升级（绿地）**：发现旧版 `.gs.db`（不在本轮 6 张表的口径内）⇒ **丢弃重建**，并**如实告知用户** —— 不许假装兼容，也不许静默就地迁移。
 
 **模型搜索顺序**：**用户在设置里指定的路径 → 程序目录 `models/` → userData `models/`**。
 都找不到 ⇒ 启动后显示明确指引（放哪、缺什么、怎么重试），**不假装可用**。
@@ -117,7 +235,7 @@
 
 ### 2.2 `.gs-index.bin` 格式（GSIDX v1）
 
-> ⚠️ 2026-10-14 按 `packages/engine/src/index.mjs` 的 `readIndexBin` 逐行校对后修正：**[8,12) 是 headerLen，不是 count；header 是一段 JSON，不是固定字段**。
+> ⚠️ 2026-10-14 按 `packages/engine/src/index.ts` 的 `readIndexBin` 逐行校对后修正：**[8,12) 是 headerLen，不是 count；header 是一段 JSON，不是固定字段**。
 
 ```
 [0,8)              MAGIC = 47 53 49 44 58 00 00 01   ("GSIDX" + 版本)
@@ -133,7 +251,8 @@
 
 - 索引里**以 `relPath` 为准**（绝对路径仅作展示与定位）；库整体搬到别的盘 ⇒ **索引仍可用**。
 - 索引在库根 ⇒ 拷库即带走索引；但**模型不在库内**，换机器仍需自备模型。
-- `.gs.db` 可安全删除（会重建）；重建期间界面必须显示「正在重建元数据」，不许装作没事。
+- `.gs.db` 可安全删除（会重建）；**重建 = 丢事实层、留过程层与意图层**（见 §2 的四层表）；重建期间界面必须显示「正在重建元数据」，不许装作没事。
+- **旧库不支持升级**：不在本轮 6 张表口径内的旧 `.gs.db` ⇒ **丢弃重建**并**如实告知**（不静默迁移）。
 
 ---
 
@@ -165,6 +284,8 @@
 
 ### F3 收（入库 / 增量 / 建索引）
 
+> ⏳ **第二批**：`ingest` / `mutate` 方法与 `job` 表随功能上线（§1.6）；本轮**不建这些表、也不开这些方法**。事务文件机制（`.gs-journal/` · `.gs-staging/`）仍在，下面写的是目标口径。
+
 | 项 | 规格 |
 |---|---|
 | 输入 | 一个或多个源目录（库外）· 目标库 · 是否移动/复制 |
@@ -190,6 +311,9 @@
 
 ### F5 体检
 
+> ⏳ **第二批（部分）**：体检**台账**表（`health_run` / `health_finding`）随第二批；「精确 / 疑似重复」还依赖 `asset_file` 本批**刻意未加**的内容哈希列（§1.2）。
+> ✅ **保留**：即时体检 **`libraryHealth`** 与 **`libraryRebuild`** —— 它们只读 `.gs-index.bin` / `.gs.db`，**不依赖**未建的表（见 §5.1 · U21）。下面的检查项是目标口径。
+
 | 项 | 规格 |
 |---|---|
 | 检查项 | ① **精确重复**（同 sha1）② **疑似重复**（向量近邻，阈值可配，默认列出 top-N 供人工判断）③ **缺包**（有图无包）④ **有包无图** ⑤ **零字节文件** ⑥ **扩展名与内容不符**（读魔数）⑦ **索引健康**（五道校验 + 条目数与索引行数一致） |
@@ -209,6 +333,8 @@
 
 ### F7 文档检索（只定位，不生成）
 
+> ⏳ **表进第二批**：`doc_dir` / `document` / `doc_chunk` 本轮不建（§1.6）；门控进入条件不变。
+
 > 🔒 **门控项**：进入条件 = **先拿到 10–30 份真实文档**并确认格式分布（当前本机没有文档语料）。
 
 | 项 | 规格 |
@@ -216,7 +342,7 @@
 | 输入 | 登记一个或多个**本地目录**（PDF/DOCX/MD/TXT）· 查询文本 |
 | 输出 | 分块列表：**片段文本** + **出处**（文件路径 + 页码/章节，能取到就取）+ 分数 + band |
 | 编码 | 文档与分块必须用 **document_prefix** 编码；查询用 **query_prefix**；与图像**同一 768 维空间** |
-| 索引 | 分块向量追加进同一向量索引（或按库分文件）；`vectorRow` 记录在 SQL 里 |
+| 索引 | 分块向量追加进同一向量索引（或按库分文件）；在 SQL 里记录每块对应的**向量行号**（列名随 F7 的迁移定） |
 | 状态 | 抽取中 / 建索引中（可取消）/ 就绪 / 无结果 |
 | 错误 | 抽取失败 ⇒ `unextractable`（保留条目并显示原因）；模型缺失 ⇒ `MODEL_MISSING` |
 | 边界 | **不做 OCR**；不生成答案；不联网 |
@@ -251,28 +377,62 @@
 
 **通道**：2 条 IPC（`engine:invoke` · `engine:event`）；方法白名单见 `shared/ipc.ts`（**唯一来源**）。
 
-| 方法 | 状态 |
+### 5.1 方法表（按设计基线 §2.2 重列；**唯一来源仍是 `shared/ipc.ts`**）
+
+**保留（形状不变，改读新表）**：`search` · `item` · `itemPaths` · `scan` · `indexStatus` · `reveal` · `collect` · `libraryPickDir` · `libraryAdd`
+
+**改造**（读/写哪张表变了；参数形状不变）
+
+| 方法 | 变化 |
 |---|---|
-| `search` · `item` · `itemPaths` · `scan` · `indexStatus` · `reveal` · `collect` | 已实现（可复用） |
-| `libraryConfig` · `libraryPickDir` · `libraryAdd` | 已实现（库配置） |
-| **`libraryHealth`** · **`libraryRebuild`** | **2026-10-15 所有者批准新增**：**体检**（只读，返回结构化健康结论：每项 ok + 错误码 + 人话理由）· **重建元数据**（删 `.gs.db` 家族并重建，**不得碰素材**，返回重建报告） |
-| `ingest` · `mutate` · `transactions` · `indexStart` · `indexCancel` · `indexResume` | 形状已冻结，**真实模式未接线** ⇒ F3 的接线任务 |
-| 文档类（登记目录 / 扫描 / 检索） | **新增**，本规格首次定义 |
+| `libraryConfig` → **`libraryList`** | 库列表改读 `library_registry`（含 `enabled` / `compat_key` / `sort_order`）；`userData/library-registry.json` 退役 |
+| `scan` | 写 `asset` + `asset_file`（**扫描是文件事实的唯一写入口**） |
+| `item` · `itemPaths` | 读 `asset` + `asset_file`（旧 `items` 宽表口径**废弃**） |
+| `indexStatus` | 读 `asset_index_state`（状态由时刻**派生**，不存枚举） |
+| `collect` | 目标白名单改读 `collect_dir` |
 
-**错误码（27 个，新增=兼容，改名=破坏性）**
+**新增**：`librarySetEnabled` · `libraryReorder` · `libraryRemove` · `collectDirs` · `collectDirAdd` · `collectDirRemove` · `collectDirSetDefault` · `appMeta`（诊断页显示应用级版本）
 
-`BAD_REQUEST` · `LIB_NOT_FOUND` · `LIB_ROOT_MISSING` · `INDEX_MISSING` · `INDEX_CORRUPT` · `UID_NOT_FOUND` · `ITEM_MISSING_ON_DISK` · `COMPAT_MISMATCH` · `PATH_ESCAPES_LIB` · `SYMLINK_REJECTED` · `COLLECT_DIR_NOT_ALLOWED` · `COLLECT_TARGET_EXISTS` · `DISK_FULL` · `JOB_NOT_FOUND` · `JOB_BUSY` · `RECOVERY_NEEDED` · `UNDO_EXPIRED` · `MODEL_MISSING` · `PORT_MISSING` · `INTERNAL`
+**删除**（对应的表本轮不存在 ⇒ **不为不存在的表开接口**）
 
+- 6 个诚实桩：`ingest` · `mutate` · `transactions` · `indexStart` · `indexCancel` · `indexResume`
+- 文档类方法（F7 门控；表进第二批）
+
+**保留（既有能力，不依赖未建的表）** —— 2026-10-15 Lead 裁定 **U21**
+
+- **`libraryHealth`**：即时体检**只读** `.gs-index.bin` 与 `.gs.db`（那 6 张表）⇒ 随第二批的是**体检台账**（`health_run` / `health_finding`），**不是体检本身**。
+- **`libraryRebuild`**：删库重建仍按 §2 执行；它只读 `items.json` + 索引并写那 6 张表，**不依赖**任何第二批的表。
+  ⚠️ 删掉它等于撤掉 **A11「用户能自救」**（而 T-42 刚把「真机重建走不通」修好）。
+
+> **重建这件事本身没有取消**：`.gs.db` 可安全删除并按 §2 的四层规则重建；本批只是**不把体检/重建做成 IPC 方法**。
+
+### 5.2 每张表的**唯一写入口**（防漂移）
+
+| 表 | 谁能写 |
+|---|---|
+| `library_registry` | 只为 `library*` 那组方法 |
+| `collect_dir` | 只为 `collectDir*` 那组方法 |
+| `asset` · `asset_file` | **只有扫描**（`scan`）；索引任务**只**写 `asset_index_state` |
+| `asset_index_state` | **只有索引任务**；`excluded_at_ms` 另由用户的排除操作写 |
+| `app_meta` | 只有迁移 |
+
+**错误码（27 个：新增=兼容，改名=破坏性）**
+
+**本轮仍会产生（23 个）**：`BAD_REQUEST` · `LIB_NOT_FOUND` · `LIB_ROOT_MISSING` · `INDEX_MISSING` · `INDEX_CORRUPT` · `UID_NOT_FOUND` · `ITEM_MISSING_ON_DISK` · `COMPAT_MISMATCH` · `PATH_ESCAPES_LIB` · `SYMLINK_REJECTED` · `COLLECT_DIR_NOT_ALLOWED` · `COLLECT_TARGET_EXISTS` · `DISK_FULL` · `MODEL_MISSING` · `PORT_MISSING` · `INTERNAL`
 **元数据导入 / 重建一族（2026-10-15 新增 · 属兼容）**：`IMPORT_FAILED` · `IMPORT_INPUT_INVALID` · `IMPORT_SOURCE_INVALID` · `IMPORT_INDEX_UNREADABLE` · `IMPORT_RECORD_INVALID` · `IMPORT_DUPLICATE_UID` · `IMPORT_COUNT_MISMATCH`。
 语义 = **元数据导入/重建阶段的失败**（含临时目录或库根不可写）；
 ⚠️ **不得归成 `INDEX_CORRUPT`**（索引并没有坏）—— 那是**假因果**：用户会看到「索引文件已损坏」而体检说索引是好的（2026-10-15 T-15b/T-42 实测）。
 用户文案：`IMPORT_FAILED` = 「重建元数据时写不进去（临时目录或库根不可写），**本次没有改动任何数据**。」
 
+**随第二批（4 个）**：`JOB_NOT_FOUND` · `JOB_BUSY` · `RECOVERY_NEEDED` · `UNDO_EXPIRED` —— 对应 `job` 表 / 事务与撤销，那些表进第二批时一并启用。
+⚠️ 它们**此刻仍在引擎的错误码联合体**里（`packages/engine/src/errors.ts`），只是**本轮 IPC 不暴露**相应方法 ⇒ SPEC 与代码**并不矛盾**：
+**码在引擎里，路不在契约里**。（不主动删这些引擎码：删它们要动 `fake.ts` 与 e2e，收益为零。）
+
 **事件**：`index.progress`（单调不减）· `index.done` · `index.failed` · `encoder.ready`（含 `device` **= 请求值** · `effectiveProvider` **= 实际，取不到就 `null`（不许猜）** · `deviceFallback` · 耗时）· `encoder.fallback`（GPU → CPU，必须显示，不许静默）。
 
 > ⚠️ 2026-10-15（U2 实测）：`device` 曾同时被读成「请求」与「实际」两种意思。现拆开：`device` 只表示**我们请求的值**，真实执行提供者看 `effectiveProvider`（取不到就是 `null`）。依据：ORT profile 里 `device=webgpu` ⇒ `WebGpuExecutionProvider` 6192 次、`device=cpu` ⇒ `CPUExecutionProvider` 6396 次（`reports/2026-10-15-wave3/u2.txt`）。
 
-### 5.1 `thumb://` 协议与失败状态映射
+### 5.3 `thumb://` 协议与失败状态映射
 
 **形状**：`thumb://<libId>/<uid>@<size>`；`size` 只允许白名单值（`main/thumb-url.ts`）。**判定顺序也是契约**（形状 → 库 → 引擎 → 取路径 → 解码）。
 
@@ -318,9 +478,12 @@
 | A8 | 多库合并只合并 compat 相同的库，被排除的库原因可见 |
 | A9 | 文档检索能给出片段与出处，且不做生成 |
 | A10 | 交付只复制不删除，冲突不覆盖 |
-| A11 | **体检与重建可达**：界面能看到体检结论（每项 ok + 错误码 + 人话理由），并能对损坏的 `.gs.db` **一键重建**；重建前后**素材摘要一致**（机械断言） |
+| A11 | **重建可达且规则正确**：对损坏的 `.gs.db` 能**删库重建**，且**丢事实层、留过程层与意图层**（§2 四层表）；重建前后**素材摘要一致**（机械断言）。⚠️ 界面上的「体检结论 + 一键重建」入口随**第二批**（体检台账 = `health_run`/`health_finding`，见 §1.6） |
 | A12 | **设备语义正确**：`device` = 请求值、`effectiveProvider` = 实际或 `null`；本机 GPU 不可用时界面**明说已回退**，**不许**报 webgpu（2026-10-15 U2/T-31） |
-| A13 | `thumb://` 失败状态按 §5.1 映射：安全拒绝 ⇒ 403、内部异常 ⇒ 500（**不许**伪装成 404） |
+| A13 | `thumb://` 失败状态按 §5.3 映射：安全拒绝 ⇒ 403、内部异常 ⇒ 500（**不许**伪装成 404） |
+| A14 | **6 张表且每张被点名**：`main/db` 的 DDL 建出的表 == §1.1 四层分类点名的 6 张（**清单从 DDL 派生、双向断言**）；表数 = 6（另加两本迁移账本：库级 `schema_version` · 应用级 `app_meta`）。**第二批加表时若忘了分类 ⇒ 该断言变红** |
+| A15 | **`library_registry.root` 规范化 + UNIQUE**：同一目录的不同写法（大小写 / 8.3 短名 / 尾斜杠）**不能登记两次**（登记前规范化，库里只存规范形） |
+| A16 | **旧库不升级**：不在本轮 6 张表口径内的旧 `.gs.db` ⇒ **丢弃重建并如实告知**（不静默迁移、不假装兼容） |
 
 ---
 
