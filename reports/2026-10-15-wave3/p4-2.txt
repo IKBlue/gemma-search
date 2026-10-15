@@ -4,6 +4,9 @@ T-06b? / P4-2 · F2 浏览页（虚拟滚动 + 筛选 + 排序）· 2026-10-15
 ⚠️ 分段状态：
   · 第 1 段（不依赖 S8）：**已完成并提交**（Lead 复核后提交，含纪律 16）。
   · 第 1.5 段（facets 接口面）：**已完成**（Lead 2026-10-15 当场裁定 facets 形状后我立刻接上，见 §10）。
+  · 第 2 段（按 S8 对齐 + 真数据 e2e）：**代码已完成并提交**（Lead 提交 `eb52c47`：6 文件，含 B21 白名单断言）。
+    ⚠️ **e2e 尚未跑过**（`browse.spec.mjs` 的 5 条）：原因是 electron 启动被并发挤住（§11），
+    Lead 裁定「等冻结窗口」，我在拿到窗口后才跑 —— **在跑过之前，这 5 条一律不算绿**。
   · 第 2 段（真数据 + E14-d/e/f）：等 S8（task-62）落地通知。
 
 =================================================================================
@@ -278,3 +281,127 @@ $ npm run e2e                                         → **59 passed / 1 failed
   E14-e 空态区分（空库 vs 筛没了 —— 需要空库夹具 + 一个「有素材但筛不中」的唯一条件）
   E14-f 虚拟滚动只渲染视口内的行（DOM 里的 [data-browse-cell] 数 << total）
   E14-g（新增）facets 真窗口断言：下拉项**跨分页稳定**（翻页后仍能看到全库分类），截断时显示「还有 N 个」
+
+=================================================================================
+11. 第 2 段：按 S8 对齐 + 一条待 S8b 才能补的排序档
+=================================================================================
+### 11.1 取数器换成真 `invoke('items', q)`（**只改这一处**）
+  pages/BrowsePage.tsx 的 fetcher：占位错误 ⇒ `invoke<BrowsePageData>('items', q)`（契约白名单里已有它）。
+  store / 网格 / 筛选 / 空态一行都没动（这正是一开始把取数做成**注入**的回报）。
+
+### 11.2 行形状与排序**照抄 S8 实现**（不是我的假设）
+  `main/items-ipc.ts` 的 `ItemsWireRow` 是权威 ⇒ `BrowseRow` 改成：
+    uid · libId · folder · stem · name · relPath · imageExt · imageSize · imageMtime ·
+    archiveRelPath · archiveExt · archiveSize · archiveMtime · vectorRow（**无绝对路径**）
+  「有没有包」不再是一个布尔字段 ⇒ `hasArchive(row)` = `archiveRelPath != null`（与库口径一致：缺包 = 少一行）。
+  展示名兜底顺序收进 `rowLabel()`（name → stem → relPath → uid，只写一处）。
+  排序方向**编在 wire 串里**（`-imageMtime`）⇒ store 只持有一个 `sortKey`（不存 key+dir 两个会打架的字段）。
+
+### 11.3 ⚠️ 体积排序：S8 的白名单里**没有 size 列**（Lead 已裁：属 S8b）
+  逐字核对 `SORT_COLUMNS`：relPath | folder | stem | imageMtime（4 键 × 正倒 = 8 串）—— **没有 size**。
+  发 `-imageSize` 会被后端 `BAD_REQUEST` 拒 ⇒ 我的处置：
+    · 界面排序档 = 名称 A→Z（relPath）/ 时间 新→旧（-imageMtime）/ 分类 Z→A（-folder）；
+    · **撤掉体积排序**，并在 utils/browse.ts 头部 + B21 写明原因（宁可少一个功能，也不给点了会报错的假承诺）；
+    · B21 断言：界面发出的 sort 串**必须在**那 8 个白名单里（将来有人手滑加回 size 会红）。
+  ⇒ Lead 裁定「体积排序是要求」⇒ 已开 **S8b（task-64，db-worker）**：`SORT_COLUMNS` 补 `imageSize`/`archiveSize`
+    （白名单 8 → **12**），并要求**把 NULL 位次写明并用测试钉住**（无包条目 `archiveSize` 是 NULL，不许含糊）。
+  ⇒ **S8b 落地后我要做的 —— 已完成，见 §13**（当时等 Lead 信号，没自己动契约）：
+    ① `SORTS` 加回「大小 大→小」档（wire 用 `-archiveSize`）；
+    ② B21 的白名单同步到 12 项；
+    ③ 若 NULL 位次是新规矩，补一条单测钉住界面侧的表现（缺失值仍然排最后，与 B3 同一口径）。
+
+### 11.4 本段门禁（命令原文 + 结果；跑的时刻 2026-10-15T05:5x Z）
+  $ npx tsc --noEmit -p tsconfig.web.json  --tsBuildInfoFile data/_verify/web.tsbuildinfo   → EXIT=0
+  $ npx tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile data/_verify/node.tsbuildinfo  → EXIT=0
+  $ node --test apps/desktop/tests/browse-utils.test.mjs   → ℹ tests 24 · pass 24 · fail 0 · EXIT=0
+  $ npm run build                                          → EXIT=0（三端齐备）
+  $ npx playwright … browse.spec.mjs                       → **未跑**（见 §12；等冻结窗口）
+
+=================================================================================
+12. ⚠️ e2e 被并发挤住（**没跑就是没跑**）
+=================================================================================
+现象（可复核）：
+  · `browse.spec.mjs` 的 E14-a 报 **Test timeout of 60000ms exceeded**（窗口没起来）；
+  · 我另写一次性探针 `data/_t46-probe.mjs` 复刻同一启动方式 ⇒ **卡在 `electron.launch`**（连 30s 超时都没走完）；
+  · 期间机器上有别人的 node 在跑（13:09 起一个孤儿 node + 13:53 起两个），`reports/…/s4.txt` 在 13:50 刚落盘；
+  · 我自己 kill 掉的探针也卡在 launch ⇒ **判断为资源/窗口竞争，不是产品问题**。
+处置（按 Lead 裁定）：
+  · **不把任何一条算成绿**，不在别人的窗口里硬跑 electron；撤回了收到裁定前已起的一次重跑；
+  · 已清理我留下的夹具副本/临时目录（仅剩一个被占用中的 `_t46-Xn23lW`）。
+等冻结窗口时要跑的（**跑前跑后各记一次 out/ 指纹**）：
+  E14-a 可达 + 骨架 + 窗口标题来自 LABELS
+  E14-d ⭐ 筛选生效：CR ⇒ total=22；再筛 .png ⇒ no-match（不是空库）；缺包 ⇒ 0；有包 ⇒ 100
+  E14-e ⭐ 空态区分：空库说「还没有素材」/ 筛没了说「筛选没有匹配」，两者不混
+  E14-f ⭐ 只渲染视口：[data-browse-cell] 计数 < 60（总数 100）且 > 0
+  E14-g ⭐ facets 整库口径：筛到 CR 之后下拉里 CR+VR（78）**仍在**
+真数据 = `data/_schema100/lib`（S2 的 100 条夹具：asset 100 · 全有包 · CR 22 / CR+VR 78 · 扩展名 3 种）**的临时副本**；
+空库变体 = 副本里 `DELETE FROM asset_file / asset`（**同一套 sqlite**，不手写第二份 DDL）；夹具缺就 `test.skip` 并写明原因。
+
+=================================================================================
+13. 第 2.b 段：S8b 落地 —— 体积排序加回 + NULL 位次以后端为准
+=================================================================================
+### 13.1 改了什么
+  utils/browse.ts
+    · `SORTS` 从 3 档加到 **4 档**，加回「**大小 大→小**」= `-archiveSize`（用户直觉里的「大小」= 包体积）；
+      未再加「预览大小」档（Lead 允许但非要求；档数保持 ≤5 的约定，B8 里钉住上限）。
+    · 新增 `archiveSizeOf(row)`：无包 ⇒ **null**（不是 0），显示层据此说「—」而不是「0 字节」。
+  search/BrowseGrid.tsx
+    · 卡片上显示的是**包**体积（`archiveSizeOf`），与排序档「大小」同口径。
+  tests/browse-utils.test.mjs
+    · **B21** 白名单从 8 项同步到 **12 项**（逐字照抄 `items-ipc.ts` 的 `SORT_COLUMNS`：4+2 键 × 正倒）；
+      并加 `assert.equal(WHITELIST.length, 12)` 与遍历 `SORTS` 全档，任一新档不在白名单就会红。
+    · **B22（新）** 界面**不二次重排**：后端在 `-archiveSize` 下把**无包条目（archiveSize=null）放在末尾**，
+      界面必须原样渲染；并用「本地排序器在同样输入下会排出不同结果」作**反证**，说明它绝不能用在真数据路径上。
+    · **B8** 同步成 4 档 + 档数上限断言。
+
+### 13.2 NULL 位次：**以后端为准**，界面不纠正（Lead 裁决）
+  后端 = SQLite 默认语义：**正序 NULL 最前 · 倒序 NULL 最后** ⇒ `-archiveSize`（大→小）时无包条目在**末尾**。
+  ⚠️ 所以「与 B3 同口径：缺失值排最后」**只在倒序那一档**与后端一致；正序时后端是「缺失值最前」。
+  ⇒ 界面**不做任何二次排序**（`applyLocal`/`sortRows` 只服务测试与注入路径，注释里写死了这一点）。
+
+### 13.3 本段门禁（纪律 16 干净跑 · 命令原文 · 跑的时刻 **2026-10-15T06:00:22Z**）
+  $ npx tsc --noEmit -p tsconfig.web.json  --tsBuildInfoFile data/_verify/web.tsbuildinfo   → EXIT=0
+  $ npx tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile data/_verify/node.tsbuildinfo  → EXIT=0
+  $ node --test apps/desktop/tests/browse-utils.test.mjs   → ℹ tests 25 · pass 25 · fail 0 · EXIT=0
+  $ npm run build                                          → EXIT=0（三端齐备）
+  契约核对：`shared/ipc.ts` 的 `items.sort` 是 `z.enum([...])`，含 imageSize / archiveSize 及负向 = 12 项。
+
+### 13.4 e2e 仍然**没跑**（等冻结窗口）
+  同 §12：不把没跑的算成绿。跑的时候会给 5 条原始输出 + 跑前/跑后 `out/` 指纹。
+  ⚠️ 冻结窗口那次还要**顺带补一条**：真窗口里能选「大小 大→小」，且**无包条目出现在末尾**
+    （后端已由 I10/I11 钉住、界面侧由 B22 钉住，但真窗口那一条**还没验过**）。
+
+=================================================================================
+14. 冻结窗口（2026-10-15T06:26Z 那轮）：**e2e 仍未跑成** + 抓到一个**真 bug**（已修）
+=================================================================================
+### 14.1 那轮的事实（原始输出 data/_w2ui/p4-2-e2e-run.txt / p4-2-diag.txt）
+  · out/ 指纹：跑前 `FA4B1908B9ED628CF038782C0ED58111BC220DEBCCD246CFB5AAE8AD10E3C466`，
+    跑后（我中止时）**逐字节相同** ⇒ 那轮没有构建干扰。
+  · 第 1 条 E14-a 仍然 `Test timeout of 60000ms exceeded`（窗口起来了，但 locator 一直等不到）；
+    第二轮全量跑在**启动阶段**卡住 4 分钟：worker 进程在、**electron 进程 0 个**、test-results 不增长 ⇒ 我按纪律（不重试超过一次）停手。
+  · 现场诊断探针（data/_t46-probe3.mjs / probe4.mjs）给出的关键事实：
+      - 应用**能**起来：`[ui] React 已挂载` · `libraryList → 1 个库` · `indexStatus → L1 100/100 dim=768 healthy=true`；
+      - **搜索页可响应**：`evaluate` 全部按时返回；`win.title()` = 「语义搜索 · gemma-search」；
+      - **`win.screenshot()` 成功（104ms）**，`VR` 按钮数量 = 1 ⇒ 界面既没白屏也没卡死；
+      - 说明「截图/求值卡死」是我前面两次探针**自己没走完**（进程被我 kill），不是渲染进程死。
+  · 结论：electron 启动确实会被并发/残留进程挤住（E14-a 那两次超时都在此列），**但另有一个真 bug** —— 见下。
+
+### 14.2 ⚠️ 抓到的真 bug：BrowseGrid 的 ResizeObserver **不收敛循环**（已修）
+  位置：`search/BrowseGrid.tsx` 的「容器宽变了就重算列数」effect。
+  原来的写法：`ResizeObserver(measure)`，而 `measure()` **每次无条件** `setCols/setGap/setCellW`。
+  环：`mount → measure → setState → 重渲染 → ResizeObserver(尺寸同值也回调) → measure → setState → …`
+  ⇒ 渲染进程被占满：真窗口里 `locator` / `screenshot` 全部超时，而**页面不白屏、`tsc`/单测/构建全绿**。
+  为什么藏了这么久：**S8 落地前取数是占位实现 ⇒ 网格根本没被挂载**，这段代码从没在真窗口跑到过。
+  修法（两道）：
+    ① `setLayout` 走函数式更新，**值相同就返回 prev**（同值不触发重渲染）；
+    ② ResizeObserver 回调加 **4px 宽度量化门槛**（虚拟列表自身高度变化会反复触发回调，
+       抖动穿不过门槛；而列宽 ~148px，4px 不会错过一次真正的列数变化）。
+  证据（修后）：探针 4 —— `screenshot` 104ms 成功 · `title` 正常 · `VR` 按钮 = 1；
+    `tsc web` EXIT=0 · `browse-utils` 25/25 · `style-contract`+`copy` 9/9（2026-10-15T06:31:15Z）。
+  教训：**注入式取数救了单测，却也把「组件真的挂载」这件事挡在门外** —— 占位实现期间，
+    组件的运行期行为一条都没验过。第 2 段的 e2e 不是「补一条断言」，是**第一次真的把这个页面跑起来**。
+
+### 14.3 仍然**没跑成**的 6 条（一字不改地记账）
+  E14-a 可达 · E14-d 筛选生效 · E14-e 空态区分 · E14-f 只渲染视口 · E14-g facets 整库口径 ·
+  E14-h 大小排序 ⇒ 无包条目在末尾 —— **6 条全部状态 = 未通过（未跑）**。
+  需要的环境：一个**没有残留 electron、没有人并发跑测试**的窗口（我这轮的前半段显然不是）。

@@ -81,11 +81,21 @@ function Cell({ row, libId, onOpen }: { row: BrowseRow; libId: string; onOpen: (
 
 export default function BrowseGrid({ libId, rows, total, onOpen }: BrowseGridProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
-  const [cols, setCols] = useState(4)
-  const [cellW, setCellW] = useState(FALLBACK_CELL)
-  const [gap, setGap] = useState(FALLBACK_GAP)
+  // ⚠️ 布局放**一个对象**里（而不是三个 useState）：见下面 measure 的注释 —— 要按值相等短路。
+  const [layout, setLayout] = useState({ cols: 4, cellW: FALLBACK_CELL, gap: FALLBACK_GAP })
+  const { cols, cellW, gap } = layout
 
-  // 容器宽变了就重算列数（窗口缩放 / 侧栏收起都会触发）
+  /**
+   * 容器宽变了就重算列数（窗口缩放 / 侧栏收起都会触发）。
+   *
+   * ⚠️⚠️ **必须按值短路**（2026-10-15 实测踩到，代价很大）：
+   *   原先每次测量都无条件 `setCols/setGap/setCellW` —— 而 `measure()` 在 effect 里被直接调用，
+   *   于是「mount → measure → setState → 重渲染 → ResizeObserver 回调（尺寸同值也回调）→ measure → setState …」
+   *   形成**不收敛的循环**：渲染进程被占满 ⇒ 真窗口里 `screenshot`/`locator` 全部超时。
+   *   症状极具误导性：**页面不白屏、构建与单测全绿**，只有真窗口动不了（E14-a 60s 超时 + 探针卡在截图）。
+   *   为什么会藏这么久：S8 落地前取数是占位实现 ⇒ 网格**根本没被挂载**，这段代码从没在真窗口跑到过。
+   *   ⇒ 修法：只在**值真的变了**时才 setState（同值直接 return，不触发重渲染）。
+   */
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -94,14 +104,23 @@ export default function BrowseGrid({ libId, rows, total, onOpen }: BrowseGridPro
     const measure = (): void => {
       const width = el.clientWidth - 2 * g
       const n = Math.max(1, Math.floor(width / (min + g)))
-      setCols(n)
-      setGap(g)
-      setCellW(min)
+      // 同值 ⇒ 不 setState（这就是不收敛循环的解药）
+      setLayout((prev) => (prev.cols === n && prev.cellW === min && prev.gap === g ? prev : { cols: n, cellW: min, gap: g }))
     }
-    measure()
+    // ⚠️ 只在**宽度真的跨过 4px** 时才重算：ResizeObserver 会因为虚拟列表自身的高度变化
+    //    反复回调，而回调里 setState → 重渲染 → 高度再变 ⇒ 一个「宽度没变也在转」的环。
+    //    4px 是量化门槛（列宽 ~148px，4px 不会错过一次列数变化）——**抖动无法穿过门槛**。
+    let lastW = -1
+    const onResize = (): void => {
+      const w = el.clientWidth
+      if (lastW >= 0 && Math.abs(w - lastW) < 4) return
+      lastW = w
+      measure()
+    }
+    onResize()
     // 同上：`typeof X === 'undefined'` 是不抛错的存在性探测（旧环境可能没有 ResizeObserver）
     if (typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(measure)
+    const ro = new ResizeObserver(onResize)
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
