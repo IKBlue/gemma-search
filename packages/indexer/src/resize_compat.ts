@@ -34,7 +34,11 @@ const MARK = Symbol.for('gemma-search.resizeCompat');
 type RawImageResize = typeof RawImage.prototype.resize;
 
 /** shim 之后的 resize：维度允许 null/undefined（上游 .d.ts 写的是 number，但实现刻意支持） */
-type NullableDimResize = (width: number | null | undefined, height: number | null | undefined, opts?: { resample?: string | 0 | 1 | 2 | 3 | 4 | 5 }) => Promise<RawImage>;
+type NullableDimResize = (
+  width: number | null | undefined,
+  height: number | null | undefined,
+  opts?: { resample?: string | 0 | 1 | 2 | 3 | 4 | 5 },
+) => Promise<RawImage>;
 
 interface ResizeCall {
   impl: string;
@@ -45,7 +49,7 @@ interface ResizeCall {
 
 /** 安装后的模块级状态；未安装时 STATE 为 null（resizeCompatState() 如实返回）。 */
 interface ResizeCompatState {
-  [key: symbol]: unknown;                 // MARK 标记位（Symbol.for 键）
+  [key: symbol]: unknown; // MARK 标记位（Symbol.for 键）
   kernel: string;
   RawImage: typeof RawImage;
   calls: ResizeCall[];
@@ -79,7 +83,11 @@ async function loadSharp() {
  *                它让类身份永远只有一个来源，不依赖"仓库里恰好只有一份"这种易碎前提。
  * @returns {object} state（含 calls 计数，便于诊断）
  */
-export function installResizeCompat({ kernel = 'pil-like', RawImage: RawImageClass = RawImage, logger = null }: {
+export function installResizeCompat({
+  kernel = 'pil-like',
+  RawImage: RawImageClass = RawImage,
+  logger = null,
+}: {
   kernel?: string;
   RawImage?: typeof RawImage;
   logger?: ((message: string) => void) | null;
@@ -89,7 +97,12 @@ export function installResizeCompat({ kernel = 'pil-like', RawImage: RawImageCla
   const sharpPromise = loadSharp();
   const orig = RawImageClass.prototype.resize;
 
-  const patched = async function resize(this: RawImage, width: number | null | undefined, height: number | null | undefined, opts: { resample?: string | 0 | 1 | 2 | 3 | 4 | 5 } = {}) {
+  const patched = async function resize(
+    this: RawImage,
+    width: number | null | undefined,
+    height: number | null | undefined,
+    opts: { resample?: string | 0 | 1 | 2 | 3 | 4 | 5 } = {},
+  ) {
     // 核从 STATE 读（而不是闭包捕获）：诊断脚本要能切实现做**否定对照**。
     // 踩过的坑：写成闭包捕获时，切 STATE.kernel 无效，"shim vs upstream" 两行会一模一样 ——
     // 那等于否定对照失效，测试就失去了鉴别力（金标脚本会直接报错退出）。
@@ -107,7 +120,9 @@ export function installResizeCompat({ kernel = 'pil-like', RawImage: RawImageCla
     const w = Math.round(width);
     const h = Math.round(height!);
     if (!(w > 0) || !(h > 0)) {
-      throw new Error(`resize_compat: 目标尺寸非法 ${width}x${height}（源 ${this.width}x${this.height}）`);
+      throw new Error(
+        `resize_compat: 目标尺寸非法 ${width}x${height}（源 ${this.width}x${this.height}）`,
+      );
     }
 
     // ④ `pil-like`：**按 PIL 的规则分方向选实现**（实测依据见 verify_resize.py 的金标结果）
@@ -119,7 +134,7 @@ export function installResizeCompat({ kernel = 'pil-like', RawImage: RawImageCla
     //    这是金标测试的否定对照发现的，不是猜的。
     let impl = kernel;
     if (kernel === 'pil-like') {
-      const down = (w * h) < (this.width * this.height);
+      const down = w * h < this.width * this.height;
       impl = down ? 'cubic' : 'upstream-affine';
     }
     if (impl === 'upstream-affine') {
@@ -134,11 +149,17 @@ export function installResizeCompat({ kernel = 'pil-like', RawImage: RawImageCla
       .toBuffer({ resolveWithObject: true });
     STATE!.calls.push({
       impl: `sharp.resize(kernel=${impl},fit=fill)`,
-      from: [this.width, this.height], to: [w, h],
+      from: [this.width, this.height],
+      to: [w, h],
       channels: [this.channels, info.channels],
     });
     // 保留源通道数（上游 loadImageFunction 也是这么做的），否则后续 convert/patchify 会错位
-    return new RawImageClass(new Uint8ClampedArray(data), info.width, info.height, info.channels as 1 | 2 | 3 | 4);
+    return new RawImageClass(
+      new Uint8ClampedArray(data),
+      info.width,
+      info.height,
+      info.channels as 1 | 2 | 3 | 4,
+    );
   };
 
   RawImageClass.prototype.resize = patched;
@@ -191,9 +212,11 @@ export function upstreamResize(): RawImageResize {
 export function assertResizeCompatInstalled(RawImageClass: typeof RawImage): boolean {
   if (!STATE) throw new Error('resize_compat 未安装');
   if (RawImageClass.prototype.resize !== STATE.patched) {
-    throw new Error('resize_compat 未作用到调用方的 RawImage —— 传入的类与安装时的类不是同一个'
-      + '（常见原因：存在不止一份 @huggingface/transformers，各自导出不同的类对象）。'
-      + '请把调用方自己用的那份 RawImage 传进 installResizeCompat()。');
+    throw new Error(
+      'resize_compat 未作用到调用方的 RawImage —— 传入的类与安装时的类不是同一个' +
+        '（常见原因：存在不止一份 @huggingface/transformers，各自导出不同的类对象）。' +
+        '请把调用方自己用的那份 RawImage 传进 installResizeCompat()。',
+    );
   }
   return true;
 }
@@ -209,7 +232,9 @@ export async function selfTestResizeCompat() {
   if (!STATE.installed) throw new Error('resize_compat: 原型方法未被替换');
 
   // 造一张 8x6 的合成图（值不重要，考的是几何与通道）
-  const w0 = 8, h0 = 6, ch = 3;
+  const w0 = 8,
+    h0 = 6,
+    ch = 3;
   const data = new Uint8ClampedArray(w0 * h0 * ch);
   for (let i = 0; i < data.length; i++) data[i] = (i * 37) % 256;
   const img = new STATE.RawImage(data, w0, h0, ch);
@@ -218,9 +243,11 @@ export async function selfTestResizeCompat() {
   if (same !== img) throw new Error('同尺寸 resize 未返回原对象（上游语义被破坏）');
 
   const r = await img.resize(5, 4);
-  if (r.width !== 5 || r.height !== 4) throw new Error(`输出尺寸错：${r.width}x${r.height}，期望 5x4`);
+  if (r.width !== 5 || r.height !== 4)
+    throw new Error(`输出尺寸错：${r.width}x${r.height}，期望 5x4`);
   if (r.channels !== ch) throw new Error(`输出通道数变了：${r.channels}，期望 ${ch}`);
-  if (r.data.length !== 5 * 4 * ch) throw new Error(`输出字节数错：${r.data.length}，期望 ${5 * 4 * ch}`);
+  if (r.data.length !== 5 * 4 * ch)
+    throw new Error(`输出字节数错：${r.data.length}，期望 ${5 * 4 * ch}`);
 
   // nullish：只给宽时，高按比例（上游算法）→ 8x6 给 width=4 应为 4x3
   const r2 = await (img.resize as NullableDimResize)(4, null);
@@ -229,6 +256,10 @@ export async function selfTestResizeCompat() {
   const up = await img.resize(16, 12);
   if (up.width !== 16 || up.height !== 12) throw new Error('放大路径尺寸错');
 
-  return { ok: true, kernel: STATE.kernel, calls: STATE.calls.length,
-           raw_image: STATE.installed_di_name };
+  return {
+    ok: true,
+    kernel: STATE.kernel,
+    calls: STATE.calls.length,
+    raw_image: STATE.installed_di_name,
+  };
 }

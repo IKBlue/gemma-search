@@ -112,7 +112,8 @@ export interface ImportItemsReport {
 // 而 fallback 是 NOT NULL，不能靠 null 表达"没提供" —— 所以插入与更新分成两条语句。
 // 绿地 6 张表口径的 SQL（DESIGN-6tables §1.2）：只有 asset / asset_file，**没有** items / library。
 const SELECT_ASSET_UIDS_SQL: string = 'SELECT uid FROM asset WHERE lib_id = ?';
-const SELECT_ASSET_UID_BY_PATH_SQL: string = 'SELECT uid FROM asset WHERE lib_id = ? AND rel_path = ?';
+const SELECT_ASSET_UID_BY_PATH_SQL: string =
+  'SELECT uid FROM asset WHERE lib_id = ? AND rel_path = ?';
 const INSERT_ASSET_SQL: string =
   'INSERT INTO asset (uid, lib_id, folder, stem, display_name, rel_dir, rel_path, discovered_at_ms)' +
   ' VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
@@ -164,7 +165,10 @@ function requireNonEmptyText(value: unknown, name: string): string {
 function optionalPositiveInt(value: unknown, name: string): number | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
-    throw new GsDbError('IMPORT_INPUT_INVALID', name + ' 必须是正整数或省略，实际 ' + String(value));
+    throw new GsDbError(
+      'IMPORT_INPUT_INVALID',
+      name + ' 必须是正整数或省略，实际 ' + String(value),
+    );
   }
   return value;
 }
@@ -188,7 +192,11 @@ export function readIndexItemCount(indexBinPath: string): number {
   } catch (e) {
     throw new GsDbError(
       'IMPORT_INDEX_UNREADABLE',
-      '读 .gs-index.bin 失败：' + file + '（' + describeError(e) + '）—— 索引缺失或损坏时先重建索引，别拿它当计数来源',
+      '读 .gs-index.bin 失败：' +
+        file +
+        '（' +
+        describeError(e) +
+        '）—— 索引缺失或损坏时先重建索引，别拿它当计数来源',
       { cause: e },
     );
   }
@@ -262,7 +270,10 @@ export function importItemsFromJson(options: ImportItemsOptions): ImportItemsRep
   if (duplicates.length > 0) {
     throw new GsDbError(
       'IMPORT_DUPLICATE_UID',
-      'items.json 里有 ' + String(duplicates.length) + ' 个重复 uid（例如 ' + duplicates.slice(0, 3).join(', ') +
+      'items.json 里有 ' +
+        String(duplicates.length) +
+        ' 个重复 uid（例如 ' +
+        duplicates.slice(0, 3).join(', ') +
         '）—— 重复 uid 会让"读入行数 == 入库行数"不成立；先修源文件或重建索引，别让它变成静默少导',
     );
   }
@@ -270,7 +281,12 @@ export function importItemsFromJson(options: ImportItemsOptions): ImportItemsRep
   if (foreign !== undefined) {
     throw new GsDbError(
       'IMPORT_RECORD_INVALID',
-      'items.json 里出现不属于 ' + libId + ' 的条目：uid=' + foreign.uid + ' libId=' + foreign.libId +
+      'items.json 里出现不属于 ' +
+        libId +
+        ' 的条目：uid=' +
+        foreign.uid +
+        ' libId=' +
+        foreign.libId +
         ' —— 一张条目表只能导进它自己的库（否则外键会拒，或被导进别的库）',
     );
   }
@@ -278,8 +294,13 @@ export function importItemsFromJson(options: ImportItemsOptions): ImportItemsRep
     if (expected !== records.length) {
       throw new GsDbError(
         'IMPORT_COUNT_MISMATCH',
-        '计数不符：期望 ' + String(expected) + '，items.json 实际 ' + String(records.length) +
-          ' 条 —— 拒绝导入（宁可报错，也不静默少导 ' + String(Math.abs(expected - records.length)) + ' 条）',
+        '计数不符：期望 ' +
+          String(expected) +
+          '，items.json 实际 ' +
+          String(records.length) +
+          ' 条 —— 拒绝导入（宁可报错，也不静默少导 ' +
+          String(Math.abs(expected - records.length)) +
+          ' 条）',
       );
     }
   }
@@ -319,12 +340,21 @@ export function importItemsFromJson(options: ImportItemsOptions): ImportItemsRep
         updateAsset.run(libId, record.folder, record.stem, record.name, relDir, relPath, uid);
         updated += 1;
       } else if (existing.has(record.uid)) {
-        uid = record.uid;   // 同一 uid、路径变了（改名）⇒ 就地更新，不新建
+        uid = record.uid; // 同一 uid、路径变了（改名）⇒ 就地更新，不新建
         updateAsset.run(libId, record.folder, record.stem, record.name, relDir, relPath, uid);
         updated += 1;
       } else {
         uid = record.uid;
-        insertAsset.run(uid, libId, record.folder, record.stem, record.name, relDir, relPath, startedAt);
+        insertAsset.run(
+          uid,
+          libId,
+          record.folder,
+          record.stem,
+          record.name,
+          relDir,
+          relPath,
+          startedAt,
+        );
         inserted += 1;
       }
       claimed.add(uid);
@@ -332,15 +362,31 @@ export function importItemsFromJson(options: ImportItemsOptions): ImportItemsRep
       // 文件角色：**每图一行 + 每包一行**；缺包就**少一行**（不补 NULL 块）
       // width/height 留 NULL：只有扫描器才解像素（本层只搬 items.json 里已有的事实）
       deleteFiles.run(uid);
-      upsertFile.run(uid, 'preview', relPath, record.imageExt || extOf(relPath),
-        record.imageSize, record.imageMtime, null, null);
+      upsertFile.run(
+        uid,
+        'preview',
+        relPath,
+        record.imageExt || extOf(relPath),
+        record.imageSize,
+        record.imageMtime,
+        null,
+        null,
+      );
       // 命中行 → 条目的映射（M0 的根因就在这一行缺失；见 UPSERT_STATE_VECTOR_ROW_SQL 的注释）
       upsertStateVectorRow.run(uid, record.vectorRow);
       if (record.archiveRelPath !== null && record.archiveRelPath !== '') {
         // size/mtime 在 DDL 里是 NOT NULL；源里"包存在但没给 size/mtime"是源的不一致，
         // 这里记 0 而不是让整条导入失败（下一次扫描会用磁盘事实修正它）。
-        upsertFile.run(uid, 'archive', record.archiveRelPath, record.archiveExt ?? extOf(record.archiveRelPath),
-          record.archiveSize ?? 0, record.archiveMtime ?? 0, null, null);
+        upsertFile.run(
+          uid,
+          'archive',
+          record.archiveRelPath,
+          record.archiveExt ?? extOf(record.archiveRelPath),
+          record.archiveSize ?? 0,
+          record.archiveMtime ?? 0,
+          null,
+          null,
+        );
         archiveRows += 1;
       }
     }
@@ -358,7 +404,11 @@ export function importItemsFromJson(options: ImportItemsOptions): ImportItemsRep
     if (dbCount !== records.length) {
       throw new GsDbError(
         'IMPORT_COUNT_MISMATCH',
-        '入库后计数不符：期望 ' + String(records.length) + '，库里实际 ' + String(dbCount) + ' —— 已回滚',
+        '入库后计数不符：期望 ' +
+          String(records.length) +
+          '，库里实际 ' +
+          String(dbCount) +
+          ' —— 已回滚',
       );
     }
     db.exec('COMMIT');

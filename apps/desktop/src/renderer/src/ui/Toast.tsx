@@ -7,10 +7,10 @@
 //    同一条缺陷的另一半是「错误也 2.6 秒自动消失」，那在 `hooks/useToast.js` 里改。
 //    判据出处：W3C **WCAG 2.2 SC 4.1.3** Status Messages；HIG › **Feedback**
 //    （错误需要用户明确知晓，不能与普通提示同等对待）。
-export type ToastProps = { message?: string; tone?: string }
+export type ToastProps = { message?: string; tone?: string };
 
 export default function Toast({ message, tone = 'info' }: ToastProps) {
-  const isErr = tone === 'err'
+  const isErr = tone === 'err';
   return (
     <div
       className={message ? `toast show${isErr ? ' err' : ''}` : 'toast'}
@@ -20,5 +20,5 @@ export default function Toast({ message, tone = 'info' }: ToastProps) {
     >
       {message}
     </div>
-  )
+  );
 }

@@ -26,7 +26,11 @@ import { fileURLToPath } from 'node:url';
 
 import { createEngine } from '../../../packages/engine/src/engine.ts';
 import { EngineError, ERR } from '../../../packages/engine/src/errors.ts';
-import { makeLibrary, writeIndexFixture, fakeEncoder } from '../../../packages/engine/tests/helpers/lib-fixture.mjs';
+import {
+  makeLibrary,
+  writeIndexFixture,
+  fakeEncoder,
+} from '../../../packages/engine/tests/helpers/lib-fixture.mjs';
 
 import { importItemsFromJson, openGsDb } from '../src/main/db/index.ts';
 import {
@@ -41,7 +45,7 @@ const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const TMP = path.join(ROOT, 'data', '_t16', 'ports-test-' + process.pid);
 let seq = 0;
 function freshDir(label) {
-  const dir = path.join(TMP, label + '-' + (++seq));
+  const dir = path.join(TMP, label + '-' + ++seq);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   return dir;
@@ -51,7 +55,10 @@ after(() => {
 });
 
 const isEngineError = (code) => (e) => {
-  assert.ok(e instanceof EngineError, '必须是引擎的 EngineError（普通 Error 会被信封归成 INTERNAL）');
+  assert.ok(
+    e instanceof EngineError,
+    '必须是引擎的 EngineError（普通 Error 会被信封归成 INTERNAL）',
+  );
   if (code) assert.equal(e.code, code);
   return true;
 };
@@ -148,7 +155,9 @@ function envelopeError(res) {
 
 test('M1 ⭐ 库解析端口：list/has/get/requireExistingRoot/storageOf；未知库与缺库根都抛引擎错误', () => {
   const s = setupWired('M1');
-  const resolver = createLibraryResolverPort({ libraries: [{ libId: 'L1', root: s.libRoot, label: '测试库' }] });
+  const resolver = createLibraryResolverPort({
+    libraries: [{ libId: 'L1', root: s.libRoot, label: '测试库' }],
+  });
 
   assert.deepEqual(resolver.list(), [{ libId: 'L1', label: '测试库', root: s.libRoot }]);
   assert.equal(resolver.has('L1'), true);
@@ -207,7 +216,11 @@ test('M3 ⭐ 条目端口：有 .gs.db 就从 db 读，**不**回落（onFallbac
   const one = port.getItem('L1', s.fx.items[2].uid);
   assert.equal(one.uid, s.fx.items[2].uid);
   assert.equal(one.relPath, s.fx.items[2].relPath, '库里存的 relPath 必须原样读回');
-  assert.equal(port.getItem('L1', 'nosuchuid0000'), null, '找不到要返回 null（由引擎转 UID_NOT_FOUND）');
+  assert.equal(
+    port.getItem('L1', 'nosuchuid0000'),
+    null,
+    '找不到要返回 null（由引擎转 UID_NOT_FOUND）',
+  );
   assert.deepEqual(fell, [], '有 .gs.db 时不许走回落');
 });
 
@@ -237,9 +250,20 @@ test('M5 ⭐ 条目端口错误码：.gs.db 损坏 ⇒ DB_OPEN_FAILED（库坏 �
   // 库文件头被清零 ⇒ **打不开**（不是"索引坏了"）⇒ DB_OPEN_FAILED。
   // 这条抓的是**假因果**：把"元数据坏了"报成 INDEX_CORRUPT，界面就会去"重新编码索引"（点了没用）。
   const dbErr = captureThrow(() => port.listItems('L1'));
-  assert.ok(dbErr instanceof EngineError, '必须是引擎错误（普通 Error 会被信封归成 INTERNAL），实得 ' + String(dbErr));
-  assert.equal(dbErr.code, ERR.DB_OPEN_FAILED, '库打不开 ⇒ DB_OPEN_FAILED（与体检路径同名）；实得 ' + dbErr.code);
-  assert.notEqual(dbErr.code, ERR.INDEX_CORRUPT, '**不许**把"库坏了"说成"索引损坏"（T-42 的假因果）');
+  assert.ok(
+    dbErr instanceof EngineError,
+    '必须是引擎错误（普通 Error 会被信封归成 INTERNAL），实得 ' + String(dbErr),
+  );
+  assert.equal(
+    dbErr.code,
+    ERR.DB_OPEN_FAILED,
+    '库打不开 ⇒ DB_OPEN_FAILED（与体检路径同名）；实得 ' + dbErr.code,
+  );
+  assert.notEqual(
+    dbErr.code,
+    ERR.INDEX_CORRUPT,
+    '**不许**把"库坏了"说成"索引损坏"（T-42 的假因果）',
+  );
   assert.throws(() => port.getItem('L1', 'whatever0000'), isEngineError(ERR.DB_OPEN_FAILED));
 
   const s2 = setupWired('M5b', { withDb: false });
@@ -288,10 +312,15 @@ test('M7 ⭐⭐ 接上引擎（真素材 + 真索引，非 fake）：找库 → 
   const s = setupWired('M7');
   const outDir = path.join(s.base, 'out');
   const ports = createStoragePorts({
-    libraries: createLibraryResolverPort({ libraries: [{ libId: 'L1', root: s.libRoot, label: '测试库' }] }),
+    libraries: createLibraryResolverPort({
+      libraries: [{ libId: 'L1', root: s.libRoot, label: '测试库' }],
+    }),
   });
   const engine = createEngine({
-    config: { data_dir: path.join(s.base, 'data'), collect: { dirs: { out: outDir }, default: 'out' } },
+    config: {
+      data_dir: path.join(s.base, 'data'),
+      collect: { dirs: { out: outDir }, default: 'out' },
+    },
     encoder: fakeEncoder('first'), // 与 fixture 第 0 行同向 ⇒ top-1 可预测
     storage: ports,
   });
@@ -317,7 +346,10 @@ test('M7 ⭐⭐ 接上引擎（真素材 + 真索引，非 fake）：找库 → 
   assert.deepEqual(res.data.libsUsed, ['L1']);
   assert.equal(res.data.results.length, 4);
   assert.equal(res.data.results[0].uid, s.fx.items[0].uid, 'top-1 必须是与查询同向的那一行');
-  assert.ok(res.data.results[0].score > 0.99, '同向向量的余弦应当≈1，实际 ' + res.data.results[0].score);
+  assert.ok(
+    res.data.results[0].score > 0.99,
+    '同向向量的余弦应当≈1，实际 ' + res.data.results[0].score,
+  );
   assert.equal(res.data.results[0].band, 'high');
 
   // ③ 详情（走条目端口）
@@ -329,8 +361,15 @@ test('M7 ⭐⭐ 接上引擎（真素材 + 真索引，非 fake）：找库 → 
   // ④ 取件：真复制到配置目录，字节一致
   const srcRel = s.fx.items[0].archiveRelPath || s.fx.items[0].relPath;
   const srcAbs = path.join(s.libRoot, ...srcRel.split('\\'));
-  const srcSha = (await import('node:crypto')).createHash('sha1').update(fs.readFileSync(srcAbs)).digest('hex');
-  const col = await engine.collect({ libId: 'L1', uids: [s.fx.items[0].uid], targetDirName: 'out' });
+  const srcSha = (await import('node:crypto'))
+    .createHash('sha1')
+    .update(fs.readFileSync(srcAbs))
+    .digest('hex');
+  const col = await engine.collect({
+    libId: 'L1',
+    uids: [s.fx.items[0].uid],
+    targetDirName: 'out',
+  });
   assert.equal(col.ok, true, JSON.stringify(col.error));
   assert.equal(col.data.succeeded.length, 1, JSON.stringify(col.data));
   const destAbs = col.data.succeeded[0].path;
@@ -347,7 +386,9 @@ test('M7 ⭐⭐ 接上引擎（真素材 + 真索引，非 fake）：找库 → 
 test('M8 ⭐⭐ 端口错误进了信封还是**带码的**（不是 INTERNAL）', async () => {
   const s = setupWired('M8');
   const ports = createStoragePorts({
-    libraries: createLibraryResolverPort({ libraries: [{ libId: 'L1', root: s.libRoot, label: '测试库' }] }),
+    libraries: createLibraryResolverPort({
+      libraries: [{ libId: 'L1', root: s.libRoot, label: '测试库' }],
+    }),
   });
   const engine = createEngine({
     config: { data_dir: path.join(s.base, 'data') },
@@ -371,7 +412,11 @@ test('M8 ⭐⭐ 端口错误进了信封还是**带码的**（不是 INTERNAL）
   fs.writeFileSync(indexPath, 'not a gsidx');
   const searchBroken = await engine.search({ mode: 'text', text: 'x' });
   const err2 = envelopeError(searchBroken);
-  assert.equal(err2.details.skipped[0].reason.code, ERR.INDEX_CORRUPT, 'skipped 的原因里必须保留端口的 code');
+  assert.equal(
+    err2.details.skipped[0].reason.code,
+    ERR.INDEX_CORRUPT,
+    'skipped 的原因里必须保留端口的 code',
+  );
   fs.writeFileSync(indexPath, good);
 
   // .gs.db 坏掉 ⇒ 条目端口抛 **DB_OPEN_FAILED**（不是 INDEX_CORRUPT、也不是 INTERNAL）
@@ -381,8 +426,16 @@ test('M8 ⭐⭐ 端口错误进了信封还是**带码的**（不是 INTERNAL）
   fs.closeSync(fd);
   const itemDbBroken = await engine.item({ libId: 'L1', uid: s.fx.items[0].uid });
   const err3 = envelopeError(itemDbBroken);
-  assert.equal(err3.code, ERR.DB_OPEN_FAILED, '库打不开 ⇒ 信封里必须是 DB_OPEN_FAILED（与体检/引擎端口同名）；实得 ' + err3.code);
-  assert.notEqual(err3.code, ERR.INDEX_CORRUPT, '**不许**把"库打不开"说成"索引损坏"（T-42 的假因果）');
+  assert.equal(
+    err3.code,
+    ERR.DB_OPEN_FAILED,
+    '库打不开 ⇒ 信封里必须是 DB_OPEN_FAILED（与体检/引擎端口同名）；实得 ' + err3.code,
+  );
+  assert.notEqual(
+    err3.code,
+    ERR.INDEX_CORRUPT,
+    '**不许**把"库打不开"说成"索引损坏"（T-42 的假因果）',
+  );
   assert.notEqual(err3.code, 'INTERNAL');
 });
 
@@ -409,7 +462,10 @@ const IMPORT_CODES = [
 test('M9 ⭐⭐ asEngineError：任意 IMPORT_* 原样透出（引擎端口映射不得归成 INDEX_CORRUPT）', () => {
   for (const code of IMPORT_CODES) {
     const mapped = asEngineError(codedError(code, '模拟导入族错误'), '读条目');
-    assert.ok(mapped instanceof EngineError, code + ' 必须转成引擎错误（普通 Error 会被信封归成 INTERNAL）');
+    assert.ok(
+      mapped instanceof EngineError,
+      code + ' 必须转成引擎错误（普通 Error 会被信封归成 INTERNAL）',
+    );
     assert.equal(mapped.code, code, code + ' 必须原样透出，实得 ' + mapped.code);
     assert.notEqual(mapped.code, ERR.INDEX_CORRUPT, code + ' 不许被归成索引损坏（假因果）');
   }
@@ -425,13 +481,16 @@ test('M9b ⭐⭐ 端到端：真 .gs.db 行类型不对 ⇒ IMPORT_RECORD_INVALI
   try {
     // 塞一个**文本**进 INTEGER 列：SQLite 动态类型会原样存下（列亲和性不报错），
     // 于是"库里的值不合法"这件事只能由**读路径**发现 —— 这正是本条要打的失败模式。
-    opened.db.prepare("UPDATE asset_file SET size_bytes = ? WHERE uid = ? AND role = 'preview'")
+    opened.db
+      .prepare("UPDATE asset_file SET size_bytes = ? WHERE uid = ? AND role = 'preview'")
       .run('not-a-number', s.fx.items[0].uid);
   } finally {
     opened.db.close();
   }
   const ports = createStoragePorts({
-    libraries: createLibraryResolverPort({ libraries: [{ libId: 'L1', root: s.libRoot, label: '测试库' }] }),
+    libraries: createLibraryResolverPort({
+      libraries: [{ libId: 'L1', root: s.libRoot, label: '测试库' }],
+    }),
   });
   const engine = createEngine({
     config: { data_dir: path.join(s.base, 'data') },
@@ -440,10 +499,21 @@ test('M9b ⭐⭐ 端到端：真 .gs.db 行类型不对 ⇒ IMPORT_RECORD_INVALI
   });
   const bad = await engine.item({ libId: 'L1', uid: s.fx.items[0].uid });
   const err1 = envelopeError(bad);
-  assert.equal(err1.code, ERR.IMPORT_RECORD_INVALID, '行类型不对必须如实报导入族码，实得 ' + err1.code);
-  assert.notEqual(err1.code, ERR.INDEX_CORRUPT, '**不许**把"元数据行不合法"说成"索引损坏"（假因果）');
+  assert.equal(
+    err1.code,
+    ERR.IMPORT_RECORD_INVALID,
+    '行类型不对必须如实报导入族码，实得 ' + err1.code,
+  );
+  assert.notEqual(
+    err1.code,
+    ERR.INDEX_CORRUPT,
+    '**不许**把"元数据行不合法"说成"索引损坏"（假因果）',
+  );
   assert.notEqual(err1.code, 'INTERNAL');
-  assert.ok(err1.userMessage.length > 0 && !/索引文件已损坏/.test(err1.userMessage), '文案也不许提索引损坏：' + err1.userMessage);
+  assert.ok(
+    err1.userMessage.length > 0 && !/索引文件已损坏/.test(err1.userMessage),
+    '文案也不许提索引损坏：' + err1.userMessage,
+  );
 
   // 状态那条路（problems[].code）同样如实
   const st = await engine.indexStatus();
@@ -465,7 +535,9 @@ test('M9c ⭐⭐ S7b 端到端：.gs.db 损坏 ⇒ 经**引擎端口**读 ⇒ DB
   }
 
   const ports = createStoragePorts({
-    libraries: createLibraryResolverPort({ libraries: [{ libId: 'L1', root: s.libRoot, label: '测试库' }] }),
+    libraries: createLibraryResolverPort({
+      libraries: [{ libId: 'L1', root: s.libRoot, label: '测试库' }],
+    }),
   });
   const engine = createEngine({
     config: { data_dir: path.join(s.base, 'data') },
@@ -475,7 +547,11 @@ test('M9c ⭐⭐ S7b 端到端：.gs.db 损坏 ⇒ 经**引擎端口**读 ⇒ DB
 
   const bad = await engine.item({ libId: 'L1', uid: s.fx.items[0].uid });
   const err = envelopeError(bad);
-  assert.equal(err.code, ERR.DB_OPEN_FAILED, '库文件坏 ⇒ 必须报 DB_OPEN_FAILED（与体检路径同名）；实得 ' + err.code);
+  assert.equal(
+    err.code,
+    ERR.DB_OPEN_FAILED,
+    '库文件坏 ⇒ 必须报 DB_OPEN_FAILED（与体检路径同名）；实得 ' + err.code,
+  );
   assert.notEqual(err.code, ERR.INDEX_CORRUPT, '**不许**把"库打不开"说成"索引损坏"（假因果）');
   assert.notEqual(err.code, 'INTERNAL', 'S7b 之后它已在引擎码空间里，不许掉回 INTERNAL');
 });

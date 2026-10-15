@@ -30,8 +30,8 @@
  *   ⇒ **两套间距体系数值上恒等**，迁移时不会出现"看起来差不多但差 1px"的漂移。
  */
 
-@import "tailwindcss/theme.css" layer(theme);
-@import "tailwindcss/utilities.css" layer(utilities);
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
 
 /* 显式给扫描范围（相对**本文件**）。不写就靠自动探测 —— 而本文件在 `src/styles/` 下、
    组件在 `src/**`，靠默认探测容易漏掉上层目录。显式写死更可预期。
@@ -42,14 +42,16 @@
 
 @theme inline {
   /* ============ 颜色 → 令牌（值只在 tokens.css 定义一次） ============ */
-  --color-surface: var(--color-bg-primary);          /* 主背景 */
-  --color-surface-2: var(--color-bg-secondary);      /* 次级背景 / 侧栏 */
-  --color-surface-raised: var(--color-bg-elevated);  /* 浮起层 */
-  --color-ink: var(--color-text-primary);            /* 主文字 */
-  --color-ink-muted: var(--color-text-secondary);    /* 次要文字 */
-  --color-ink-faint: var(--color-text-secondary);    /* 更弱的说明文字（同为 secondary，保留名字以便将来分化） */
-  --color-line: var(--color-separator-subtle);       /* 细分隔线 */
-  --color-line-strong: var(--color-separator);       /* 强分隔线 */
+  --color-surface: var(--color-bg-primary); /* 主背景 */
+  --color-surface-2: var(--color-bg-secondary); /* 次级背景 / 侧栏 */
+  --color-surface-raised: var(--color-bg-elevated); /* 浮起层 */
+  --color-ink: var(--color-text-primary); /* 主文字 */
+  --color-ink-muted: var(--color-text-secondary); /* 次要文字 */
+  --color-ink-faint: var(
+    --color-text-secondary
+  ); /* 更弱的说明文字（同为 secondary，保留名字以便将来分化） */
+  --color-line: var(--color-separator-subtle); /* 细分隔线 */
+  --color-line-strong: var(--color-separator); /* 强分隔线 */
   --color-accent: var(--color-accent);
   --color-accent-soft: var(--accent-soft);
   --color-on-accent: var(--color-on-accent);
@@ -86,20 +88,20 @@
   --shadow-raised: var(--shadow-float);
 
   /* ============ 间距：数值档与 --space-N 恒等（见决定 4） ============ */
-  --spacing: var(--space-1);                         /* 4px ⇒ p-4 = 16px = var(--space-4) */
+  --spacing: var(--space-1); /* 4px ⇒ p-4 = 16px = var(--space-4) */
 
   /* ============ 字体：用**不重名**的别名，避免 `--font-sans: var(--font-sans)` 自引用 ============ */
   --font-app: var(--font-sans);
   --font-code: var(--font-mono);
 
   /* ============ 圆角：同样用不重名的别名（`--radius-lg: var(--radius-lg)` 是自引用） ============ */
-  --radius-xs: var(--radius-sm);                     /* 8px  */
-  --radius-control: var(--radius-md);                /* 10px */
-  --radius-card: var(--radius-lg);                   /* 12px */
-  --radius-panel: var(--radius-xl);                  /* 16px */
-  --radius-hero: var(--radius-2xl);                  /* 24px */
-  --radius-pill: var(--radius-pill);                 /* 999px */
-  --radius-circle: var(--radius-circle);             /* 50% */
+  --radius-xs: var(--radius-sm); /* 8px  */
+  --radius-control: var(--radius-md); /* 10px */
+  --radius-card: var(--radius-lg); /* 12px */
+  --radius-panel: var(--radius-xl); /* 16px */
+  --radius-hero: var(--radius-2xl); /* 24px */
+  --radius-pill: var(--radius-pill); /* 999px */
+  --radius-circle: var(--radius-circle); /* 50% */
 
   /* ============ 字号：搭上 Tailwind 的 text-* 体系 ============ */
   --text-h1: var(--type-h1);

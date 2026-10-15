@@ -86,7 +86,13 @@ export interface ScanResult {
   /** 读不动的目录/文件 —— 如实列出，**不静默跳过** */
   unreadable: Array<{ relPath: string; error: string }>;
   /** 被跳过的库内产物/隐藏项（计数始终真实，明细最多列 maxSkippedListed 条） */
-  skipped: { total: number; reservedCount: number; hiddenCount: number; reserved: string[]; hidden: string[] };
+  skipped: {
+    total: number;
+    reservedCount: number;
+    hiddenCount: number;
+    reserved: string[];
+    hidden: string[];
+  };
   counts: ScanCounts;
 }
 
@@ -109,7 +115,10 @@ interface Slot {
  * 配对规则（SPEC §1，与构建器逐字一致）：同目录 · 同主干 · 扩展名在 `{.rar,.zip,.7z}` 内。
  * 同主干有多个时取**先遇到的**那个（与构建器一致；不重复登记）。
  */
-export function scanLibrary(root: string, { libId = '', maxSkippedListed = 50 }: ScanOptions = {}): ScanResult {
+export function scanLibrary(
+  root: string,
+  { libId = '', maxSkippedListed = 50 }: ScanOptions = {},
+): ScanResult {
   const items: ScannedItem[] = [];
   const missingImage: Array<{ relPath: string; ext: string }> = [];
   const unreadable: Array<{ relPath: string; error: string }> = [];
@@ -148,15 +157,22 @@ export function scanLibrary(root: string, { libId = '', maxSkippedListed = 50 }:
         if (hiddenListed.length < maxSkippedListed) hiddenListed.push(rel);
         continue;
       }
-      if (ent.isDirectory()) { stack.push(full); continue; }
+      if (ent.isDirectory()) {
+        stack.push(full);
+        continue;
+      }
 
       const ext = path.extname(ent.name).toLowerCase();
       if (!IMG_EXT.has(ext) && !ARCHIVE_EXT.has(ext)) continue;
       const stem = ent.name.slice(0, ent.name.length - ext.length);
       let slot = byStem.get(stem);
-      if (!slot) { slot = {}; byStem.set(stem, slot); }
-      if (IMG_EXT.has(ext)) { if (!slot.img) slot.img = { ext, full }; }
-      else if (!slot.arc) slot.arc = { ext, full };
+      if (!slot) {
+        slot = {};
+        byStem.set(stem, slot);
+      }
+      if (IMG_EXT.has(ext)) {
+        if (!slot.img) slot.img = { ext, full };
+      } else if (!slot.arc) slot.arc = { ext, full };
     }
 
     // ⚠️ 这里规范化的是**目录路径**，不是文件 relPath ⇒ 用 normRelDir（dirname 会把最后一段目录名吃掉）
@@ -166,7 +182,8 @@ export function scanLibrary(root: string, { libId = '', maxSkippedListed = 50 }:
     for (const [stem, slot] of byStem) {
       if (!slot.img) {
         // 只有包、没有图 ⇒ 无法编码。**登记**（体检 ④），不当成素材塞进 items。
-        if (slot.arc) missingImage.push({ relPath: path.relative(root, slot.arc.full), ext: slot.arc.ext });
+        if (slot.arc)
+          missingImage.push({ relPath: path.relative(root, slot.arc.full), ext: slot.arc.ext });
         continue;
       }
       const imgRel = path.relative(root, slot.img.full);
@@ -251,7 +268,13 @@ export function scanLibrary(root: string, { libId = '', maxSkippedListed = 50 }:
     missingImage,
     formatMismatch,
     unreadable,
-    skipped: { total: reservedCount + hiddenCount, reservedCount, hiddenCount, reserved: reservedListed, hidden: hiddenListed },
+    skipped: {
+      total: reservedCount + hiddenCount,
+      reservedCount,
+      hiddenCount,
+      reserved: reservedListed,
+      hidden: hiddenListed,
+    },
     counts,
   };
 }

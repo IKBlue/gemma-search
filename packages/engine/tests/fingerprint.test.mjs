@@ -18,9 +18,9 @@ import path from 'node:path';
 import { fingerprintLines, fingerprintV1 } from '../src/fingerprint.ts';
 import { scanLibrary } from '../src/scanner.ts';
 
-const MATERIAL_FILES = 4;      // VR/ID-1.jpg · VR/ID-1.rar · CR/ID-2.png · CR/ID-2.zip
-const RESERVED_ENTRIES = 7;    // 5 个文件 + .gs-journal/(目录) + VR/.gs-staging/(目录)
-const HIDDEN_ENTRIES = 2;      // .DS_Store(文件) + .hidden/(目录；里面的文件不进)
+const MATERIAL_FILES = 4; // VR/ID-1.jpg · VR/ID-1.rar · CR/ID-2.png · CR/ID-2.zip
+const RESERVED_ENTRIES = 7; // 5 个文件 + .gs-journal/(目录) + VR/.gs-staging/(目录)
+const HIDDEN_ENTRIES = 2; // .DS_Store(文件) + .hidden/(目录；里面的文件不进)
 
 /** 迷你库：2 组素材 + 保留命名空间产物 + 隐藏项（含**子目录**里的 staging / 隐藏目录） */
 function makeFixture() {
@@ -55,21 +55,35 @@ test('DF-1/DF-3 ⭐⭐ 指纹的文件数 == 扫描器的素材文件数（保�
   try {
     const fp = fingerprintLines(root);
     const scan = scanLibrary(root, { libId: 'L1' });
-    assert.equal(fp.counts.files, MATERIAL_FILES,
-      '指纹只该数 4 个素材文件（实得 ' + fp.counts.files + '）—— 多出来的就是保留名/隐藏项');
+    assert.equal(
+      fp.counts.files,
+      MATERIAL_FILES,
+      '指纹只该数 4 个素材文件（实得 ' + fp.counts.files + '）—— 多出来的就是保留名/隐藏项',
+    );
     assert.equal(fp.counts.images, 2, '图 2');
     assert.equal(fp.counts.archives, 2, '包 2');
     assert.equal(fp.counts.other, 0, '素材里没有 other');
     assert.equal(scan.counts.images, 2, '扫描器认 2 条素材');
     assert.equal(scan.counts.paired, 2, '两条都配对');
-    assert.equal(scan.counts.skippedReserved, RESERVED_ENTRIES,
-      '保留条目数如实（实得 ' + scan.counts.skippedReserved + '）');
-    assert.equal(scan.counts.skippedHidden, HIDDEN_ENTRIES,
-      '隐藏条目数如实（实得 ' + scan.counts.skippedHidden + '）—— 分类归一份实现，但计数不合并');
+    assert.equal(
+      scan.counts.skippedReserved,
+      RESERVED_ENTRIES,
+      '保留条目数如实（实得 ' + scan.counts.skippedReserved + '）',
+    );
+    assert.equal(
+      scan.counts.skippedHidden,
+      HIDDEN_ENTRIES,
+      '隐藏条目数如实（实得 ' + scan.counts.skippedHidden + '）—— 分类归一份实现，但计数不合并',
+    );
     // 机械断言：两侧数的是**同一批文件**（图 + 配对包）
-    assert.equal(fp.counts.files, scan.counts.images + scan.counts.paired,
-      '指纹文件数必须 == 扫描器的素材文件数');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    assert.equal(
+      fp.counts.files,
+      scan.counts.images + scan.counts.paired,
+      '指纹文件数必须 == 扫描器的素材文件数',
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('DF-3 ⭐⭐ 语义：保留名/隐藏项出现或消失 ⇒ 指纹不变；改素材 ⇒ 指纹必须变', () => {
@@ -86,8 +100,11 @@ test('DF-3 ⭐⭐ 语义：保留名/隐藏项出现或消失 ⇒ 指纹不变�
     fs.mkdirSync(path.join(root, 'VR', '.thumbnails'), { recursive: true });
     fs.writeFileSync(path.join(root, 'VR', '.thumbnails', 't.jpg'), 'thumb');
     const afterRebuild = fingerprintV1(root);
-    assert.equal(afterRebuild.fingerprint, before,
-      '索引/元数据/隐藏项变化**不许**改动库指纹（否则 doScan 会把它报成「库被改过」而 diff 又空）');
+    assert.equal(
+      afterRebuild.fingerprint,
+      before,
+      '索引/元数据/隐藏项变化**不许**改动库指纹（否则 doScan 会把它报成「库被改过」而 diff 又空）',
+    );
     assert.equal(afterRebuild.counts.files, MATERIAL_FILES, '保留名与隐藏项仍未计入');
     // 反向对照：改一个**素材** ⇒ 指纹必须变（证明指纹不是不敏感的）
     fs.writeFileSync(path.join(root, 'VR', 'ID-1.jpg'), 'jpeg-bytes-1-changed');
@@ -99,5 +116,7 @@ test('DF-3 ⭐⭐ 语义：保留名/隐藏项出现或消失 ⇒ 指纹不变�
     fs.mkdirSync(path.join(root, 'VR', '.cache'), { recursive: true });
     fs.writeFileSync(path.join(root, 'VR', '.cache', 'x.jpg'), 'cache');
     assert.equal(fingerprintV1(root).fingerprint, base2, '隐藏项出现/消失都不该动指纹');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -1,0 +1,269 @@
+T-09 · ESLint + Prettier 落地（task-78）
+日期 2026-10-15 · 类型：**本轮实测** · 执行者：renderer-migrator（独占窗口）
+范围：全仓**源码与配置**的格式化 + 报告制 ESLint；**不改行为**（唯二例外见 §6，是守卫适配）。
+
+================================================================
+0. 结论速览（对照卡片的五条验收）
+================================================================
+① `npx prettier --check .` ⇒ **EXIT=0**（"All matched files use Prettier code style!"）        ✅
+② `npm run lint` ⇒ **跑通并产出清单**：受检 90 文件 / 13 个有违规 / **22 条**（error 22 · warn 0）✅
+   ⚠️ 退出码 = 1（报告制下**预期**：有 error 就会 1；本卡**不修**，修法另开卡）。清单见 §3.4。
+③ `npm test` ⇒ **613 / pass 612 / fail 0 / skipped 1**（EXIT=0）· `npm run typecheck` ⇒ **0**     ✅
+④ 「只有格式改动」⇒ §5：**逐文件机械化比对**（210 个改动文件全覆盖，不是抽样目测）              ✅
+⑤ tracked 未提交改动 **210 个**（= 本次格式化产物 + §6 的 3 个守卫 + 依赖清单）；
+   未跟踪 **14 个**，逐个列在 §7。按修正口径由 **Lead 提交**后即为干净（我不提交，AGENTS P7）。  ✅
+
+================================================================
+1. 落地的文件
+================================================================
+新增（可提交增量）：
+  .prettierrc            格式化配置（semi / singleQuote / printWidth 100 / trailingComma all / endOfLine lf）
+  .prettierignore        忽略清单（每条写明「为什么」）
+  eslint.config.mjs      flat config（保守集：@eslint/js recommended + globals）
+修改：
+  package.json            新增 3 条脚本；devDeps 见 §4
+  package-lock.json       装依赖的产物
+  apps/desktop/tests/deps.test.mjs          IMPLICIT 白名单 +2（§6.1）
+  apps/desktop/tests/contrast.test.mjs      深色块解析器适配（§6.2）
+  apps/desktop/tests/item-actions.test.mjs  方法白名单解析器适配（§6.3）
+  + 206 个源码/配置文件的**纯格式化**改动
+
+package.json 新增脚本：
+  "lint": "eslint ."
+  "format": "prettier --write ."
+  "format:check": "prettier --check ."
+
+.prettierignore 覆盖（每条都写了理由）：
+  node_modules/ · out/ · dist/ · release/ · .npm-cache/ · model-cache/ ·
+  **data/**（本机数据 + 已入库证据）· **reports/**（历史结论的原始输出）· fixtures/ ·
+  **\*.md**（四份根文档 + reports 历史记录）· **docs/**（见 §1.1）·
+  prototypes/ 与 4 个根 html（T-09 裁定：不在 writeScopes，属别的工作流，未跟踪）。
+
+1.1 关于 docs/（Lead 2026-10-15 指出的范围小漏，已修）
+  首轮只排除了 `docs/archive/`（那 3 个归档 HTML 会让 pretti`er --check` 以 EXIT=2 失败）。
+  Lead 指出 **整个 docs/ 都是 v2 之前的旧文档体系**，不属于「源码与配置」：
+    · `electron-builder.yml` 已用 `'!docs/*'` 把它排除打包；
+    · `packages/design-tokens/tokens.css` 注明「不再是依据」。
+  ⇒ 已把 `docs/` 整个加进 `.prettierignore`，并把已格式化的 **2 个文件**
+     （`docs/design/ui-kit/build.mjs`、`docs/design/ui-kit/kit-data.json`）**`git restore` 回 HEAD**，
+     实测 `git status` 里已无 docs/ 条目。
+     ESLint 侧同步把 `docs/archive/**` 改成 `docs/**`（与 .prettierignore 同口径）⇒ 违规数由 32 降为 22。
+
+================================================================
+2. 配置选择的依据（不是拍脑袋）
+================================================================
+· 缩进：全仓 **0** 个 tab 缩进行 / 19307 个空格缩进行 ⇒ 保持 Prettier 默认（2 空格）。
+· 引号：单引号字符 21721 vs 双引号 1234 ⇒ `singleQuote: true`（明显多数派）。
+· 分号：按**文件多数派**统计，semi 121 个 vs 非 semi 87 个；按行数 10714 vs 5596
+  ⇒ `semi: true`（Prettier 默认）。实测两种选择的改动文件数几乎相同（258 vs 256）
+  ⇒ 按既有代码多数派定，而不是"少改两个文件"。
+· printWidth：本仓行长 p50=38 / p90=87 / p95=99 ⇒ 默认 80 会重排大量既有代码；取 **100**
+  （实测改动文件数：80→258 / 100→249 / 120→246，差异不大，取更贴近既有的）。
+· endOfLine：`.gitattributes` 对源码各类型写死 `text eol=lf`，git index 400 个文件 `i/lf`
+  ⇒ `endOfLine: "lf"`（顺带把工作区 25 个 CRLF + 17 个 mixed 的存量拉回 LF，与 index 一致）。
+
+================================================================
+3. 原始输出
+================================================================
+原始文件：data/_t09/{prettier-write,prettier-check-final,eslint.json,test-final2}.txt
+
+3.1 prettier --write（全仓一次）
+$ npx prettier --write .
+（229 个文件被写；退出码 0；随后再跑一次确认幂等）
+
+3.2 prettier --check —— 通过
+$ npx prettier --check .
+Checking formatting...
+All matched files use Prettier code style!
+CHECK_EXIT=0
+
+3.3 门禁
+$ npm run typecheck
+TSC_EXIT=0
+$ npm test
+ℹ tests 613
+ℹ pass 612
+ℹ fail 0
+ℹ skipped 1
+TEST_EXIT=0
+
+3.4 ESLint 违规清单（报告制，**本卡不修**）
+$ npm run lint            # = eslint .
+✖ 32 problems (32 errors, 0 warnings)      ← 首轮（含 docs/）
+$ npx eslint . --format json               # 排除 docs/ 后
+ESLINT_EXIT=1
+
+最终汇总：**受检 90 文件 / 13 个有违规 / 22 条（error 22 · warning 0）**
+
+按规则分组（计数）：
+  19  no-unused-vars
+   2  no-useless-escape
+   1  no-empty
+
+代表样例（完整 JSON：data/_t09/eslint.json）：
+  [no-unused-vars]
+     apps/desktop/e2e/confirm-dialog.spec.mjs:38  'FAKE_ITEM' is defined but never used.
+     apps/desktop/e2e/confirm-dialog.spec.mjs:38  'stubEngine' is defined but never used.
+     apps/desktop/e2e/health.spec.mjs:27          'digest' is defined but never used.
+     tools/verify_encoder_path.mjs:98             'QUERY_PREFIX' is assigned a value but never used.
+  [no-useless-escape]
+     apps/desktop/tests/index-corruption.test.mjs:76  Unnecessary escape character: \s.  (×2)
+  [no-empty]
+     tools/probe_electron_start/main.cjs:8        Empty block statement.
+
+按文件分布（13 个）：
+  apps/desktop/e2e/{confirm-dialog(2),health(1)}.spec.mjs
+  apps/desktop/tests/{browse-utils,contrast,health-rebuild,index-corruption(2),item-actions,single-flight}.test.mjs
+  packages/engine/tests/{storage-ports,transactions-recovery(5),transactions(3),uid}.test.mjs
+  tools/probe_electron_start/main.cjs · tools/verify_encoder_path.mjs
+
+⚠️ 一处**配置修正**（不是压违规）：首轮跑出 56 条 `no-undef`，**全部**是 e2e 规格里的
+   `window`(37) / `document`(11) / `getComputedStyle`(6) / `location`(2)。
+   它们在 Playwright 的 `page.evaluate(() => …)` 回调里求值 ⇒ **页面上下文里真实存在**，
+   是"只给 node 全局"造成的**假阳性**。已给 `apps/desktop/e2e/**` 补 `globals.browser`
+   （flat config 的 globals 是**合并**语义，不会丢掉 node 全局）。修正后 `no-undef` = **0**。
+   这条改的是**配置准确性**，不是关规则：`no-undef` 仍然开着。
+
+================================================================
+4. 依赖变化（+ 一条上游阻塞）
+================================================================
+新增 devDependencies（都是**开发期工具链**，不进运行时）：
+  eslint@^10.12.0      CLI：npm run lint
+  prettier@^3.9.10     CLI：npm run format / format:check
+  @eslint/js@^10.0.1   eslint.config.mjs 里**真实 import**（recommended 规则集）
+  globals@^17.13.0     eslint.config.mjs 里**真实 import**（node / browser 全局表）
+**撤掉**：typescript-eslint（装了但 import 即崩 —— 死依赖）
+
+⚠️ typescript-eslint 与 typescript@7.0.2 **硬冲突**（Lead 已独立复验，并写进 TASKS.md §5「工具链限制」）：
+  $ npm install typescript-eslint      ⇒ ERESOLVE（peer `typescript ">=4.8.4 <6.1.0"`）
+  $ npm install --legacy-peer-deps …    ⇒ 装上，但：
+  $ node -e "require('typescript-eslint')"
+    Error: typescript-eslint does not support TS 7.0.
+        at Object.<anonymous> (node_modules/typescript-eslint/dist/index.js:52)
+  源码就是硬门槛（dist/index.js:45-53：`if (versionMajor >= 7) throw …`）；
+  `@typescript-eslint/parser` 与 `@typescript-eslint/eslint-plugin` **同样**抛（都实测过）；
+  latest(8.71.2) 与 canary(8.71.3-alpha.5) 的 peer 都是 <6.1.0 ⇒ **无版本可用**。
+  附注（同一根因）：TS 7 下 `require('typescript')` **只暴露 version / versionMajorMinor**，
+       编译器 API 已不在 ⇒ typescript-eslint 拿不到它需要的东西。
+  ⇒ 所有者 2026-10-15 裁定**不并行装 TS6**（会给仓库引入第二个 TypeScript 大版本）。
+  ⇒ 本卡 ESLint **只覆盖 JS 家族**（.js/.mjs/.cjs/.jsx，受检 90 文件）；
+     **TS 规则另开 task-79**，启动条件 = 上游支持 TS >= 7.1 或所有者批准并行 TS6。
+
+依赖装完**立刻**复验门禁：`npm test` 一度 613/611/**1**/1 —— 红的正是
+`deps.test.mjs` 的 D-A「声明了但零 import」。**这是守卫的正常反应**（CLI 工具链依赖本来就不该被
+源码 import），按 D-A 既定的 IMPLICIT 白名单机制收口，见 §6.1。
+
+================================================================
+5. 「只有格式改动」的机械化证明
+================================================================
+方法：对 `git diff --name-only` 的**全部 210 个 tracked 改动文件**，逐文件取
+`git show HEAD:<path>` 与工作区内容，按类型做**语义等价比对**（不是抽样目测）：
+
+  · JS/TS/JSX/MJS/CJS：**esbuild `transformSync(…, { minify: true })`** 归一化后比对。
+    minify 会吃掉空白、注释、引号风格、分号/尾逗号、可省括号 ⇒ 两边输出相同即"AST 等价"。
+  · JSON：`JSON.parse` 深比较（tsconfig.web.json 是 JSONC ⇒ 字符串感知去注释 + 去尾逗号）。
+  · CSS：抽 `--name: value;` 声明表比对。
+  · HTML：去掉全部空白后比对。
+
+结果：
+  JS/TS/JSX     **198 相同 / 4 不同**
+  JSON          2 相同 / 2 不同
+  CSS           1 相同 / 2 不同
+  HTML          1 文件（见下）
+
+**4 个"不同"的 JS/TS 文件，逐个交代**：
+  1. apps/desktop/tests/contrast.test.mjs     ← §6.2 的**守卫适配**（我有意改的）
+  2. apps/desktop/tests/item-actions.test.mjs ← §6.3 的**守卫适配**（我有意改的）
+  3. apps/desktop/tests/deps.test.mjs         ← §6.1 的白名单 +2（我有意改的）
+  4. packages/engine/src/magic.ts             ← **不是逻辑改动**：Prettier 把十六进制字面量统一成
+     小写（`0xFF`→`0xff`、`0x4E`→`0x4e` …；**数值完全相同**）。git diff 里除缩进/换行外只有这些大小写。
+     esbuild 的 minify **不改**数字字面量大小写 ⇒ 被标成"不同"，是**我的比对器的假阳性**。
+
+**2 个"不同"的 JSON**：
+  · package.json      ← 有意：新增 3 条脚本 + 4 个 devDeps、撤掉 typescript-eslint
+  · package-lock.json ← 有意：装依赖的产物
+  （tsconfig.node.json / tsconfig.web.json / tools/probe_electron_start/package.json 均**深相等**）
+
+**2 个 CSS**：声明表**键集合完全相同**（tokens.css 107/107、tailwind.css 52/52），只有**格式等价**的归一：
+  · `.72` → `0.72`（3 处 rgba 的 alpha）
+  · 字体栈 `"SF Pro Text"` → `'SF Pro Text'`（CSS 两种引号等价）
+  · `var(--color-text-secondary)` → `var( --color-text-secondary )`（函数内空白，CSS 合法）
+  ⇒ 无键增删、无值语义变化。
+
+**HTML**（apps/desktop/src/renderer/index.html）：`<!DOCTYPE html>` → `<!doctype html>`（大小写归一，
+  HTML 语义相同）+ 缩进与属性换行。
+
+⇒ 结论：210 个文件里，**除 3 个我有意的守卫适配 + 2 个依赖清单文件**外，其余全部是
+   空白/换行/引号/大小写/尾逗号这一类**纯格式**改动。
+
+更强的行为证据：`npm test` **613/612/0/1 全绿**，其中包含大量**直接读源码文本**的守卫
+（dom-validity / copy / deps / style-contract / layering / encoder-call-site / gs-names-single-source …）
+⇒ 逻辑若被改动，这些断言会红。
+
+================================================================
+6. 守卫适配（**只改文本解析方式，没有放宽判据**）
+================================================================
+6.1 apps/desktop/tests/deps.test.mjs —— IMPLICIT 白名单 +2
+  加 `eslint` / `prettier`，理由写明"CLI 工具链，由 npm 脚本调用，源码里不 import"，并指向本证据文件。
+  ⚠️ **刻意不把** `@eslint/js` / `globals` 加进白名单 —— 它们被 eslint.config.mjs 真实 import，
+     D-A 因此不会报；加进去只会让白名单烂成垃圾场（文件里原本就有这条纪律的注释）。
+  判据未削弱：**运行时**依赖声明了却零 import，仍然照常报 orphan。
+  实测：`node --test apps/desktop/tests/deps.test.mjs` ⇒ 9/9 pass。
+
+6.2 apps/desktop/tests/contrast.test.mjs —— CT-3 的深色块解析
+  症状：CT-3「两套深色块键集合必须一致」变红。
+  根因（两层，都是解析器过度依赖文本形态）：
+    ① 标记串写死双引号 `[data-theme="dark"]`，而 Prettier 会把 CSS 属性选择器统一成单引号
+       `[data-theme='dark']` ⇒ 选择器再也匹配不上，`indexOf` 反而命中**注释里**的同一串字面量；
+    ② 注释里的提法被当成真标记。
+    实测对照：改前在 HEAD 上解析出 **4** 个块（其中两个是同一块内容的重复）⇒ CT-3 当时是**碰巧**绿的。
+  修法：先按**等长替换**抹掉注释（下标/行号不变），标记改用**引号无关**的正则：
+    /@media \(prefers-color-scheme: dark\)|\[data-(?:theme|sidebar)=['"]dark['"]\]/g
+  覆盖**没有缩小**：稳定解析 3 个深色块 —— media 色块(26 键) · data-theme 色块(26 键) ·
+    data-sidebar 侧栏块(6 键)；CT-2 对三块逐个跑对比度，CT-3 比 [0] vs [1]（26 vs 26 ⇒ 0 差）。
+  实测：`node --test contrast.test.mjs item-actions.test.mjs` ⇒ 14/14 pass。
+
+6.3 apps/desktop/tests/item-actions.test.mjs —— IA3 的方法白名单解析
+  症状：IA3 报"方法白名单解析可疑"，只解析到 14/20 条（collect / search / reveal / transactions /
+    libraryAdd … 全丢）。
+  根因：旧正则 `/^  (name):\s*z\./` 要求 `z.` 与 `name:` **同行**，而 Prettier 会把长的
+    `z.object({...})` 折成两行（`name: z` 换行 `.object({ … })`）。
+  修法：先切出 `Methods` 对象区段（`export const Methods` … `export const METHOD_NAMES`），
+    再取它的**直接属性名** `/^ {2}([a-zA-Z]\w*):/gm` —— 对折行与缩进宽度都不敏感；
+    并**新增一条解析器自检** `methods.size >= 10`（解析器失效时立刻红，而不是退化成空断言）。
+  判据未削弱：原有的「已删除方法不许出现」与「动作声称的方法必须在白名单里」两条**原样保留**。
+
+================================================================
+7. git 状态（修正口径）
+================================================================
+$ git diff --stat | tail -1
+ 210 files changed, … insertions(+), … deletions(-)
+
+tracked 未提交改动：**210 个** = 本次格式化产物 + §6 的 3 个守卫 + package.json / package-lock.json。
+  按修正口径 ⑤：**Lead 提交后即为干净**；我不执行提交（AGENTS P7）。
+
+未跟踪文件（14 个）——逐个说明归属：
+  **属于本卡（3 个，可提交增量）**
+    .prettierignore · .prettierrc · eslint.config.mjs
+  **属于本卡（1 个，证据）**
+    reports/2026-10-15-wave3/t09.txt（本文件）
+  **不属于本卡（10 个，别的工作流留下的设计稿/研究页；T-09 裁定：不格式化、不删除、不入库）**
+    prototypes/DECISIONS.md
+    prototypes/apple-style-redesign.html
+    prototypes/PROPOSAL-index-status.html
+    prototypes/PROPOSAL-fields.html
+    prototypes/PROPOSAL-schema-v1.html
+    prototypes/PROPOSAL-field-map.html
+    review.html · review-dev.html · ui-redesign.html · ui-benchmark-research.html
+
+================================================================
+8. 环境与限制（如实记）
+================================================================
+· 装依赖两次改动 lockfile（装 / 撤 typescript-eslint）；开工前扫过进程与 git status，期间**无其他写入者**。
+· `npm run build` 在**默认 TEMP** 下仍会因沙箱拒删 esbuild 临时文件而失败
+  （`[vite:esbuild-transpile] remove C:\Users\…\Temp\esbuild-<hash>: Access is denied`）——
+  这是**环境**问题，与 T-09 无关；把 TEMP 指到仓库内可写目录即 EXIT=0。本卡未重跑 build
+  （T-09 验收不含 build；且格式化不改构建语义 —— `tsc` 与 613 条单测已覆盖语义面）。
+· `npm run lint` 退出码 1 是**报告制下的预期**（22 条 error）；修法另开卡。
+· 本卡**没有**引入第二个 TypeScript 版本，也**没有**改用其它 linter（AGENTS §1 锁定 eslint + prettier）。
+· `docs/` 已整体排除并 `git restore`（§1.1）；Lead 的 `ad4cfd2` 只动 5 个 .md，与本次无关。

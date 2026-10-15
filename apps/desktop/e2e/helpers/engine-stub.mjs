@@ -16,66 +16,93 @@
 //      症状伪装成"选择器不对"、全部用例卡在 `locator.fill` 超时 30s。
 //   ② **装桩之后必须 `reload()`** —— `firstWindow()` 只等 `domcontentloaded`，React 还没挂载；
 //      于是启动调用会**竞态**地落到桩上。reload 之后应用是**对着桩**完成启动的 ⇒ 时序确定。
-import { expect } from '@playwright/test'
+import { expect } from '@playwright/test';
 
 /** 一条假的素材结果（字段与 `search/PhotoCard.jsx` 实际读的一致） */
 export const FAKE_ITEM = {
-  libId: 'L1', uid: 'aaa111aaa111', stem: 'VR-101', relPath: 'VR/VR-101.jpg',
-  folder: 'VR', score: 0.81, band: 'mid', imagePath: 'X:\\fake\\VR-101.jpg',
+  libId: 'L1',
+  uid: 'aaa111aaa111',
+  stem: 'VR-101',
+  relPath: 'VR/VR-101.jpg',
+  folder: 'VR',
+  score: 0.81,
+  band: 'mid',
+  imagePath: 'X:\\fake\\VR-101.jpg',
   archive: { name: 'VR-101.rar', ext: '.rar', size: 12345678 },
-}
+};
 
 /** 装桩：把 `engine:invoke` 换成内存实现，并记录每次调用供断言 */
 export async function stubEngine(app) {
   await app.evaluate(({ ipcMain }, item) => {
-    const CH = 'engine:invoke'
-    const stub = { calls: [] }
-    globalThis.__engineStub = stub
-    ipcMain.removeHandler(CH)
+    const CH = 'engine:invoke';
+    const stub = { calls: [] };
+    globalThis.__engineStub = stub;
+    ipcMain.removeHandler(CH);
     ipcMain.handle(CH, async (_event, payload) => {
-      const method = payload && payload.method
-      const params = payload && payload.params
-      stub.calls.push({ method, params })
-      const ok = (data) => ({ ok: true, warnings: [], data })
+      const method = payload && payload.method;
+      const params = payload && payload.params;
+      stub.calls.push({ method, params });
+      const ok = (data) => ({ ok: true, warnings: [], data });
 
       switch (method) {
         // ── 启动期：这两个决定"显示向导还是应用"
         // ⚠️ S6（2026-10-15）：方法名从 libraryConfig 改成 **libraryList**（基线 §2.2，删旧名不留两套）。
         //    桩必须跟着改：名字不对，界面启动就判成 wizard（"找不到 #query"那种症状）。
         case 'libraryList':
-          return ok({ libraries: [{ libId: 'L1', root: 'X:\\fake' }], chosen: 'env', warnings: [], diagnostics: [] })
+          return ok({
+            libraries: [{ libId: 'L1', root: 'X:\\fake' }],
+            chosen: 'env',
+            warnings: [],
+            diagnostics: [],
+          });
         case 'indexStatus':
-          return ok({ libs: [{ libId: 'L1', root: 'X:\\fake', dim: 768, indexed: 2, encoded: 2, healthy: true }] })
+          return ok({
+            libs: [
+              { libId: 'L1', root: 'X:\\fake', dim: 768, indexed: 2, encoded: 2, healthy: true },
+            ],
+          });
         case 'search':
           return ok({
-            tookMs: 12, libsUsed: ['L1'], libsSkipped: [],
+            tookMs: 12,
+            libsUsed: ['L1'],
+            libsSkipped: [],
             results: [
               item,
-              { ...item, uid: 'bbb222bbb222', stem: 'CR-202', relPath: 'CR/CR-202.jpg', folder: 'CR', score: 0.77, archive: null },
+              {
+                ...item,
+                uid: 'bbb222bbb222',
+                stem: 'CR-202',
+                relPath: 'CR/CR-202.jpg',
+                folder: 'CR',
+                score: 0.77,
+                archive: null,
+              },
             ],
-          })
+          });
         case 'collect':
-          return ok({ succeeded: params.uids, skipped: [], failed: [], targetDir: 'E:\\素材待用' })
+          return ok({ succeeded: params.uids, skipped: [], failed: [], targetDir: 'E:\\素材待用' });
         default:
-          return ok({})
+          return ok({});
       }
-    })
-  }, FAKE_ITEM)
+    });
+  }, FAKE_ITEM);
 }
 
-export const stubCalls = (app) => app.evaluate(() => globalThis.__engineStub.calls)
-export const callsOf = (calls, method) => calls.filter((c) => c.method === method)
+export const stubCalls = (app) => app.evaluate(() => globalThis.__engineStub.calls);
+export const callsOf = (calls, method) => calls.filter((c) => c.method === method);
 
 /** 把界面推到"有结果"状态：装桩 → reload（消除竞态）→ 等真界面 → 输入 → 回车 */
 export async function searchOnce(app, win) {
-  await stubEngine(app)
-  await win.reload()
+  await stubEngine(app);
+  await win.reload();
   // 等到"真界面"起来（有库 ⇒ 搜索页；Chip 是搜索页独有的）
-  await expect(win.getByRole('button', { name: 'VR', exact: true })).toBeVisible({ timeout: 20_000 })
+  await expect(win.getByRole('button', { name: 'VR', exact: true })).toBeVisible({
+    timeout: 20_000,
+  });
 
-  const input = win.locator('#query')
-  await input.fill('吊灯')
-  await input.press('Enter')
+  const input = win.locator('#query');
+  await input.fill('吊灯');
+  await input.press('Enter');
 
-  await expect(win.getByRole('button', { name: '取件' }).first()).toBeVisible({ timeout: 20_000 })
+  await expect(win.getByRole('button', { name: '取件' }).first()).toBeVisible({ timeout: 20_000 });
 }

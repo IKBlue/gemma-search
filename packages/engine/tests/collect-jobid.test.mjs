@@ -27,9 +27,12 @@ function setup() {
   const libRoot = path.join(tmp, 'lib');
   const made = makeLibrary();
   fs.cpSync(made.root, libRoot, { recursive: true });
-  const config = { libraries: [{ libId: 'L1', root: libRoot, label: '库1' }], data_dir: path.join(tmp, 'data') };
+  const config = {
+    libraries: [{ libId: 'L1', root: libRoot, label: '库1' }],
+    data_dir: path.join(tmp, 'data'),
+  };
   writeIndexFixture(indexPathFor(path.join(tmp, 'data'), 'L1'), 'L1', made.rows, { libRoot });
-  config.collect = { dirs: { '素材待用': path.join(tmp, 'dest') }, default: '素材待用' };
+  config.collect = { dirs: { 素材待用: path.join(tmp, 'dest') }, default: '素材待用' };
   return { tmp, config };
 }
 
@@ -44,10 +47,20 @@ test('DF-3A ⭐⭐ 取件 jobId：连续 256 次互不相同，且是 j- + v4 UU
       assert.equal(r.ok, true, JSON.stringify(r.error));
       ids.push(r.data.jobId);
     }
-    assert.equal(new Set(ids).size, N, 'N 次取件的 jobId 必须互不相同（旧写法 4 位 hex 只有 65536 种）');
+    assert.equal(
+      new Set(ids).size,
+      N,
+      'N 次取件的 jobId 必须互不相同（旧写法 4 位 hex 只有 65536 种）',
+    );
     const bad = ids.filter((id) => !JOB_ID.test(id));
-    assert.deepEqual(bad, [], 'jobId 必须是 j- + v4 UUID；不合形状的样例：' + JSON.stringify(bad.slice(0, 3)));
-  } finally { fs.rmSync(s.tmp, { recursive: true, force: true }); }
+    assert.deepEqual(
+      bad,
+      [],
+      'jobId 必须是 j- + v4 UUID；不合形状的样例：' + JSON.stringify(bad.slice(0, 3)),
+    );
+  } finally {
+    fs.rmSync(s.tmp, { recursive: true, force: true });
+  }
 });
 
 test('DF-3A 红锚：旧写法（j- + Math.random 4 位 hex）在固定种子下必然碰撞、且不满足 UUID 形状', () => {
@@ -63,8 +76,12 @@ test('DF-3A 红锚：旧写法（j- + Math.random 4 位 hex）在固定种子下
   let firstDup = -1;
   for (let i = 0; i < 5000 && firstDup < 0; i++) {
     const id = 'j-' + rnd().toString(16).slice(2, 6);
-    if (seen.has(id)) firstDup = i; else seen.add(id);
+    if (seen.has(id)) firstDup = i;
+    else seen.add(id);
   }
-  assert.ok(firstDup > 0, '旧写法在固定种子下必然撞（实得第 ' + firstDup + ' 次）—— 这正是本卡要修的东西');
+  assert.ok(
+    firstDup > 0,
+    '旧写法在固定种子下必然撞（实得第 ' + firstDup + ' 次）—— 这正是本卡要修的东西',
+  );
   assert.doesNotMatch('j-1a2b', JOB_ID, '旧写法连 UUID 形状都不满足（形状断言对旧实现必然红）');
 });

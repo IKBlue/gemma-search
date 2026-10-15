@@ -26,8 +26,10 @@ function setup({ libs = 1, suffix = '' } = {}) {
   for (let i = 1; i <= libs; i++) {
     const libId = 'L' + i;
     config.libraries.push({ libId, root: libRoot, label: '库' + i });
-    writeIndexFixture(indexPathFor(path.join(tmp, 'data'), libId), libId, made.rows,
-                      { libRoot, suffix: i === 1 ? '' : suffix });
+    writeIndexFixture(indexPathFor(path.join(tmp, 'data'), libId), libId, made.rows, {
+      libRoot,
+      suffix: i === 1 ? '' : suffix,
+    });
   }
   return { tmp, libRoot, idxRoot, config, dataDir: path.join(tmp, 'data'), rows: made.rows };
 }
@@ -63,7 +65,9 @@ test('indexStatus：库根不存在时 rootExists=false 且不抛异常', async 
 test('indexStatus：索引损坏 → problems 里带 INDEX_CORRUPT，且**不**抛给调用方', async () => {
   const s = setup();
   const p = path.join(indexPathFor(s.dataDir, 'L1'), 'index.bin');
-  const buf = fs.readFileSync(p); buf[0] = 0; fs.writeFileSync(p, buf);
+  const buf = fs.readFileSync(p);
+  buf[0] = 0;
+  fs.writeFileSync(p, buf);
   const e = createEngine({ config: s.config, encoder: fakeEncoder() });
   const r = await e.indexStatus();
   assert.equal(r.ok, true);
@@ -219,7 +223,11 @@ test('item：返回索引条目 + 磁盘实况；文件没了要如实说', asyn
 test('reveal：走注入的 shell 端口；不经传输层也能测', async () => {
   const s = setup();
   const seen = [];
-  const e = createEngine({ config: s.config, encoder: fakeEncoder(), shell: { reveal: (p) => seen.push(p) } });
+  const e = createEngine({
+    config: s.config,
+    encoder: fakeEncoder(),
+    shell: { reveal: (p) => seen.push(p) },
+  });
   const uid = uidOf('L1', 'VR', 'ID-1');
   const r = await e.reveal({ libId: 'L1', uid, target: 'archive' });
   assert.equal(r.ok, true);
@@ -243,7 +251,7 @@ test('reveal：文件不在磁盘上 → ITEM_MISSING_ON_DISK', async () => {
 
 test('reveal：未注入 shell 端口 → PORT_MISSING，且 ok 不为 true（不许假成功）', async () => {
   const s = setup();
-  const e = createEngine({ config: s.config, encoder: fakeEncoder() });   // 刻意不传 shell
+  const e = createEngine({ config: s.config, encoder: fakeEncoder() }); // 刻意不传 shell
   const r = await e.reveal({ libId: 'L1', uid: uidOf('L1', 'VR', 'ID-1'), target: 'archive' });
   // 最关键的一条：**绝不能**是 ok
   assert.notEqual(r.ok, true, '未注入端口时返回了成功 —— 这就是 F-01 的静默假成功');
@@ -267,7 +275,11 @@ test('reveal：端口存在但目标文件不存在 → ITEM_MISSING_ON_DISK，�
   const s = setup();
   fs.rmSync(path.join(s.libRoot, 'VR', 'a.rar'));
   const seen = [];
-  const e = createEngine({ config: s.config, encoder: fakeEncoder(), shell: { reveal: (p) => seen.push(p) } });
+  const e = createEngine({
+    config: s.config,
+    encoder: fakeEncoder(),
+    shell: { reveal: (p) => seen.push(p) },
+  });
   const r = await e.reveal({ libId: 'L1', uid: uidOf('L1', 'VR', 'ID-1') });
   assert.equal(r.error.code, ERR.ITEM_MISSING_ON_DISK);
   // 顺序很重要：先确认文件在盘上，**再**去调资源管理器。
@@ -278,8 +290,13 @@ test('reveal：端口存在但目标文件不存在 → ITEM_MISSING_ON_DISK，�
 test('reveal：端口抛错 → 归为 INTERNAL 信封，不把异常漏给调用方', async () => {
   const s = setup();
   const e = createEngine({
-    config: s.config, encoder: fakeEncoder(),
-    shell: { reveal: () => { throw new Error('explorer 炸了'); } },
+    config: s.config,
+    encoder: fakeEncoder(),
+    shell: {
+      reveal: () => {
+        throw new Error('explorer 炸了');
+      },
+    },
   });
   const r = await e.reveal({ libId: 'L1', uid: uidOf('L1', 'VR', 'ID-1'), target: 'archive' });
   // envelope() 的契约：引擎内部异常一律转成信封，**绝不抛给调用方**
@@ -313,8 +330,8 @@ test('search：编码器忘了归一化时，引擎自行归一 → 排序与 ba
 test('band：阈值随模态不同（分数不可跨模态比较）', () => {
   assert.equal(bandOf(0.99, 'image'), 'high');
   assert.equal(bandOf(0.99, 'text'), 'high');
-  assert.equal(bandOf(0.70, 'image'), 'low');   // 图像模态里 0.70 是低
-  assert.equal(bandOf(0.70, 'text'), 'mid');    // 文本模态里 0.70 是中
+  assert.equal(bandOf(0.7, 'image'), 'low'); // 图像模态里 0.70 是低
+  assert.equal(bandOf(0.7, 'text'), 'mid'); // 文本模态里 0.70 是中
   assert.notDeepEqual(BANDS.text, BANDS.image);
 });
 
@@ -326,7 +343,18 @@ test('band：不认识的模态 → unknown，**不拿文本阈值猜**（R-3）
   // ⚠️ **用例必须带原型键**（独立复核 I-5 的教训）：只列 'vector'/'hybrid' 这类普通字符串，
   // 会恰好绕开 `Object.prototype` 上的键 —— 而旧写法 `if (!b)` 对 `BANDS['toString']`
   // 取到真值函数、进而返回 'low'，等于**又编了一个档位**。
-  const modes = ['vector', 'hybrid', '', null, undefined, 'toString', 'constructor', 'valueOf', '__proto__', 'hasOwnProperty'];
+  const modes = [
+    'vector',
+    'hybrid',
+    '',
+    null,
+    undefined,
+    'toString',
+    'constructor',
+    'valueOf',
+    '__proto__',
+    'hasOwnProperty',
+  ];
   for (const mode of modes) {
     assert.equal(bandOf(0.85, mode), 'unknown', `mode=${JSON.stringify(mode)} 不该给出档位`);
     assert.equal(bandOf(0.99, mode), 'unknown', `mode=${JSON.stringify(mode)} 满分也不该定档`);
@@ -341,7 +369,7 @@ test('band：不认识的模态 → unknown，**不拿文本阈值猜**（R-3）
 function setupCollect() {
   const s = setup();
   const dest = path.join(s.tmp, 'dest');
-  s.config.collect = { dirs: { '素材待用': dest }, default: '素材待用' };
+  s.config.collect = { dirs: { 素材待用: dest }, default: '素材待用' };
   return { ...s, dest };
 }
 
@@ -349,7 +377,11 @@ test('collect：复制到已配置目录，库侧零变化', async () => {
   const s = setupCollect();
   const e = createEngine({ config: s.config, encoder: fakeEncoder() });
   const before = fs.readdirSync(path.join(s.libRoot, 'VR')).sort();
-  const r = await e.collect({ libId: 'L1', uids: [uidOf('L1', 'VR', 'ID-1')], targetDirName: '素材待用' });
+  const r = await e.collect({
+    libId: 'L1',
+    uids: [uidOf('L1', 'VR', 'ID-1')],
+    targetDirName: '素材待用',
+  });
   assert.equal(r.ok, true, JSON.stringify(r.error));
   assert.equal(r.data.succeeded.length, 1);
   assert.equal(r.data.succeeded[0].kind, 'archive', '有包时默认取包');
@@ -360,7 +392,11 @@ test('collect：复制到已配置目录，库侧零变化', async () => {
 test('collect：无同名包时自动取图（auto 语义）', async () => {
   const s = setupCollect();
   const e = createEngine({ config: s.config, encoder: fakeEncoder() });
-  const r = await e.collect({ libId: 'L1', uids: [uidOf('L1', 'VR', 'ID-2')], targetDirName: '素材待用' });
+  const r = await e.collect({
+    libId: 'L1',
+    uids: [uidOf('L1', 'VR', 'ID-2')],
+    targetDirName: '素材待用',
+  });
   assert.equal(r.data.succeeded[0].kind, 'image');
   assert.ok(fs.existsSync(path.join(s.dest, 'ID-2.png')));
 });
@@ -370,27 +406,41 @@ test('collect：目标已存在 → skipped（**不覆盖**）', async () => {
   fs.mkdirSync(s.dest, { recursive: true });
   fs.writeFileSync(path.join(s.dest, 'a.rar'), '已存在的内容');
   const e = createEngine({ config: s.config, encoder: fakeEncoder() });
-  const r = await e.collect({ libId: 'L1', uids: [uidOf('L1', 'VR', 'ID-1')], targetDirName: '素材待用' });
+  const r = await e.collect({
+    libId: 'L1',
+    uids: [uidOf('L1', 'VR', 'ID-1')],
+    targetDirName: '素材待用',
+  });
   assert.equal(r.data.succeeded.length, 0);
   assert.equal(r.data.skipped[0].reason, 'already-exists');
-  assert.equal(fs.readFileSync(path.join(s.dest, 'a.rar'), 'utf8'), '已存在的内容', '原文件不能被改');
+  assert.equal(
+    fs.readFileSync(path.join(s.dest, 'a.rar'), 'utf8'),
+    '已存在的内容',
+    '原文件不能被改',
+  );
 });
 
 test('collect：白名单外/未配置的目标名 → COLLECT_DIR_NOT_ALLOWED', async () => {
   const s = setupCollect();
   const e = createEngine({ config: s.config, encoder: fakeEncoder() });
-  const r = await e.collect({ libId: 'L1', uids: [uidOf('L1', 'VR', 'ID-1')], targetDirName: 'C:\\Windows' });
+  const r = await e.collect({
+    libId: 'L1',
+    uids: [uidOf('L1', 'VR', 'ID-1')],
+    targetDirName: 'C:\\Windows',
+  });
   assert.equal(r.ok, false);
   assert.equal(r.error.code, ERR.COLLECT_DIR_NOT_ALLOWED);
 });
 
 test('collect：部分成功必须如实呈现（成功/失败/跳过三分）', async () => {
   const s = setupCollect();
-  fs.rmSync(path.join(s.libRoot, 'VR', 'a.rar'));           // 源文件缺失 → failed
+  fs.rmSync(path.join(s.libRoot, 'VR', 'a.rar')); // 源文件缺失 → failed
   const e = createEngine({ config: s.config, encoder: fakeEncoder() });
-  const r = await e.collect({ libId: 'L1',
+  const r = await e.collect({
+    libId: 'L1',
     uids: [uidOf('L1', 'VR', 'ID-1'), uidOf('L1', 'VR', 'ID-2'), '不存在000000'],
-    targetDirName: '素材待用' });
+    targetDirName: '素材待用',
+  });
   assert.equal(r.data.failed.length, 2, JSON.stringify(r.data.failed));
   assert.equal(r.data.succeeded.length, 1);
   assert.ok(r.data.failed.some((f) => f.error.code === ERR.ITEM_MISSING_ON_DISK));
@@ -400,8 +450,12 @@ test('collect：部分成功必须如实呈现（成功/失败/跳过三分）',
 test('collect：target=archive 但该素材无包 → failed 且说明原因', async () => {
   const s = setupCollect();
   const e = createEngine({ config: s.config, encoder: fakeEncoder() });
-  const r = await e.collect({ libId: 'L1', uids: [uidOf('L1', 'VR', 'ID-2')],
-                              targetDirName: '素材待用', target: 'archive' });
+  const r = await e.collect({
+    libId: 'L1',
+    uids: [uidOf('L1', 'VR', 'ID-2')],
+    targetDirName: '素材待用',
+    target: 'archive',
+  });
   assert.equal(r.data.failed.length, 1);
   assert.match(r.data.failed[0].error.message, /没有同名包/);
 });
@@ -409,6 +463,13 @@ test('collect：target=archive 但该素材无包 → failed 且说明原因', a
 test('collect：uids 为空或超量 → BAD_REQUEST', async () => {
   const s = setupCollect();
   const e = createEngine({ config: s.config, encoder: fakeEncoder() });
-  assert.equal((await e.collect({ libId: 'L1', uids: [], targetDirName: '素材待用' })).error.code, ERR.BAD_REQUEST);
-  assert.equal((await e.collect({ libId: 'L1', uids: Array(201).fill('x'), targetDirName: '素材待用' })).error.code, ERR.BAD_REQUEST);
+  assert.equal(
+    (await e.collect({ libId: 'L1', uids: [], targetDirName: '素材待用' })).error.code,
+    ERR.BAD_REQUEST,
+  );
+  assert.equal(
+    (await e.collect({ libId: 'L1', uids: Array(201).fill('x'), targetDirName: '素材待用' })).error
+      .code,
+    ERR.BAD_REQUEST,
+  );
 });

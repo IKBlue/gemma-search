@@ -81,9 +81,12 @@ export function resolveIndexLocation(input: ResolveIndexLocationInput): IndexLoc
 
   const hit = candidates.find((c) => c.exists) ?? null;
   const preferredPath = candidates.length > 0 ? candidates[0].indexPath : '';
-  const tried = candidates.length > 0
-    ? candidates.map((c) => c.layout + '=' + c.indexPath + (c.exists ? '(有)' : '(无)')).join(' · ')
-    : '(没有可查的候选：库根与旧布局目录都没给)';
+  const tried =
+    candidates.length > 0
+      ? candidates
+          .map((c) => c.layout + '=' + c.indexPath + (c.exists ? '(有)' : '(无)'))
+          .join(' · ')
+      : '(没有可查的候选：库根与旧布局目录都没给)';
 
   if (hit === null) {
     return {
@@ -99,8 +102,11 @@ export function resolveIndexLocation(input: ResolveIndexLocationInput): IndexLoc
     indexPath: hit.indexPath,
     preferredPath,
     candidates,
-    reason: (hit.layout === 'legacy'
-      ? '用**旧布局**（迁移期回退）：' + hit.indexPath
-      : '用**新布局**（库根）：' + hit.indexPath) + ' —— 查找顺序 ' + tried,
+    reason:
+      (hit.layout === 'legacy'
+        ? '用**旧布局**（迁移期回退）：' + hit.indexPath
+        : '用**新布局**（库根）：' + hit.indexPath) +
+      ' —— 查找顺序 ' +
+      tried,
   };
 }

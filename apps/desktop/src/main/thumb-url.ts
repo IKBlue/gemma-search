@@ -106,11 +106,10 @@ export function parseThumbUrl(rawUrl: string, io: ThumbIo | null = null): ParseT
  */
 export function thumbFailureStatus(f: { shapeOk?: boolean; libId?: string } = {}): number | null {
   const { shapeOk, libId } = f;
-  if (!shapeOk) return 400;      // 形状/尺寸不对 —— 与"库在不在"无关
-  if (!libId) return 404;        // 形状合法但库无法还原
+  if (!shapeOk) return 400; // 形状/尺寸不对 —— 与"库在不在"无关
+  if (!libId) return 404; // 形状合法但库无法还原
   return null;
 }
-
 
 /**
  * 把 URL 里的 host（已小写）还原成**引擎注册时的 libId 写法**。
@@ -122,7 +121,10 @@ export function thumbFailureStatus(f: { shapeOk?: boolean; libId?: string } = {}
  * 为什么注入而不是直接拿 engine：这样测试能在**不启动 Electron、不建真索引**的前提下
  * 覆盖 S6（未注册库 ⇒ 404）与"大小写还原"这条**曾经真出过 bug** 的路径。
  */
-export async function canonicalLibId(host: string, listLibIds: () => Promise<string[]>): Promise<string> {
+export async function canonicalLibId(
+  host: string,
+  listLibIds: () => Promise<string[]>,
+): Promise<string> {
   const lower = String(host || '').toLowerCase();
   if (!lower) return '';
   const ids = await listLibIds();
@@ -146,7 +148,10 @@ export interface LibIdResolverDeps {
  * 空映射会被**永久**缓存 ⇒ 之后每一张缩略图都 404，而界面只会显示"无预览"，
  * 没有任何报错线索。（旧的内联实现用 `if (MAP.size === 0)`，反而会重查 —— 抽函数时退化了一步。）
  */
-export function createLibIdResolver({ listLibIds, log = () => {} }: LibIdResolverDeps): (host: string) => Promise<string> {
+export function createLibIdResolver({
+  listLibIds,
+  log = () => {},
+}: LibIdResolverDeps): (host: string) => Promise<string> {
   const cache = new Map<string, string>();
   return async function resolve(host: string): Promise<string> {
     const key = String(host || '').toLowerCase();

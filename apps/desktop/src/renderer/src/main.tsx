@@ -6,38 +6,41 @@
 // 而 §4.1 要求接入时就近取整。
 //
 // 两条硬规矩（SPEC-security §6）：引擎返回的一切按纯文本渲染；不用 dangerouslySetInnerHTML。
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import { version as reactVersion } from 'react'
-import type { ComponentType, ReactNode } from 'react'
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { version as reactVersion } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 
-import '../../../../../packages/design-tokens/tokens.css'
+import '../../../../../packages/design-tokens/tokens.css';
 // 生成层（Tailwind v4，2026-10-13 T3）—— 必须在手写层**之前**：手写样式仍要能覆盖工具类，
 // 这是迁移期的必要顺序（写反会让现有外观被工具类意外改掉）。见 styles/tailwind.css 头注释。
-import './styles/tailwind.css'
-import './renderer.css'
+import './styles/tailwind.css';
+import './renderer.css';
 
-import App from './App.tsx'
+import App from './App.tsx';
 
-const root = document.getElementById('root')
-if (!root) throw new Error('缺少挂载点 #root（见 src/renderer/index.html）')
+const root = document.getElementById('root');
+if (!root) throw new Error('缺少挂载点 #root（见 src/renderer/index.html）');
 
 /** 引擎/守卫通过 `window.__DSH_RENDER` 重挂载一个组件时的实参形状 */
-type RenderArgs = [rel: string, container?: HTMLElement | null, props?: Record<string, unknown> | null]
+type RenderArgs = [
+  rel: string,
+  container?: HTMLElement | null,
+  props?: Record<string, unknown> | null,
+];
 
 /** 动态 import 回来的组件模块（只要求有 default 导出） */
-type ComponentModule = { default?: ComponentType<Record<string, unknown>> }
+type ComponentModule = { default?: ComponentType<Record<string, unknown>> };
 
 declare global {
   interface Window {
-    __DSH_RENDER?: (...args: RenderArgs) => Promise<RenderResult>
-    __DSH_ROOT?: { unmount: () => void; element: HTMLElement }
+    __DSH_RENDER?: (...args: RenderArgs) => Promise<RenderResult>;
+    __DSH_ROOT?: { unmount: () => void; element: HTMLElement };
   }
 }
 
 type RenderResult =
-  | { ok: true; host: HTMLElement; unmount: () => void }
-  | { ok: false; error: string }
+  { ok: true; host: HTMLElement; unmount: () => void } | { ok: false; error: string };
 
 /**
  * 按**源码相对路径**挂载一个渲染层组件（构建期由 Vite 的 import.meta.glob 收集）。
@@ -54,33 +57,40 @@ type RenderResult =
  * 它**不是调试后门**：`glob` 的范围在构建期就固化（pages/ 下有哪些文件），
  * 传进来的路径取不到模块就返回 null；也没有暴露任何新能力 —— 渲染层本来就只有 window.api。
  */
-const PAGES = import.meta.glob('./pages/*.tsx')
-const COMPONENTS = import.meta.glob('./ui/*.tsx')
+const PAGES = import.meta.glob('./pages/*.tsx');
+const COMPONENTS = import.meta.glob('./ui/*.tsx');
 
 window.__DSH_RENDER = async (rel, container, props): Promise<RenderResult> => {
-  const key = './' + String(rel || '').replace(/^\.?\//, '')
-  const loader = PAGES[key] || COMPONENTS[key]
-  if (!loader) return { ok: false, error: `没有这个组件：${key}` }
-  const mod = (await loader()) as ComponentModule
-  if (!mod || !mod.default) return { ok: false, error: `${key} 没有 default 导出` }
-  const host = container || document.createElement('div')
-  const r = createRoot(host)
-  const Cmp = mod.default
-  const p = (props || {}) as Record<string, unknown>
-  r.render(<Cmp {...p} />)
-  return { ok: true, host, unmount: () => { r.unmount(); if (!container) host.remove() } }
-}
+  const key = './' + String(rel || '').replace(/^\.?\//, '');
+  const loader = PAGES[key] || COMPONENTS[key];
+  if (!loader) return { ok: false, error: `没有这个组件：${key}` };
+  const mod = (await loader()) as ComponentModule;
+  if (!mod || !mod.default) return { ok: false, error: `${key} 没有 default 导出` };
+  const host = container || document.createElement('div');
+  const r = createRoot(host);
+  const Cmp = mod.default;
+  const p = (props || {}) as Record<string, unknown>;
+  r.render(<Cmp {...p} />);
+  return {
+    ok: true,
+    host,
+    unmount: () => {
+      r.unmount();
+      if (!container) host.remove();
+    },
+  };
+};
 
 /** 卸载应用本体并把它挂载用的容器交出来 —— 供守卫「从零复现首启」（见上一段注释） */
-window.__DSH_ROOT = { unmount: () => appRoot.unmount(), element: root }
+window.__DSH_ROOT = { unmount: () => appRoot.unmount(), element: root };
 
-const appRoot = createRoot(root)
+const appRoot = createRoot(root);
 appRoot.render(
   <StrictMode>
     <App />
   </StrictMode>,
-)
+);
 
 // 渲染进程没有终端：主进程会把这里的 console 转发到 data/_app.log，
 // 所以这行是「界面真的起来了」的可核对证据。
-console.log(`[ui] React 已挂载 · react ${reactVersion}`)
+console.log(`[ui] React 已挂载 · react ${reactVersion}`);

@@ -46,7 +46,7 @@ const REAL_INDEX = path.join(ROOT, 'data', 'libraries', 'L1', 'index.bin');
 
 let seq = 0;
 function freshDir(label) {
-  const dir = path.join(TMP, label + '-' + (++seq));
+  const dir = path.join(TMP, label + '-' + ++seq);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   return dir;
@@ -145,9 +145,21 @@ function fakeFs(over = {}) {
 test('L1 indexPathFor：<库根>/.gs-index.bin；空库根 ⇒ INDEX_ROOT_REQUIRED', () => {
   const dir = makeLib('L1');
   assert.equal(indexPathFor(dir), path.join(dir, '.gs-index.bin'));
-  assert.equal(path.basename(indexPathFor(dir)), GS_INDEX_NAME, '文件名必须来自 GS_INDEX_NAME（单一来源）');
-  assert.equal(indexPathFor('X:/lib'), path.join(path.resolve('X:/lib'), '.gs-index.bin'), '相对/斜杠形态都要 resolve');
-  assert.equal(indexPathFor(dir + path.sep), path.join(dir, '.gs-index.bin'), '结尾分隔符不影响结果');
+  assert.equal(
+    path.basename(indexPathFor(dir)),
+    GS_INDEX_NAME,
+    '文件名必须来自 GS_INDEX_NAME（单一来源）',
+  );
+  assert.equal(
+    indexPathFor('X:/lib'),
+    path.join(path.resolve('X:/lib'), '.gs-index.bin'),
+    '相对/斜杠形态都要 resolve',
+  );
+  assert.equal(
+    indexPathFor(dir + path.sep),
+    path.join(dir, '.gs-index.bin'),
+    '结尾分隔符不影响结果',
+  );
   assert.throws(() => indexPathFor('   '), throwsCode('INDEX_ROOT_REQUIRED'));
   assert.throws(() => indexPathFor(undefined), throwsCode('INDEX_ROOT_REQUIRED'));
   // 临时名前缀本身也必须落在 .gs- 命名空间里（扫描器会跳过）
@@ -159,8 +171,17 @@ test('L1 indexPathFor：<库根>/.gs-index.bin；空库根 ⇒ INDEX_ROOT_REQUIR
 
 test('L2 ⭐ 命名约束：只允许库根的**直接子项**且名字是 .gs-*（素材路径一律拒）', () => {
   const dir = makeLib('L2');
-  for (const name of ['.gs-index.bin', '.gs-index.bin.tmp-123-1', '.gs-write-probe-1-1', '.gs-db']) {
-    assert.equal(assertWritableGsPath(dir, path.join(dir, name)), path.join(dir, name), name + ' 应放行');
+  for (const name of [
+    '.gs-index.bin',
+    '.gs-index.bin.tmp-123-1',
+    '.gs-write-probe-1-1',
+    '.gs-db',
+  ]) {
+    assert.equal(
+      assertWritableGsPath(dir, path.join(dir, name)),
+      path.join(dir, name),
+      name + ' 应放行',
+    );
     assert.equal(isGsWriteName(name), true);
   }
   const bad = [
@@ -195,7 +216,10 @@ test('L3 ⭐ 原子写入 + 读回：真实索引字节往返，count/dim/header
 
   const w = writeIndexAtomically(dir, bytes, { seq: 1 });
   assert.equal(w.path, indexPathFor(dir));
-  assert.ok(w.tempPath.startsWith(path.join(dir, INDEX_TEMP_PREFIX)), '临时名必须是库根内的 ' + INDEX_TEMP_PREFIX + '<pid>-<seq>');
+  assert.ok(
+    w.tempPath.startsWith(path.join(dir, INDEX_TEMP_PREFIX)),
+    '临时名必须是库根内的 ' + INDEX_TEMP_PREFIX + '<pid>-<seq>',
+  );
   assert.equal(w.bytes, bytes.length);
   assert.equal(w.validated, true, '默认要先过五道校验再 rename');
   assert.equal(w.count, 3594);
@@ -209,7 +233,11 @@ test('L3 ⭐ 原子写入 + 读回：真实索引字节往返，count/dim/header
   assert.equal(r.count, 3594);
   assert.equal(r.dim, 768);
   assert.equal(r.bytes, bytes.length);
-  assert.deepEqual(r.header, readIndexBin(REAL_INDEX).header, '读回的 header 必须与引擎直接读原文件一致');
+  assert.deepEqual(
+    r.header,
+    readIndexBin(REAL_INDEX).header,
+    '读回的 header 必须与引擎直接读原文件一致',
+  );
 
   // 覆盖写一次（同一条路径再写一遍）：仍然只有一份文件、没有残留
   const w2 = writeIndexAtomically(dir, bytes, { seq: 2 });
@@ -225,7 +253,10 @@ test('L4a ⭐ 坏 buffer 不许覆盖好索引：校验不过 ⇒ 报错 + 清�
   if (!bytes) return;
   const dir = makeLib('L4a');
   writeIndexAtomically(dir, bytes, { seq: 1 });
-  const goodDigest = crypto.createHash('sha1').update(fs.readFileSync(indexPathFor(dir))).digest('hex');
+  const goodDigest = crypto
+    .createHash('sha1')
+    .update(fs.readFileSync(indexPathFor(dir)))
+    .digest('hex');
 
   let err = null;
   try {
@@ -239,7 +270,10 @@ test('L4a ⭐ 坏 buffer 不许覆盖好索引：校验不过 ⇒ 报错 + 清�
   assert.match(err.message, /已清理临时文件/, '理由里必须留痕：临时文件已清理');
   assert.deepEqual(tempLeftovers(dir), [], '失败后不许留下 .gs-index.bin.tmp-*');
   assert.equal(
-    crypto.createHash('sha1').update(fs.readFileSync(indexPathFor(dir))).digest('hex'),
+    crypto
+      .createHash('sha1')
+      .update(fs.readFileSync(indexPathFor(dir)))
+      .digest('hex'),
     goodDigest,
     '旧索引必须原样保留',
   );
@@ -288,7 +322,11 @@ test('L4c：连临时文件都删不掉 ⇒ 理由里必须留痕（不许静默
   }
   assert.ok(err instanceof IndexFileError);
   assert.equal(err.code, 'INDEX_WRITE_FAILED');
-  assert.match(err.message, /临时文件未能删除/, '删不掉必须写出来，否则库里会莫名多一个文件而无人知道来源');
+  assert.match(
+    err.message,
+    /临时文件未能删除/,
+    '删不掉必须写出来，否则库里会莫名多一个文件而无人知道来源',
+  );
   assert.equal(fsImpl.calls.write.length, 1);
   assert.ok(fsImpl.calls.write[0].p.includes(INDEX_TEMP_PREFIX), '只写临时名，绝不直接写目标名');
   assert.deepEqual(fsImpl.calls.rename, [], '校验失败时不许 rename');
@@ -299,14 +337,26 @@ test('L4c：连临时文件都删不掉 ⇒ 理由里必须留痕（不许静默
 test('L5 ⭐ 写入只碰 .gs-*：素材的数量/内容/mtime 一个字都不许变', (t) => {
   const bytes = realIndexBytes(t);
   if (!bytes) return;
-  const dir = makeLib('L5', { 'CR/a.jpg': 'AAA', 'CR/a.rar': 'BBB', 'VR/b.jpg': 'CCC', 'VR/x/y.png': 'DDD' });
+  const dir = makeLib('L5', {
+    'CR/a.jpg': 'AAA',
+    'CR/a.rar': 'BBB',
+    'VR/b.jpg': 'CCC',
+    'VR/x/y.png': 'DDD',
+  });
   const before = materialSnapshot(dir);
   const namesBefore = new Set(allFiles(dir).map((f) => f.rel));
 
   writeIndexAtomically(dir, bytes, { seq: 1 });
-  assert.throws(() => writeIndexAtomically(dir, Buffer.from('junk'), { seq: 2 }), throwsCode('INDEX_WRITE_FAILED'));
+  assert.throws(
+    () => writeIndexAtomically(dir, Buffer.from('junk'), { seq: 2 }),
+    throwsCode('INDEX_WRITE_FAILED'),
+  );
 
-  assert.deepEqual(materialSnapshot(dir), before, '素材的相对路径集合、内容与 mtime 都必须完全不变');
+  assert.deepEqual(
+    materialSnapshot(dir),
+    before,
+    '素材的相对路径集合、内容与 mtime 都必须完全不变',
+  );
   const added = allFiles(dir)
     .map((f) => f.rel)
     .filter((rel) => !namesBefore.has(rel));
@@ -324,12 +374,21 @@ test('L5 ⭐ 写入只碰 .gs-*：素材的数量/内容/mtime 一个字都不�
 
 test('L6 readIndexFile：不存在 ⇒ 引擎 INDEX_MISSING；损坏 ⇒ 引擎 INDEX_CORRUPT（原样透传，不包一层）', () => {
   const dir = makeLib('L6');
-  assert.throws(() => readIndexFile(dir), (e) => e && e.code === 'INDEX_MISSING');
+  assert.throws(
+    () => readIndexFile(dir),
+    (e) => e && e.code === 'INDEX_MISSING',
+  );
   fs.writeFileSync(indexPathFor(dir), 'not a gsidx file', 'utf8');
-  assert.throws(() => readIndexFile(dir), (e) => e && e.code === 'INDEX_CORRUPT');
+  assert.throws(
+    () => readIndexFile(dir),
+    (e) => e && e.code === 'INDEX_CORRUPT',
+  );
   // 截断到 8 字节（比 MAGIC+headerLen 还短）同样是 INDEX_CORRUPT，不许"当空索引放过"
   fs.writeFileSync(indexPathFor(dir), Buffer.from('4753494458000001', 'hex'));
-  assert.throws(() => readIndexFile(dir), (e) => e && e.code === 'INDEX_CORRUPT');
+  assert.throws(
+    () => readIndexFile(dir),
+    (e) => e && e.code === 'INDEX_CORRUPT',
+  );
 });
 
 // ============================================================ L7 拒绝非法字节
@@ -339,15 +398,24 @@ test('L7 ⭐ 拒绝 0 字节与非 Uint8Array：不许用"空索引"盖掉好索
   if (!bytes) return;
   const dir = makeLib('L7');
   writeIndexAtomically(dir, bytes, { seq: 1 });
-  const digest = crypto.createHash('sha1').update(fs.readFileSync(indexPathFor(dir))).digest('hex');
+  const digest = crypto
+    .createHash('sha1')
+    .update(fs.readFileSync(indexPathFor(dir)))
+    .digest('hex');
 
-  assert.throws(() => writeIndexAtomically(dir, new Uint8Array(0)), throwsCode('INDEX_BYTES_REQUIRED'));
+  assert.throws(
+    () => writeIndexAtomically(dir, new Uint8Array(0)),
+    throwsCode('INDEX_BYTES_REQUIRED'),
+  );
   assert.throws(() => writeIndexAtomically(dir, 'not bytes'), throwsCode('INDEX_BYTES_REQUIRED'));
   assert.throws(() => writeIndexAtomically(dir, null), throwsCode('INDEX_BYTES_REQUIRED'));
 
   assert.deepEqual(tempLeftovers(dir), []);
   assert.equal(
-    crypto.createHash('sha1').update(fs.readFileSync(indexPathFor(dir))).digest('hex'),
+    crypto
+      .createHash('sha1')
+      .update(fs.readFileSync(indexPathFor(dir)))
+      .digest('hex'),
     digest,
     '被拒的写入不许碰到目标文件',
   );
@@ -377,7 +445,9 @@ test('L9 ⭐⭐ 调用序列证明复用的是**同一份**原子写：只写临
   const fsImpl = fakeFs();
   // 假 fs 额外记一笔 mkdir：库根必须已存在（U6），共享实现**不该**去建它
   const mkdirCalls = [];
-  fsImpl.mkdirSync = (p) => { mkdirCalls.push(p); };
+  fsImpl.mkdirSync = (p) => {
+    mkdirCalls.push(p);
+  };
   const w = writeIndexAtomically(dir, Buffer.from([1, 2, 3, 4]), {
     fs: fsImpl,
     validate: () => ({ count: 7, dim: 8 }),
@@ -386,8 +456,16 @@ test('L9 ⭐⭐ 调用序列证明复用的是**同一份**原子写：只写临
 
   const temp = path.join(dir, INDEX_TEMP_PREFIX + String(process.pid) + '-11');
   assert.equal(w.tempPath, temp, '临时名必须由本模块算好并断言过（再交给共享实现）');
-  assert.deepEqual(fsImpl.calls.write.map((x) => x.p), [temp], '唯一一次写入必须落到临时名上（绝不直接写目标名）');
-  assert.deepEqual(fsImpl.calls.rename, [[temp, indexPathFor(dir)]], 'rename 是 temp → 目标 那一步');
+  assert.deepEqual(
+    fsImpl.calls.write.map((x) => x.p),
+    [temp],
+    '唯一一次写入必须落到临时名上（绝不直接写目标名）',
+  );
+  assert.deepEqual(
+    fsImpl.calls.rename,
+    [[temp, indexPathFor(dir)]],
+    'rename 是 temp → 目标 那一步',
+  );
   assert.deepEqual(fsImpl.calls.unlink, [], '成功路径不需要删任何东西');
   assert.deepEqual(mkdirCalls, [], '库根不许被顺手创建（U6；共享实现没拿到 mkdirSync 就不建）');
   assert.equal(w.validated, true);
@@ -399,21 +477,39 @@ test('L9 ⭐⭐ 调用序列证明复用的是**同一份**原子写：只写临
 test('L10 ⭐⭐ 能红锚点：rename 失败 ⇒ 仍是 IndexFileError(INDEX_WRITE_FAILED) + 清理留痕 + **目标没被写过**', () => {
   const dir = makeLib('L10');
   const fsImpl = fakeFs();
-  fsImpl.renameSync = (a, b) => { fsImpl.calls.rename.push([a, b]); throw mkErr('EPERM', b); };
+  fsImpl.renameSync = (a, b) => {
+    fsImpl.calls.rename.push([a, b]);
+    throw mkErr('EPERM', b);
+  };
 
   let err = null;
   try {
-    writeIndexAtomically(dir, Buffer.from([9, 9, 9]), { fs: fsImpl, validate: () => ({ count: 1, dim: 2 }), seq: 12 });
+    writeIndexAtomically(dir, Buffer.from([9, 9, 9]), {
+      fs: fsImpl,
+      validate: () => ({ count: 1, dim: 2 }),
+      seq: 12,
+    });
   } catch (e) {
     err = e;
   }
   const temp = path.join(dir, INDEX_TEMP_PREFIX + String(process.pid) + '-12');
-  assert.ok(err instanceof IndexFileError, '失败必须仍是本模块的类型（不许把 AtomicWriteError 漏出去）');
+  assert.ok(
+    err instanceof IndexFileError,
+    '失败必须仍是本模块的类型（不许把 AtomicWriteError 漏出去）',
+  );
   assert.equal(err.code, 'INDEX_WRITE_FAILED', '码不许被共享实现的 ATOMIC_* 改名');
   assert.match(err.message, /rename 覆盖失败/, '人话理由要保留');
   assert.match(err.message, /已清理临时文件/, '清理留痕要保留');
-  assert.deepEqual(fsImpl.calls.write.map((x) => x.p), [temp], '只写过临时名 ⇒ 目标名下没有发生过写');
-  assert.deepEqual(fsImpl.calls.rename, [[temp, indexPathFor(dir)]], 'rename 尝试过一次（就是它失败的）');
+  assert.deepEqual(
+    fsImpl.calls.write.map((x) => x.p),
+    [temp],
+    '只写过临时名 ⇒ 目标名下没有发生过写',
+  );
+  assert.deepEqual(
+    fsImpl.calls.rename,
+    [[temp, indexPathFor(dir)]],
+    'rename 尝试过一次（就是它失败的）',
+  );
   assert.deepEqual(fsImpl.calls.unlink, [temp], '失败后必须把临时文件删掉');
   assert.ok(!fsImpl.calls.write.some((x) => x.p === indexPathFor(dir)), '绝不允许直接写目标名');
 });
@@ -425,7 +521,10 @@ test('L11：validateBeforeRename=false 仍然有效（不校验、report 如实�
   const w = writeIndexAtomically(dir, Buffer.from([5, 5]), {
     fs: fsImpl,
     validateBeforeRename: false,
-    validate: () => { called += 1; return { count: 1, dim: 1 }; },
+    validate: () => {
+      called += 1;
+      return { count: 1, dim: 1 };
+    },
     seq: 13,
   });
   assert.equal(called, 0, '关了校验就不该调用校验器');
@@ -433,6 +532,9 @@ test('L11：validateBeforeRename=false 仍然有效（不校验、report 如实�
   assert.equal(w.count, null);
   assert.equal(w.dim, null);
   assert.match(w.reason, /未校验/);
-  assert.deepEqual(fsImpl.calls.write.map((x) => x.p), [path.join(dir, INDEX_TEMP_PREFIX + String(process.pid) + '-13')]);
+  assert.deepEqual(
+    fsImpl.calls.write.map((x) => x.p),
+    [path.join(dir, INDEX_TEMP_PREFIX + String(process.pid) + '-13')],
+  );
   assert.deepEqual(fsImpl.calls.rename.length, 1);
 });

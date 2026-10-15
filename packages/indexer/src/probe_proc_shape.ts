@@ -8,7 +8,10 @@ env.allowLocalModels = true;
 env.allowRemoteModels = false;
 
 const argv = process.argv.slice(2);
-const arg = (n: string, d?: string): string => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : (d as string); };
+const arg = (n: string, d?: string): string => {
+  const i = argv.indexOf('--' + n);
+  return i >= 0 ? argv[i + 1] : (d as string);
+};
 const MODEL_DIR = arg('model') || process.env.GEMMA_ONNX_MODEL;
 const IMG = arg('img');
 const SEQ = parseInt(arg('seq', '140'), 10);
@@ -20,13 +23,28 @@ proc.image_seq_length = SEQ;
 if (proc.image_processor) {
   proc.image_processor.max_soft_tokens = SEQ;
   proc.image_processor.image_seq_length = SEQ;
-  if (proc.image_processor.config) (proc.image_processor.config as ImageProcessorConfigView).image_seq_length = SEQ;
+  if (proc.image_processor.config)
+    (proc.image_processor.config as ImageProcessorConfigView).image_seq_length = SEQ;
 }
 const ip = proc.image_processor;
 console.log('=== JS processor 配置 ===');
-for (const k of ['patch_size', 'max_soft_tokens', 'image_seq_length', 'pooling_kernel_size',
-                 'resample', 'rescale_factor', 'do_normalize', 'do_resize', 'size']) {
-  const v = (ip && k in ip) ? ip[k] : ((ip && ip.config && k in ip.config) ? (ip.config as ImageProcessorConfigView)[k] : undefined);
+for (const k of [
+  'patch_size',
+  'max_soft_tokens',
+  'image_seq_length',
+  'pooling_kernel_size',
+  'resample',
+  'rescale_factor',
+  'do_normalize',
+  'do_resize',
+  'size',
+]) {
+  const v =
+    ip && k in ip
+      ? ip[k]
+      : ip && ip.config && k in ip.config
+        ? (ip.config as ImageProcessorConfigView)[k]
+        : undefined;
   if (v !== undefined) console.log(`  ip.${k} = ${JSON.stringify(v)}`);
 }
 
@@ -39,8 +57,11 @@ const inputs: Record<string, TensorView | undefined> = await proc(null, [img]);
 console.log();
 console.log('=== JS 处理器输出 ===');
 for (const [k, v] of Object.entries(inputs)) {
-  const dims = v && v.dims ? JSON.stringify(v.dims) : (v && v.length !== undefined ? `len=${v.length}` : '?');
-  console.log(`  ${k.padEnd(22)} ${dims}  type=${v && v.type ? v.type : (v && v.constructor ? v.constructor.name : '?')}`);
+  const dims =
+    v && v.dims ? JSON.stringify(v.dims) : v && v.length !== undefined ? `len=${v.length}` : '?';
+  console.log(
+    `  ${k.padEnd(22)} ${dims}  type=${v && v.type ? v.type : v && v.constructor ? v.constructor.name : '?'}`,
+  );
 }
 
 // 像素均值（与 Python 侧对照：那里是 37.30）

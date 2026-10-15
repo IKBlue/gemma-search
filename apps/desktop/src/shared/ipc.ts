@@ -25,19 +25,24 @@ export const CH_EVENT = 'engine:event';
  * （用户临时选的库外查询图，只读 + 扩展名白名单在引擎里）。
  */
 export const Methods = {
-  search: z.object({
-    mode: z.enum(['text', 'image', 'vector']),
-    text: z.string().max(200).optional(),
-    imageRef: z.object({ libId: LibId, uid: Uid }).strict().optional(),
-    queryImagePath: z.string().max(4096).optional(),
-    vector: z.array(z.number()).max(4096).optional(),
-    libIds: z.array(LibId).max(32).optional(),
-    topK: z.number().int().min(1).max(200).optional(),
-    filters: z.object({
-      folders: z.array(z.string().max(64)).max(32).optional(),
-      exts: z.array(z.string().max(16)).max(32).optional(),
-    }).strict().optional(),
-  }).strict(),
+  search: z
+    .object({
+      mode: z.enum(['text', 'image', 'vector']),
+      text: z.string().max(200).optional(),
+      imageRef: z.object({ libId: LibId, uid: Uid }).strict().optional(),
+      queryImagePath: z.string().max(4096).optional(),
+      vector: z.array(z.number()).max(4096).optional(),
+      libIds: z.array(LibId).max(32).optional(),
+      topK: z.number().int().min(1).max(200).optional(),
+      filters: z
+        .object({
+          folders: z.array(z.string().max(64)).max(32).optional(),
+          exts: z.array(z.string().max(16)).max(32).optional(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict(),
 
   item: z.object({ libId: LibId, uid: Uid }).strict(),
 
@@ -65,36 +70,54 @@ export const Methods = {
    *   不许从当前页样本推导（会漏值、且随分页跳动）。
    * · **路径不进契约**：行里只有相对路径；要绝对路径走 `itemPaths`（那条方法的语义就是要路径）。
    */
-  items: z.object({
-    libId: LibId,
-    folder: z.string().max(64).optional(),
-    ext: z.string().max(16).optional(),
-    hasArchive: z.boolean().optional(),
-    /**
-     * 排序键（**12 项**）：relPath(默认) · folder · stem · imageMtime · imageSize · archiveSize，
-     * 每个都能加前缀 - 表示倒序（如 -imageSize = 按体积从大到小）。
-     * ⚠️ **NULL 位次**：imageSize/archiveSize 来自 LEFT JOIN，**无包条目的 archiveSize 是 NULL**（不是 0）。
-     *    实现按 SQLite 默认语义：**正序 NULL 排最前，倒序 NULL 排最后** ⇒ -archiveSize 把无包条目放末尾。
-     */
-    sort: z.enum([
-      'relPath', 'folder', 'stem', 'imageMtime', 'imageSize', 'archiveSize',
-      '-relPath', '-folder', '-stem', '-imageMtime', '-imageSize', '-archiveSize',
-    ]).optional(),
-    offset: z.number().int().min(0).max(1_000_000).optional(),
-    limit: z.number().int().min(1).max(500).optional(),
-  }).strict(),
+  items: z
+    .object({
+      libId: LibId,
+      folder: z.string().max(64).optional(),
+      ext: z.string().max(16).optional(),
+      hasArchive: z.boolean().optional(),
+      /**
+       * 排序键（**12 项**）：relPath(默认) · folder · stem · imageMtime · imageSize · archiveSize，
+       * 每个都能加前缀 - 表示倒序（如 -imageSize = 按体积从大到小）。
+       * ⚠️ **NULL 位次**：imageSize/archiveSize 来自 LEFT JOIN，**无包条目的 archiveSize 是 NULL**（不是 0）。
+       *    实现按 SQLite 默认语义：**正序 NULL 排最前，倒序 NULL 排最后** ⇒ -archiveSize 把无包条目放末尾。
+       */
+      sort: z
+        .enum([
+          'relPath',
+          'folder',
+          'stem',
+          'imageMtime',
+          'imageSize',
+          'archiveSize',
+          '-relPath',
+          '-folder',
+          '-stem',
+          '-imageMtime',
+          '-imageSize',
+          '-archiveSize',
+        ])
+        .optional(),
+      offset: z.number().int().min(0).max(1_000_000).optional(),
+      limit: z.number().int().min(1).max(500).optional(),
+    })
+    .strict(),
 
   indexStatus: z.object({}).strict(),
 
   scan: z.object({ libId: LibId }).strict(),
 
-  reveal: z.object({ libId: LibId, uid: Uid, target: z.enum(['image', 'archive']).optional() }).strict(),
+  reveal: z
+    .object({ libId: LibId, uid: Uid, target: z.enum(['image', 'archive']).optional() })
+    .strict(),
 
-  collect: z.object({
-    libId: LibId,
-    uids: z.array(Uid).min(1).max(200),
-    targetDirName: z.string().max(64).optional(),
-  }).strict(),
+  collect: z
+    .object({
+      libId: LibId,
+      uids: z.array(Uid).min(1).max(200),
+      targetDirName: z.string().max(64).optional(),
+    })
+    .strict(),
 
   // ⚠️⚠️ 2026-10-15 · S6（所有者批准的设计基线 §2.2）：**6 个诚实桩已删除** ——
   //   ingest / mutate / transactions / indexStart / indexCancel / indexResume。
@@ -115,11 +138,13 @@ export const Methods = {
 
   // 注册（或更新）一个库：写 userData 注册表并重建引擎。
   // **不接受任意路径之外的形状**：root 是用户选/拷进来的目录，存在性由主进程校验。
-  libraryAdd: z.object({
-    libId: LibId.optional(),          // 省略则主进程自动分配（L1、L2…）
-    root: z.string().min(1).max(4096),
-    label: z.string().max(64).optional(),
-  }).strict(),
+  libraryAdd: z
+    .object({
+      libId: LibId.optional(), // 省略则主进程自动分配（L1、L2…）
+      root: z.string().min(1).max(4096),
+      label: z.string().max(64).optional(),
+    })
+    .strict(),
 
   /**
    * `libraryHealth` / `libraryRebuild` —— **2026-10-15 所有者批准新增**（SPEC §5 契约表）。
@@ -144,7 +169,9 @@ export const Methods = {
   librarySetEnabled: z.object({ libId: LibId, enabled: z.boolean() }).strict(),
 
   /** 排序：sort_order 越小越靠前（列表与检索顺序都读它） */
-  libraryReorder: z.object({ libId: LibId, sortOrder: z.number().int().min(0).max(100000) }).strict(),
+  libraryReorder: z
+    .object({ libId: LibId, sortOrder: z.number().int().min(0).max(100000) })
+    .strict(),
 
   /**
    * 取消登记（**默认只取消登记，不删任何文件**）；`deleteDb: true` 才删库内的 `.gs-*`。
@@ -157,11 +184,13 @@ export const Methods = {
   /** 白名单（含 is_default）；空数组是**合法**的（那表示「还没有允许的目录」，不是错误） */
   collectDirs: z.object({}).strict(),
 
-  collectDirAdd: z.object({
-    absPath: z.string().min(1).max(4096),
-    label: z.string().min(1).max(64),
-    makeDefault: z.boolean().optional(),
-  }).strict(),
+  collectDirAdd: z
+    .object({
+      absPath: z.string().min(1).max(4096),
+      label: z.string().min(1).max(64),
+      makeDefault: z.boolean().optional(),
+    })
+    .strict(),
 
   collectDirRemove: z.object({ dirId: z.string().min(1).max(128) }).strict(),
 
@@ -206,8 +235,7 @@ export type Envelope<D = unknown> = OkEnvelope<D> | ErrEnvelope;
  * 需要精确类型的地方，调用方请自己用 `Req<'search'>` 这样的具体类型标注（见 `main/index.mjs`）。
  */
 export type ValidateCallResult =
-  | { ok: true; method: MethodName; params: unknown }
-  | { ok: false; reason: string };
+  { ok: true; method: MethodName; params: unknown } | { ok: false; reason: string };
 
 /**
  * 校验一次调用。

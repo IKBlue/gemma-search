@@ -38,15 +38,22 @@ const ISO = '2026-10-13T00:00:00.000Z';
  */
 function seed({ journalDir, txnId = 't1', state, files, indexDone = false }) {
   const rec = {
-    txnId, state, op: 'move-folder', libId: 'lib-a', uid: 'u1', reason: '测试',
-    createdAt: ISO, updatedAt: ISO,
+    txnId,
+    state,
+    op: 'move-folder',
+    libId: 'lib-a',
+    uid: 'u1',
+    reason: '测试',
+    createdAt: ISO,
+    updatedAt: ISO,
     files: files.map((f) => ({
       role: f.role || 'image',
       src: f.src,
       dst: f.dst,
       stage: f.stage === undefined ? stagingPathFor(f.dst, txnId) : f.stage,
       size: f.srcExists === false ? 0 : fs.statSync(f.src).size,
-      sha1: f.sha1,      stagedSha1: f.stagedSha1 ?? null,
+      sha1: f.sha1,
+      stagedSha1: f.stagedSha1 ?? null,
       srcDeleted: f.srcDeleted ?? false,
       _idempotent: false,
     })),
@@ -66,7 +73,15 @@ function putStaging(stagePath, srcPath, corrupt = false) {
 
 function spyIndex(behavior = () => {}) {
   const calls = [];
-  return { calls, port: { update: (c) => { calls.push(c); behavior(c); } } };
+  return {
+    calls,
+    port: {
+      update: (c) => {
+        calls.push(c);
+        behavior(c);
+      },
+    },
+  };
 }
 
 // ══════════════════════════════════════════════════════ §4 的判定表逐条
@@ -75,8 +90,12 @@ test('RC-1 `PREPARED` ⇒ **回退**：清 staging、源不动、落到 ABORTED 
   const { lib, journal } = setup('1');
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
-  const rec = seed({ journalDir: journal, state: S.PREPARED, files: [{ src, dst, sha1: sha1File(src) }] });
-  putStaging(rec.files[0].stage, src);                       // 假装写到一半被杀（日志还停在 PREPARED）
+  const rec = seed({
+    journalDir: journal,
+    state: S.PREPARED,
+    files: [{ src, dst, sha1: sha1File(src) }],
+  });
+  putStaging(rec.files[0].stage, src); // 假装写到一半被杀（日志还停在 PREPARED）
 
   const out = recoverJournal({ journalDir: journal, indexPort: spyIndex().port });
 
@@ -92,7 +111,11 @@ test('RC-2 ⭐ `STAGED` 且校验一致 ⇒ **前进**：rename + 索引 + 清�
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
   const sha = sha1File(src);
-  const rec = seed({ journalDir: journal, state: S.STAGED, files: [{ src, dst, sha1: sha, stagedSha1: sha }] });
+  const rec = seed({
+    journalDir: journal,
+    state: S.STAGED,
+    files: [{ src, dst, sha1: sha, stagedSha1: sha }],
+  });
   putStaging(rec.files[0].stage, src);
 
   const idx = spyIndex();
@@ -111,8 +134,12 @@ test('RC-3 ⭐ `STAGED` 但校验**不一致** ⇒ 回退（清 staging、源不
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
   const sha = sha1File(src);
-  const rec = seed({ journalDir: journal, state: S.STAGED, files: [{ src, dst, sha1: sha, stagedSha1: sha1Of('CORRUPTED-CONTENT') }] });
-  putStaging(rec.files[0].stage, src, true);                 // staging 内容坏了
+  const rec = seed({
+    journalDir: journal,
+    state: S.STAGED,
+    files: [{ src, dst, sha1: sha, stagedSha1: sha1Of('CORRUPTED-CONTENT') }],
+  });
+  putStaging(rec.files[0].stage, src, true); // staging 内容坏了
 
   const out = recoverJournal({ journalDir: journal, indexPort: spyIndex().port });
 
@@ -128,8 +155,12 @@ test('RC-4 ⭐⭐ 判定不唯一（staging 丢失 **且** 源已不在）⇒ `R
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
   const sha = sha1File(src);
-  const rec = seed({ journalDir: journal, state: S.STAGED, files: [{ src, dst, sha1: sha, stagedSha1: sha }] });
-  fs.rmSync(src);                                            // 源没了
+  const rec = seed({
+    journalDir: journal,
+    state: S.STAGED,
+    files: [{ src, dst, sha1: sha, stagedSha1: sha }],
+  });
+  fs.rmSync(src); // 源没了
   // staging 也没落盘（不创建）
   const idx = spyIndex();
   const out = recoverJournal({ journalDir: journal, indexPort: idx.port });
@@ -144,7 +175,11 @@ test('RC-4 ⭐⭐ 判定不唯一（staging 丢失 **且** 源已不在）⇒ `R
   assert.match(p.reason, /不唯一/);
   assert.ok(p.ambiguity.length > 0 && p.ambiguity[0].reason, '要说明"缺什么/为什么不唯一"');
   assert.equal(idx.calls.length, 0, '问人期间绝不动索引');
-  assert.deepEqual(listTxns(journal).txns.map((t) => t.state), [S.RECOVERY_NEEDED], '日志应落在 RECOVERY_NEEDED');
+  assert.deepEqual(
+    listTxns(journal).txns.map((t) => t.state),
+    [S.RECOVERY_NEEDED],
+    '日志应落在 RECOVERY_NEEDED',
+  );
 });
 
 test('RC-5 ⭐ 源与目标都在且**字节不同** ⇒ 同样停下问人（不能挑一个）', () => {
@@ -152,9 +187,13 @@ test('RC-5 ⭐ 源与目标都在且**字节不同** ⇒ 同样停下问人（�
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
   const sha = sha1File(src);
-  const rec = seed({ journalDir: journal, state: S.STAGED, files: [{ src, dst, sha1: sha, stagedSha1: sha }] });
+  const rec = seed({
+    journalDir: journal,
+    state: S.STAGED,
+    files: [{ src, dst, sha1: sha, stagedSha1: sha }],
+  });
   putStaging(rec.files[0].stage, src);
-  fs.copyFileSync(path.join(lib, 'VR', 'VR-103.jpg'), dst);   // 目标已存在，内容不同
+  fs.copyFileSync(path.join(lib, 'VR', 'VR-103.jpg'), dst); // 目标已存在，内容不同
 
   const out = recoverJournal({ journalDir: journal, indexPort: spyIndex().port });
   assert.equal(out.summary.recoveryNeeded, 1);
@@ -167,9 +206,14 @@ test('RC-6 ⭐ `COMMITTED` 但索引未更新 ⇒ **只补索引**，然后清�
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
   const sha = sha1File(src);
-  const rec = seed({ journalDir: journal, state: S.COMMITTED, indexDone: false, files: [{ src, dst, sha1: sha, stagedSha1: sha }] });
+  const rec = seed({
+    journalDir: journal,
+    state: S.COMMITTED,
+    indexDone: false,
+    files: [{ src, dst, sha1: sha, stagedSha1: sha }],
+  });
   fs.mkdirSync(path.dirname(dst), { recursive: true });
-  fs.renameSync(src, dst);                                   // 已经 rename 完了（源不在、目标在）
+  fs.renameSync(src, dst); // 已经 rename 完了（源不在、目标在）
   fs.rmSync(rec.files[0].stage, { force: true });
 
   const idx = spyIndex();
@@ -186,7 +230,11 @@ test('RC-7 ⭐⭐ **幂等**：同一条事务恢复两次，第二次什么也�
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
   const sha = sha1File(src);
-  const rec = seed({ journalDir: journal, state: S.STAGED, files: [{ src, dst, sha1: sha, stagedSha1: sha }] });
+  const rec = seed({
+    journalDir: journal,
+    state: S.STAGED,
+    files: [{ src, dst, sha1: sha, stagedSha1: sha }],
+  });
   putStaging(rec.files[0].stage, src);
 
   const idx1 = spyIndex();
@@ -206,7 +254,7 @@ test('RC-7 ⭐⭐ **幂等**：同一条事务恢复两次，第二次什么也�
 test('RC-8 终态（CLEANED / ABORTED）⇒ **只归档、不动文件**', () => {
   const { lib, journal } = setup('8');
   const src = path.join(lib, 'VR', 'VR-101.jpg');
-  const dst = path.join(lib, 'VR', 'VR-103.jpg');            // 另一个**存在**的文件（VR-103 在 VR/ 下）
+  const dst = path.join(lib, 'VR', 'VR-103.jpg'); // 另一个**存在**的文件（VR-103 在 VR/ 下）
   const sha = sha1File(src);
   seed({ journalDir: journal, txnId: 'c1', state: S.CLEANED, files: [{ src, dst, sha1: sha }] });
   seed({ journalDir: journal, txnId: 'a1', state: S.ABORTED, files: [{ src, dst, sha1: sha }] });
@@ -226,11 +274,22 @@ test('RC-9 索引端口在恢复时失败 ⇒ **停下报出来**，绝不当成
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
   const sha = sha1File(src);
-  const rec = seed({ journalDir: journal, state: S.COMMITTED, files: [{ src, dst, sha1: sha, stagedSha1: sha }] });
+  const rec = seed({
+    journalDir: journal,
+    state: S.COMMITTED,
+    files: [{ src, dst, sha1: sha, stagedSha1: sha }],
+  });
   fs.mkdirSync(path.dirname(dst), { recursive: true });
   fs.renameSync(src, dst);
 
-  const out = recoverJournal({ journalDir: journal, indexPort: { update: () => { throw new Error('索引盘满了'); } } });
+  const out = recoverJournal({
+    journalDir: journal,
+    indexPort: {
+      update: () => {
+        throw new Error('索引盘满了');
+      },
+    },
+  });
 
   assert.equal(out.summary.recoveryNeeded, 1);
   assert.equal(exists(src), false, '源已在 rename 阶段就没了（这一步回不去）');
@@ -262,7 +321,8 @@ test('RC-11 多文件事务：只 rename 了一半 ⇒ 恢复把**另一半也�
   const imgSha = sha1File(img);
   const arcSha = sha1File(arc);
   const rec = seed({
-    journalDir: journal, state: S.VERIFIED,
+    journalDir: journal,
+    state: S.VERIFIED,
     files: [
       { role: 'image', src: img, dst: imgDst, sha1: imgSha, stagedSha1: imgSha },
       { role: 'archive', src: arc, dst: arcDst, sha1: arcSha, stagedSha1: arcSha },
@@ -271,7 +331,7 @@ test('RC-11 多文件事务：只 rename 了一半 ⇒ 恢复把**另一半也�
   // 摆成"图已 rename、包还没"（§8 第 6 例）
   fs.mkdirSync(path.dirname(imgDst), { recursive: true });
   fs.renameSync(img, imgDst);
-  putStaging(rec.files[1].stage, arc);                       // 包的 staging 还在
+  putStaging(rec.files[1].stage, arc); // 包的 staging 还在
 
   const idx = spyIndex();
   const out = recoverJournal({ journalDir: journal, indexPort: idx.port });
@@ -294,11 +354,28 @@ test('RC-13 ⭐⭐ 记录**不完整**（缺 `sha1`）⇒ 停下问人，**不�
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
   const stage = stagingPathFor(dst, 't1');
   const raw = {
-    txnId: 't1', state: S.STAGED, op: 'move-folder', libId: 'lib-a', uid: 'u1',
-    createdAt: ISO, updatedAt: ISO,
+    txnId: 't1',
+    state: S.STAGED,
+    op: 'move-folder',
+    libId: 'lib-a',
+    uid: 'u1',
+    createdAt: ISO,
+    updatedAt: ISO,
     // ⚠️ 刻意**不写** sha1
-    files: [{ role: 'image', src, dst, stage, size: 1, stagedSha1: sha1File(src), srcDeleted: false, _idempotent: false }],
-    indexUpdate: { done: false }, undoOf: null,
+    files: [
+      {
+        role: 'image',
+        src,
+        dst,
+        stage,
+        size: 1,
+        stagedSha1: sha1File(src),
+        srcDeleted: false,
+        _idempotent: false,
+      },
+    ],
+    indexUpdate: { done: false },
+    undoOf: null,
   };
   fs.writeFileSync(path.join(journal, 'txn-t1.json'), JSON.stringify(raw, null, 2), 'utf8');
   fs.mkdirSync(path.dirname(stage), { recursive: true });
@@ -317,16 +394,28 @@ test('RC-13 ⭐⭐ 记录**不完整**（缺 `sha1`）⇒ 停下问人，**不�
 
 test('RC-14 `writeTxn` 拒绝结构不完整的记录（在**写的时候**就炸，不留半截档案）', () => {
   const { journal } = setup('14');
-  assert.throws(() => writeTxn(journal, { state: S.PREPARED, files: [] }), /txnId/, '缺 txnId 要炸');
+  assert.throws(
+    () => writeTxn(journal, { state: S.PREPARED, files: [] }),
+    /txnId/,
+    '缺 txnId 要炸',
+  );
   assert.throws(() => writeTxn(journal, { txnId: 'x', files: [] }), /state/, '缺 state 要炸');
-  assert.throws(() => writeTxn(journal, { txnId: 'x', state: S.PREPARED }), /files/, '缺 files 要炸');
+  assert.throws(
+    () => writeTxn(journal, { txnId: 'x', state: S.PREPARED }),
+    /files/,
+    '缺 files 要炸',
+  );
 });
 
 test('RC-12 恢复报告**不静默**：有未完成事务时 summary/pending 必须给得出东西', () => {
   const { lib, journal } = setup('12');
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
-  const rec = seed({ journalDir: journal, state: S.PREPARED, files: [{ src, dst, sha1: sha1File(src) }] });
+  const rec = seed({
+    journalDir: journal,
+    state: S.PREPARED,
+    files: [{ src, dst, sha1: sha1File(src) }],
+  });
   const out = recoverJournal({ journalDir: journal, indexPort: spyIndex().port });
   assert.equal(out.summary.scanned, 1, '要能说清"扫了几条"');
   assert.ok(rec.txnId, '（占位，确保 seed 真的写了东西）');

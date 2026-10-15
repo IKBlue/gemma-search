@@ -35,7 +35,11 @@ import { codeOf, messageOf } from './errors.ts';
 import { resolveIndexLocation } from '../../../../packages/engine/src/index-layout.ts';
 import { GS_DB_NAME, GS_INDEX_NAME, resolveLibraryStorage } from './storage-roots.ts';
 import type { LibraryStorage, LibraryRootInput, StorageFs } from './storage-roots.ts';
-import { ASSET_ITEM_SELECT_ALL_SQL, ASSET_ITEM_SELECT_ONE_SQL, joinedRowToItemRecord } from './db/row-types.ts';
+import {
+  ASSET_ITEM_SELECT_ALL_SQL,
+  ASSET_ITEM_SELECT_ONE_SQL,
+  joinedRowToItemRecord,
+} from './db/row-types.ts';
 import { openGsDb } from './db/open.ts';
 import type { SqlDatabase } from './db/sqlite-adapter.ts';
 import { readIndexBinAt } from './index-file.ts';
@@ -152,7 +156,8 @@ export function createLibraryResolverPort(opts: LibraryResolverPortOptions): Lib
   }
 
   return {
-    list: () => [...entries.values()].map((e) => ({ libId: e.libId, label: e.label, root: e.root })),
+    list: () =>
+      [...entries.values()].map((e) => ({ libId: e.libId, label: e.label, root: e.root })),
     has: (libId: string): boolean => entries.has(libId),
     get: (libId: string) => {
       const e = requireEntry(libId);
@@ -161,14 +166,19 @@ export function createLibraryResolverPort(opts: LibraryResolverPortOptions): Lib
     requireExistingRoot: (libId: string): void => {
       const e = requireEntry(libId);
       if (!isDir(e.root)) {
-        throw fail(ERR.LIB_ROOT_MISSING, '库根不存在或不是目录：' + e.root, { libId: e.libId, root: e.root });
+        throw fail(ERR.LIB_ROOT_MISSING, '库根不存在或不是目录：' + e.root, {
+          libId: e.libId,
+          root: e.root,
+        });
       }
     },
     storageOf: (libId: string): LibraryStorageLayout => {
       const e = requireEntry(libId);
       const s = storageFor(libId);
       if (s.root === null) {
-        throw fail(ERR.LIB_ROOT_MISSING, '这个库没有可用的 .gs-* 落点：' + s.reason, { libId: e.libId });
+        throw fail(ERR.LIB_ROOT_MISSING, '这个库没有可用的 .gs-* 落点：' + s.reason, {
+          libId: e.libId,
+        });
       }
       // 索引落点：**唯一判据**在引擎（index-layout.ts）—— 新布局优先、旧布局回退。
       // ⚠️ 体检也用同一个函数 ⇒ 「引擎能跑、体检查不到」这类口径分裂不会再出现（T-44）。
@@ -305,7 +315,9 @@ function readItemsFromDb(
     const rows = db.prepare(sql).all(...params);
     return rows.map((row, i) => {
       try {
-        return toIndexItem(joinedRowToItemRecord(row, root, '.gs.db ' + libId + ' asset[' + String(i) + ']'));
+        return toIndexItem(
+          joinedRowToItemRecord(row, root, '.gs.db ' + libId + ' asset[' + String(i) + ']'),
+        );
       } catch (e) {
         // 列被改过 / 库损坏：读路径也要响亮（不能让错值溜进检索结果）
         throw asEngineError(e, '读 asset 行失败：' + dbPath);
@@ -365,13 +377,17 @@ export function createItemStorePort(opts: ItemStorePortOptions): ItemStorePort {
   return {
     listItems: (libId: string): IndexItem[] => {
       const layout = libraries.storageOf(libId);
-      if (fsImpl.existsSync(layout.dbPath)) return readItemsFromDb(layout.dbPath, libId, libraries.get(libId).root, selectAll, [libId]);
+      if (fsImpl.existsSync(layout.dbPath))
+        return readItemsFromDb(layout.dbPath, libId, libraries.get(libId).root, selectAll, [libId]);
       return readFromJson(libId, '没有 .gs.db（' + layout.dbPath + '）');
     },
     getItem: (libId: string, uid: string): IndexItem | null => {
       const layout = libraries.storageOf(libId);
       if (fsImpl.existsSync(layout.dbPath)) {
-        const rows = readItemsFromDb(layout.dbPath, libId, libraries.get(libId).root, selectOne, [libId, uid]);
+        const rows = readItemsFromDb(layout.dbPath, libId, libraries.get(libId).root, selectOne, [
+          libId,
+          uid,
+        ]);
         return rows.length ? rows[0] : null;
       }
       const items = readFromJson(libId, '没有 .gs.db（' + layout.dbPath + '）');

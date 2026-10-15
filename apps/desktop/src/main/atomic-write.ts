@@ -46,10 +46,18 @@ export function writeFileSynced(p: string, data: Uint8Array): void {
 
 /** 真实文件系统（生产默认） */
 export const NODE_ATOMIC_FS: AtomicFs = Object.freeze({
-  mkdirSync: (p: string, options: { recursive: true }): void => { fs.mkdirSync(p, options); },
-  writeFileSyncedSync: (p: string, data: Uint8Array): void => { writeFileSynced(p, data); },
-  renameSync: (from: string, to: string): void => { fs.renameSync(from, to); },
-  unlinkSync: (p: string): void => { fs.unlinkSync(p); },
+  mkdirSync: (p: string, options: { recursive: true }): void => {
+    fs.mkdirSync(p, options);
+  },
+  writeFileSyncedSync: (p: string, data: Uint8Array): void => {
+    writeFileSynced(p, data);
+  },
+  renameSync: (from: string, to: string): void => {
+    fs.renameSync(from, to);
+  },
+  unlinkSync: (p: string): void => {
+    fs.unlinkSync(p);
+  },
   existsSync: (p: string): boolean => fs.existsSync(p),
 });
 
@@ -112,11 +120,17 @@ export function writeFileAtomicSync(
 ): AtomicWriteReport {
   const fsImpl = opts.fs ?? NODE_ATOMIC_FS;
   if (!(bytes instanceof Uint8Array)) {
-    throw new AtomicWriteError('ATOMIC_BYTES_REQUIRED', '原子写要求 Uint8Array，实得 ' + typeof bytes);
+    throw new AtomicWriteError(
+      'ATOMIC_BYTES_REQUIRED',
+      '原子写要求 Uint8Array，实得 ' + typeof bytes,
+    );
   }
   if (bytes.length === 0) {
     // 0 字节 = 必然损坏的文件；写下去只会把一份好文件（若有）换成坏的
-    throw new AtomicWriteError('ATOMIC_BYTES_REQUIRED', '拒绝原子写 0 字节：那会把好文件换成必然损坏的文件');
+    throw new AtomicWriteError(
+      'ATOMIC_BYTES_REQUIRED',
+      '拒绝原子写 0 字节：那会把好文件换成必然损坏的文件',
+    );
   }
   const dir = path.dirname(target);
   const base = path.basename(target);
@@ -128,7 +142,8 @@ export function writeFileAtomicSync(
     throw new AtomicWriteError(
       'ATOMIC_TEMP_OUTSIDE_DIR',
       '临时文件必须与目标同目录（同卷 rename 才原子）：' + temp + ' vs ' + target,
-      '', temp,
+      '',
+      temp,
     );
   }
 
@@ -150,7 +165,12 @@ export function writeFileAtomicSync(
     try {
       fsImpl.mkdirSync(dir, { recursive: true });
     } catch (e) {
-      throw new AtomicWriteError('ATOMIC_MKDIR_FAILED', '建目录失败：' + dir + '（' + reasonOf(e) + '）', reasonOf(e), temp);
+      throw new AtomicWriteError(
+        'ATOMIC_MKDIR_FAILED',
+        '建目录失败：' + dir + '（' + reasonOf(e) + '）',
+        reasonOf(e),
+        temp,
+      );
     }
   }
 
@@ -160,7 +180,8 @@ export function writeFileAtomicSync(
     throw new AtomicWriteError(
       'ATOMIC_WRITE_FAILED',
       '写临时文件失败：' + temp + '（' + reasonOf(e) + '）' + cleanupNote(),
-      reasonOf(e), temp,
+      reasonOf(e),
+      temp,
     );
   }
 
@@ -171,7 +192,8 @@ export function writeFileAtomicSync(
       throw new AtomicWriteError(
         'ATOMIC_VALIDATE_FAILED',
         '落盘内容没通过校验 ⇒ **放弃覆盖原文件**（原文件原样保留）：' + reasonOf(e) + cleanupNote(),
-        reasonOf(e), temp,
+        reasonOf(e),
+        temp,
       );
     }
   }
@@ -182,7 +204,8 @@ export function writeFileAtomicSync(
     throw new AtomicWriteError(
       'ATOMIC_RENAME_FAILED',
       'rename 覆盖失败：' + target + '（' + reasonOf(e) + '）' + cleanupNote(),
-      reasonOf(e), temp,
+      reasonOf(e),
+      temp,
     );
   }
   return { target, tempPath: temp, bytes: bytes.length };

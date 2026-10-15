@@ -13,12 +13,36 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
-  S, FORWARD, TERMINAL, isTerminal, nextOf, canTransition, canCancel, recoveryActionOf, isAmbiguous, ACTION,
+  S,
+  FORWARD,
+  TERMINAL,
+  isTerminal,
+  nextOf,
+  canTransition,
+  canCancel,
+  recoveryActionOf,
+  isAmbiguous,
+  ACTION,
 } from '../src/transactions/states.ts';
 import {
-  makeTxnId, txnFileName, txnPath, writeTxn, readTxn, listTxns, withState, archiveTxn, ensureJournalDir,
+  makeTxnId,
+  txnFileName,
+  txnPath,
+  writeTxn,
+  readTxn,
+  listTxns,
+  withState,
+  archiveTxn,
+  ensureJournalDir,
 } from '../src/transactions/journal.ts';
-import { createTxnExecutor, preflight, checkSpace, freeBytesOn, stagingPathFor, CRASH_POINTS } from '../src/transactions/executor.ts';
+import {
+  createTxnExecutor,
+  preflight,
+  checkSpace,
+  freeBytesOn,
+  stagingPathFor,
+  CRASH_POINTS,
+} from '../src/transactions/executor.ts';
 import { sha1File } from '../src/transactions/hash.ts';
 
 const FIXTURE = path.resolve('fixtures/lib-a');
@@ -38,7 +62,14 @@ function setup(tag) {
 /** 记录索引端口收到的调用 */
 function spyIndex() {
   const calls = [];
-  return { calls, port: { update: (c) => { calls.push(c); } } };
+  return {
+    calls,
+    port: {
+      update: (c) => {
+        calls.push(c);
+      },
+    },
+  };
 }
 
 const exists = (p) => fs.existsSync(p);
@@ -47,11 +78,19 @@ const exists = (p) => fs.existsSync(p);
 
 test('TX-S1 主链只能**前进一步**，不许跳步（跳步会把中间的校验整段跳过）', () => {
   for (let i = 0; i < FORWARD.length - 1; i += 1) {
-    assert.equal(canTransition(FORWARD[i], FORWARD[i + 1]), true, `${FORWARD[i]}→${FORWARD[i + 1]} 应允许`);
+    assert.equal(
+      canTransition(FORWARD[i], FORWARD[i + 1]),
+      true,
+      `${FORWARD[i]}→${FORWARD[i + 1]} 应允许`,
+    );
     assert.equal(nextOf(FORWARD[i]), FORWARD[i + 1]);
   }
   assert.equal(canTransition(S.PREPARED, S.VERIFIED), false, 'PREPARED→VERIFIED 是跳步，必须拒绝');
-  assert.equal(canTransition(S.STAGED, S.COMMITTED), false, 'STAGED→COMMITTED 跳过了校验，必须拒绝');
+  assert.equal(
+    canTransition(S.STAGED, S.COMMITTED),
+    false,
+    'STAGED→COMMITTED 跳过了校验，必须拒绝',
+  );
   assert.equal(nextOf(S.CLEANED), null, '终态没有下一步');
 });
 
@@ -83,26 +122,70 @@ test('TX-S5 ⭐ 恢复判定表（§4）逐态对齐 —— 这张表决定"进�
   assert.equal(recoveryActionOf(S.STAGED), ACTION.VERIFY, '§4：STAGED → 校验 staging');
   assert.equal(recoveryActionOf(S.VERIFIED), ACTION.ADVANCE, '§4：VERIFIED → 前进');
   assert.equal(recoveryActionOf(S.COMMITTED), ACTION.ADVANCE, '§4：COMMITTED → 前进（更新索引）');
-  assert.equal(recoveryActionOf(S.RECOVERY_NEEDED), ACTION.ASK_HUMAN, '判定不唯一 ⇒ 停下问人，绝不猜');
+  assert.equal(
+    recoveryActionOf(S.RECOVERY_NEEDED),
+    ACTION.ASK_HUMAN,
+    '判定不唯一 ⇒ 停下问人，绝不猜',
+  );
   assert.equal(recoveryActionOf(S.CLEANED), ACTION.ARCHIVE);
   assert.equal(recoveryActionOf(S.ABORTED), ACTION.ARCHIVE);
   // 认不出的状态**不许猜** —— 归到"问人"
-  assert.equal(recoveryActionOf('SOMETHING_NEW'), ACTION.ASK_HUMAN, '未知状态必须交给人，不许默认成前进');
+  assert.equal(
+    recoveryActionOf('SOMETHING_NEW'),
+    ACTION.ASK_HUMAN,
+    '未知状态必须交给人，不许默认成前进',
+  );
 });
 
 test('TX-S6 ⭐ 歧义判定（§4）：只有两种情形该停下问人，且**不能把"已完成"误判成歧义**', () => {
   // 情形一：源与目标都在且字节不同
-  assert.equal(isAmbiguous({ srcExists: true, dstExists: true, sameBytes: false, stagingExists: true }), true);
+  assert.equal(
+    isAmbiguous({ srcExists: true, dstExists: true, sameBytes: false, stagingExists: true }),
+    true,
+  );
   // 情形二：staging 丢了、源也没了，**且目标不是期望的内容** ⇒ 数据去向不明
-  assert.equal(isAmbiguous({ srcExists: false, dstExists: false, sameBytes: null, stagingExists: false, dstHasExpectedBytes: null }), true);
-  assert.equal(isAmbiguous({ srcExists: false, dstExists: true, sameBytes: null, stagingExists: false, dstHasExpectedBytes: false }), true);
+  assert.equal(
+    isAmbiguous({
+      srcExists: false,
+      dstExists: false,
+      sameBytes: null,
+      stagingExists: false,
+      dstHasExpectedBytes: null,
+    }),
+    true,
+  );
+  assert.equal(
+    isAmbiguous({
+      srcExists: false,
+      dstExists: true,
+      sameBytes: null,
+      stagingExists: false,
+      dstHasExpectedBytes: false,
+    }),
+    true,
+  );
   // ⭐⭐ 关键的反面：staging 丢了、源也不在，但**目标就是期望的字节** ⇒ rename 已成功，不是歧义
-  assert.equal(isAmbiguous({ srcExists: false, dstExists: true, sameBytes: null, stagingExists: false, dstHasExpectedBytes: true }), false,
-    'COMMITTED 状态（已完成 rename）绝不能被判成"不唯一" —— 否则正常事务永远走不完');
+  assert.equal(
+    isAmbiguous({
+      srcExists: false,
+      dstExists: true,
+      sameBytes: null,
+      stagingExists: false,
+      dstHasExpectedBytes: true,
+    }),
+    false,
+    'COMMITTED 状态（已完成 rename）绝不能被判成"不唯一" —— 否则正常事务永远走不完',
+  );
   // 正常情形不该误报
-  assert.equal(isAmbiguous({ srcExists: true, dstExists: true, sameBytes: true, stagingExists: true }), false);
-  assert.equal(isAmbiguous({ srcExists: true, dstExists: false, sameBytes: null, stagingExists: false }), false,
-    'staging 丢了但源还在 ⇒ 可以安全回退，不该问人');
+  assert.equal(
+    isAmbiguous({ srcExists: true, dstExists: true, sameBytes: true, stagingExists: true }),
+    false,
+  );
+  assert.equal(
+    isAmbiguous({ srcExists: true, dstExists: false, sameBytes: null, stagingExists: false }),
+    false,
+    'staging 丢了但源还在 ⇒ 可以安全回退，不该问人',
+  );
 });
 
 // ══════════════════════════════════════════════════════ 日志（§1）
@@ -164,7 +247,12 @@ test('TX-E1 正常移动走完七步：CLEANED · 源已删 · 目标字节一�
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
   const before = sha1File(src);
 
-  const r = ex.runMove({ libId: 'lib-a', uid: 'a1', op: 'move-folder', files: [{ role: 'image', src, dst }] });
+  const r = ex.runMove({
+    libId: 'lib-a',
+    uid: 'a1',
+    op: 'move-folder',
+    files: [{ role: 'image', src, dst }],
+  });
 
   assert.equal(r.outcome, 'committed');
   assert.equal(exists(src), false, '§3 ⑦：CLEANED 之后源才被删');
@@ -173,27 +261,42 @@ test('TX-E1 正常移动走完七步：CLEANED · 源已删 · 目标字节一�
   assert.equal(idx.calls.length, 1, '§3 ⑥：索引恰好更新一次');
   assert.equal(idx.calls[0].txnId, r.txnId);
   assert.equal(exists(path.join(lib, 'CR', '.gs-staging')), false, 'staging 目录不该留在素材库里');
-  assert.deepEqual(listTxns(journal).txns.map((t) => t.state), [S.CLEANED]);
+  assert.deepEqual(
+    listTxns(journal).txns.map((t) => t.state),
+    [S.CLEANED],
+  );
 });
 
 test('TX-E2 ⭐⭐ 规则①：**索引更新失败 ⇒ 源绝不能删**（否则"文件没了、索引还指着它"）', () => {
   const { lib, journal } = setup('e2');
   const ex = createTxnExecutor({
     journalDir: journal,
-    indexPort: { update: () => { throw new Error('索引写坏了'); } },
+    indexPort: {
+      update: () => {
+        throw new Error('索引写坏了');
+      },
+    },
   });
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
   const before = sha1File(src);
 
-  const r = ex.runMove({ libId: 'lib-a', uid: 'a1', op: 'move-folder', files: [{ role: 'image', src, dst }] });
+  const r = ex.runMove({
+    libId: 'lib-a',
+    uid: 'a1',
+    op: 'move-folder',
+    files: [{ role: 'image', src, dst }],
+  });
 
   assert.equal(r.outcome, 'recovery_needed', '索引失败必须停在需要恢复，而不是"成功"');
   assert.equal(exists(src), true, '⭐ 规则①：索引没更新成功，源**必须还在**');
   assert.equal(sha1File(src), before, '而且字节没变');
   assert.equal(exists(dst), true, '目标已经是最终名（这一步已经做完了）—— 所以只能前进，不能回退');
   // 日志状态：COMMITTED 之后才更新索引 ⇒ 失败时停在 RECOVERY_NEEDED
-  assert.deepEqual(listTxns(journal).txns.map((t) => t.state), [S.RECOVERY_NEEDED]);
+  assert.deepEqual(
+    listTxns(journal).txns.map((t) => t.state),
+    [S.RECOVERY_NEEDED],
+  );
 });
 
 test('TX-E3 ⭐⭐ 规则②：目标已存在且**字节不同** ⇒ 拒绝，且**一个字节都不许动**', () => {
@@ -201,10 +304,15 @@ test('TX-E3 ⭐⭐ 规则②：目标已存在且**字节不同** ⇒ 拒绝，�
   const idx = spyIndex();
   const ex = createTxnExecutor({ journalDir: journal, indexPort: idx.port });
   const src = path.join(lib, 'VR', 'VR-101.jpg');
-  const dst = path.join(lib, 'VR', 'VR-103.jpg');        // 已存在，且内容不同
+  const dst = path.join(lib, 'VR', 'VR-103.jpg'); // 已存在，且内容不同
   const dstBefore = sha1File(dst);
 
-  const r = ex.runMove({ libId: 'lib-a', uid: 'a1', op: 'rename-id', files: [{ role: 'image', src, dst }] });
+  const r = ex.runMove({
+    libId: 'lib-a',
+    uid: 'a1',
+    op: 'rename-id',
+    files: [{ role: 'image', src, dst }],
+  });
 
   assert.equal(r.outcome, 'aborted');
   assert.match(r.detail, /占用|不同/);
@@ -220,10 +328,15 @@ test('TX-E3b ⭐ 规则②的**幂等**那一半：目标字节相同 ⇒ 视为
   const ex = createTxnExecutor({ journalDir: journal, indexPort: idx.port });
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
-  fs.copyFileSync(src, dst);                              // 目标已是同一份内容
+  fs.copyFileSync(src, dst); // 目标已是同一份内容
   const srcSha = sha1File(src);
 
-  const r = ex.runMove({ libId: 'lib-a', uid: 'a1', op: 'move-folder', files: [{ role: 'image', src, dst }] });
+  const r = ex.runMove({
+    libId: 'lib-a',
+    uid: 'a1',
+    op: 'move-folder',
+    files: [{ role: 'image', src, dst }],
+  });
 
   assert.equal(r.outcome, 'committed', '同内容 ⇒ 幂等命中，不该当成"被占用"而失败');
   assert.equal(sha1File(dst), srcSha, '目标内容不变');
@@ -237,7 +350,12 @@ test('TX-E3c ⭐⭐ `src === dst` 必须被拒绝（否则"幂等命中 + 清源
   const p = path.join(lib, 'VR', 'VR-101.jpg');
   const before = sha1File(p);
 
-  const r = ex.runMove({ libId: 'lib-a', uid: 'a1', op: 'rename-id', files: [{ role: 'image', src: p, dst: p }] });
+  const r = ex.runMove({
+    libId: 'lib-a',
+    uid: 'a1',
+    op: 'rename-id',
+    files: [{ role: 'image', src: p, dst: p }],
+  });
 
   assert.equal(r.outcome, 'aborted');
   assert.match(r.detail, /源与目标相同/);
@@ -249,8 +367,16 @@ test('TX-E4 预检：源不存在 ⇒ 不写日志、不动任何东西', () => 
   const { lib, journal } = setup('e4');
   const ex = createTxnExecutor({ journalDir: journal, indexPort: spyIndex().port });
   const r = ex.runMove({
-    libId: 'lib-a', uid: 'a1', op: 'move-folder',
-    files: [{ role: 'image', src: path.join(lib, 'VR', '不存在.jpg'), dst: path.join(lib, 'CR', 'x.jpg') }],
+    libId: 'lib-a',
+    uid: 'a1',
+    op: 'move-folder',
+    files: [
+      {
+        role: 'image',
+        src: path.join(lib, 'VR', '不存在.jpg'),
+        dst: path.join(lib, 'CR', 'x.jpg'),
+      },
+    ],
   });
   assert.equal(r.outcome, 'aborted');
   assert.equal(r.rec, null, '预检失败不该产生事务记录');
@@ -262,8 +388,16 @@ test('TX-E4b 多文件事务：图 + 包一起移动，两条都要到目标、�
   const idx = spyIndex();
   const ex = createTxnExecutor({ journalDir: journal, indexPort: idx.port });
   const files = [
-    { role: 'image', src: path.join(lib, 'VR', 'VR-101.jpg'), dst: path.join(lib, 'CR', 'VR-101.jpg') },
-    { role: 'archive', src: path.join(lib, 'VR', 'VR-101.rar'), dst: path.join(lib, 'CR', 'VR-101.rar') },
+    {
+      role: 'image',
+      src: path.join(lib, 'VR', 'VR-101.jpg'),
+      dst: path.join(lib, 'CR', 'VR-101.jpg'),
+    },
+    {
+      role: 'archive',
+      src: path.join(lib, 'VR', 'VR-101.rar'),
+      dst: path.join(lib, 'CR', 'VR-101.rar'),
+    },
   ];
   const shas = files.map((f) => sha1File(f.src));
   const r = ex.runMove({ libId: 'lib-a', uid: 'a1', op: 'move-folder', files });
@@ -310,8 +444,11 @@ test('TX-C3 没有 PREPARED 就不该有日志：空间不足时事务根本不�
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
   const r = ex.runMove({
-    libId: 'lib-a', uid: 'a1', op: 'move-folder',
-    files: [{ role: 'image', src, dst }], extraBytes: Number.MAX_SAFE_INTEGER,
+    libId: 'lib-a',
+    uid: 'a1',
+    op: 'move-folder',
+    files: [{ role: 'image', src, dst }],
+    extraBytes: Number.MAX_SAFE_INTEGER,
   });
   assert.equal(r.outcome, 'aborted');
   assert.equal(r.rec, null);
@@ -324,18 +461,31 @@ test('TX-C3 没有 PREPARED 就不该有日志：空间不足时事务根本不�
 test('TX-P1 staging 路径形态与 §1 示例一致：落在**目标目录**下的 `.gs-staging/<txnId>/`', () => {
   // ⚠️ 刻意**不写任何字面盘符**（§7/P3：不把本机绝对路径写进代码）。卷根从当前环境派生，
   //    断言的仍然是"staging 落在目标文件所在目录下"这个**形状**。
-  const root = path.parse(process.cwd()).root;          // 当前卷根，本文件里不出现任何盘符字面量
+  const root = path.parse(process.cwd()).root; // 当前卷根，本文件里不出现任何盘符字面量
   const dst = path.join(root, 'lib', 'VR', 'ID-1.jpg');
   const p = stagingPathFor(dst, 'txnX');
   assert.equal(p, path.join(root, 'lib', 'VR', '.gs-staging', 'txnX', 'ID-1.jpg'));
-  assert.equal(path.dirname(p).startsWith(path.dirname(dst)), true, 'staging 必须在目标**同卷同目录**下（§3 ⑤ 的同卷 rename 依赖它）');
+  assert.equal(
+    path.dirname(p).startsWith(path.dirname(dst)),
+    true,
+    'staging 必须在目标**同卷同目录**下（§3 ⑤ 的同卷 rename 依赖它）',
+  );
 });
 
 test('TX-P2 注入点清单覆盖 §8 的 8 个位置（跨卷与重复恢复由测试额外驱动）', () => {
-  assert.deepEqual([...CRASH_POINTS], [
-    'before-prepared', 'after-prepared', 'mid-staging', 'after-staging',
-    'after-verified', 'mid-rename', 'after-commit', 'after-index',
-  ]);
+  assert.deepEqual(
+    [...CRASH_POINTS],
+    [
+      'before-prepared',
+      'after-prepared',
+      'mid-staging',
+      'after-staging',
+      'after-verified',
+      'mid-rename',
+      'after-commit',
+      'after-index',
+    ],
+  );
 });
 
 test('TX-P3 缺 `indexPort` 必须**拒绝构造**（否则"索引成功后才清源"无从保证）', () => {

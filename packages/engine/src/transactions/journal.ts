@@ -72,14 +72,16 @@ export interface BrokenTxn {
 export function makeTxnId(now: number = Date.now(), rand: string | number | null = null): string {
   const d = new Date(now);
   const p = (n: number, w = 2): string => String(n).padStart(w, '0');
-  const utc = `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}T`
-    + `${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`;
+  const utc =
+    `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}T` +
+    `${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`;
   const r = rand === null ? crypto.randomBytes(3).toString('hex') : String(rand);
   return `${utc}-${r}`;
 }
 
 export const txnFileName = (txnId: string): string => `${TXN_PREFIX}${txnId}${TXN_EXT}`;
-export const txnPath = (journalDir: string, txnId: string): string => path.join(journalDir, txnFileName(txnId));
+export const txnPath = (journalDir: string, txnId: string): string =>
+  path.join(journalDir, txnFileName(txnId));
 
 /** 确保日志目录存在（幂等） */
 export function ensureJournalDir(journalDir: string): string {
@@ -95,7 +97,11 @@ export function ensureJournalDir(journalDir: string): string {
  */
 function fsyncFile(absPath: string): void {
   const fd = fs.openSync(absPath, 'r');
-  try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 /**
@@ -124,12 +130,16 @@ export function writeTxn(journalDir: string, rec: TxnRecord): string {
   const fd = fs.openSync(tmp, 'w');
   try {
     fs.writeFileSync(fd, body, 'utf8');
-    fs.fsyncSync(fd);                    // ← write-ahead 的关键：内容真的落盘了才往下走
+    fs.fsyncSync(fd); // ← write-ahead 的关键：内容真的落盘了才往下走
   } finally {
     fs.closeSync(fd);
   }
   fs.renameSync(tmp, final);
-  try { fsyncFile(final); } catch { /* 见上：Windows 的目录/再同步限制，尽力而为 */ }
+  try {
+    fsyncFile(final);
+  } catch {
+    /* 见上：Windows 的目录/再同步限制，尽力而为 */
+  }
   return final;
 }
 
@@ -160,15 +170,22 @@ export function readTxn(absPath: string): TxnRecord | null {
  */
 export function listTxns(journalDir: string): { txns: TxnRecord[]; broken: BrokenTxn[] } {
   let names: string[] = [];
-  try { names = fs.readdirSync(journalDir); } catch { return { txns: [], broken: [] }; }
+  try {
+    names = fs.readdirSync(journalDir);
+  } catch {
+    return { txns: [], broken: [] };
+  }
 
   const txns: TxnRecord[] = [];
   const broken: BrokenTxn[] = [];
   for (const name of names.sort()) {
-    if (!name.startsWith(TXN_PREFIX) || !name.endsWith(TXN_EXT)) continue;   // 忽略 .tmp 等
+    if (!name.startsWith(TXN_PREFIX) || !name.endsWith(TXN_EXT)) continue; // 忽略 .tmp 等
     const abs = path.join(journalDir, name);
     const rec = readTxn(abs);
-    if (rec === null) { broken.push({ file: name, absPath: abs }); continue; }
+    if (rec === null) {
+      broken.push({ file: name, absPath: abs });
+      continue;
+    }
     txns.push({ ...rec, _file: name, _absPath: abs });
   }
   return { txns, broken };
@@ -210,7 +227,9 @@ export function persistState(
   now: number = Date.now(),
 ): TxnRecord {
   if (!canTransition(rec.state, next)) {
-    throw new Error(`非法跃迁：${rec.state} → ${next}（§2 只允许主链前进一步 / 进 ABORTED / 进 RECOVERY_NEEDED）`);
+    throw new Error(
+      `非法跃迁：${rec.state} → ${next}（§2 只允许主链前进一步 / 进 ABORTED / 进 RECOVERY_NEEDED）`,
+    );
   }
   const nextRec = withState(rec, next, patch, now);
   writeTxn(journalDir, nextRec);

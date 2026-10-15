@@ -16,8 +16,8 @@ import type { ErrorDetails } from './errors.ts';
 
 export const MAGIC = Buffer.from('4753494458000001', 'hex'); // "GSIDX" + 0x00 0x00 0x01
 if (MAGIC.length !== 8) throw new Error('MAGIC 必须是 8 字节');
-export const LEN_OFF = MAGIC.length;        // 8
-export const HEAD_OFF = MAGIC.length + 4;   // 12
+export const LEN_OFF = MAGIC.length; // 8
+export const HEAD_OFF = MAGIC.length + 4; // 12
 
 /**
  * 索引 header / meta.json。**外部 JSON**：除了 count/dim（下面显式取出来校验），
@@ -81,7 +81,8 @@ export interface EngineEntry {
   rowToRel: Map<number, unknown>;
 }
 
-const corrupt = (why: string, details: ErrorDetails = {}): Error => fail(ERR.INDEX_CORRUPT, why, details);
+const corrupt = (why: string, details: ErrorDetails = {}): Error =>
+  fail(ERR.INDEX_CORRUPT, why, details);
 
 /**
  * 读回并校验索引。
@@ -91,14 +92,18 @@ export function readIndexBin(file: string): IndexBin {
   if (!fs.existsSync(file)) throw fail(ERR.INDEX_MISSING, `索引不存在：${file}`, { file });
   const buf = fs.readFileSync(file);
 
-  if (buf.length < HEAD_OFF) throw corrupt(`文件太短：${buf.length} 字节`, { file, bytes: buf.length });
+  if (buf.length < HEAD_OFF)
+    throw corrupt(`文件太短：${buf.length} 字节`, { file, bytes: buf.length });
   if (!buf.subarray(0, MAGIC.length).equals(MAGIC)) {
-    throw corrupt(`MAGIC 不符：实际 ${buf.subarray(0, 8).toString('hex')}，期望 ${MAGIC.toString('hex')}`,
-      { file, actual: buf.subarray(0, 8).toString('hex') });
+    throw corrupt(
+      `MAGIC 不符：实际 ${buf.subarray(0, 8).toString('hex')}，期望 ${MAGIC.toString('hex')}`,
+      { file, actual: buf.subarray(0, 8).toString('hex') },
+    );
   }
 
   const headerLen = buf.readUInt32LE(LEN_OFF);
-  if (HEAD_OFF + headerLen > buf.length) throw corrupt(`headerLen 超出文件：${headerLen}`, { file, headerLen });
+  if (HEAD_OFF + headerLen > buf.length)
+    throw corrupt(`headerLen 超出文件：${headerLen}`, { file, headerLen });
 
   let header: IndexHeader;
   try {
@@ -109,13 +114,19 @@ export function readIndexBin(file: string): IndexBin {
 
   const count = Number(header.count) || 0;
   const dim = Number(header.dim) || 0;
-  if (count <= 0 || dim <= 0) throw corrupt(`header.count/dim 无效：${count}/${dim}`, { file, count, dim });
+  if (count <= 0 || dim <= 0)
+    throw corrupt(`header.count/dim 无效：${count}/${dim}`, { file, count, dim });
 
   const start = HEAD_OFF + headerLen;
   const blockBytes = count * dim * 4;
   if (start + blockBytes + 4 > buf.length) {
-    throw corrupt(`向量块超出文件：需要 ${blockBytes} 字节，实际剩 ${buf.length - start}`,
-      { file, count, dim, need: blockBytes, have: buf.length - start });
+    throw corrupt(`向量块超出文件：需要 ${blockBytes} 字节，实际剩 ${buf.length - start}`, {
+      file,
+      count,
+      dim,
+      need: blockBytes,
+      have: buf.length - start,
+    });
   }
   const body = buf.subarray(start, start + blockBytes);
 
@@ -131,7 +142,8 @@ export function readIndexBin(file: string): IndexBin {
   if (footLen === 0 || footLen > FOOT_LEN_MAX || footLen > footHave) {
     throw corrupt(
       `footer 长度非法：footLen=${footLen}（上限 ${FOOT_LEN_MAX}，文件剩 ${footHave} 字节）`,
-      { file, footLen, limit: FOOT_LEN_MAX, have: footHave });
+      { file, footLen, limit: FOOT_LEN_MAX, have: footHave },
+    );
   }
   let foot: Record<string, unknown>;
   try {
@@ -139,14 +151,21 @@ export function readIndexBin(file: string): IndexBin {
   } catch (e) {
     throw corrupt(`footer 解析失败：${messageOf(e)}`, { file });
   }
-  if (foot.complete !== true) throw corrupt('footer.complete 不是 true → 视为写入未完成', { file, foot });
+  if (foot.complete !== true)
+    throw corrupt('footer.complete 不是 true → 视为写入未完成', { file, foot });
   if (foot.count !== count || foot.dim !== dim) {
-    throw corrupt(`footer 与 header 不一致：${String(foot.count)}/${String(foot.dim)} vs ${count}/${dim}`, { file });
+    throw corrupt(
+      `footer 与 header 不一致：${String(foot.count)}/${String(foot.dim)} vs ${count}/${dim}`,
+      { file },
+    );
   }
   const sha = crypto.createHash('sha1').update(body).digest('hex');
   if (foot.sha1_of_vector_block !== sha) {
-    throw corrupt(`向量块 sha1 不符：footer=${String(foot.sha1_of_vector_block)} 实际=${sha}`,
-      { file, expected: foot.sha1_of_vector_block, actual: sha });
+    throw corrupt(`向量块 sha1 不符：footer=${String(foot.sha1_of_vector_block)} 实际=${sha}`, {
+      file,
+      expected: foot.sha1_of_vector_block,
+      actual: sha,
+    });
   }
 
   // Float32Array 需要 4 字节对齐的 offset；用拷贝保证对齐且避免与 Buffer 共享生命周期
@@ -174,7 +193,8 @@ export function readItems(file: string): IndexItem[] {
   } catch (e) {
     throw corrupt(`items.json 解析失败：${messageOf(e)}`, { file });
   }
-  if (!Array.isArray(parsed) || parsed.length === 0) throw corrupt('items.json 不是非空数组', { file });
+  if (!Array.isArray(parsed) || parsed.length === 0)
+    throw corrupt('items.json 不是非空数组', { file });
   // 原样返回条目对象（**不重建**：条目表是外部 JSON，重建=丢字段=静默改变检索结果）。
   // 非对象行不是合法条目，直接丢掉（原 JS 会把它塞进数组，下游一读字段就崩）。
   return (parsed as unknown[]).filter(isIndexItem);
@@ -194,6 +214,6 @@ export function readMeta(file: string): IndexHeader {
 export function relOf(item: unknown): string | null {
   if (typeof item !== 'object' || item === null) return null;
   const rec = item as { relPath?: unknown; rel_path?: unknown };
-  const v = rec.relPath || rec.rel_path;                 // ⚠️ 用 ||（空串要落到 rel_path），不是 ??
+  const v = rec.relPath || rec.rel_path; // ⚠️ 用 ||（空串要落到 rel_path），不是 ??
   return typeof v === 'string' ? v : null;
 }

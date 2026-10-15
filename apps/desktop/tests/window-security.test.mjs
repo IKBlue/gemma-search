@@ -10,7 +10,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isAppUrl, decideWindowOpen, decideNavigation, isTrustedSender } from '../src/main/window-security.ts';
+import {
+  isAppUrl,
+  decideWindowOpen,
+  decideNavigation,
+  isTrustedSender,
+} from '../src/main/window-security.ts';
 
 // ---------------------------------------------------------------- S12：导航
 
@@ -19,12 +24,12 @@ test('S12：库外 URL 一律不许导航；应用自身 URL 放行', () => {
   assert.equal(decideNavigation(app), true, '打包态 file:// 必须放行');
 
   for (const bad of [
-    'https://example.com',                    // §8 原文用例
+    'https://example.com', // §8 原文用例
     'http://example.com',
     'https://example.com/',
     'javascript:alert(1)',
     'data:text/html,<script>alert(1)</script>',
-    'file:///D:/app/out/renderer/index.html?x=1#/../../etc',   // 仍属 file://，见下注
+    'file:///D:/app/out/renderer/index.html?x=1#/../../etc', // 仍属 file://，见下注
     'chrome://settings',
     'about:blank',
     '',
@@ -64,7 +69,9 @@ test('S11：开新窗口**无条件** deny —— 不搞"判断后大多 deny"',
   }
   // 传任何东西都不改变结果（参数被刻意忽略）
   assert.deepEqual(decideWindowOpen('https://example.com'), { action: 'deny' });
-  assert.deepEqual(decideWindowOpen({ url: 'file:///x', disposition: 'new-window' }), { action: 'deny' });
+  assert.deepEqual(decideWindowOpen({ url: 'file:///x', disposition: 'new-window' }), {
+    action: 'deny',
+  });
 });
 
 // ---------------------------------------------------------------- S13：来源校验
@@ -75,7 +82,10 @@ function makeEvent({ sender, frameParent = null, frameUrl = 'file:///app/index.h
   const win = { isDestroyed: () => false, webContents };
   return {
     win,
-    event: { sender: sender === undefined ? webContents : sender, senderFrame: { parent: frameParent, url: frameUrl } },
+    event: {
+      sender: sender === undefined ? webContents : sender,
+      senderFrame: { parent: frameParent, url: frameUrl },
+    },
   };
 }
 
@@ -85,12 +95,12 @@ test('S13：顶层 frame 且来自主窗口 ⇒ 可信', () => {
 });
 
 test('S13：iframe 内调用 ⇒ 拒绝（frame.parent 不为 null）', () => {
-  const { event, win } = makeEvent({ frameParent: {} });     // 有 parent = 在 iframe 里
+  const { event, win } = makeEvent({ frameParent: {} }); // 有 parent = 在 iframe 里
   assert.equal(isTrustedSender(event, win), false, 'iframe 竟然通过了来源校验');
 });
 
 test('S13b：来源不是主窗口的 webContents ⇒ 拒绝', () => {
-  const { event, win } = makeEvent({ sender: { id: 999 } });  // 别的 webContents
+  const { event, win } = makeEvent({ sender: { id: 999 } }); // 别的 webContents
   assert.equal(isTrustedSender(event, win), false);
 });
 
@@ -106,16 +116,38 @@ test('S13d：缺 senderFrame / 窗口已销毁 / 窗口不存在 ⇒ 一律拒�
   assert.equal(isTrustedSender({ sender: win.webContents }, win), false, '无 senderFrame 必须拒绝');
   assert.equal(isTrustedSender(null, win), false);
   assert.equal(isTrustedSender({ sender: win.webContents, senderFrame: null }, win), false);
-  assert.equal(isTrustedSender({ sender: win.webContents, senderFrame: { parent: null, url: 'file:///a' } }, null), false);
+  assert.equal(
+    isTrustedSender(
+      { sender: win.webContents, senderFrame: { parent: null, url: 'file:///a' } },
+      null,
+    ),
+    false,
+  );
   const destroyed = { isDestroyed: () => true, webContents: win.webContents };
-  assert.equal(isTrustedSender({ sender: win.webContents, senderFrame: { parent: null, url: 'file:///a' } }, destroyed), false);
+  assert.equal(
+    isTrustedSender(
+      { sender: win.webContents, senderFrame: { parent: null, url: 'file:///a' } },
+      destroyed,
+    ),
+    false,
+  );
 });
 
 test('S13e：dev 态下 127.0.0.1 的来源可信、别的 http 不可信', () => {
   const dev = 'http://127.0.0.1:5173/';
   const { win } = makeEvent();
-  assert.equal(isTrustedSender({ sender: win.webContents, senderFrame: { parent: null, url: dev } }, win, dev), true);
-  assert.equal(isTrustedSender({ sender: win.webContents, senderFrame: { parent: null, url: 'https://evil/' } }, win, dev), false);
+  assert.equal(
+    isTrustedSender({ sender: win.webContents, senderFrame: { parent: null, url: dev } }, win, dev),
+    true,
+  );
+  assert.equal(
+    isTrustedSender(
+      { sender: win.webContents, senderFrame: { parent: null, url: 'https://evil/' } },
+      win,
+      dev,
+    ),
+    false,
+  );
 });
 
 // ---------------------------------------------------------------- isAppUrl 本体
@@ -123,7 +155,15 @@ test('S13e：dev 态下 127.0.0.1 的来源可信、别的 http 不可信', () =
 test('isAppUrl 只认 file:// 与 dev URL，其余一律 false', () => {
   assert.equal(isAppUrl('file:///x'), true);
   assert.equal(isAppUrl('http://127.0.0.1:5173/', 'http://127.0.0.1:5173/'), true);
-  for (const u of ['https://x', 'http://x', 'javascript:x', 'data:text/html,x', 'chrome://x', '', null]) {
+  for (const u of [
+    'https://x',
+    'http://x',
+    'javascript:x',
+    'data:text/html,x',
+    'chrome://x',
+    '',
+    null,
+  ]) {
     assert.equal(isAppUrl(u), false, `${String(u)} 不该被视为应用自身`);
     assert.equal(isAppUrl(u, 'http://127.0.0.1:5173/'), false);
   }

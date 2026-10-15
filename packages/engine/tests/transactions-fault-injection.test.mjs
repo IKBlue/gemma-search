@@ -31,35 +31,43 @@ const WORK = path.resolve('data/_txn-test');
 /** 每个边界：被杀之后**盘上应该是什么状态**，以及**恢复应该得出什么** */
 const CASES = {
   'before-prepared': {
-    journal: [], recover: { aborted: 0, committed: 0, recoveredFile: false },
+    journal: [],
+    recover: { aborted: 0, committed: 0, recoveredFile: false },
     why: '§8 第 1 例：写 PREPARED 前被杀 ⇒ 什么都没发生，重试即可',
   },
   'after-prepared': {
-    journal: ['PREPARED'], recover: { aborted: 1, committed: 0 },
+    journal: ['PREPARED'],
+    recover: { aborted: 1, committed: 0 },
     why: '§8 第 2 例：PREPARED 后被杀 ⇒ 恢复=回退；源完好',
   },
   'mid-staging': {
-    journal: ['PREPARED'], recover: { aborted: 1, committed: 0 },
+    journal: ['PREPARED'],
+    recover: { aborted: 1, committed: 0 },
     why: '§8 第 3 例：staging 写到一半 ⇒ 恢复=回退；staging 被清理；源完好',
   },
   'after-staging': {
-    journal: ['STAGED'], recover: { aborted: 0, committed: 1 },
+    journal: ['STAGED'],
+    recover: { aborted: 0, committed: 1 },
     why: '§8 第 4 例：staging 完成、校验前 ⇒ 校验后前进或回退都可接受，但必须确定（这里是前进）',
   },
   'after-verified': {
-    journal: ['VERIFIED'], recover: { aborted: 0, committed: 1 },
+    journal: ['VERIFIED'],
+    recover: { aborted: 0, committed: 1 },
     why: '§8 第 5 例：校验通过、rename 前 ⇒ 恢复=前进',
   },
   'mid-rename': {
-    journal: ['VERIFIED'], recover: { aborted: 0, committed: 1 },
+    journal: ['VERIFIED'],
+    recover: { aborted: 0, committed: 1 },
     why: '§8 第 6 例：图已 rename、包未 rename ⇒ 恢复=把包也 rename（前进），不留半截',
   },
   'after-commit': {
-    journal: ['COMMITTED'], recover: { aborted: 0, committed: 1 },
+    journal: ['COMMITTED'],
+    recover: { aborted: 0, committed: 1 },
     why: '§8 第 7 例：rename 完成、索引未更新 ⇒ 恢复=更新索引；绝不出现索引指向不存在的文件',
   },
   'after-index': {
-    journal: ['COMMITTED'], recover: { aborted: 0, committed: 1 },
+    journal: ['COMMITTED'],
+    recover: { aborted: 0, committed: 1 },
     why: '§8 第 8 例：索引已更新、源未删 ⇒ 恢复=删源（且**不得重复更新索引**）',
   },
 };
@@ -88,15 +96,18 @@ function setup(tag) {
 function killAtBoundary({ lib, journal, marker }, crashPoint, { patienceMs = 15000 } = {}) {
   return new Promise((resolve, reject) => {
     const boundary = path.join(marker, 'boundary.json');
-    const child = spawn(process.execPath, [
-      CHILD, lib, journal, crashPoint, marker, 'VR/VR-101.jpg', 'CR/VR-101.jpg',
-    ], { stdio: 'ignore' });
+    const child = spawn(
+      process.execPath,
+      [CHILD, lib, journal, crashPoint, marker, 'VR/VR-101.jpg', 'CR/VR-101.jpg'],
+      { stdio: 'ignore' },
+    );
 
     let terminated = false;
     let settle = null;
     const t0 = Date.now();
     const timer = setInterval(() => {
-      if (exists(boundary)) {                       // 到达边界 ⇒ 立刻杀（这就是 §8 要的"杀进程"）
+      if (exists(boundary)) {
+        // 到达边界 ⇒ 立刻杀（这就是 §8 要的"杀进程"）
         terminated = true;
         clearInterval(timer);
         child.kill('SIGKILL');
@@ -106,11 +117,16 @@ function killAtBoundary({ lib, journal, marker }, crashPoint, { patienceMs = 150
       }
     }, 15);
 
-    child.on('error', (e) => { clearInterval(timer); reject(e); });
+    child.on('error', (e) => {
+      clearInterval(timer);
+      reject(e);
+    });
     child.on('exit', (code, signal) => {
       clearInterval(timer);
       settle = {
-        code, signal, terminated,
+        code,
+        signal,
+        terminated,
         reachedBoundary: exists(boundary),
         finishedNormally: exists(path.join(marker, 'done.json')),
         elapsedMs: Date.now() - t0,
@@ -138,38 +154,58 @@ for (const [crashPoint, expect] of Object.entries(CASES)) {
 
     // ── ① 真杀 ────────────────────────────────────────────────────
     const run = await killAtBoundary(ctx, crashPoint);
-    assert.equal(run.reachedBoundary, true,
-      `子进程没到达注入点 ${crashPoint}（它是被超时杀的，不能算数）：${JSON.stringify(run)}`);
-    assert.equal(run.finishedNormally, false,
-      '⭐ 事务居然正常跑完了 ⇒ 这不是"被杀"，本用例无效');
+    assert.equal(
+      run.reachedBoundary,
+      true,
+      `子进程没到达注入点 ${crashPoint}（它是被超时杀的，不能算数）：${JSON.stringify(run)}`,
+    );
+    assert.equal(run.finishedNormally, false, '⭐ 事务居然正常跑完了 ⇒ 这不是"被杀"，本用例无效');
     assert.equal(run.terminated, true, `必须是由父进程在边界上终结的：${JSON.stringify(run)}`);
 
     // ── ② 盘上留下的日志状态 ──────────────────────────────────────
     const onDisk = listTxns(journal).txns.map((t) => t.state);
-    assert.deepEqual(onDisk, expect.journal,
-      `被杀之后日志状态应为 ${JSON.stringify(expect.journal)}，实际 ${JSON.stringify(onDisk)}`);
+    assert.deepEqual(
+      onDisk,
+      expect.journal,
+      `被杀之后日志状态应为 ${JSON.stringify(expect.journal)}，实际 ${JSON.stringify(onDisk)}`,
+    );
 
     // ── ③ ⭐⭐ 素材绝不许丢（§8 总判据）───────────────────────────
     const liveFiles = [...listTxns(journal).txns.flatMap((t) => t.files || [])];
     const staged = liveFiles.map((f) => f.stage).filter(Boolean);
-    const findImg = [src, dst, ...staged, ...staged.map((s) => s.replace(/\\[^\\]+$/, '\\VR-101.jpg'))]
-      .filter((p) => p && exists(p) && sha1File(p) === origImg);
-    const findArc = [srcArc, dstArc, ...staged]
-      .filter((p) => p && exists(p) && sha1File(p) === origArc);
-    assert.ok(findImg.length >= 1,
-      `⭐ 图的原始字节必须还能在盘上找到（源/目标/staging 之一），实际一个都没有 —— 这是丢素材`);
-    assert.ok(findArc.length >= 1,
-      `⭐ 包的原始字节必须还能在盘上找到，实际一个都没有`);
+    const findImg = [
+      src,
+      dst,
+      ...staged,
+      ...staged.map((s) => s.replace(/\\[^\\]+$/, '\\VR-101.jpg')),
+    ].filter((p) => p && exists(p) && sha1File(p) === origImg);
+    const findArc = [srcArc, dstArc, ...staged].filter(
+      (p) => p && exists(p) && sha1File(p) === origArc,
+    );
+    assert.ok(
+      findImg.length >= 1,
+      `⭐ 图的原始字节必须还能在盘上找到（源/目标/staging 之一），实际一个都没有 —— 这是丢素材`,
+    );
+    assert.ok(findArc.length >= 1, `⭐ 包的原始字节必须还能在盘上找到，实际一个都没有`);
 
     // ── ④ 跑一次启动恢复（相当于"重启应用"）──────────────────────
     const idx = [];
     const out = recoverJournal({ journalDir: journal, indexPort: { update: (c) => idx.push(c) } });
-    assert.equal(out.summary.aborted, expect.recover.aborted,
-      `恢复后 aborted 应为 ${expect.recover.aborted}：${JSON.stringify(out.results)}`);
-    assert.equal(out.summary.committed, expect.recover.committed,
-      `恢复后 committed 应为 ${expect.recover.committed}：${JSON.stringify(out.results)}`);
-    assert.equal(out.summary.recoveryNeeded, 0,
-      `这些边界都该能**确定**地收场（§8：结果确定且可复现），不该问人：${JSON.stringify(out.pending)}`);
+    assert.equal(
+      out.summary.aborted,
+      expect.recover.aborted,
+      `恢复后 aborted 应为 ${expect.recover.aborted}：${JSON.stringify(out.results)}`,
+    );
+    assert.equal(
+      out.summary.committed,
+      expect.recover.committed,
+      `恢复后 committed 应为 ${expect.recover.committed}：${JSON.stringify(out.results)}`,
+    );
+    assert.equal(
+      out.summary.recoveryNeeded,
+      0,
+      `这些边界都该能**确定**地收场（§8：结果确定且可复现），不该问人：${JSON.stringify(out.pending)}`,
+    );
     assert.equal(out.broken.length, 0, '不该留下读不出来的日志');
 
     // ── ⑤ 收场之后：该前进的必须真的前进，该回退的源必须完好 ──────
@@ -193,8 +229,11 @@ for (const [crashPoint, expect] of Object.entries(CASES)) {
     }
 
     // ── ⑥ 崩溃现场：staging 不该留在素材库里 ──────────────────────
-    assert.equal(exists(path.join(lib, 'CR', '.gs-staging')), false,
-      '恢复收场后 staging 目录不该留在素材库里');
+    assert.equal(
+      exists(path.join(lib, 'CR', '.gs-staging')),
+      false,
+      '恢复收场后 staging 目录不该留在素材库里',
+    );
   });
 }
 
@@ -217,12 +256,19 @@ test('FI-10 ⭐⭐ 同一事务**重复恢复两次**：幂等 —— 第二次�
 
   // 第二次恢复：日志已归档 ⇒ 扫不到任何东西
   const idx2 = [];
-  const second = recoverJournal({ journalDir: journal, indexPort: { update: (c) => idx2.push(c) } });
+  const second = recoverJournal({
+    journalDir: journal,
+    indexPort: { update: (c) => idx2.push(c) },
+  });
   assert.equal(second.summary.scanned, 0, '⭐ 第二次不该再扫到未完成事务');
   assert.equal(idx2.length, 0, '⭐ 第二次不该再更新索引');
   assert.equal(sha1File(dst), dstSha, '目标内容一模一样');
   assert.equal(exists(dst), true);
-  assert.equal(indexCalls(marker).length, 0, '被杀那一刻索引还没更新（这正是 after-commit 的含义）');
+  assert.equal(
+    indexCalls(marker).length,
+    0,
+    '被杀那一刻索引还没更新（这正是 after-commit 的含义）',
+  );
   assert.equal(origImg, dstSha, '（对照）目标就是我们原来那份字节');
 });
 
@@ -249,9 +295,12 @@ test('FI-09 ⚠️ 跨卷（G:→E:）与"E: 拔盘" —— **本环境未验证
       'E: 是取件区、G: 是库盘 —— 往那里写测试数据会碰真实数据，违反"绝不对真实库跑"',
       '拔盘需要在操作系统层卸载卷，沙箱内无法模拟',
     ],
-    howToVerify: '在一台有**两个可写空卷**的机器上：把夹具复制到卷 A，dst 指向卷 B，'
-      + '照本文件同样的 kill+恢复流程各跑一次；拔盘用 VHDX 挂载/卸载模拟。',
+    howToVerify:
+      '在一台有**两个可写空卷**的机器上：把夹具复制到卷 A，dst 指向卷 B，' +
+      '照本文件同样的 kill+恢复流程各跑一次；拔盘用 VHDX 挂载/卸载模拟。',
   };
   assert.ok(UNVERIFIED_CROSS_VOLUME.howToVerify.length > 0);
-  console.log('  ⚠️ §8 第 9 例（跨卷 / 拔盘）**未验证**：' + UNVERIFIED_CROSS_VOLUME.why.join('；'));
+  console.log(
+    '  ⚠️ §8 第 9 例（跨卷 / 拔盘）**未验证**：' + UNVERIFIED_CROSS_VOLUME.why.join('；'),
+  );
 });

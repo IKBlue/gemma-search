@@ -66,9 +66,7 @@ function cpuDecision(requested: RequestedDevice): DeviceDecision {
   return {
     requested,
     device: 'cpu',
-    fallback: requested === 'cpu'
-      ? null
-      : { from: requested, to: 'cpu', reason: '按请求使用 CPU' },
+    fallback: requested === 'cpu' ? null : { from: requested, to: 'cpu', reason: '按请求使用 CPU' },
     effectiveProvider: 'cpu',
     note: '请求 cpu ⇒ 使用 CPU（transformers 的 cpu -> "cpu" 映射；u2 实测只有 CPUExecutionProvider）',
   };
@@ -83,7 +81,10 @@ function cpuDecision(requested: RequestedDevice): DeviceDecision {
  *   3. 请求 webgpu + 探测说**可用**              ⇒ 用 webgpu，effectiveProvider = 'webgpu'
  *   4. 请求 webgpu + **探测没结论**（null）      ⇒ 照旧用 webgpu，但 effectiveProvider = **null**（不许猜）
  */
-export function decideDevice(requested: RequestedDevice, probe: GpuProbe = UNPROBED): DeviceDecision {
+export function decideDevice(
+  requested: RequestedDevice,
+  probe: GpuProbe = UNPROBED,
+): DeviceDecision {
   // ⚠️ 运行时可能是**契约外的值**（config.device 来自外部 JSON，调用点用的是类型断言）：
   //    那种情况**原样透传**、不做任何"纠正"（绝不把 cuda 这类值悄悄改成 webgpu），
   //    也不假装知道它的 EP（effectiveProvider = null）。这条是改动前既有行为，别顺手改。
@@ -115,7 +116,10 @@ export function decideDevice(requested: RequestedDevice, probe: GpuProbe = UNPRO
       device: 'webgpu',
       fallback: null,
       effectiveProvider: 'webgpu',
-      note: '探测到可用适配器 ⇒ 请求 webgpu（' + probe.detail + '）；ORT 的 EP 解析全有或全无，初始化成功即该 EP 被采用',
+      note:
+        '探测到可用适配器 ⇒ 请求 webgpu（' +
+        probe.detail +
+        '）；ORT 的 EP 解析全有或全无，初始化成功即该 EP 被采用',
     };
   }
 
@@ -124,6 +128,9 @@ export function decideDevice(requested: RequestedDevice, probe: GpuProbe = UNPRO
     device: 'webgpu',
     fallback: null,
     effectiveProvider: null,
-    note: '请求 webgpu，但**探测没给出结论**（' + probe.detail + '）⇒ 实际 EP **未验证**，不按请求值充当结论',
+    note:
+      '请求 webgpu，但**探测没给出结论**（' +
+      probe.detail +
+      '）⇒ 实际 EP **未验证**，不按请求值充当结论',
   };
 }

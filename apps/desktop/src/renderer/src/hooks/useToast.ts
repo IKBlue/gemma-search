@@ -1,5 +1,5 @@
 // useToast.ts —— 轻提示状态（消息 + 语气 + 自动消失）
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
  * 把任意输入变成**可显示**的提示文本。
@@ -13,11 +13,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  * 返回空串时调用方（`show`）直接不弹 —— 见下面的 `if (!text) return`。
  */
 export function normalizeMessage(msg: unknown): string {
-  if (msg === undefined || msg === null) return ''
-  const s = String(msg).trim()
+  if (msg === undefined || msg === null) return '';
+  const s = String(msg).trim();
   // 这三个是"插值缺失"的典型产物，不该出现在界面上
-  if (s === 'undefined' || s === 'null' || s === 'NaN') return ''
-  return s
+  if (s === 'undefined' || s === 'null' || s === 'NaN') return '';
+  return s;
 }
 
 /**
@@ -34,36 +34,47 @@ export function normalizeMessage(msg: unknown): string {
  * （见 `apps/desktop/tests/copy.test.mjs` 的 CP-4）。
  */
 export function autoDismissMs(tone: unknown, ms: number): number {
-  return tone === 'err' ? 0 : ms
+  return tone === 'err' ? 0 : ms;
 }
 
 /** `useToast()` 的返回（组件只吃这三个） */
 export type UseToastResult = {
-  message: string
-  tone: string
-  show: (msg: unknown, t?: string) => void
-}
+  message: string;
+  tone: string;
+  show: (msg: unknown, t?: string) => void;
+};
 
 export default function useToast(ms = 2600): UseToastResult {
-  const [message, setMessage] = useState('')
-  const [tone, setTone] = useState('info')          // info | err
+  const [message, setMessage] = useState('');
+  const [tone, setTone] = useState('info'); // info | err
   // 计时器句柄：DOM 与 Node 的 `setTimeout` 返回类型不同（number vs Timeout），
   // 用 `ReturnType` 取当前环境的那一个，避免在两套 lib 之间二选一。
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const show = useCallback((msg: unknown, t = 'info') => {
-    const text = normalizeMessage(msg)
-    // 不可显示 ⇒ **不弹**（也顺手清掉上一条，免得旧提示挂在那儿让人误解）
-    if (!text) { setMessage(''); return }
-    setMessage(text)
-    setTone(t)
-    if (timer.current) clearTimeout(timer.current)
-    const alive = autoDismissMs(t, ms)
-    if (alive > 0) timer.current = setTimeout(() => setMessage(''), alive)
-    else timer.current = null                       // 错误：不设计时器（见 autoDismissMs）
-  }, [ms])
+  const show = useCallback(
+    (msg: unknown, t = 'info') => {
+      const text = normalizeMessage(msg);
+      // 不可显示 ⇒ **不弹**（也顺手清掉上一条，免得旧提示挂在那儿让人误解）
+      if (!text) {
+        setMessage('');
+        return;
+      }
+      setMessage(text);
+      setTone(t);
+      if (timer.current) clearTimeout(timer.current);
+      const alive = autoDismissMs(t, ms);
+      if (alive > 0) timer.current = setTimeout(() => setMessage(''), alive);
+      else timer.current = null; // 错误：不设计时器（见 autoDismissMs）
+    },
+    [ms],
+  );
 
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
 
-  return { message, tone, show }
+  return { message, tone, show };
 }

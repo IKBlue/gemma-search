@@ -35,7 +35,7 @@ function walk(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) return walk(p);
-    return /\.(jsx|js|ts|tsx)$/.test(e.name) ? [p] : [];   // 全量 TS 迁移：扫描面必须含 .ts/.tsx
+    return /\.(jsx|js|ts|tsx)$/.test(e.name) ? [p] : []; // 全量 TS 迁移：扫描面必须含 .ts/.tsx
   });
 }
 const rel = (p) => p.replace(/\\/g, '/').split('/src/renderer/src/')[1];
@@ -60,15 +60,22 @@ test('CP-1 ⭐⭐ `normalizeMessage` 把"不可显示"的输入挡掉（V-42 的
 test('CP-2 ⭐ 非注释代码里不得出现 `**加粗**`（V-40：会按字面显示）', () => {
   const bad = [];
   for (const file of walk(SRC)) {
-    maskComments(fs.readFileSync(file, 'utf8')).split(/\r?\n/).forEach((line, i) => {
-      // ⚠️ 只看**非注释**代码：本仓库的注释风格就是 Markdown，裸 grep 会满屏假阳性
-      //    （`data/_uiux-capture/scan-markdown.mjs` 的头注释就记了这件事）。
-      if (/\*\*[^*\n]+\*\*/.test(line)) bad.push(`${rel(file)}:${i + 1}  ${line.trim().slice(0, 90)}`);
-    });
+    maskComments(fs.readFileSync(file, 'utf8'))
+      .split(/\r?\n/)
+      .forEach((line, i) => {
+        // ⚠️ 只看**非注释**代码：本仓库的注释风格就是 Markdown，裸 grep 会满屏假阳性
+        //    （`data/_uiux-capture/scan-markdown.mjs` 的头注释就记了这件事）。
+        if (/\*\*[^*\n]+\*\*/.test(line))
+          bad.push(`${rel(file)}:${i + 1}  ${line.trim().slice(0, 90)}`);
+      });
   }
-  assert.deepEqual(bad, [],
-    '以下位置的 `**…**` 会**按字面**显示给用户（界面不渲染 Markdown）：\n  ' + bad.join('\n  ')
-    + '\n修法：要么去掉星号，要么用真正的排版标签（<strong>/<b>）。');
+  assert.deepEqual(
+    bad,
+    [],
+    '以下位置的 `**…**` 会**按字面**显示给用户（界面不渲染 Markdown）：\n  ' +
+      bad.join('\n  ') +
+      '\n修法：要么去掉星号，要么用真正的排版标签（<strong>/<b>）。',
+  );
 });
 
 // ═══════════════════════════════════════════ CP-3：可见文本里不许有字面 undefined
@@ -78,19 +85,23 @@ test('CP-2 ⭐ 非注释代码里不得出现 `**加粗**`（V-40：会按字面
  *    而且**豁免必须仍然命中**（见 CP-3 末尾）—— 不命中的豁免会让白名单慢慢烂掉。
  */
 const EXEMPT_FILES = new Map([
-  ['hooks/useToast.ts',
-    '`normalizeMessage` 里那两个字符串**就是守卫本身**：它要判断输入是不是 "undefined"/"NaN" 才好挡掉。'
-    + '这是"合法用途"而不是"用户可见文案"，且同文件 CP-0 已断言 show() 必经该归一化。'],
+  [
+    'hooks/useToast.ts',
+    '`normalizeMessage` 里那两个字符串**就是守卫本身**：它要判断输入是不是 "undefined"/"NaN" 才好挡掉。' +
+      '这是"合法用途"而不是"用户可见文案"，且同文件 CP-0 已断言 show() 必经该归一化。',
+  ],
   // ⚠️ 2026-10-15（P4-2）：这两处是**环境探测**，不是给用户看的文案：
   //    `typeof document === 'undefined'` / `typeof ResizeObserver === 'undefined'`
   //    是唯一**不抛 ReferenceError** 的存在性探测写法（`document === undefined` 在没声明该全局的
   //    环境里会直接抛）。它们出现在 `readToken()`（读 CSS 令牌）与虚拟滚动容器测量里 ——
   //    两种情况都不会把字符串显示给用户：前者只是提前 return 兜底值，后者只是不装 ResizeObserver。
   //    豁免**逐条带理由**，且 CP-3 的自检会在文件改名后自动报「豁免不再命中」。
-  ['search/BrowseGrid.tsx',
+  [
+    'search/BrowseGrid.tsx',
     // 注释里刻意不写出那两个字符串本身（否则这行本身又会被 CP-3 扫到，豁免就变成自指）
-    '那两处是环境探测（document / ResizeObserver 的存在性判断），不是用户可见文案；'
-    + '换成 `X === undefined` 会在缺该全局的环境里直接抛 ReferenceError。'],
+    '那两处是环境探测（document / ResizeObserver 的存在性判断），不是用户可见文案；' +
+      '换成 `X === undefined` 会在缺该全局的环境里直接抛 ReferenceError。',
+  ],
 ]);
 
 test('CP-3 界面可见字符串里不得出现字面 `undefined` / `NaN`（V-42 的另一半）', () => {
@@ -98,7 +109,10 @@ test('CP-3 界面可见字符串里不得出现字面 `undefined` / `NaN`（V-42
   const usedExempt = new Set();
   for (const file of walk(SRC)) {
     const r = rel(file);
-    if (EXEMPT_FILES.has(r)) { usedExempt.add(r); continue; }
+    if (EXEMPT_FILES.has(r)) {
+      usedExempt.add(r);
+      continue;
+    }
     const code = maskComments(fs.readFileSync(file, 'utf8'));
     for (const m of code.matchAll(/(['"`])((?:(?!\1)[^\\\n]|\\.)*)\1/g)) {
       const text = m[2];
@@ -109,8 +123,11 @@ test('CP-3 界面可见字符串里不得出现字面 `undefined` / `NaN`（V-42
   }
   const stale = [...EXEMPT_FILES.keys()].filter((k) => !usedExempt.has(k));
   assert.deepEqual(stale, [], `以下豁免已不命中（文件被删/改名）⇒ 必须删掉：${stale.join(', ')}`);
-  assert.deepEqual(bad, [],
-    '以下字符串字面量里直接写着 undefined/NaN —— 它们会被当文案显示出来：\n  ' + bad.join('\n  '));
+  assert.deepEqual(
+    bad,
+    [],
+    '以下字符串字面量里直接写着 undefined/NaN —— 它们会被当文案显示出来：\n  ' + bad.join('\n  '),
+  );
 });
 
 // ═══════════════════════════════════════════ CP-4：错误提示**必须能被看见/听见**
@@ -124,9 +141,16 @@ test('CP-4 ⭐ 错误提示不自动消失，且走 `alert` 而不是 `status`�
   //    （⚠️ 必须剥注释：本文件的注释里正当地引用了旧的 `role="status"`，
   //      裸匹配会把自己的说明当成违规 —— 这个坑在注入器与 CP-0 上各踩过一次。）
   const toastSrc = maskComments(fs.readFileSync(path.join(SRC, 'ui', 'Toast.tsx'), 'utf8'));
-  assert.match(toastSrc, /role=\{isErr \? 'alert' : 'status'\}/,
-    '错误必须是 `alert`、普通提示才是 `status` —— 恒 status 就等于"出错和成功对读屏一样"');
-  assert.match(toastSrc, /aria-live=\{isErr \? 'assertive' : 'polite'\}/, '`aria-live` 要跟着角色一致');
+  assert.match(
+    toastSrc,
+    /role=\{isErr \? 'alert' : 'status'\}/,
+    '错误必须是 `alert`、普通提示才是 `status` —— 恒 status 就等于"出错和成功对读屏一样"',
+  );
+  assert.match(
+    toastSrc,
+    /aria-live=\{isErr \? 'assertive' : 'polite'\}/,
+    '`aria-live` 要跟着角色一致',
+  );
   assert.doesNotMatch(toastSrc, /role="status"/, '不许退回恒 `role="status"`');
 
   // ③ 正向面：`useToast.show` 必须真的用这条策略（否则上面测的是没人用的函数）
@@ -143,13 +167,22 @@ test('CP-0 自检：扫描面覆盖到东西、且 `show` 真的用了 `normaliz
   //    后者会被**函数定义本身**（`export function normalizeMessage(msg) {`）满足，
   //    于是把调用点改回 `String(msg)` 也照样绿。**这是双向验证当场抓出来的剧场断言**
   //    （第一版就写成 `/normalizeMessage\(msg\)/`，注入 `String(msg)` 后仍然 pass）。
-  assert.match(toastRaw, /const text = normalizeMessage\(msg\)/,
-    '`show()` 里必须写成 `const text = normalizeMessage(msg)` —— 否则 CP-1 测的是一个没人用的函数（剧场）');
+  assert.match(
+    toastRaw,
+    /const text = normalizeMessage\(msg\)/,
+    '`show()` 里必须写成 `const text = normalizeMessage(msg)` —— 否则 CP-1 测的是一个没人用的函数（剧场）',
+  );
   // ⚠️ 这条**必须看剥掉注释后的代码**：本文件的注释里**正当地引用了**那句旧代码
   //    （"原先这里是 setMessage(String(msg))"），裸匹配会把自己的注释当成违规 ——
   //    实测踩过（同一个坑在注入器上也踩过：锚点命中了注释而不是代码）。
   const toastCode = maskComments(toastRaw);
-  assert.doesNotMatch(toastCode, /setMessage\(String\(msg\)\)/,
-    '不许退回 `setMessage(String(msg))`（那正是 V-42 的成因）');
-  assert.ok(files.some((f) => /\.tsx$/.test(f)), '扫描面应包含 .tsx（否则 CP-2/CP-3 覆盖面不全）');
+  assert.doesNotMatch(
+    toastCode,
+    /setMessage\(String\(msg\)\)/,
+    '不许退回 `setMessage(String(msg))`（那正是 V-42 的成因）',
+  );
+  assert.ok(
+    files.some((f) => /\.tsx$/.test(f)),
+    '扫描面应包含 .tsx（否则 CP-2/CP-3 覆盖面不全）',
+  );
 });

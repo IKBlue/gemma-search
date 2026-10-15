@@ -17,10 +17,10 @@
 // ── 分层纪律 ──────────────────────────────────────────────────────────
 //   本文件**不 import React、不碰 window.api**（与 `store/search.ts` 同规矩）。
 //   事件由 `hooks/useEngineEvents` 订阅后调 `applyEvent` 推进来这里。
-import { create } from 'zustand'
+import { create } from 'zustand';
 
 /** 阶段条的一步 */
-export type TaskPhase = { key: string; label: string }
+export type TaskPhase = { key: string; label: string };
 
 /**
  * 阶段条的五步（`UI-REVIEW-and-migration.md:241`：扫描 → 配对 → 编码 → 校验 → 落盘）。
@@ -35,76 +35,76 @@ export const PHASES: readonly TaskPhase[] = Object.freeze([
   Object.freeze({ key: 'encode', label: '编码' }),
   Object.freeze({ key: 'verify', label: '校验' }),
   Object.freeze({ key: 'finalize', label: '落盘' }),
-])
+]);
 
 /** 阶段 key → 中文；**认不出来就原样返回**（不猜、不吞） */
 export function phaseLabel(key?: string | null): string {
-  if (!key) return ''
-  const hit = PHASES.find((p) => p.key === key)
-  return hit ? hit.label : String(key)
+  if (!key) return '';
+  const hit = PHASES.find((p) => p.key === key);
+  return hit ? hit.label : String(key);
 }
 
 /** 一条引擎事件（`index.progress` | `index.done` | `index.failed`，以及将来的新类型） */
 export type TaskEvent = {
-  type: string
-  jobId?: string | null
-  libId?: string | null
-  phase?: string | null
-  done?: number
-  total?: number
-  skipped?: number
-  failed?: unknown
-  ratePerSec?: number
-  etaSec?: number | null
-  deviceFallback?: unknown
-  note?: unknown
-  indexed?: number
-  ok?: boolean
-  cancelled?: boolean
-  reused?: number
-  encoded?: number
-  compat?: unknown
-  error?: unknown
-}
+  type: string;
+  jobId?: string | null;
+  libId?: string | null;
+  phase?: string | null;
+  done?: number;
+  total?: number;
+  skipped?: number;
+  failed?: unknown;
+  ratePerSec?: number;
+  etaSec?: number | null;
+  deviceFallback?: unknown;
+  note?: unknown;
+  indexed?: number;
+  ok?: boolean;
+  cancelled?: boolean;
+  reused?: number;
+  encoded?: number;
+  compat?: unknown;
+  error?: unknown;
+};
 
 /** 收尾结果。两种形态都存在（成功/取消 vs 失败），所以 `error` 可选 */
 export type TaskOutcome = {
-  ok: boolean
-  cancelled?: boolean
-  indexed?: number
-  total?: number
-  reused?: number
-  encoded?: number
-  failed?: unknown[]
-  compat?: unknown
-  error?: unknown
-}
+  ok: boolean;
+  cancelled?: boolean;
+  indexed?: number;
+  total?: number;
+  reused?: number;
+  encoded?: number;
+  failed?: unknown[];
+  compat?: unknown;
+  error?: unknown;
+};
 
 /** 任务状态（整个归约器的状态形状） */
 export type TaskState = {
-  running: boolean
-  jobId: string | null
-  libId: string | null
-  phase: string | null
-  done: number
-  total: number
-  skipped: number
-  failedCount: number
-  ratePerSec: number
-  etaSec: number | null
+  running: boolean;
+  jobId: string | null;
+  libId: string | null;
+  phase: string | null;
+  done: number;
+  total: number;
+  skipped: number;
+  failedCount: number;
+  ratePerSec: number;
+  etaSec: number | null;
   /** GPU 回退公告（契约 §3 要求界面必须显示）。一旦出现就留到本次任务结束 */
-  deviceFallback: unknown
+  deviceFallback: unknown;
   /** 续跑时引擎给的说明（"复用 N 条（compat 相符）" / "复用 0 条：compat 不符"） */
-  resumeNote: unknown
+  resumeNote: unknown;
   /** 失败清单 `[{relPath, stage, error}]` */
-  failed: unknown[]
+  failed: unknown[];
   /** 收尾结果：`{ok, cancelled, indexed, total, reused, encoded, failed, compat}` 或 `{ok:false, error}` */
-  outcome: TaskOutcome | null
+  outcome: TaskOutcome | null;
   /** 最近一次事件的时间戳（界面据此显示"最后更新"） */
-  lastEventAt: number
+  lastEventAt: number;
   /** 收到的原始事件（保留最近 N 条；失败项"可展开"要看细节） */
-  log: TaskEvent[]
-}
+  log: TaskEvent[];
+};
 
 /** 初始状态（未开始任何任务） */
 export const initialTasks: Readonly<TaskState> = Object.freeze({
@@ -124,9 +124,9 @@ export const initialTasks: Readonly<TaskState> = Object.freeze({
   outcome: null,
   lastEventAt: 0,
   log: [],
-})
+});
 
-const LOG_MAX = 200
+const LOG_MAX = 200;
 
 /**
  * 把一条引擎事件归约进状态。**纯函数**（同输入必同输出）⇒ 可以喂合成事件测。
@@ -135,14 +135,18 @@ const LOG_MAX = 200
  * @param evt `index.progress` | `index.done` | `index.failed`
  * @param at 时间戳（注入以便测试确定）
  */
-export function reduceEvent(state: TaskState, evt: TaskEvent | null | undefined, at = 0): TaskState {
-  if (!evt || typeof evt !== 'object' || !evt.type) return state
-  const next = { ...state, lastEventAt: at, log: [...state.log, evt].slice(-LOG_MAX) }
+export function reduceEvent(
+  state: TaskState,
+  evt: TaskEvent | null | undefined,
+  at = 0,
+): TaskState {
+  if (!evt || typeof evt !== 'object' || !evt.type) return state;
+  const next = { ...state, lastEventAt: at, log: [...state.log, evt].slice(-LOG_MAX) };
 
   if (evt.type === 'index.progress') {
     // ⚠️ **单调不减**（契约 §3 原文）。乱序或迟到的进度不许把进度条往回拨 ——
     //    那会让用户以为任务在倒退。取消时 done 就停在某个值不动。
-    const done = Math.max(Number(state.done) || 0, Number(evt.done) || 0)
+    const done = Math.max(Number(state.done) || 0, Number(evt.done) || 0);
     return {
       ...next,
       running: true,
@@ -160,7 +164,7 @@ export function reduceEvent(state: TaskState, evt: TaskEvent | null | undefined,
       deviceFallback: evt.deviceFallback ?? state.deviceFallback,
       // 续跑说明也留住（引擎只在第一条里说明复用多少）
       resumeNote: evt.note ?? state.resumeNote,
-    }
+    };
   }
 
   if (evt.type === 'index.done') {
@@ -183,7 +187,7 @@ export function reduceEvent(state: TaskState, evt: TaskEvent | null | undefined,
         failed: Array.isArray(evt.failed) ? evt.failed : [],
         compat: evt.compat ?? null,
       },
-    }
+    };
   }
 
   if (evt.type === 'index.failed') {
@@ -195,16 +199,19 @@ export function reduceEvent(state: TaskState, evt: TaskEvent | null | undefined,
       //    引擎的 `index.failed` 本来就带**完整错误信封**（契约 §1.1，含 userMessage），原样存下即可；
       //    真缺了就在界面上如实说"引擎没给原因"，而不是编一句通用道歉。
       outcome: { ok: false, error: evt.error ?? null },
-    }
+    };
   }
 
   // 认不出的事件类型：**留着但不改状态**（不崩、不假装处理过）
-  return next
+  return next;
 }
 
 /** 开始一次任务（本地先置状态，等第一条事件回来） */
-export function startLocal(state: TaskState, { libId, jobId = null }: { libId: string; jobId?: string | null }): TaskState {
-  return { ...initialTasks, running: true, libId, jobId }
+export function startLocal(
+  state: TaskState,
+  { libId, jobId = null }: { libId: string; jobId?: string | null },
+): TaskState {
+  return { ...initialTasks, running: true, libId, jobId };
 }
 
 /**
@@ -212,39 +219,41 @@ export function startLocal(state: TaskState, { libId, jobId = null }: { libId: s
  * `total` 未知时返回 **null**，界面显示不确定进度条 —— 不编一个百分比。
  */
 export function progressPercent(state: { done?: unknown; total?: unknown }): number | null {
-  const total = Number(state.total) || 0
-  if (!total) return null
-  return Math.max(0, Math.min(100, Math.round((Number(state.done) || 0) / total * 100)))
+  const total = Number(state.total) || 0;
+  if (!total) return null;
+  return Math.max(0, Math.min(100, Math.round(((Number(state.done) || 0) / total) * 100)));
 }
 
 /** ETA 文案。⚠️ 引擎没给就写 "—"，不估算（契约 §3 的 `etaSec` 是引擎算的） */
 export function etaText(state: { etaSec?: unknown }): string {
-  const s = state.etaSec
-  if (s === null || s === undefined || !Number.isFinite(Number(s))) return '—'
-  const n = Math.max(0, Math.round(Number(s)))
-  if (n < 60) return `${n} 秒`
-  return `${Math.floor(n / 60)} 分 ${String(n % 60).padStart(2, '0')} 秒`
+  const s = state.etaSec;
+  if (s === null || s === undefined || !Number.isFinite(Number(s))) return '—';
+  const n = Math.max(0, Math.round(Number(s)));
+  if (n < 60) return `${n} 秒`;
+  return `${Math.floor(n / 60)} 分 ${String(n % 60).padStart(2, '0')} 秒`;
 }
 
 /** 收尾摘要：`复用 N · 新编码 M · 失败 K`（UI-REVIEW:244 要求完成后显示） */
-export function outcomeSummary(state: { outcome?: TaskOutcome | null }): { reused: number; encoded: number; failed: number } | null {
-  const o = state.outcome
-  if (!o || o.error) return null
-  return { reused: o.reused || 0, encoded: o.encoded || 0, failed: (o.failed || []).length }
+export function outcomeSummary(state: {
+  outcome?: TaskOutcome | null;
+}): { reused: number; encoded: number; failed: number } | null {
+  const o = state.outcome;
+  if (!o || o.error) return null;
+  return { reused: o.reused || 0, encoded: o.encoded || 0, failed: (o.failed || []).length };
 }
 
 /** store 的形状：状态 + 动作 */
 export type TaskStore = TaskState & {
   /** 事件入口（由 `useEngineEvents` 订阅后调） */
-  applyEvent: (evt: TaskEvent) => void
+  applyEvent: (evt: TaskEvent) => void;
   /** 本地标记"已发起"，等第一条事件回来 */
-  begin: (info: { libId: string; jobId?: string | null }) => void
-  reset: () => void
+  begin: (info: { libId: string; jobId?: string | null }) => void;
+  reset: () => void;
   /** 只给测试用：把 store 回到初始态 */
-  __reset: () => void
+  __reset: () => void;
   /** 供测试直接喂状态（不经过 Date.now，保证确定） */
-  __applyAt: (evt: TaskEvent, at: number) => void
-}
+  __applyAt: (evt: TaskEvent, at: number) => void;
+};
 
 export const useTaskStore = create<TaskStore>()((set) => ({
   ...initialTasks,
@@ -253,4 +262,4 @@ export const useTaskStore = create<TaskStore>()((set) => ({
   reset: () => set(() => ({ ...initialTasks })),
   __reset: () => set(() => ({ ...initialTasks })),
   __applyAt: (evt, at) => set((s) => reduceEvent(s, evt, at)),
-}))
+}));

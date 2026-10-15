@@ -145,7 +145,11 @@ export function assertWritableGsPath(libraryRoot: string, target: string): strin
   if (path.dirname(resolved) !== root) {
     throw new IndexFileError(
       'INDEX_PATH_OUTSIDE_GS',
-      '只允许写库根的**直接子项**：' + resolved + ' 的父目录不是 ' + root + '（子目录与 ../ 穿越都会被拒）',
+      '只允许写库根的**直接子项**：' +
+        resolved +
+        ' 的父目录不是 ' +
+        root +
+        '（子目录与 ../ 穿越都会被拒）',
     );
   }
   const name = path.basename(resolved);
@@ -207,9 +211,15 @@ export interface IndexWriteReport {
 function atomicFsFromIndexFs(fsImpl: IndexFs): AtomicFs {
   return {
     existsSync: (p: string): boolean => fsImpl.existsSync(p),
-    writeFileSyncedSync: (p: string, data: Uint8Array): void => { fsImpl.writeFileSyncedSync(p, data); },
-    renameSync: (from: string, to: string): void => { fsImpl.renameSync(from, to); },
-    unlinkSync: (p: string): void => { fsImpl.unlinkSync(p); },
+    writeFileSyncedSync: (p: string, data: Uint8Array): void => {
+      fsImpl.writeFileSyncedSync(p, data);
+    },
+    renameSync: (from: string, to: string): void => {
+      fsImpl.renameSync(from, to);
+    },
+    unlinkSync: (p: string): void => {
+      fsImpl.unlinkSync(p);
+    },
   };
 }
 
@@ -244,7 +254,11 @@ function cleanupTemp(fsImpl: IndexFs, temp: string): string {
     return '已清理临时文件 ' + temp;
   } catch (e) {
     return (
-      '⚠️ 临时文件未能删除：' + temp + '（' + reasonOf(e) + '）—— 库根里会残留一个 .gs-* 名字的文件；' +
+      '⚠️ 临时文件未能删除：' +
+      temp +
+      '（' +
+      reasonOf(e) +
+      '）—— 库根里会残留一个 .gs-* 名字的文件；' +
       '扫描器会跳过它（SPEC §2.1），但它需要人看一眼'
     );
   }
@@ -284,7 +298,10 @@ export function writeIndexAtomically(
   }
   if (bytes.length === 0) {
     // 0 字节的文件必然过不了五道校验；在写之前就拒掉，别让它有机会盖掉一份好索引
-    throw new IndexFileError('INDEX_BYTES_REQUIRED', '拒绝写 0 字节索引：那会把一份好索引变成一个必然损坏的文件');
+    throw new IndexFileError(
+      'INDEX_BYTES_REQUIRED',
+      '拒绝写 0 字节索引：那会把一份好索引变成一个必然损坏的文件',
+    );
   }
 
   const validateBeforeRename = opts.validateBeforeRename !== false;
@@ -299,14 +316,24 @@ export function writeIndexAtomically(
       fs: atomicFsFromIndexFs(fsImpl),
       tempPath: temp,
       ...(validateBeforeRename
-        ? { validate: (tempPath: string): void => { seenValidations.push(validate(tempPath)); } }
+        ? {
+            validate: (tempPath: string): void => {
+              seenValidations.push(validate(tempPath));
+            },
+          }
         : {}),
-      cleanup: (tempPath: string): void => { cleanupNote = cleanupTemp(fsImpl, tempPath); },
+      cleanup: (tempPath: string): void => {
+        cleanupNote = cleanupTemp(fsImpl, tempPath);
+      },
     });
   } catch (e) {
     if (e instanceof AtomicWriteError) {
       // ⚠️ 三处语义**都不许丢**：① 仍是 IndexFileError；② 码仍是 INDEX_WRITE_FAILED；③ 文案带清理留痕
-      throw new IndexFileError('INDEX_WRITE_FAILED', stageMessageOf(e, target, temp) + cleanupNote, { cause: e });
+      throw new IndexFileError(
+        'INDEX_WRITE_FAILED',
+        stageMessageOf(e, target, temp) + cleanupNote,
+        { cause: e },
+      );
     }
     throw e;
   }
@@ -315,7 +342,11 @@ export function writeIndexAtomically(
   const validatedPart =
     validation === null
       ? '（未校验：validateBeforeRename=false）'
-      : '（五道校验通过：count=' + String(validation.count) + ' dim=' + String(validation.dim) + '）';
+      : '（五道校验通过：count=' +
+        String(validation.count) +
+        ' dim=' +
+        String(validation.dim) +
+        '）';
   return {
     path: target,
     tempPath: temp,
@@ -324,8 +355,15 @@ export function writeIndexAtomically(
     count: validation === null ? null : validation.count,
     dim: validation === null ? null : validation.dim,
     reason:
-      '索引已原子写入 ' + target + '：' + String(bytes.length) + ' 字节' + validatedPart +
-      '；临时文件 ' + temp + ' 已 rename 过去（目标名上不会出现半截文件）',
+      '索引已原子写入 ' +
+      target +
+      '：' +
+      String(bytes.length) +
+      ' 字节' +
+      validatedPart +
+      '；临时文件 ' +
+      temp +
+      ' 已 rename 过去（目标名上不会出现半截文件）',
   };
 }
 

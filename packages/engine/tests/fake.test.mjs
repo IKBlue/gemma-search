@@ -24,14 +24,22 @@ import { loadSampleIndex, DEFAULT_FIXTURE_PATH, createFakeKit } from '../src/fak
 function makeClock() {
   let q = [];
   return {
-    setTimer: (fn) => { q.push(fn); return q.length; },
+    setTimer: (fn) => {
+      q.push(fn);
+      return q.length;
+    },
     clearTimer: () => {},
     /** 跑完当前所有已排队的推进（每步都可能再排一个） */
     async runAll(limit = 500) {
-      for (let i = 0; i < limit && q.length; i++) { const fn = q.shift(); await fn(); }
-      return i => i;
+      for (let i = 0; i < limit && q.length; i++) {
+        const fn = q.shift();
+        await fn();
+      }
+      return (i) => i;
     },
-    get pending() { return q.length; },
+    get pending() {
+      return q.length;
+    },
   };
 }
 
@@ -54,8 +62,11 @@ test('F1 契约 §8：模拟模式**绝不触碰真实文件系统** —— 判�
   const { engine, clock, events } = fakeEngine();
   try {
     // 前置条件本身要验：库根真的不存在。否则后面那条推论不成立。
-    assert.equal(fs.existsSync(engine._fake.root), false,
-      `库根竟然存在（${engine._fake.root}）⇒ 判据失效，请换一个合成库根（fixtures/sample-index.json 的 root）`);
+    assert.equal(
+      fs.existsSync(engine._fake.root),
+      false,
+      `库根竟然存在（${engine._fake.root}）⇒ 判据失效，请换一个合成库根（fixtures/sample-index.json 的 root）`,
+    );
     // 只要有一条路径真的去 requireExistingRoot / 读盘，这些调用就会抛
     const st = await engine.indexStatus({});
     assert.equal(st.ok, true, `故障：${JSON.stringify(st.error)}`);
@@ -75,7 +86,10 @@ test('F1 契约 §8：模拟模式**绝不触碰真实文件系统** —— 判�
     const job = await engine.indexStart({ libId: 'L1', device: 'cpu' });
     assert.equal(job.ok, true);
     await clock.runAll();
-    assert.ok(events.some((e) => e.type === 'index.done'), '长任务应发出 index.done');
+    assert.ok(
+      events.some((e) => e.type === 'index.done'),
+      '长任务应发出 index.done',
+    );
 
     // 库根不存在却全程成功 ⇒ 没碰真实文件系统
     assert.equal(fs.existsSync('Z:\\__fake_library__'), false, '模拟模式不该在盘上造出这个目录');
@@ -92,19 +106,30 @@ test('F2 `search` 固定排序且可复现（同参数两次调用逐字段一�
     const a = await engine.search({ mode: 'text', text: '吊灯', topK: 8 });
     const b = await engine.search({ mode: 'text', text: '吊灯', topK: 8 });
     assert.deepEqual(a.data.results, b.data.results, '同参数两次结果必须完全一致');
-    assert.deepEqual(a.data.results.map((r) => r.uid), b.data.results.map((r) => r.uid));
+    assert.deepEqual(
+      a.data.results.map((r) => r.uid),
+      b.data.results.map((r) => r.uid),
+    );
     // 分数递减（样例是固定顺序）
     const scores = a.data.results.map((r) => r.score);
-    assert.deepEqual(scores, [...scores].sort((x, y) => y - x), '样例结果应按分数递减');
+    assert.deepEqual(
+      scores,
+      [...scores].sort((x, y) => y - x),
+      '样例结果应按分数递减',
+    );
     // band 必须由**注入的** bandOf 算（不能自己造阈值）。
     // ⚠️ `BANDS` 是 `mode -> { 档位名: 阈值 }`：**档位名是键**，不是值。
     //    第一版我写成遍历 `Object.values(BANDS)`（那是阈值数字）⇒ 断言恒假。
     const bandNames = Object.keys(BANDS.text);
     for (const r of a.data.results) {
-      assert.ok(r.band === 'unknown' || bandNames.includes(r.band),
-        `band 取值异常：${r.band}（合法：${bandNames.join('/')}/unknown）`);
+      assert.ok(
+        r.band === 'unknown' || bandNames.includes(r.band),
+        `band 取值异常：${r.band}（合法：${bandNames.join('/')}/unknown）`,
+      );
     }
-  } finally { engine._fake.__dispose(); }
+  } finally {
+    engine._fake.__dispose();
+  }
 });
 
 test('F2b `__empty__` 触发「无结果」分支；compat 不符与索引损坏的库进 `libsSkipped`', async () => {
@@ -115,10 +140,16 @@ test('F2b `__empty__` 触发「无结果」分支；compat 不符与索引损坏
 
     const all = await engine.search({ mode: 'text', text: 'x', topK: 50 });
     const skipped = all.data.libsSkipped.map((s) => s.libId).sort();
-    assert.deepEqual(skipped, ['L2', 'L3'],
-      'L2（compat 不符）与 L3（索引损坏）都应被跳过并给出结构化原因（契约 §6）');
-    for (const s of all.data.libsSkipped) assert.ok(s.reason && s.reason.kind, '跳过必须带结构化原因');
-  } finally { engine._fake.__dispose(); }
+    assert.deepEqual(
+      skipped,
+      ['L2', 'L3'],
+      'L2（compat 不符）与 L3（索引损坏）都应被跳过并给出结构化原因（契约 §6）',
+    );
+    for (const s of all.data.libsSkipped)
+      assert.ok(s.reason && s.reason.kind, '跳过必须带结构化原因');
+  } finally {
+    engine._fake.__dispose();
+  }
 });
 
 // ============================================================ ③ item vs itemPaths
@@ -131,7 +162,11 @@ test('F3 `item` **不**返回绝对路径；`itemPaths` 才是要路径的地方
     assert.equal(it.ok, true);
     // `item` 是索引元数据 —— 不许把绝对路径混进来（否则每次取元数据都顺带泄出路径）
     const json = JSON.stringify(it.data);
-    assert.equal(json.includes('Z:\\\\__fake_library__'), false, `item 不该含绝对路径：${json.slice(0, 200)}`);
+    assert.equal(
+      json.includes('Z:\\\\__fake_library__'),
+      false,
+      `item 不该含绝对路径：${json.slice(0, 200)}`,
+    );
     assert.equal(it.data.relPath, 'VR\\VR-101.jpg');
     // ⚠️ `item` **没有** `indexState` 字段 —— "索引状态"是派生量，归 Operation 层
     //    （`renderer/src/utils/index-state.js`）。字段集合由 F12 钉住。
@@ -142,7 +177,9 @@ test('F3 `item` **不**返回绝对路径；`itemPaths` 才是要路径的地方
     // 有图无包的那条：archivePath 必须是 null，不是空串
     const ip2 = await engine.itemPaths({ libId: 'L1', uid: 'a00000000003' });
     assert.equal(ip2.data.archivePath, null, '有图无包 ⇒ archivePath 为 null');
-  } finally { engine._fake.__dispose(); }
+  } finally {
+    engine._fake.__dispose();
+  }
 });
 
 test('F3b 样例索引覆盖「待重编码 / 已从索引移除」两档（界面必须能演示）', async () => {
@@ -159,7 +196,9 @@ test('F3b 样例索引覆盖「待重编码 / 已从索引移除」两档（界�
     assert.ok(scan.data.changed.includes('a00000000004'), '「待重编码」需要 scan.changed 含它');
     assert.ok(scan.data.missing.includes('a0000000001e'), 'scan.missing 与 exists 必须一致');
     assert.ok(scan.data.added.length > 0, '「待编码」需要 scan.added 非空');
-  } finally { engine._fake.__dispose(); }
+  } finally {
+    engine._fake.__dispose();
+  }
 });
 
 test('F12 ⭐⭐ fake 的 `item` 与**真实引擎**的 `item` **逐字同形**（防"模拟能跑、真库崩"）', async () => {
@@ -171,22 +210,44 @@ test('F12 ⭐⭐ fake 的 `item` 与**真实引擎**的 `item` **逐字同形**�
   try {
     const fakeItem = (await engine.item({ libId: 'L1', uid: 'a00000000001' })).data;
     // 真实引擎在夹具库上没有索引 ⇒ 拿不到 data；改为**比形状**：用契约 §2.2 的字段清单
-    const CONTRACT_FIELDS = ['libId', 'uid', 'relPath', 'folder', 'stem', 'imageExt', 'imageSize',
-      'imageMtime', 'vectorSource', 'archive', 'exists'];
-    assert.deepEqual(Object.keys(fakeItem).sort(), [...CONTRACT_FIELDS].sort(),
-      'fake 的 item 字段集合必须与契约 §2.2 一致 —— 多一个字段就是"模拟能跑、真库崩"');
+    const CONTRACT_FIELDS = [
+      'libId',
+      'uid',
+      'relPath',
+      'folder',
+      'stem',
+      'imageExt',
+      'imageSize',
+      'imageMtime',
+      'vectorSource',
+      'archive',
+      'exists',
+    ];
+    assert.deepEqual(
+      Object.keys(fakeItem).sort(),
+      [...CONTRACT_FIELDS].sort(),
+      'fake 的 item 字段集合必须与契约 §2.2 一致 —— 多一个字段就是"模拟能跑、真库崩"',
+    );
 
     // 同样钉 itemPaths（契约 §2.2a）
     const ip = (await engine.itemPaths({ libId: 'L1', uid: 'a00000000001' })).data;
-    assert.deepEqual(Object.keys(ip).sort(), ['archivePath', 'exists', 'imagePath', 'libId', 'uid'].sort());
+    assert.deepEqual(
+      Object.keys(ip).sort(),
+      ['archivePath', 'exists', 'imagePath', 'libId', 'uid'].sort(),
+    );
 
     // 以及 archive 子对象的形状（有包的那条）
-    assert.deepEqual(Object.keys(fakeItem.archive).sort(), ['ext', 'mtime', 'relPath', 'size'].sort());
+    assert.deepEqual(
+      Object.keys(fakeItem.archive).sort(),
+      ['ext', 'mtime', 'relPath', 'size'].sort(),
+    );
     // 有图无包的那条：archive 必须是 null（不是 {} 也不是 undefined）
     const noArc = (await engine.item({ libId: 'L1', uid: 'a00000000003' })).data;
     assert.equal(noArc.archive, null);
     assert.equal(real._fake, null);
-  } finally { engine._fake.__dispose(); }
+  } finally {
+    engine._fake.__dispose();
+  }
 });
 
 // ============================================================ ④ 长任务（P3d 的验收靠它）
@@ -202,7 +263,11 @@ test('F4 `indexStart` 发进度事件：`done` 单调不减，收尾发 `index.d
     const prog = events.filter((e) => e.type === 'index.progress');
     assert.ok(prog.length >= 3, `应发多条进度，实得 ${prog.length}`);
     const dones = prog.map((e) => e.done);
-    assert.deepEqual(dones, [...dones].sort((a, b) => a - b), 'done 必须单调不减（契约 §3）');
+    assert.deepEqual(
+      dones,
+      [...dones].sort((a, b) => a - b),
+      'done 必须单调不减（契约 §3）',
+    );
     for (const e of prog) {
       assert.equal(typeof e.total, 'number');
       assert.ok(e.phase, '每条进度都要带阶段（阶段条要用）');
@@ -211,7 +276,9 @@ test('F4 `indexStart` 发进度事件：`done` 单调不减，收尾发 `index.d
     const done = events.filter((e) => e.type === 'index.done');
     assert.equal(done.length, 1, '收尾只发一次 index.done');
     assert.equal(done[0].total, 30);
-  } finally { engine._fake.__dispose(); }
+  } finally {
+    engine._fake.__dispose();
+  }
 });
 
 test('F5 失败项非空 ⇒ `index.done.ok === false`，且每项可解释（哪条/哪个阶段/为什么）', async () => {
@@ -230,14 +297,16 @@ test('F5 失败项非空 ⇒ `index.done.ok === false`，且每项可解释（�
     // 「完成后显示 复用 N · 新编码 M · 失败 K」（UI-REVIEW §6 流程 3）
     assert.equal(typeof d.reused, 'number');
     assert.equal(typeof d.encoded, 'number');
-  } finally { engine._fake.__dispose(); }
+  } finally {
+    engine._fake.__dispose();
+  }
 });
 
 test('F6 ⭐ 取消**在边界生效**：cancel 后立刻收尾，且已处理数停在中间值', async () => {
   const { engine, clock, events } = fakeEngine();
   try {
     const r = await engine.indexStart({ libId: 'L1', device: 'cpu' });
-    await clock.runAll(2);                       // 只推进两步 ⇒ 任务进行中
+    await clock.runAll(2); // 只推进两步 ⇒ 任务进行中
     const mid = events.filter((e) => e.type === 'index.progress').at(-1).done;
     assert.ok(mid > 0 && mid < 30, `应停在中途，实得 done=${mid}`);
 
@@ -252,8 +321,10 @@ test('F6 ⭐ 取消**在边界生效**：cancel 后立刻收尾，且已处理�
     assert.equal(fin.cancelled, true);
     assert.ok(fin.failed.length >= 1, '被取消的那条要出现在失败清单里（可解释）');
 
-    clock.length = 0;                            // 清理推进队列，防止悬挂
-  } finally { engine._fake.__dispose(); }
+    clock.length = 0; // 清理推进队列，防止悬挂
+  } finally {
+    engine._fake.__dispose();
+  }
 });
 
 test('F6b `indexResume` 复用已编码行，并在事件里说明复用多少（契约 §3）', async () => {
@@ -273,13 +344,21 @@ test('F6b `indexResume` 复用已编码行，并在事件里说明复用多少�
     assert.equal(note.done, before, `复用应从上一次的 done=${before} 接着走`);
 
     await clock.runAll();
-  } finally { engine._fake.__dispose(); }
+  } finally {
+    engine._fake.__dispose();
+  }
 });
 
 test('F7 `RECOVERY_NEEDED` 那条路可演示：有未收尾事务时写操作被拒且带可恢复信息', async () => {
   const { engine } = fakeEngine();
   try {
-    engine._fake.__injectPendingTx({ txId: 'tx-2f9c', state: 'staged', startedAt: 1760000000000, canUndo: true, canRollback: true });
+    engine._fake.__injectPendingTx({
+      txId: 'tx-2f9c',
+      state: 'staged',
+      startedAt: 1760000000000,
+      canUndo: true,
+      canRollback: true,
+    });
 
     const m = await engine.mutate({ libId: 'L1', op: 'rename', params: {} });
     assert.equal(m.ok, false);
@@ -299,16 +378,22 @@ test('F7 `RECOVERY_NEEDED` 那条路可演示：有未收尾事务时写操作�
     assert.equal(u.ok, true);
     const m2 = await engine.mutate({ libId: 'L1', op: 'rename', params: {} });
     assert.equal(m2.ok, true, '恢复之后写操作应可用');
-  } finally { engine._fake.__dispose(); }
+  } finally {
+    engine._fake.__dispose();
+  }
 });
 
 // ============================================================ ⑤ 真实模式不许假装成功
 
 test('F8 ⭐ `fake:false`（真实模式）下 `indexStart`/`mutate` 如实返回 `INTERNAL`，**不假装成功**', async () => {
   const engine = createEngine({ config: {}, encoder: null });
-  for (const [m, req] of [['indexStart', { libId: 'L1' }], ['indexCancel', { jobId: 'x' }],
-                          ['indexResume', { jobId: 'x' }], ['mutate', { libId: 'L1', op: 'rename' }],
-                          ['ingest', { libId: 'L1', sourcePaths: [] }]]) {
+  for (const [m, req] of [
+    ['indexStart', { libId: 'L1' }],
+    ['indexCancel', { jobId: 'x' }],
+    ['indexResume', { jobId: 'x' }],
+    ['mutate', { libId: 'L1', op: 'rename' }],
+    ['ingest', { libId: 'L1', sourcePaths: [] }],
+  ]) {
     const r = await engine[m](req);
     assert.equal(r.ok, false, `${m} 在真实模式下不该返回 ok`);
     assert.equal(r.error.code, ERR.INTERNAL, `${m} 应如实报 INTERNAL，实得 ${r.error.code}`);
@@ -340,18 +425,30 @@ test('F9 ⭐ fake 用到的**每个错误码**都在冻结的错误码表里（�
     }
     await clock.runAll();
     for (const e of events) {
-      if (e.type === 'index.done') for (const f of e.failed) if (!known.has(f.error.code)) bad.push(f.error.code);
+      if (e.type === 'index.done')
+        for (const f of e.failed) if (!known.has(f.error.code)) bad.push(f.error.code);
       if (e.type === 'index.failed' && !known.has(e.error.code)) bad.push(e.error.code);
     }
     // 未收尾事务那条
-    engine._fake.__injectPendingTx({ txId: 'tx-x', state: 'staged', startedAt: 1, canUndo: true, canRollback: true });
+    engine._fake.__injectPendingTx({
+      txId: 'tx-x',
+      state: 'staged',
+      startedAt: 1,
+      canUndo: true,
+      canRollback: true,
+    });
     const rec = await engine.mutate({ libId: 'L1', op: 'rename' });
     if (!rec.ok && !known.has(rec.error.code)) bad.push(rec.error.code);
-  } finally { engine._fake.__dispose(); }
+  } finally {
+    engine._fake.__dispose();
+  }
 
-  assert.deepEqual(bad, [],
+  assert.deepEqual(
+    bad,
+    [],
     `这些错误码不在 errors.mjs 的表里 —— 契约 §9.2 把"改错误码字符串"定为**破坏性变更**（要升 v2）。\n` +
-    `已登记的表：${[...known].join(', ')}`);
+      `已登记的表：${[...known].join(', ')}`,
+  );
 });
 
 // ============================================================ ⑦ fixture 本身
@@ -363,12 +460,24 @@ test('F10 `fixtures/sample-index.json` 存在、条数达标、且覆盖契约 �
 
   const folders = new Set(fx.items.map((i) => i.folder));
   assert.ok(folders.size >= 4, `应覆盖多个分类，实得 ${[...folders].join('/')}`);
-  assert.ok(fx.items.some((i) => !i.archiveRelPath), '要有「有图无包」的样本');
-  assert.ok(fx.items.some((i) => i.vectorSource === 'bmp-fallback'), '要有「BMP 回退档」的样本');
+  assert.ok(
+    fx.items.some((i) => !i.archiveRelPath),
+    '要有「有图无包」的样本',
+  );
+  assert.ok(
+    fx.items.some((i) => i.vectorSource === 'bmp-fallback'),
+    '要有「BMP 回退档」的样本',
+  );
   assert.ok(fx.scan?.L1?.changed?.length > 0, '要有「待重编码」的样本');
   assert.ok(fx.scan?.L1?.missing?.length > 0, '要有「已从索引移除」的样本');
-  assert.ok(fx.libs.some((l) => l.state === 'compat-mismatch'), '要有「compat 不符」的样本');
-  assert.ok(fx.libs.some((l) => l.state === 'corrupt'), '要有「索引损坏」的样本');
+  assert.ok(
+    fx.libs.some((l) => l.state === 'compat-mismatch'),
+    '要有「compat 不符」的样本',
+  );
+  assert.ok(
+    fx.libs.some((l) => l.state === 'corrupt'),
+    '要有「索引损坏」的样本',
+  );
 
   // uid 必须是 12 位 hex（契约 §1.2，已冻结）
   for (const it of fx.items) assert.match(it.uid, /^[0-9a-f]{12}$/, `uid 形状不对：${it.uid}`);
@@ -390,14 +499,19 @@ test('F13 ⭐⭐ fake 的 `indexStatus.compat` 与真实引擎**同形**：8 段
         continue;
       }
       const segs = String(l.compat).split('|');
-      assert.equal(segs.length, COMPAT_FIELDS.length,
-        `${l.libId} 的 compat 应是 ${COMPAT_FIELDS.length} 段（${COMPAT_FIELDS.join('|')}），实得 ${segs.length} 段：${l.compat}`);
+      assert.equal(
+        segs.length,
+        COMPAT_FIELDS.length,
+        `${l.libId} 的 compat 应是 ${COMPAT_FIELDS.length} 段（${COMPAT_FIELDS.join('|')}），实得 ${segs.length} 段：${l.compat}`,
+      );
       for (const s of segs) assert.ok(s.length > 0, `${l.libId} 的 compat 有空段：${l.compat}`);
     }
     // L1 与 L2 的 compat 必须不同（否则演示不了 COMPAT_MISMATCH）
     const byId = Object.fromEntries(st.data.libs.map((l) => [l.libId, l.compat]));
     assert.notEqual(byId.L1, byId.L2, 'L2 是"compat 不符"那个库，compat 串不能与 L1 相同');
-  } finally { engine._fake.__dispose(); }
+  } finally {
+    engine._fake.__dispose();
+  }
 });
 
 test('F14 ⭐ `transactions`（契约 §2.11）：列出事务、可按 txId 查、并报告 `blocked`', async () => {
@@ -417,7 +531,11 @@ test('F14 ⭐ `transactions`（契约 §2.11）：列出事务、可按 txId 查
       assert.equal(typeof t.canUndo, 'boolean', 'canUndo 必须显式给（界面据此决定按钮）');
       assert.equal(typeof t.canRollback, 'boolean');
     }
-    assert.equal(all.data.blocked, false, '默认没有未收尾事务 ⇒ blocked=false（否则索引任务一上来就被拒）');
+    assert.equal(
+      all.data.blocked,
+      false,
+      '默认没有未收尾事务 ⇒ blocked=false（否则索引任务一上来就被拒）',
+    );
 
     // 有一条"待处理"（recovery_needed），界面要能演示三条路
     const pending = list.find((t) => t.state === 'recovery_needed');
@@ -430,7 +548,9 @@ test('F14 ⭐ `transactions`（契约 §2.11）：列出事务、可按 txId 查
     assert.equal(one.data.transactions.length, 1);
     assert.equal(one.data.transactions[0].txId, 'tx-2f9c');
     assert.equal((await engine.transactions({ txId: '不存在' })).data.transactions.length, 0);
-  } finally { engine._fake.__dispose(); }
+  } finally {
+    engine._fake.__dispose();
+  }
 });
 
 test('F15 ⭐ 撤销一条待处理事务：状态、canUndo 与 blocked 都要跟着变', async () => {
@@ -448,7 +568,9 @@ test('F15 ⭐ 撤销一条待处理事务：状态、canUndo 与 blocked 都要�
     assert.equal(after.canUndo, false, '撤销过的不该还能再撤');
     assert.equal(after.canRollback, false);
     assert.equal((await engine.transactions({})).data.blocked, false);
-  } finally { engine._fake.__dispose(); }
+  } finally {
+    engine._fake.__dispose();
+  }
 });
 
 test('F15b ⭐ 不可撤销的事务**如实拒绝**（`UNDO_EXPIRED`），不假装成功', async () => {
@@ -462,7 +584,9 @@ test('F15b ⭐ 不可撤销的事务**如实拒绝**（`UNDO_EXPIRED`），不�
     // 状态没被改坏
     const t = (await engine.transactions({ txId: 'tx-2f9b' })).data.transactions[0];
     assert.equal(t.state, 'committed');
-  } finally { engine._fake.__dispose(); }
+  } finally {
+    engine._fake.__dispose();
+  }
 });
 
 test('F15c 写操作会**记进台账**（界面据此显示"最近发生了什么"）', async () => {
@@ -477,7 +601,9 @@ test('F15c 写操作会**记进台账**（界面据此显示"最近发生了什�
     assert.equal(list[0].op, 'rename');
     assert.equal(list[0].state, 'committed');
     assert.equal(list[0].needsReencode, false, '改 ID 不动像素 ⇒ 复用向量（P3c 的 IA2b 同口径）');
-  } finally { engine._fake.__dispose(); }
+  } finally {
+    engine._fake.__dispose();
+  }
 });
 
 test('F16 ⭐ 真实模式 `transactions` 如实返回 `INTERNAL`（不返回空数组假装"没有事务"）', async () => {
@@ -494,10 +620,15 @@ test('F17 ⭐⭐ `UNIMPLEMENTED_METHODS` 与假套件**逐一对得上**，且�
   const { engine: fake0 } = fakeEngine();
   try {
     for (const m of UNIMPLEMENTED_METHODS) {
-      assert.equal(typeof fake0._fake[m], 'function',
-        `假套件缺 ${m} —— 引擎侧就是 fakeKit[name]，键名必须与方法名一致`);
+      assert.equal(
+        typeof fake0._fake[m],
+        'function',
+        `假套件缺 ${m} —— 引擎侧就是 fakeKit[name]，键名必须与方法名一致`,
+      );
     }
-  } finally { fake0._fake.__dispose(); }
+  } finally {
+    fake0._fake.__dispose();
+  }
 
   // 真实模式下这**每一个**都必须是 INTERNAL（不许假装成功，也不许 undefined）
   const engine = createEngine({ config: {}, encoder: null });
@@ -516,10 +647,15 @@ test('F17 ⭐⭐ `UNIMPLEMENTED_METHODS` 与假套件**逐一对得上**，且�
       assert.notEqual(r, undefined, `模拟模式 ${m} 返回了 undefined —— 假套件没接上`);
       assert.equal(r.ok, true, `模拟模式 ${m} 应能演示：${JSON.stringify(r.error)}`);
     }
-  } finally { fake._fake.__dispose(); }
+  } finally {
+    fake._fake.__dispose();
+  }
 });
 
 test('F11 `createFakeKit` 必须注入 `bandOf` —— 不许在本模块里重算档位阈值', () => {
-  assert.throws(() => createFakeKit({ fixture: loadSampleIndex() }), /bandOf/,
-    '不注入 bandOf 应当当场抛：那会造出第二份阈值（P2 / F-02 的教训）');
+  assert.throws(
+    () => createFakeKit({ fixture: loadSampleIndex() }),
+    /bandOf/,
+    '不注入 bandOf 应当当场抛：那会造出第二份阈值（P2 / F-02 的教训）',
+  );
 });

@@ -85,12 +85,23 @@ export const MIN_CACHED_THUMB_BYTES: number = 4;
  * ⚠️ 它是**必要不充分**条件：通过 ≠ 一定能解码（那要真解码器，代价不值）。但「尾部有 EOI」
  *    已经能挡掉「半截文件」，而这正是缓存层唯一的失败模式。
  */
-export function checkCachedThumbBytes(bytes: Uint8Array | null | undefined): { ok: true } | { ok: false; reason: string } {
+export function checkCachedThumbBytes(
+  bytes: Uint8Array | null | undefined,
+): { ok: true } | { ok: false; reason: string } {
   if (!bytes || bytes.length === 0) return { ok: false, reason: '缓存文件是 0 字节' };
   if (bytes.length < MIN_CACHED_THUMB_BYTES) {
-    return { ok: false, reason: '长度只有 ' + String(bytes.length) + ' 字节（不足 ' + String(MIN_CACHED_THUMB_BYTES) + '，连 SOI/EOI 都放不下）' };
+    return {
+      ok: false,
+      reason:
+        '长度只有 ' +
+        String(bytes.length) +
+        ' 字节（不足 ' +
+        String(MIN_CACHED_THUMB_BYTES) +
+        '，连 SOI/EOI 都放不下）',
+    };
   }
-  if (bytes[0] !== JPEG_SOI[0] || bytes[1] !== JPEG_SOI[1]) return { ok: false, reason: '开头不是 JPEG SOI（FF D8）' };
+  if (bytes[0] !== JPEG_SOI[0] || bytes[1] !== JPEG_SOI[1])
+    return { ok: false, reason: '开头不是 JPEG SOI（FF D8）' };
   if (bytes[bytes.length - 2] !== JPEG_EOI[0] || bytes[bytes.length - 1] !== JPEG_EOI[1]) {
     return { ok: false, reason: '尾部不是 JPEG EOI（FF D9）—— 文件被截断了' };
   }
@@ -161,7 +172,9 @@ export function writeCachedThumb(
         const v = checkCachedThumbBytes(onDisk);
         if (!v.ok) throw new Error('落盘内容不合格：' + v.reason);
         if (onDisk.length !== bytes.length) {
-          throw new Error('落盘字节数不符：写 ' + String(bytes.length) + '，盘上 ' + String(onDisk.length));
+          throw new Error(
+            '落盘字节数不符：写 ' + String(bytes.length) + '，盘上 ' + String(onDisk.length),
+          );
         }
       },
     });
@@ -243,7 +256,8 @@ export function thumbServeStatus(f: ThumbStatusInput): ThumbStatusDecision {
   }
 
   // ⑤ 文件在，但解不出图
-  if (f.decoded === false) return { status: 415, reason: '文件无法解码成图片（415）', internal: false };
+  if (f.decoded === false)
+    return { status: 415, reason: '文件无法解码成图片（415）', internal: false };
 
   // ⑥ 出图
   return { status: null, reason: '可以出图', internal: false };

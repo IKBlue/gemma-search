@@ -10,12 +10,28 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  PHASES, initialTasks, reduceEvent, phaseLabel, progressPercent, etaText, outcomeSummary, startLocal,
+  PHASES,
+  initialTasks,
+  reduceEvent,
+  phaseLabel,
+  progressPercent,
+  etaText,
+  outcomeSummary,
+  startLocal,
 } from '../src/renderer/src/store/tasks.ts';
 
 const progress = (over = {}) => ({
-  type: 'index.progress', jobId: 'j-1', libId: 'L1',
-  done: 10, total: 100, skipped: 0, failed: 0, ratePerSec: 2, etaSec: 45, phase: 'encode', ...over,
+  type: 'index.progress',
+  jobId: 'j-1',
+  libId: 'L1',
+  done: 10,
+  total: 100,
+  skipped: 0,
+  failed: 0,
+  ratePerSec: 2,
+  etaSec: 45,
+  phase: 'encode',
+  ...over,
 });
 /** 依次喂多条事件 */
 const feed = (events, from = initialTasks) =>
@@ -49,7 +65,19 @@ test('T2 ⭐ `done` **单调不减** —— 迟到/乱序的进度不许把进�
   assert.equal(d.done, 41, '进度事件缺 done 时不该把进度打回 0');
 
   // 取消时 done 就停在某值不动（契约 §3）
-  const stopped = feed([progress({ done: 40 }), { type: 'index.done', ok: false, cancelled: true, indexed: 40, total: 100, failed: [], reused: 0, encoded: 40 }]);
+  const stopped = feed([
+    progress({ done: 40 }),
+    {
+      type: 'index.done',
+      ok: false,
+      cancelled: true,
+      indexed: 40,
+      total: 100,
+      failed: [],
+      reused: 0,
+      encoded: 40,
+    },
+  ]);
   assert.equal(stopped.done, 40);
   assert.equal(stopped.running, false);
 });
@@ -80,21 +108,40 @@ test('T4 ⭐ 失败清单**不静默**：非空 ⇒ `ok:false`，每项可解释
     { relPath: 'VR\\a.jpg', stage: 'encode', error: { code: 'INTERNAL', message: '解码失败' } },
     { relPath: 'VR\\b.jpg', stage: 'pair', error: { code: 'INTERNAL', message: '同名包有 2 个' } },
   ];
-  const s = feed([progress({ done: 100 }), { type: 'index.done', ok: false, indexed: 100, total: 100, reused: 3, encoded: 95, failed }]);
+  const s = feed([
+    progress({ done: 100 }),
+    { type: 'index.done', ok: false, indexed: 100, total: 100, reused: 3, encoded: 95, failed },
+  ]);
   assert.equal(s.running, false);
   assert.equal(s.outcome.ok, false, '有失败项时 ok 必须是 false');
   assert.equal(s.failed.length, 2);
   for (const f of s.failed) {
-    assert.ok(f.relPath && f.stage && f.error && f.error.message, `失败项要能解释：${JSON.stringify(f)}`);
+    assert.ok(
+      f.relPath && f.stage && f.error && f.error.message,
+      `失败项要能解释：${JSON.stringify(f)}`,
+    );
   }
   const sum = outcomeSummary(s);
-  assert.deepEqual(sum, { reused: 3, encoded: 95, failed: 2 }, '完成后要能显示「复用 N · 新编码 M · 失败 K」');
+  assert.deepEqual(
+    sum,
+    { reused: 3, encoded: 95, failed: 2 },
+    '完成后要能显示「复用 N · 新编码 M · 失败 K」',
+  );
 });
 
 test('T4b 取消收尾：`cancelled` 要留痕，且 done 停在取消时的值', () => {
   const s = feed([
     progress({ done: 30 }),
-    { type: 'index.done', ok: false, cancelled: true, indexed: 30, total: 100, reused: 0, encoded: 29, failed: [{ relPath: 'x', stage: 'encode', error: { code: 'INTERNAL', message: '已取消' } }] },
+    {
+      type: 'index.done',
+      ok: false,
+      cancelled: true,
+      indexed: 30,
+      total: 100,
+      reused: 0,
+      encoded: 29,
+      failed: [{ relPath: 'x', stage: 'encode', error: { code: 'INTERNAL', message: '已取消' } }],
+    },
   ]);
   assert.equal(s.outcome.cancelled, true);
   assert.equal(s.done, 30);
@@ -102,7 +149,13 @@ test('T4b 取消收尾：`cancelled` 要留痕，且 done 停在取消时的值'
 });
 
 test('T4c `index.failed` 收尾：留下错误信封，且 userMessage 非空（界面要显示它）', () => {
-  const s = feed([progress({ done: 5 }), { type: 'index.failed', error: { code: 'INTERNAL', message: 'x', userMessage: '任务失败了。', details: {} } }]);
+  const s = feed([
+    progress({ done: 5 }),
+    {
+      type: 'index.failed',
+      error: { code: 'INTERNAL', message: 'x', userMessage: '任务失败了。', details: {} },
+    },
+  ]);
   assert.equal(s.running, false);
   assert.equal(s.outcome.ok, false);
   assert.ok(s.outcome.error.userMessage);
@@ -154,7 +207,16 @@ test('T5d `etaSec` 缺失写 "—"，**不本地估算**（ETA 是引擎算的�
 });
 
 test('T6 `begin` 把状态清干净并标记已发起（避免上一次的失败项残留）', () => {
-  const dirty = feed([progress({ done: 50 }), { type: 'index.done', ok: false, indexed: 50, total: 100, failed: [{ relPath: 'a', stage: 'encode', error: { code: 'INTERNAL', message: 'x' } }] }]);
+  const dirty = feed([
+    progress({ done: 50 }),
+    {
+      type: 'index.done',
+      ok: false,
+      indexed: 50,
+      total: 100,
+      failed: [{ relPath: 'a', stage: 'encode', error: { code: 'INTERNAL', message: 'x' } }],
+    },
+  ]);
   assert.equal(dirty.failed.length, 1);
   const fresh = startLocal(dirty, { libId: 'L2' });
   assert.equal(fresh.running, true);

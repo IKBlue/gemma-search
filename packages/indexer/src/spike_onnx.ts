@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ModelDevice } from './third_party_types.ts';
-import { pickEmbedding } from './embedding.ts';   // 唯一实现（ENC-1 / P1）
+import { pickEmbedding } from './embedding.ts'; // 唯一实现（ENC-1 / P1）
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
 
 const [modelDir, seqArg, outPath, selectionPath, deviceArg] = process.argv.slice(2);
@@ -23,7 +23,12 @@ if (!modelDir || !seqArg || !outPath) {
 }
 const SEQ = parseInt(seqArg, 10);
 const DEVICE = deviceArg || 'cpu';
-const SELECTION = selectionPath || path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), 'spike_selection.json');
+const SELECTION =
+  selectionPath ||
+  path.join(
+    path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')),
+    'spike_selection.json',
+  );
 
 const QUERY_PREFIX = 'task: search result | query: ';
 const TEXTS = [
@@ -34,7 +39,9 @@ const TEXTS = [
   '花卉图案装饰画',
 ];
 
-function log(...a: unknown[]) { console.error(`[onnx]`, ...a); }
+function log(...a: unknown[]) {
+  console.error(`[onnx]`, ...a);
+}
 
 // 只用本地文件：不联网、不去 HF 找
 env.allowLocalModels = true;
@@ -47,8 +54,10 @@ log(`载入 config/processor/model（dtype=fp32, seq=${SEQ}）…`);
 let t0 = Date.now();
 
 const config = await AutoConfig.from_pretrained(modelDir);
-config.audio_config = null;                       // ★ 不加载音频塔
-log(`  vision_config=${config.vision_config ? '有' : '无'}  audio_config=${config.audio_config ? '有' : 'null'}`);
+config.audio_config = null; // ★ 不加载音频塔
+log(
+  `  vision_config=${config.vision_config ? '有' : '无'}  audio_config=${config.audio_config ? '有' : 'null'}`,
+);
 
 const processor = await AutoProcessor.from_pretrained(modelDir, { config });
 processor.image_seq_length = SEQ;
@@ -56,9 +65,15 @@ if (processor.image_processor) {
   processor.image_processor.max_soft_tokens = SEQ;
   processor.image_processor.image_seq_length = SEQ;
 }
-log(`  processor.image_seq_length=${processor.image_seq_length}  image_processor.max_soft_tokens=${processor.image_processor?.max_soft_tokens}`);
+log(
+  `  processor.image_seq_length=${processor.image_seq_length}  image_processor.max_soft_tokens=${processor.image_processor?.max_soft_tokens}`,
+);
 
-const model = await AutoModel.from_pretrained(modelDir, { config, dtype: 'fp32', device: DEVICE as ModelDevice });
+const model = await AutoModel.from_pretrained(modelDir, {
+  config,
+  dtype: 'fp32',
+  device: DEVICE as ModelDevice,
+});
 const loadMs = Date.now() - t0;
 log(`  载入完成，用时 ${(loadMs / 1000).toFixed(1)}s`);
 
@@ -83,10 +98,13 @@ for (const s of sel) {
   const dt = Date.now() - t1;
   perImage.push(dt / 1000);
   images.push({ rel_path: s.rel_path, vector: Array.from(emb.data) });
-  if (images.length === 1) log(`  首个样本编码方式: ${emb.how}, dim=${emb.dims[emb.dims.length - 1]}`);
+  if (images.length === 1)
+    log(`  首个样本编码方式: ${emb.how}, dim=${emb.dims[emb.dims.length - 1]}`);
 }
 const imageMs = Date.now() - t0;
-log(`  图像 ${images.length} 张，用时 ${(imageMs / 1000).toFixed(1)}s（${(imageMs / 1000 / images.length).toFixed(2)} s/张）`);
+log(
+  `  图像 ${images.length} 张，用时 ${(imageMs / 1000).toFixed(1)}s（${(imageMs / 1000 / images.length).toFixed(2)} s/张）`,
+);
 
 // ---------- 文本 ----------
 const texts = [];
@@ -104,7 +122,15 @@ const dim = images[0].vector.length;
 const result = {
   runtime: 'transformers.js+onnxruntime-node',
   device: DEVICE,
-  package_version: JSON.parse(fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), 'node_modules/@huggingface/transformers/package.json'), 'utf8')).version,
+  package_version: JSON.parse(
+    fs.readFileSync(
+      path.join(
+        path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')),
+        'node_modules/@huggingface/transformers/package.json',
+      ),
+      'utf8',
+    ),
+  ).version,
   model_dir: modelDir,
   seq: SEQ,
   dim,

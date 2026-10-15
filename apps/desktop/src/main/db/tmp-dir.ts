@@ -53,19 +53,32 @@ export function configureProcessTempDir(userDataDir: string | null): TempDirResu
     try {
       fs.mkdirSync(override, { recursive: true });
       applyTempDir(override);
-      log('[temp] 进程临时目录 =', override, '（来源：', TEMP_DIR_OVERRIDE, '显式覆盖）· keys =', TEMP_ENV_KEYS.join('/'));
+      log(
+        '[temp] 进程临时目录 =',
+        override,
+        '（来源：',
+        TEMP_DIR_OVERRIDE,
+        '显式覆盖）· keys =',
+        TEMP_ENV_KEYS.join('/'),
+      );
       return { dir: override, why: TEMP_DIR_OVERRIDE + ' 显式覆盖：' + override };
     } catch (e) {
       // 显式指定却建不出来：**不吞**。保持环境原样 —— 让失败在原来的地方响。
-      log('!! [temp] ' + TEMP_DIR_OVERRIDE + ' 指定的目录不可用（保持系统临时目录）：', override,
-          '·', e instanceof Error ? e.message : String(e));
+      log(
+        '!! [temp] ' + TEMP_DIR_OVERRIDE + ' 指定的目录不可用（保持系统临时目录）：',
+        override,
+        '·',
+        e instanceof Error ? e.message : String(e),
+      );
       return { dir: null, why: TEMP_DIR_OVERRIDE + ' 不可用：' + override };
     }
   }
 
   const base = typeof userDataDir === 'string' ? userDataDir.trim() : '';
   if (!base) {
-    log('[temp] 未配置临时目录（userData 未知）——沿用系统临时目录；若它不可写，元数据导入会以 IMPORT_FAILED 失败');
+    log(
+      '[temp] 未配置临时目录（userData 未知）——沿用系统临时目录；若它不可写，元数据导入会以 IMPORT_FAILED 失败',
+    );
     return { dir: null, why: 'userData 未知 ⇒ 沿用系统临时目录' };
   }
 
@@ -73,10 +86,20 @@ export function configureProcessTempDir(userDataDir: string | null): TempDirResu
   try {
     fs.mkdirSync(dir, { recursive: true });
     applyTempDir(dir);
-    log('[temp] 进程临时目录 =', dir, '（应用私有：系统 TEMP/TMP 不可写时导入才不会莫名失败）· keys =', TEMP_ENV_KEYS.join('/'));
+    log(
+      '[temp] 进程临时目录 =',
+      dir,
+      '（应用私有：系统 TEMP/TMP 不可写时导入才不会莫名失败）· keys =',
+      TEMP_ENV_KEYS.join('/'),
+    );
     return { dir, why: 'userData/tmp：' + dir };
   } catch (e) {
-    log('!! [temp] 临时目录创建失败（保持系统临时目录）：', dir, '·', e instanceof Error ? e.message : String(e));
+    log(
+      '!! [temp] 临时目录创建失败（保持系统临时目录）：',
+      dir,
+      '·',
+      e instanceof Error ? e.message : String(e),
+    );
     return { dir: null, why: '创建失败：' + dir };
   }
 }

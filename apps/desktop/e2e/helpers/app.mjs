@@ -12,17 +12,17 @@
 //   ④ `data/libraries/*/meta.json` 自举 —— 同一个临时 JSON 把 `data_dir` 指到空目录
 // 四条都断了，才会真的没有库。少堵一条，测出来的就是"有库"分支，而测试还会"通过"——
 // 那是最坏的一种假绿（本仓库栽过的坑就是这个形状）。
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { IMG_EXT } from '../../../../packages/engine/src/fingerprint.ts'
+import { IMG_EXT } from '../../../../packages/engine/src/fingerprint.ts';
 
-import { launchApp } from './launch.mjs'
+import { launchApp } from './launch.mjs';
 
 /** 夹具库（**不是**本机真实库 —— E2E 不该依赖 `G:\model`） */
-export const FIXTURE_LIB = fileURLToPath(new URL('../fixtures/lib-mini', import.meta.url))
+export const FIXTURE_LIB = fileURLToPath(new URL('../fixtures/lib-mini', import.meta.url));
 
 /**
  * 夹具库里**至少**要有几张图，才算「有库」场景成立。
@@ -31,30 +31,30 @@ export const FIXTURE_LIB = fileURLToPath(new URL('../fixtures/lib-mini', import.
  * 把 `GEMMA_LIB_ROOT` 指过去、界面照样进主界面、这批 spec **照样全绿** —— 「有库」场景
  * 退化成了空库而没有任何人知道。所以「夹具有几张图」必须可断言。
  */
-export const MIN_FIXTURE_IMAGES = 3
+export const MIN_FIXTURE_IMAGES = 3;
 
 /** 递归数夹具库里的图片（扩展名判据用引擎的 `IMG_EXT` —— 不留第二份扩展名列表，P1） */
 function countFixtureImages(root) {
-  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) return 0
-  let n = 0
+  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) return 0;
+  let n = 0;
   for (const ent of fs.readdirSync(root, { withFileTypes: true })) {
-    const p = path.join(root, ent.name)
-    if (ent.isDirectory()) n += countFixtureImages(p)
-    else if (IMG_EXT.has(path.extname(ent.name).toLowerCase())) n += 1
+    const p = path.join(root, ent.name);
+    if (ent.isDirectory()) n += countFixtureImages(p);
+    else if (IMG_EXT.has(path.extname(ent.name).toLowerCase())) n += 1;
   }
-  return n
+  return n;
 }
 
 /** 建一个临时目录（调用方负责在 finally 里删） */
 function tmpDir(tag) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), `gemma-e2e-${tag}-`))
+  return fs.mkdtempSync(path.join(os.tmpdir(), `gemma-e2e-${tag}-`));
 }
 
 /** 建一份"只有 data_dir、没有任何库来源"的临时配置 */
 function writeBareConfig(userData, dataDir) {
-  const p = path.join(userData, 'config.json')
-  fs.writeFileSync(p, JSON.stringify({ data_dir: dataDir }), 'utf8')
-  return p
+  const p = path.join(userData, 'config.json');
+  fs.writeFileSync(p, JSON.stringify({ data_dir: dataDir }), 'utf8');
+  return p;
 }
 
 /**
@@ -64,7 +64,11 @@ function writeBareConfig(userData, dataDir) {
  */
 function rmTmp(...dirs) {
   for (const d of dirs) {
-    try { fs.rmSync(d, { recursive: true, force: true }) } catch { /* 临时目录，删不掉不致命 */ }
+    try {
+      fs.rmSync(d, { recursive: true, force: true });
+    } catch {
+      /* 临时目录，删不掉不致命 */
+    }
   }
 }
 
@@ -75,9 +79,9 @@ function rmTmp(...dirs) {
  *    若父进程（或 CI）恰好设了这个变量，不显式置空就会静默变成"有库"分支。
  */
 export async function launchWithoutLibrary() {
-  const userData = tmpDir('userdata')
-  const dataDir = tmpDir('data')          // 空目录 ⇒ 第 ④ 条自举找不到 meta.json
-  const cfgPath = writeBareConfig(userData, dataDir)
+  const userData = tmpDir('userdata');
+  const dataDir = tmpDir('data'); // 空目录 ⇒ 第 ④ 条自举找不到 meta.json
+  const cfgPath = writeBareConfig(userData, dataDir);
 
   const app = await launchApp({
     // ⚠️ `GEMMA_FAKE: ''` 与本文件的 `GEMMA_LIB_ROOT: ''` 同样必要：
@@ -86,12 +90,12 @@ export async function launchWithoutLibrary() {
     //    那是最坏的一种假绿（本文件头的注释警告的正是这个形状）。
     env: { GEMMA_CONFIG: cfgPath, GEMMA_LIB_ROOT: '', GEMMA_COLLECT_DIRS: '', GEMMA_FAKE: '' },
     extraArgs: [`--user-data-dir=${userData}`],
-  })
+  });
 
   return {
     app,
     cleanup: () => rmTmp(userData, dataDir),
-  }
+  };
 }
 
 /**
@@ -106,17 +110,21 @@ export async function launchWithLibrary() {
   //    `e2e/fixtures/lib-mini`（当时不存在），27 条 spec 25 passed / 2 failed（那 2 条是并发构建
   //    导致的 electron.launch 超时），且 gate E1-c 把那条**不存在的路径**当「证据」打印出来并通过了。
   //    ⇒ 在这里**硬失败**：把「夹具没了」变成响亮的红，而不是又一片空的绿。
-  const images = countFixtureImages(FIXTURE_LIB)
+  const images = countFixtureImages(FIXTURE_LIB);
   if (!fs.existsSync(FIXTURE_LIB) || !fs.statSync(FIXTURE_LIB).isDirectory()) {
-    throw new Error(`E2E 夹具库不存在：${FIXTURE_LIB}（「有库」场景会静默退化成空库 ⇒ 断言是空的绿）`)
+    throw new Error(
+      `E2E 夹具库不存在：${FIXTURE_LIB}（「有库」场景会静默退化成空库 ⇒ 断言是空的绿）`,
+    );
   }
   if (images < MIN_FIXTURE_IMAGES) {
-    throw new Error(`E2E 夹具库 ${FIXTURE_LIB} 里只有 ${images} 张图（要求 ≥ ${MIN_FIXTURE_IMAGES}）—— 空的「有库」场景没有意义`)
+    throw new Error(
+      `E2E 夹具库 ${FIXTURE_LIB} 里只有 ${images} 张图（要求 ≥ ${MIN_FIXTURE_IMAGES}）—— 空的「有库」场景没有意义`,
+    );
   }
 
-  const userData = tmpDir('userdata')
-  const dataDir = tmpDir('data')
-  const cfgPath = writeBareConfig(userData, dataDir)
+  const userData = tmpDir('userdata');
+  const dataDir = tmpDir('data');
+  const cfgPath = writeBareConfig(userData, dataDir);
 
   const app = await launchApp({
     // ⚠️ `GEMMA_FAKE: ''` 见 `launchWithoutLibrary` 的注释 —— 这里是**最要紧**的一处：
@@ -124,13 +132,13 @@ export async function launchWithLibrary() {
     //    不显式置空的话，"真实模式"那条会静默跑成模拟模式（`E10-f` 实测出现过这种假绿/假红）。
     env: { GEMMA_CONFIG: cfgPath, GEMMA_LIB_ROOT: FIXTURE_LIB, GEMMA_FAKE: '' },
     extraArgs: [`--user-data-dir=${userData}`],
-  })
+  });
 
   return {
     app,
     libRoot: FIXTURE_LIB,
     cleanup: () => rmTmp(userData, dataDir),
-  }
+  };
 }
 
 /**
@@ -145,17 +153,17 @@ export async function launchWithLibrary() {
  *    测试会绿得毫无意义。
  */
 export async function launchFake() {
-  const userData = tmpDir('fake-userdata')
-  const dataDir = tmpDir('fake-data')
-  const cfgPath = writeBareConfig(userData, dataDir)
+  const userData = tmpDir('fake-userdata');
+  const dataDir = tmpDir('fake-data');
+  const cfgPath = writeBareConfig(userData, dataDir);
 
   const app = await launchApp({
     env: { GEMMA_CONFIG: cfgPath, GEMMA_LIB_ROOT: '', GEMMA_COLLECT_DIRS: '', GEMMA_FAKE: '1' },
     extraArgs: [`--user-data-dir=${userData}`],
-  })
+  });
 
   return {
     app,
     cleanup: () => rmTmp(userData, dataDir),
-  }
+  };
 }

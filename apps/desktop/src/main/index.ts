@@ -25,13 +25,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { ROOT, log } from './log.ts';   // ← 必须最先导入：导入即初始化日志
+import { ROOT, log } from './log.ts'; // ← 必须最先导入：导入即初始化日志
 import { createEngine, UNIMPLEMENTED_METHODS } from '../../../../packages/engine/src/engine.ts';
 import { CH_INVOKE, CH_EVENT, validateCall, METHOD_NAMES } from '../shared/ipc.ts';
 import type { Envelope, MethodName, Req } from '../shared/ipc.ts';
 import { resolveLibraries, registryPath } from './library-config.ts';
 import type { MainConfig, ResolveLibrariesResult } from './library-config.ts';
-import { resolveStorageRoots, describeStorageRoots, probeWritable, resolveModels } from './storage-roots.ts';
+import {
+  resolveStorageRoots,
+  describeStorageRoots,
+  probeWritable,
+  resolveModels,
+} from './storage-roots.ts';
 import type { ModelResolution } from './storage-roots.ts';
 import type { GpuProbe } from './encoder-device.ts';
 import { createSingleFlight } from './single-flight.ts';
@@ -44,9 +49,21 @@ import { runItemsQuery } from './items-ipc.ts';
 import type { ItemsQueryParams } from './items-ipc.ts';
 import { installCrashPolicy } from './crash-policy.ts';
 import {
-  appDbPath, deleteCollectDir, deleteLibrary, getLibrary, insertCollectDir, insertLibrary,
-  listCollectDirs, listLibraries, normalizeRootPath, openAppDb, readAppMeta, setDefaultCollectDir,
-  updateLibraryEnabled, updateLibraryRootAndName, updateLibrarySortOrder,
+  appDbPath,
+  deleteCollectDir,
+  deleteLibrary,
+  getLibrary,
+  insertCollectDir,
+  insertLibrary,
+  listCollectDirs,
+  listLibraries,
+  normalizeRootPath,
+  openAppDb,
+  readAppMeta,
+  setDefaultCollectDir,
+  updateLibraryEnabled,
+  updateLibraryRootAndName,
+  updateLibrarySortOrder,
 } from './app-db.ts';
 import { removeGsDbFiles } from './db/index.ts';
 import { GS_DB_NAME, GS_INDEX_NAME } from './storage-roots.ts';
@@ -55,7 +72,12 @@ import type { SqlDatabase } from './db/index.ts';
 import { configureProcessTempDir } from './db/tmp-dir.ts';
 import type { StoragePorts } from '../../../../packages/engine/src/storage-ports.ts';
 import { parseThumbUrl, createLibIdResolver } from './thumb-url.ts';
-import { thumbCachePath, readCachedThumb, writeCachedThumb, thumbServeStatus } from './thumb-cache.ts';
+import {
+  thumbCachePath,
+  readCachedThumb,
+  writeCachedThumb,
+  thumbServeStatus,
+} from './thumb-cache.ts';
 import {
   isTrustedSender as isTrustedSenderImpl,
   decideWindowOpen,
@@ -137,8 +159,8 @@ function loadFakeFixture(): SampleIndex {
   } catch (e) {
     throw new Error(
       `GEMMA_FAKE=1 但读不到样例索引：${p}\n` +
-      `（原样错误：${messageText(e)}）\n` +
-      '模拟模式需要仓库里的 fixtures/sample-index.json —— 打包态不含它，所以模拟模式只用于开发与 E2E。',
+        `（原样错误：${messageText(e)}）\n` +
+        '模拟模式需要仓库里的 fixtures/sample-index.json —— 打包态不含它，所以模拟模式只用于开发与 E2E。',
     );
   }
 }
@@ -156,14 +178,20 @@ if (process.env.ELECTRON_RUN_AS_NODE || !app || typeof app.whenReady !== 'functi
     // dev 态**不能**自愈：dev server 由父进程（electron-vite）持有，
     // 重生一个 detached 实例会立刻失去它 —— 结果是"窗口开了但一片空白"。
     log('!! dev 态下 ELECTRON_RUN_AS_NODE 生效，无法自愈（重生会丢掉 dev server）');
-    log('   处理：用 `npm run dev`（该脚本会先清掉这个变量），或先 $env:ELECTRON_RUN_AS_NODE=$null');
+    log(
+      '   处理：用 `npm run dev`（该脚本会先清掉这个变量），或先 $env:ELECTRON_RUN_AS_NODE=$null',
+    );
     process.exit(3);
   }
   log('ELECTRON_RUN_AS_NODE 生效（或 Electron API 不可用）→ 去掉该变量后重新拉起自身');
   try {
     const cleanEnv = { ...process.env };
     delete cleanEnv.ELECTRON_RUN_AS_NODE;
-    const child = spawn(process.execPath, process.argv.slice(1), { env: cleanEnv, detached: true, stdio: 'ignore' });
+    const child = spawn(process.execPath, process.argv.slice(1), {
+      env: cleanEnv,
+      detached: true,
+      stdio: 'ignore',
+    });
     child.unref();
     log('已拉起新进程 pid =', child.pid);
     process.exit(0);
@@ -181,8 +209,9 @@ if (process.env.ELECTRON_RUN_AS_NODE || !app || typeof app.whenReady !== 'functi
 // ⚠️ `config.json` **不是要求用户去配的东西** —— 它只是最下面那条兼容回退。
 //    它已随 Python 档退役被删除，仓库里也没有模板，所以正常情况下这一层就是空的。
 function loadConfig(): { data: MainConfig; path: string | null } {
-  const candidates = [process.env.GEMMA_CONFIG, path.join(ROOT, 'config.json')]
-    .filter((p): p is string => Boolean(p));
+  const candidates = [process.env.GEMMA_CONFIG, path.join(ROOT, 'config.json')].filter(
+    (p): p is string => Boolean(p),
+  );
   for (const p of candidates) {
     if (fs.existsSync(p)) {
       try {
@@ -215,7 +244,9 @@ let RESOLVED: ResolveLibrariesResult | null = null;
  * ⚠️ 任何失败都**不抛给 IPC**：返回 {ok:false} 并记日志，由调用方给出诚实结果 —— 信封要求"永不抛"。
  * ⚠️ app.db 的读写**只走 main/app-db.ts**（那里是 3 张应用表的唯一写入口，测试会静态钉住）。
  */
-function withAppDb<T>(fn: (db: SqlDatabase) => T): { ok: true; value: T } | { ok: false; why: string } {
+function withAppDb<T>(
+  fn: (db: SqlDatabase) => T,
+): { ok: true; value: T } | { ok: false; why: string } {
   if (!USER_DATA_DIR) return { ok: false, why: 'userData 未初始化（应用还没准备好）' };
   try {
     const app = openAppDb({ userDataDir: USER_DATA_DIR });
@@ -248,12 +279,15 @@ interface LibraryView {
 
 /** app.db 操作失败 → 失败信封（**永不抛**；userMessage 恒非空） */
 function appDbErrorEnvelope(why: string, what: string): Envelope {
-  return { ok: false, error: {
-    code: 'INTERNAL',
-    message: what + '失败：' + why,
-    userMessage: '应用数据（app.db）读写失败，这次改动没有生效。详情见日志。',
-    details: { what },
-  } };
+  return {
+    ok: false,
+    error: {
+      code: 'INTERNAL',
+      message: what + '失败：' + why,
+      userMessage: '应用数据（app.db）读写失败，这次改动没有生效。详情见日志。',
+      details: { what },
+    },
+  };
 }
 
 function registryMeta(): Map<string, LibraryRow> {
@@ -262,7 +296,11 @@ function registryMeta(): Map<string, LibraryRow> {
 }
 
 /** 给「没登记过的库」补一行（用户第一次对它做写操作时）—— 只被写操作调用 */
-function ensureLibraryRow(libId: string, root: string, label: string): { ok: true } | { ok: false; why: string } {
+function ensureLibraryRow(
+  libId: string,
+  root: string,
+  label: string,
+): { ok: true } | { ok: false; why: string } {
   const r = withAppDb((db) => {
     const existing = getLibrary(db, libId);
     if (existing) {
@@ -292,7 +330,10 @@ function librariesResolved(): ResolveLibrariesResult {
 }
 
 /** 注册表变了（libraryAdd）后让解析结果与引擎一起失效重建 */
-function invalidateLibraries(): void { RESOLVED = null; engine = null; }
+function invalidateLibraries(): void {
+  RESOLVED = null;
+  engine = null;
+}
 
 /**
  * 模型搜索 —— **唯一实现是 storage-roots.ts**（T-17 收敛）。
@@ -352,8 +393,10 @@ function logStorageRoots(): void {
     log('[存储] ======== 本次启动的落点 ========');
     for (const line of describeStorageRoots(roots)) log('[存储]', line);
     // 编码器实际用哪个 = 同一份解析结果（T-17 收敛后不再有第二条路）
-    log('[存储] 编码器实际将使用的模型目录 =',
-        roots.models.found ?? '(无 —— 检索会以 MODEL_MISSING 失败，不给假结果)');
+    log(
+      '[存储] 编码器实际将使用的模型目录 =',
+      roots.models.found ?? '(无 —— 检索会以 MODEL_MISSING 失败，不给假结果)',
+    );
   } catch (e) {
     // 落点解析失败不许拦住启动：库根是坏盘 / 权限不足时，应用更要把话说清楚再继续。
     log('!! 存储落点解析失败（不影响启动）:', stackText(e));
@@ -432,7 +475,9 @@ function buildStoragePorts(r: ResolveLibrariesResult): StoragePorts | null {
       libraries,
       onFallback: (m: string) => log('[存储][回落]', m),
     });
-    log('[存储] 端口已装配：items ← .gs.db（无则回落 items.json）· index ← 新布局库根 / 旧布局回退（T-44 唯一判据）· libraries ← 注册表 + T-04 落点');
+    log(
+      '[存储] 端口已装配：items ← .gs.db（无则回落 items.json）· index ← 新布局库根 / 旧布局回退（T-44 唯一判据）· libraries ← 注册表 + T-04 落点',
+    );
     return ports;
   } catch (e) {
     log('!! 存储端口装配失败（本次回落到旧布局 <dataDir>/libraries/<libId>）:', stackText(e));
@@ -447,15 +492,31 @@ function buildEngine(): ResolveLibrariesResult {
   const meta = registryMeta();
   const active = resolved.libraries.filter((l) => meta.get(l.libId)?.enabled !== false);
   if (active.length !== resolved.libraries.length) {
-    log('[库] 停用的库不参与检索：', resolved.libraries.length - active.length, '个（共', resolved.libraries.length, '）');
+    log(
+      '[库] 停用的库不参与检索：',
+      resolved.libraries.length - active.length,
+      '个（共',
+      resolved.libraries.length,
+      '）',
+    );
   }
   const r: ResolveLibrariesResult = { ...resolved, libraries: active };
   engine = createEngine({
-    config: { libraries: r.libraries, data_dir: DATA_DIR, collect: { dirs: r.collect.dirs, default: r.collect.default } },
+    config: {
+      libraries: r.libraries,
+      data_dir: DATA_DIR,
+      collect: { dirs: r.collect.dirs, default: r.collect.default },
+    },
     encoder: {
       // 延迟到真正检索时才载模型：冷启动要 ≤5s，不能把 2.6s 的模型载入挡在出窗之前
-      async encodeText(t: string) { const e = await ensureEncoder(); return e.encodeText(t); },
-      async encodeImage(p: string) { const e = await ensureEncoder(); return e.encodeImage(p); },
+      async encodeText(t: string) {
+        const e = await ensureEncoder();
+        return e.encodeText(t);
+      },
+      async encodeImage(p: string) {
+        const e = await ensureEncoder();
+        return e.encodeImage(p);
+      },
     },
     onEvent: emit,
     // ⚠️ **必须注入**（F-01）：不注入的话引擎会返回 PORT_MISSING 而不是静默假成功。
@@ -477,10 +538,15 @@ function buildEngine(): ResolveLibrariesResult {
   });
   if (FAKE_MODE) {
     log('⚠️⚠️ 模拟模式已开启（GEMMA_FAKE=1）：**没有真实素材库、没有模型、不读任何素材文件**。');
-    log('        catalog 来自 fixtures/sample-index.json；ingest/mutate 只在内存里改，进程退出即消失。');
+    log(
+      '        catalog 来自 fixtures/sample-index.json；ingest/mutate 只在内存里改，进程退出即消失。',
+    );
     log('        这只用于界面开发与 E2E —— 看到这条日志就说明当前**不能**用来判断检索质量。');
   }
-  log('引擎就绪 · 库', r.libraries.map((l) => `${l.libId}=${l.root}[${l.source}]`).join(', ') || '(无)');
+  log(
+    '引擎就绪 · 库',
+    r.libraries.map((l) => `${l.libId}=${l.root}[${l.source}]`).join(', ') || '(无)',
+  );
   // 诊断与警告写进日志：出问题时第一手材料就是 data/_app.log
   for (const d of r.diagnostics) log('[cfg]', d);
   for (const w of r.warnings) log('[cfg][warn]', w);
@@ -514,18 +580,23 @@ async function probeGpu(): Promise<GpuProbe> {
   let result: GpuProbe;
   try {
     // 渲进程里跑：与主进程共用同一个 GPU 进程 / Dawn 栈（**推断**，见下）；超时保证不拖住编码器。
-    const script = '(async () => {'
-      + ' if (!navigator.gpu) return { available: false, detail: "渲染进程里没有 navigator.gpu" };'
-      + ' try { const a = await navigator.gpu.requestAdapter();'
-      + '   return a ? { available: true, detail: "requestAdapter 返回了适配器" }'
-      + '            : { available: false, detail: "requestAdapter 返回 null（没有可用适配器）" }; }'
-      + ' catch (e) { return { available: false, detail: "requestAdapter 抛错：" + String(e) }; }'
-      + ' })()';
+    const script =
+      '(async () => {' +
+      ' if (!navigator.gpu) return { available: false, detail: "渲染进程里没有 navigator.gpu" };' +
+      ' try { const a = await navigator.gpu.requestAdapter();' +
+      '   return a ? { available: true, detail: "requestAdapter 返回了适配器" }' +
+      '            : { available: false, detail: "requestAdapter 返回 null（没有可用适配器）" }; }' +
+      ' catch (e) { return { available: false, detail: "requestAdapter 抛错：" + String(e) }; }' +
+      ' })()';
     const raw: unknown = await Promise.race([
       win.webContents.executeJavaScript(script, true),
       new Promise((res) => setTimeout(() => res(null), 5000)),
     ]);
-    if (raw && typeof raw === 'object' && typeof (raw as { available?: unknown }).available === 'boolean') {
+    if (
+      raw &&
+      typeof raw === 'object' &&
+      typeof (raw as { available?: unknown }).available === 'boolean'
+    ) {
       const r = raw as { available: boolean; detail?: unknown };
       result = { available: r.available, detail: String(r.detail ?? '(无详情)') };
     } else {
@@ -588,14 +659,30 @@ async function loadEncoderOnce(): Promise<Encoder> {
     // 这里把它一并交给界面（并同步写一条显眼日志）——契约 §3「GPU 回退不静默」。
     if (encoder.deviceFallback) {
       const f = encoder.deviceFallback;
-      log('!! GPU 回退：' + f.from + ' → ' + f.to + '（原因：' + f.reason + '）—— 检索仍可用，但会慢一些');
+      log(
+        '!! GPU 回退：' +
+          f.from +
+          ' → ' +
+          f.to +
+          '（原因：' +
+          f.reason +
+          '）—— 检索仍可用，但会慢一些',
+      );
     } else if (encoder.deviceRequested !== encoder.device) {
       // 理论上到不了：只有在 createEncoder 里发生回退时两者才会不同。
-      log('!! 设备与请求不一致（requested=' + encoder.deviceRequested + ' actual=' + encoder.device + '）');
+      log(
+        '!! 设备与请求不一致（requested=' +
+          encoder.deviceRequested +
+          ' actual=' +
+          encoder.device +
+          '）',
+      );
     }
     // T-31：事件里**请求 / 实际 / 已验证 EP** 三个字段分开，界面不必再从 device 猜（S1 · S3）。
     emit({
-      type: 'encoder.ready', device: encoder.device, loadMs: encoder.loadMs,
+      type: 'encoder.ready',
+      device: encoder.device,
+      loadMs: encoder.loadMs,
       deviceRequested: encoder.deviceRequested,
       deviceFallback: encoder.deviceFallback,
       effectiveProvider: encoder.effectiveProvider,
@@ -624,15 +711,31 @@ function registerIpc(): void {
     const started = Date.now();
     if (!isTrustedSender(event)) {
       log('拒绝来源不明的调用');
-      return { ok: false, error: { code: 'BAD_REQUEST', userMessage: '请求来源不被信任。', message: 'untrusted sender', details: {} } };
+      return {
+        ok: false,
+        error: {
+          code: 'BAD_REQUEST',
+          userMessage: '请求来源不被信任。',
+          message: 'untrusted sender',
+          details: {},
+        },
+      };
     }
-    const rec: Record<string, unknown> = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+    const rec: Record<string, unknown> =
+      payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
     const method = rec.method;
     const params = rec.params;
     const v = validateCall(method, params);
     if (!v.ok) {
-      return { ok: false, error: { code: 'BAD_REQUEST', message: v.reason,
-                                   userMessage: '请求参数不合法。', details: { reason: v.reason } } };
+      return {
+        ok: false,
+        error: {
+          code: 'BAD_REQUEST',
+          message: v.reason,
+          userMessage: '请求参数不合法。',
+          details: { reason: v.reason },
+        },
+      };
     }
     if (!engine) buildEngine();
 
@@ -641,15 +744,24 @@ function registerIpc(): void {
     //    并新增 librarySetEnabled / libraryReorder / libraryRemove / collectDirs / collectDir* / appMeta。
     //    这些方法读写的**只有 6 张表**（应用级 app.db 3 张 + 库级 .gs.db 3 张），实现分别在
     //    main/app-db.ts（应用级唯一写入口）与 main/library-ipc.ts（体检/重建）。
-    if (v.method === 'items'
-        || v.method === 'libraryList' || v.method === 'libraryAdd' || v.method === 'libraryPickDir'
-        || v.method === 'librarySetEnabled' || v.method === 'libraryReorder' || v.method === 'libraryRemove'
-        || v.method === 'collectDirs' || v.method === 'collectDirAdd'
-        || v.method === 'collectDirRemove' || v.method === 'collectDirSetDefault'
-        || v.method === 'appMeta'
-        || v.method === 'libraryHealth' || v.method === 'libraryRebuild') {
+    if (
+      v.method === 'items' ||
+      v.method === 'libraryList' ||
+      v.method === 'libraryAdd' ||
+      v.method === 'libraryPickDir' ||
+      v.method === 'librarySetEnabled' ||
+      v.method === 'libraryReorder' ||
+      v.method === 'libraryRemove' ||
+      v.method === 'collectDirs' ||
+      v.method === 'collectDirAdd' ||
+      v.method === 'collectDirRemove' ||
+      v.method === 'collectDirSetDefault' ||
+      v.method === 'appMeta' ||
+      v.method === 'libraryHealth' ||
+      v.method === 'libraryRebuild'
+    ) {
       const res = await handleLibraryMethod(v.method, v.params);
-      log(`invoke ${v.method} ${(Date.now() - started)}ms → ${resultCode(res)}`);
+      log(`invoke ${v.method} ${Date.now() - started}ms → ${resultCode(res)}`);
       return res;
     }
 
@@ -660,8 +772,15 @@ function registerIpc(): void {
     // ⚠️ 清单来自**引擎导出的唯一一份**（`UNIMPLEMENTED_METHODS`）—— 原先是这里手写一份、
     //    引擎里再逐段写一遍，两处会漂移（P1）。现在"哪些没做"全仓只有一处定义。
     if (!FAKE_MODE && UNIMPLEMENTED_METHODS.includes(v.method)) {
-      return { ok: false, error: { code: 'INTERNAL', message: `方法尚未实现：${v.method}`,
-                                   userMessage: '这个功能还没做好。', details: { method: v.method } } };
+      return {
+        ok: false,
+        error: {
+          code: 'INTERNAL',
+          message: `方法尚未实现：${v.method}`,
+          userMessage: '这个功能还没做好。',
+          details: { method: v.method },
+        },
+      };
     }
     const eng = engine;
     // buildEngine() 必定给 engine 赋值 ⇒ 这一条只是把类型收窄，运行期走不到。
@@ -669,11 +788,18 @@ function registerIpc(): void {
     // 先由断言函数收窄（运行时真的存在），engineMethod 才接受这个名字（类型层也保证它是 EngineApi 的键）
     const fn = isEngineBackedMethod(eng, v.method) ? engineMethod(eng, v.method) : null;
     if (!fn) {
-      return { ok: false, error: { code: 'BAD_REQUEST', message: `引擎无此方法：${v.method}`,
-                                   userMessage: '请求参数不合法。', details: {} } };
+      return {
+        ok: false,
+        error: {
+          code: 'BAD_REQUEST',
+          message: `引擎无此方法：${v.method}`,
+          userMessage: '请求参数不合法。',
+          details: {},
+        },
+      };
     }
     const res = await fn(v.params);
-    log(`invoke ${v.method} ${(Date.now() - started)}ms → ${resultCode(res)}`);
+    log(`invoke ${v.method} ${Date.now() - started}ms → ${resultCode(res)}`);
     return res;
   });
   log('IPC 已注册 · 允许的方法：', METHOD_NAMES.join(', '));
@@ -696,12 +822,15 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
   if (method === 'items') {
     const p = (params && typeof params === 'object' ? params : {}) as ItemsQueryParams;
     const r = librariesResolved();
-    return runItemsQuery({
-      libId: String(p.libId),
-      libraries: r.libraries.map((l) => ({ libId: l.libId, root: l.root })),
-      userDataDir: USER_DATA_DIR,
-      legacyLibrariesDir: path.join(DATA_DIR, 'libraries'),
-    }, p);
+    return runItemsQuery(
+      {
+        libId: String(p.libId),
+        libraries: r.libraries.map((l) => ({ libId: l.libId, root: l.root })),
+        userDataDir: USER_DATA_DIR,
+        legacyLibrariesDir: path.join(DATA_DIR, 'libraries'),
+      },
+      p,
+    );
   }
 
   // ---- 体检 / 重建（T-15a · 2026-10-15 批准新增）----
@@ -726,14 +855,28 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
     // 因为一条真实库来源都没配而判成 `wizard` ⇒ **显示首启向导、检索界面根本不挂载**。
     // 实测踩过：E8-a/E8-b 卡在「找不到 #query」，看起来像选择器问题，其实是「没有库」。
     if (FAKE_MODE) {
-      return { ok: true, data: {
-        libraries: [{ libId: 'L1', label: '示例库（模拟）', root: FAKE_LIB_ROOT, source: 'fake', enabled: true, sortOrder: 0, itemCount: null, registered: false }],
-        collect: { dirs: {}, default: '' },
-        chosen: 'fake（GEMMA_FAKE=1，没有真实素材库）',
-        diagnostics: ['模拟模式：库列表来自 fixtures/sample-index.json，不是真实配置'],
-        warnings: ['⚠️ 当前是模拟模式，检索结果与真实素材库无关'],
-        registryPath: null,
-      } };
+      return {
+        ok: true,
+        data: {
+          libraries: [
+            {
+              libId: 'L1',
+              label: '示例库（模拟）',
+              root: FAKE_LIB_ROOT,
+              source: 'fake',
+              enabled: true,
+              sortOrder: 0,
+              itemCount: null,
+              registered: false,
+            },
+          ],
+          collect: { dirs: {}, default: '' },
+          chosen: 'fake（GEMMA_FAKE=1，没有真实素材库）',
+          diagnostics: ['模拟模式：库列表来自 fixtures/sample-index.json，不是真实配置'],
+          warnings: ['⚠️ 当前是模拟模式，检索结果与真实素材库无关'],
+          registryPath: null,
+        },
+      };
     }
     // app.db 的 library_registry 是**用户意图**的权威（enabled / sort_order / display_name）；
     // 库根仍来自四条发现来源（env / 注册表 / config / 自举）—— 两者合并，缺行 = 默认启用。
@@ -756,32 +899,59 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
     // 否则用户会以为「明明加过，怎么没了」（绿地口径下不猜，只如实显示）。
     for (const row of meta.values()) {
       if (!libraries.some((l) => l.libId === row.libId)) {
-        libraries.push({ libId: row.libId, root: row.root, label: row.displayName, source: 'registry',
-                         enabled: row.enabled, sortOrder: row.sortOrder, itemCount: null, registered: true });
+        libraries.push({
+          libId: row.libId,
+          root: row.root,
+          label: row.displayName,
+          source: 'registry',
+          enabled: row.enabled,
+          sortOrder: row.sortOrder,
+          itemCount: null,
+          registered: true,
+        });
       }
     }
-    libraries.sort((a, b) => (a.sortOrder - b.sortOrder) || a.libId.localeCompare(b.libId));
-    return { ok: true, data: {
-      libraries,
-      collect: r.collect,
-      chosen: r.chosen,
-      diagnostics: r.diagnostics,
-      warnings: r.warnings,
-      registryPath: r.registryPath,
-      appDbPath: USER_DATA_DIR ? appDbPath(USER_DATA_DIR) : null,
-    } };
+    libraries.sort((a, b) => a.sortOrder - b.sortOrder || a.libId.localeCompare(b.libId));
+    return {
+      ok: true,
+      data: {
+        libraries,
+        collect: r.collect,
+        chosen: r.chosen,
+        diagnostics: r.diagnostics,
+        warnings: r.warnings,
+        registryPath: r.registryPath,
+        appDbPath: USER_DATA_DIR ? appDbPath(USER_DATA_DIR) : null,
+      },
+    };
   }
 
   // ---- 基线 §2.2 新增：库注册表写入口（library_registry 的唯一写入口之一）----
   if (method === 'librarySetEnabled' || method === 'libraryReorder' || method === 'libraryRemove') {
-    const p = (params && typeof params === 'object' ? params : {}) as { libId?: unknown; enabled?: unknown; sortOrder?: unknown; deleteDb?: unknown };
+    const p = (params && typeof params === 'object' ? params : {}) as {
+      libId?: unknown;
+      enabled?: unknown;
+      sortOrder?: unknown;
+      deleteDb?: unknown;
+    };
     const libId = String(p.libId ?? '');
     const found = librariesResolved();
     const target = found.libraries.find((l) => l.libId === libId);
-    const known = target ?? (registryMeta().get(libId) ? { libId, root: registryMeta().get(libId)!.root, label: libId } : null);
+    const known =
+      target ??
+      (registryMeta().get(libId)
+        ? { libId, root: registryMeta().get(libId)!.root, label: libId }
+        : null);
     if (!known) {
-      return { ok: false, error: { code: 'LIB_NOT_FOUND', message: '未登记的库：' + libId,
-        userMessage: '找不到这个素材库，可能已被移除。', details: { libId } } };
+      return {
+        ok: false,
+        error: {
+          code: 'LIB_NOT_FOUND',
+          message: '未登记的库：' + libId,
+          userMessage: '找不到这个素材库，可能已被移除。',
+          details: { libId },
+        },
+      };
     }
     if (method === 'librarySetEnabled') {
       const enabled = p.enabled === true;
@@ -800,8 +970,15 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
       const r = withAppDb((db) => updateLibrarySortOrder(db, libId, sortOrder));
       if (!r.ok) return appDbErrorEnvelope(r.why, '调整库顺序');
       if (r.value === null) {
-        return { ok: false, error: { code: 'LIB_NOT_FOUND', message: '未登记的库：' + libId,
-          userMessage: '找不到这个素材库，可能已被移除。', details: { libId } } };
+        return {
+          ok: false,
+          error: {
+            code: 'LIB_NOT_FOUND',
+            message: '未登记的库：' + libId,
+            userMessage: '找不到这个素材库，可能已被移除。',
+            details: { libId },
+          },
+        };
       }
       invalidateLibraries();
       log('[库] 顺序', libId, '→', sortOrder);
@@ -814,7 +991,10 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
       try {
         removedFiles.push(...removeGsDbFiles(path.join(target.root, GS_DB_NAME)));
         const idx = path.join(target.root, GS_INDEX_NAME);
-        if (fs.existsSync(idx)) { fs.rmSync(idx, { force: true }); removedFiles.push(idx); }
+        if (fs.existsSync(idx)) {
+          fs.rmSync(idx, { force: true });
+          removedFiles.push(idx);
+        }
       } catch (e) {
         log('!! 删库文件失败（只取消登记）：', stackText(e));
       }
@@ -822,8 +1002,24 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
     const rm = withAppDb((db) => deleteLibrary(db, libId));
     if (!rm.ok) return appDbErrorEnvelope(rm.why, '取消登记');
     invalidateLibraries();
-    log('[库] 取消登记', libId, '· 删库文件 =', String(deleteDb), '· 删了', removedFiles.length, '个');
-    return { ok: true, data: { libId, registryRowRemoved: rm.value, deletedFiles: removedFiles, materialsUntouched: true } };
+    log(
+      '[库] 取消登记',
+      libId,
+      '· 删库文件 =',
+      String(deleteDb),
+      '· 删了',
+      removedFiles.length,
+      '个',
+    );
+    return {
+      ok: true,
+      data: {
+        libId,
+        registryRowRemoved: rm.value,
+        deletedFiles: removedFiles,
+        materialsUntouched: true,
+      },
+    };
   }
 
   // ---- 基线 §2.2 新增：取件白名单（应用级 collect_dir 的唯一写入口）----
@@ -833,16 +1029,27 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
     return { ok: true, data: { dirs: r.value } };
   }
 
-  if (method === 'collectDirAdd' || method === 'collectDirRemove' || method === 'collectDirSetDefault') {
-    const p = (params && typeof params === 'object' ? params : {}) as { absPath?: unknown; label?: unknown; dirId?: unknown; makeDefault?: unknown };
+  if (
+    method === 'collectDirAdd' ||
+    method === 'collectDirRemove' ||
+    method === 'collectDirSetDefault'
+  ) {
+    const p = (params && typeof params === 'object' ? params : {}) as {
+      absPath?: unknown;
+      label?: unknown;
+      dirId?: unknown;
+      makeDefault?: unknown;
+    };
     if (method === 'collectDirAdd') {
-      const r = withAppDb((db) => insertCollectDir(db, {
-        absPath: String(p.absPath ?? ''),
-        label: String(p.label ?? ''),
-        makeDefault: p.makeDefault === true,
-      }));
+      const r = withAppDb((db) =>
+        insertCollectDir(db, {
+          absPath: String(p.absPath ?? ''),
+          label: String(p.label ?? ''),
+          makeDefault: p.makeDefault === true,
+        }),
+      );
       if (!r.ok) return appDbErrorEnvelope(r.why, '添加取件目录');
-      invalidateLibraries();   // 取件白名单进引擎 config ⇒ 解析结果要重建
+      invalidateLibraries(); // 取件白名单进引擎 config ⇒ 解析结果要重建
       const all = withAppDb((db) => listCollectDirs(db));
       return { ok: true, data: { added: r.value, dirs: all.ok ? all.value : [r.value] } };
     }
@@ -857,8 +1064,15 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
     const r = withAppDb((db) => setDefaultCollectDir(db, dirId));
     if (!r.ok) return appDbErrorEnvelope(r.why, '设置默认取件目录');
     if (r.value === null) {
-      return { ok: false, error: { code: 'BAD_REQUEST', message: '白名单里没有这个目录：' + dirId,
-        userMessage: '这条目录已经不在白名单里了。', details: { dirId } } };
+      return {
+        ok: false,
+        error: {
+          code: 'BAD_REQUEST',
+          message: '白名单里没有这个目录：' + dirId,
+          userMessage: '这条目录已经不在白名单里了。',
+          details: { dirId },
+        },
+      };
     }
     invalidateLibraries();
     const all = withAppDb((db) => listCollectDirs(db));
@@ -869,12 +1083,15 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
   if (method === 'appMeta') {
     const r = withAppDb((db) => readAppMeta(db));
     if (!r.ok) return appDbErrorEnvelope(r.why, '读取应用信息');
-    return { ok: true, data: {
-      schemaVersion: r.value ? r.value.schemaVersion : null,
-      appDbPath: USER_DATA_DIR ? appDbPath(USER_DATA_DIR) : null,
-      fakeMode: FAKE_MODE,
-      appVersion: app.getVersion(),
-    } };
+    return {
+      ok: true,
+      data: {
+        schemaVersion: r.value ? r.value.schemaVersion : null,
+        appDbPath: USER_DATA_DIR ? appDbPath(USER_DATA_DIR) : null,
+        fakeMode: FAKE_MODE,
+        appVersion: app.getVersion(),
+      },
+    };
   }
 
   if (method === 'libraryPickDir') {
@@ -883,9 +1100,10 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
       title: '选择素材库根目录',
       properties: ['openDirectory'],
     };
-    const picked = w && !w.isDestroyed()
-      ? await dialog.showOpenDialog(w, openOptions)
-      : await dialog.showOpenDialog(openOptions);
+    const picked =
+      w && !w.isDestroyed()
+        ? await dialog.showOpenDialog(w, openOptions)
+        : await dialog.showOpenDialog(openOptions);
     if (picked.canceled || !picked.filePaths || !picked.filePaths[0]) {
       return { ok: true, data: { canceled: true, path: null } };
     }
@@ -896,12 +1114,26 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
   const p = (params && typeof params === 'object' ? params : {}) as Req<'libraryAdd'>;
   const root = path.resolve(String(p.root));
   if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
-    return { ok: false, error: { code: 'LIB_NOT_FOUND', message: `目录不存在：${root}`,
-      userMessage: '这个目录不存在，或不是文件夹。请重新选择。', details: { root } } };
+    return {
+      ok: false,
+      error: {
+        code: 'LIB_NOT_FOUND',
+        message: `目录不存在：${root}`,
+        userMessage: '这个目录不存在，或不是文件夹。请重新选择。',
+        details: { root },
+      },
+    };
   }
   if (!USER_DATA_DIR) {
-    return { ok: false, error: { code: 'INTERNAL', message: 'userData 未初始化',
-      userMessage: '应用还没准备好，请稍后重试。', details: {} } };
+    return {
+      ok: false,
+      error: {
+        code: 'INTERNAL',
+        message: 'userData 未初始化',
+        userMessage: '应用还没准备好，请稍后重试。',
+        details: {},
+      },
+    };
   }
 
   // ⚠️ S6（基线 §2.2/§2.3）：库注册的**唯一写入口** = 应用级 app.db 的 `library_registry`。
@@ -913,7 +1145,7 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
   let libId = typeof p.libId === 'string' && p.libId.trim() ? p.libId.trim() : '';
   if (!libId) {
     let n = 1;
-    while (used.has('L' + n)) n += 1;   // 省略 libId 时自动分配：L1、L2…（跳过已占用的）
+    while (used.has('L' + n)) n += 1; // 省略 libId 时自动分配：L1、L2…（跳过已占用的）
     libId = 'L' + n;
   }
   const label = typeof p.label === 'string' && p.label.trim() ? p.label.trim() : libId;
@@ -929,11 +1161,19 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
   });
   if (!saved.ok) return appDbErrorEnvelope(saved.why, '登记库');
 
-  invalidateLibraries();          // 解析结果与引擎都作废，下次调用会用新列表重建
+  invalidateLibraries(); // 解析结果与引擎都作废，下次调用会用新列表重建
   log('已登记库', libId, '→', normalized, '（app.db library_registry）');
   const r = librariesResolved();
-  return { ok: true, data: { added: saved.value, registryPath: USER_DATA_DIR ? appDbPath(USER_DATA_DIR) : null,
-    libraries: r.libraries, warnings: r.warnings, diagnostics: r.diagnostics } };
+  return {
+    ok: true,
+    data: {
+      added: saved.value,
+      registryPath: USER_DATA_DIR ? appDbPath(USER_DATA_DIR) : null,
+      libraries: r.libraries,
+      warnings: r.warnings,
+      diagnostics: r.diagnostics,
+    },
+  };
 }
 
 // ---------------------------------------------------------------- thumb:// 协议（SPEC-security §3）
@@ -942,7 +1182,10 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
 // 路径绝不从 URL 取，而是由「注册表 + 索引」反查后再做包含校验 —— 这样
 // 渲染进程无法用它读任意文件（它连"一个路径"都传不进来）。
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'thumb', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+  {
+    scheme: 'thumb',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+  },
 ]);
 
 // 缩略图缓存落点已收进 `thumb-cache.thumbCachePath`（**唯一实现**，P1）——
@@ -963,7 +1206,9 @@ async function listRegisteredLibIds(): Promise<string[]> {
   if (!data || typeof data !== 'object') return [];
   const libs = (data as { libs?: unknown }).libs;
   if (!Array.isArray(libs)) return [];
-  return libs.map((l) => (l && typeof l === 'object' ? String((l as { libId?: unknown }).libId) : ''));
+  return libs.map((l) =>
+    l && typeof l === 'object' ? String((l as { libId?: unknown }).libId) : '',
+  );
 }
 const resolveLibId = createLibIdResolver({ listLibIds: listRegisteredLibIds, log });
 /** 引擎未就绪时不尝试还原（还原器本身对"空结果"也不会缓存，见 thumb-url.ts） */
@@ -1003,12 +1248,17 @@ async function handleThumb(request: Request): Promise<Response> {
 
   let src: string;
   try {
-    src = eng.absPathFor(libId, uid);            // 内含 库根包含 + 符号链接校验
+    src = eng.absPathFor(libId, uid); // 内含 库根包含 + 符号链接校验
   } catch (e) {
     // ⚠️ **本任务的核心修正**：不再 `SYMLINK_REJECTED ? 403 : 404` —— 那会把
     // `PATH_ESCAPES_LIB`（越界拒绝）与**任何内部异常**都说成"这张图不存在"。
     // 现在按 thumb-cache.ts 的表：素材不在 ⇒ 404 · 安全拒绝 ⇒ 403 · **其余 ⇒ 500**。
-    const d = thumbServeStatus({ shapeOk: true, libId, engineReady: true, resolveCode: codeText(e) });
+    const d = thumbServeStatus({
+      shapeOk: true,
+      libId,
+      engineReady: true,
+      resolveCode: codeText(e),
+    });
     log('thumb 取路径失败', libId, uid, codeText(e) || messageText(e), '→', d.status, d.reason);
     return new Response(d.reason, { status: d.status ?? 500 });
   }
@@ -1021,14 +1271,28 @@ async function handleThumb(request: Request): Promise<Response> {
 
   const { width, height } = img.getSize();
   const scale = size / Math.max(width, height);
-  const out = scale < 1
-    ? img.resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)), quality: 'good' })
-    : img;
+  const out =
+    scale < 1
+      ? img.resize({
+          width: Math.max(1, Math.round(width * scale)),
+          height: Math.max(1, Math.round(height * scale)),
+          quality: 'good',
+        })
+      : img;
   const jpg = out.toJPEG(82);
   const wrote = writeCachedThumb(cachePath, jpg);
   if (!wrote.ok) log('缩略图缓存写入失败', wrote.error);
-  log('thumb 生成成功', libId, uid, size, `${width}x${height}→${out.getSize().width}x${out.getSize().height}`, jpg.length);
-  return new Response(jpg, { headers: { 'content-type': 'image/jpeg', 'cache-control': 'no-cache' } });
+  log(
+    'thumb 生成成功',
+    libId,
+    uid,
+    size,
+    `${width}x${height}→${out.getSize().width}x${out.getSize().height}`,
+    jpg.length,
+  );
+  return new Response(jpg, {
+    headers: { 'content-type': 'image/jpeg', 'cache-control': 'no-cache' },
+  });
 }
 
 // ---------------------------------------------------------------- 窗口（§5）
@@ -1045,15 +1309,22 @@ function createWindow(): electron.BrowserWindow {
   // 旧坐标在屏幕外）就用默认尺寸并居中 —— 判定逻辑与理由全在 window-state.ts（纯函数）。
   // ⚠️ 恢复必须发生在**建窗之前**：先建再挪会看到窗口跳一下。
   const restored: BoundsDecision = (() => {
-    if (!USER_DATA_DIR) return { bounds: null, source: 'default', reason: 'userData 未就绪 ⇒ 用默认尺寸并居中' };
+    if (!USER_DATA_DIR)
+      return { bounds: null, source: 'default', reason: 'userData 未就绪 ⇒ 用默认尺寸并居中' };
     const saved = readSavedBounds(USER_DATA_DIR);
     if (saved.error) log('[窗口] 窗口状态读取失败（按"没存过"处理）:', saved.error);
     const areas = screen.getAllDisplays().map((d) => ({
-      x: d.workArea.x, y: d.workArea.y, width: d.workArea.width, height: d.workArea.height,
+      x: d.workArea.x,
+      y: d.workArea.y,
+      width: d.workArea.width,
+      height: d.workArea.height,
     }));
     const d = decideWindowBounds({
-      saved: saved.raw, workAreas: areas,
-      minWidth: WIN_MIN_WIDTH, minHeight: WIN_MIN_HEIGHT, minVisible: WIN_MIN_VISIBLE,
+      saved: saved.raw,
+      workAreas: areas,
+      minWidth: WIN_MIN_WIDTH,
+      minHeight: WIN_MIN_HEIGHT,
+      minVisible: WIN_MIN_VISIBLE,
     });
     log('[窗口]', d.reason, '· 屏幕数 =', areas.length, '· 状态文件 =', saved.path);
     return d;
@@ -1063,7 +1334,8 @@ function createWindow(): electron.BrowserWindow {
     width: restored.bounds ? restored.bounds.width : WIN_DEFAULT_WIDTH,
     height: restored.bounds ? restored.bounds.height : WIN_DEFAULT_HEIGHT,
     ...(restored.bounds ? { x: restored.bounds.x, y: restored.bounds.y } : {}),
-    minWidth: WIN_MIN_WIDTH, minHeight: WIN_MIN_HEIGHT,
+    minWidth: WIN_MIN_WIDTH,
+    minHeight: WIN_MIN_HEIGHT,
     backgroundColor: '#f5f5f7',
     title: 'gemma-search · 素材库语义检索',
     show: false,
@@ -1078,7 +1350,7 @@ function createWindow(): electron.BrowserWindow {
       allowRunningInsecureContent: false,
       spellcheck: false,
       webviewTag: false,
-      devTools: true,          // 决定 3：生产态也保留（理由见 SPEC-security §9）
+      devTools: true, // 决定 3：生产态也保留（理由见 SPEC-security §9）
     },
   });
   winRef.win = win;
@@ -1102,15 +1374,21 @@ function createWindow(): electron.BrowserWindow {
   win.on('resize', saveBoundsSoon);
   win.on('move', saveBoundsSoon);
   win.on('close', () => {
-    if (boundsTimer) { clearTimeout(boundsTimer); boundsTimer = null; }
+    if (boundsTimer) {
+      clearTimeout(boundsTimer);
+      boundsTimer = null;
+    }
     saveBounds();
   });
 
-  win.once('ready-to-show', () => win.show());           // 冷启动不闪白
+  win.once('ready-to-show', () => win.show()); // 冷启动不闪白
   // 决策在 window-security.ts（可单测），这里只接线
   win.webContents.setWindowOpenHandler(() => decideWindowOpen());
   win.webContents.on('will-navigate', (e, url) => {
-    if (!decideNavigation(url, DEV_RENDERER_URL)) { e.preventDefault(); log('阻止导航', url); }
+    if (!decideNavigation(url, DEV_RENDERER_URL)) {
+      e.preventDefault();
+      log('阻止导航', url);
+    }
   });
   win.webContents.on('render-process-gone', (_e, d) => log('渲染进程结束', JSON.stringify(d)));
 
@@ -1132,15 +1410,18 @@ function createWindow(): electron.BrowserWindow {
         if (q) {
           await win.webContents.executeJavaScript(
             '(() => {' +
-            '  const i = document.getElementById("query");' +
-            '  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;' +
-            '  setter.call(i, ' + JSON.stringify(q) + ');' +
-            '  i.dispatchEvent(new Event("input", { bubbles: true }));' +
-            '  const btn = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "搜索图片 →");' +
-            '  if (btn) btn.click();' +
-            '  return true;' +
-            '})()');
-          await new Promise((r) => setTimeout(r, 2500));   // 等检索 + 缩略图渲染
+              '  const i = document.getElementById("query");' +
+              '  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;' +
+              '  setter.call(i, ' +
+              JSON.stringify(q) +
+              ');' +
+              '  i.dispatchEvent(new Event("input", { bubbles: true }));' +
+              '  const btn = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "搜索图片 →");' +
+              '  if (btn) btn.click();' +
+              '  return true;' +
+              '})()',
+          );
+          await new Promise((r) => setTimeout(r, 2500)); // 等检索 + 缩略图渲染
         }
         const img = await win.webContents.capturePage();
         fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -1153,7 +1434,9 @@ function createWindow(): electron.BrowserWindow {
       if (process.env.GS_CAPTURE_EXIT !== '0') app.quit();
     }, delayMs);
   });
-  win.webContents.on('did-fail-load', (_e, code, desc, url) => log('!! 渲染页加载失败', code, desc, url));
+  win.webContents.on('did-fail-load', (_e, code, desc, url) =>
+    log('!! 渲染页加载失败', code, desc, url),
+  );
   win.webContents.on('console-message', (...args: unknown[]) => {
     const a = args[0];
     // 新版是单个事件对象（带 message），旧版是 (event, level, message, …) —— 两种形状都兜住。
@@ -1209,13 +1492,17 @@ let SINGLE_INSTANCE: boolean = app.requestSingleInstanceLock();
 if (!SINGLE_INSTANCE) {
   const udProbe = probeWritable(app.getPath('userData'));
   if (!udProbe.writable) {
-    SINGLE_INSTANCE = true;      // 环境不支持锁 ⇒ 放行，照常启动（下面会大声写明）
-    log('⚠️ 单实例锁不可用：userData 不可写 ⇒ Chromium 建不出 lockfile，本次**按单实例放行**并照常启动。');
+    SINGLE_INSTANCE = true; // 环境不支持锁 ⇒ 放行，照常启动（下面会大声写明）
+    log(
+      '⚠️ 单实例锁不可用：userData 不可写 ⇒ Chromium 建不出 lockfile，本次**按单实例放行**并照常启动。',
+    );
     log('   userData =', app.getPath('userData'));
     log('   探测结果 =', udProbe.reason);
     log('   影响：本次不做单实例互斥（再启一个不会聚焦本窗口）；修好 userData 写权限后自动恢复。');
   } else {
-    log('已有实例在运行（单实例锁没拿到，且 userData 可写 ⇒ 确实是第二个实例）⇒ 本次**不建窗口**后退出');
+    log(
+      '已有实例在运行（单实例锁没拿到，且 userData 可写 ⇒ 确实是第二个实例）⇒ 本次**不建窗口**后退出',
+    );
     app.quit();
   }
 }
@@ -1223,7 +1510,12 @@ if (!SINGLE_INSTANCE) {
 if (SINGLE_INSTANCE) {
   // 第二次启动时，Electron 会在**已有实例**上触发本事件 —— 这里只有恢复 + 聚焦，绝不新开窗口。
   app.on('second-instance', (_event: unknown, argv: string[], workingDirectory: string) => {
-    log('第二次启动被单实例锁拦下 ⇒ 恢复并聚焦已有窗口 · argv =', JSON.stringify(argv), '· cwd =', workingDirectory);
+    log(
+      '第二次启动被单实例锁拦下 ⇒ 恢复并聚焦已有窗口 · argv =',
+      JSON.stringify(argv),
+      '· cwd =',
+      workingDirectory,
+    );
     const w = winRef.win;
     if (!w || w.isDestroyed()) {
       // 窗口已经没了（正常路径是"关窗即退出"，走不到这里）—— 补建一个，别让第二次启动石沉大海。
@@ -1231,11 +1523,16 @@ if (SINGLE_INSTANCE) {
       createWindow();
       return;
     }
-    if (w.isMinimized()) w.restore();      // 最小化过就还原（否则焦点给了也看不见）
+    if (w.isMinimized()) w.restore(); // 最小化过就还原（否则焦点给了也看不见）
     w.show();
     w.focus();
     // 如实记录结果：Windows 的前台窗口规则可能不给焦点，日志要能看出"到没到位"，不能假装成功。
-    log('second-instance：已恢复并聚焦 · isMinimized =', w.isMinimized(), '· isFocused =', w.isFocused());
+    log(
+      'second-instance：已恢复并聚焦 · isMinimized =',
+      w.isMinimized(),
+      '· isFocused =',
+      w.isFocused(),
+    );
   });
 }
 
@@ -1258,11 +1555,11 @@ async function startApp(): Promise<void> {
     log('!! userData 解析失败（会退到索引自举）:', messageText(e));
   }
   try {
-    protocol.handle('thumb', handleThumb);        // 必须在窗口加载渲染页之前
+    protocol.handle('thumb', handleThumb); // 必须在窗口加载渲染页之前
     log('thumb:// 已注册');
     registerIpc();
     buildEngine();
-    logStorageRoots();                             // T-04：落点与"为什么"进日志（只记录，不改变行为）
+    logStorageRoots(); // T-04：落点与"为什么"进日志（只记录，不改变行为）
     log('引擎阶段完成');
     createWindow();
     log('启动流程完成（窗口已创建）');
@@ -1272,15 +1569,21 @@ async function startApp(): Promise<void> {
   }
 
   // 启动就绪后**后台**载模型（不挡出窗）；失败也不致命，检索时会再试并报错
-  setTimeout(() => { ensureEncoder().catch((e: unknown) => log('预热失败', messageText(e))); }, 1500);
+  setTimeout(() => {
+    ensureEncoder().catch((e: unknown) => log('预热失败', messageText(e)));
+  }, 1500);
 
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
 }
 
 // ⚠️ 抢不到锁的那一次**不注册** ready 回调 ⇒ 一个窗口都不建（已在上面的分支里 app.quit()）。
 if (SINGLE_INSTANCE) app.whenReady().then(startApp);
 
-app.on('window-all-closed', () => { app.quit(); });        // 关窗即退出（不做托盘）
+app.on('window-all-closed', () => {
+  app.quit();
+}); // 关窗即退出（不做托盘）
 // ------------------------------------------------ 未捕获异常 / 未处理 rejection（DF-6）
 //
 // 策略的**唯一落点**是 crash-policy.ts（文件头写着三条裁决与"为什么不用 app_meta"）：
@@ -1292,6 +1595,8 @@ app.on('window-all-closed', () => { app.quit(); });        // 关窗即退出（
 //    而 app.exit 让渲染进程/协议一起有序退出；测试注入记录式钩子，不会真杀进程。
 installCrashPolicy({
   log,
-  exit: (code: number) => { app.exit(code); },
+  exit: (code: number) => {
+    app.exit(code);
+  },
   isPackaged: app.isPackaged,
 });

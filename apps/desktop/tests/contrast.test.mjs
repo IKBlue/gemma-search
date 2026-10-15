@@ -25,18 +25,33 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const TOKENS = fileURLToPath(new URL('../../../packages/design-tokens/tokens.css', import.meta.url));
+const TOKENS = fileURLToPath(
+  new URL('../../../packages/design-tokens/tokens.css', import.meta.url),
+);
 const css = fs.readFileSync(TOKENS, 'utf8');
 
-/** 取 marker 之后的第一个 `{ … }` 块（配平括号） */
+/**
+ * 抹掉 CSS 注释后的同一份文本（**等长替换** ⇒ 下标与行号都不变）。
+ *
+ * ⚠️ 为什么必须抹注释（2026-10-15 · T-09 实测）：下面靠「标记串在全文里的下标」定位深色块，
+ *    而注释里**正当地**引用了 `[data-theme="dark"]` 这个字面量（本文件下面那段说明就是）。
+ *    不抹注释，那些提法会被当成真标记 ⇒ 解析到的是注释**后面**那个块。
+ *    实测：改之前 HEAD 上解析出 **4** 个块，其中两个是同一块内容的重复 ⇒ CT-3 当时是**碰巧**绿的。
+ */
+const cssNoComments = css.replace(/\/\*[\s\S]*?\*\//g, (m) => ' '.repeat(m.length));
+
+/** 取 marker 之后的第一个 `{ … }` 块（配平括号）。**在抹注释版上定位**，避免命中注释里的提法。 */
 function blockAfter(marker, from = 0) {
-  const i = css.indexOf(marker, from);
+  const i = cssNoComments.indexOf(marker, from);
   if (i < 0) throw new Error(`找不到块：${marker}`);
-  const start = css.indexOf('{', i);
+  const start = cssNoComments.indexOf('{', i);
   let depth = 0;
-  for (let j = start; j < css.length; j += 1) {
-    if (css[j] === '{') depth += 1;
-    else if (css[j] === '}') { depth -= 1; if (depth === 0) return css.slice(start + 1, j); }
+  for (let j = start; j < cssNoComments.length; j += 1) {
+    if (cssNoComments[j] === '{') depth += 1;
+    else if (cssNoComments[j] === '}') {
+      depth -= 1;
+      if (depth === 0) return cssNoComments.slice(start + 1, j);
+    }
   }
   throw new Error(`块未闭合：${marker}`);
 }
@@ -47,27 +62,38 @@ const parseVars = (text) => {
 };
 
 const light = parseVars(blockAfter(':root {'));
-// 深色有两处块（`@media (prefers-color-scheme: dark)` 与 `[data-theme="dark"]`），两套都要过
-const darkBlocks = [];
-{
-  let at = 0;
-  for (;;) {
-    const i = css.indexOf('@media (prefers-color-scheme: dark)', at);
-    const j = css.indexOf('[data-theme="dark"]', at);
-    const next = [i, j].filter((x) => x >= 0).sort((a, b) => a - b)[0];
-    if (next === undefined) break;
-    const marker = css.startsWith('[data-theme="dark"]', next) ? '[data-theme="dark"]' : '@media (prefers-color-scheme: dark)';
-    darkBlocks.push(parseVars(blockAfter(marker, next)));
-    at = next + marker.length;
-  }
-}
-if (darkBlocks.length < 2) throw new Error(`深色块应有 2 个（media + data-theme），实得 ${darkBlocks.length}`);
+
+/**
+ * 深色块：`@media (prefers-color-scheme: dark)` 与 `[data-theme="dark"]` 两套**必须同键**，
+ * 另有 `[data-sidebar="dark"]`（固定深色侧栏）这一路变体 —— 三个块 CT-2 都要逐个过。
+ *
+ * ⚠️ 标记必须**引号无关**（2026-10-15 · T-09 实测）：Prettier 会把 CSS 属性选择器里的双引号
+ *    统一成单引号（`[data-theme="dark"]` → `[data-theme='dark']`），写死双引号的标记就再也
+ *    匹配不到**选择器**，只会命中注释里的字面量（见 cssNoComments 的说明）。
+ *    CSS 里两种引号语义完全相同 ⇒ 用 `['"]` 兼容，判据本身没有放宽。
+ */
+const DARK_MARKER =
+  /@media \(prefers-color-scheme: dark\)|\[data-(?:theme|sidebar)=['"]dark['"]\]/g;
+const darkBlocks = [...cssNoComments.matchAll(DARK_MARKER)].map((m) =>
+  parseVars(blockAfter(m[0], m.index)),
+);
+if (darkBlocks.length < 2)
+  throw new Error(`深色块应至少 2 个（media + data-theme），实得 ${darkBlocks.length}`);
 
 // ── 颜色工具（WCAG 2.2 的定义，别自己发明公式）──────────────────────────
-const chan = (v) => { const s = v / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+const chan = (v) => {
+  const s = v / 255;
+  return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+};
 const lum = ({ r, g, b }) => 0.2126 * chan(r) + 0.7152 * chan(g) + 0.0722 * chan(b);
-const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
-const hex2rgb = (h) => { const n = parseInt(h.slice(1), 16); return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }; };
+const ratio = (a, b) => {
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+};
+const hex2rgb = (h) => {
+  const n = parseInt(h.slice(1), 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+};
 /** alpha 合成：把前景按 alpha 压在背景上（`over()`） */
 const over = (fg, alpha, bg) => ({
   r: fg.r * alpha + bg.r * (1 - alpha),
@@ -86,7 +112,9 @@ function resolve(name, vars, backdrop, depth = 0) {
   if (raw === undefined) throw new Error(`令牌不存在：${name}（拼错了吗？）`);
   const v = raw.trim();
   if (v.startsWith('#')) return hex2rgb(v);
-  const mx = /^color-mix\(in srgb,\s*var\((--[a-z0-9-]+)\)\s*([\d.]+)%\s*,\s*transparent\)/i.exec(v);
+  const mx = /^color-mix\(in srgb,\s*var\((--[a-z0-9-]+)\)\s*([\d.]+)%\s*,\s*transparent\)/i.exec(
+    v,
+  );
   if (mx) {
     const base = resolve(mx[1], vars, backdrop, depth + 1);
     return over(base, Number(mx[2]) / 100, backdrop);
@@ -101,23 +129,100 @@ function resolve(name, vars, backdrop, depth = 0) {
  * `min` 一律来自 SC：正文 4.5（1.4.3 AA）· 非文字 3.0（1.4.11 AA）。
  */
 const PAIRS = [
-  { id: '正文 / 主背景', fg: '--color-text-primary', bg: '--color-bg-primary', min: 4.5, sc: '1.4.3', why: '基线' },
-  { id: '错误正文 / 主背景', fg: '--color-critical-text', bg: '--color-bg-primary', min: 4.5, sc: '1.4.3', why: 'V-15' },
+  {
+    id: '正文 / 主背景',
+    fg: '--color-text-primary',
+    bg: '--color-bg-primary',
+    min: 4.5,
+    sc: '1.4.3',
+    why: '基线',
+  },
+  {
+    id: '错误正文 / 主背景',
+    fg: '--color-critical-text',
+    bg: '--color-bg-primary',
+    min: 4.5,
+    sc: '1.4.3',
+    why: 'V-15',
+  },
   { id: '分类标签 VR', fg: '--cat-vr-fg', bg: '--cat-vr-bg', min: 4.5, sc: '1.4.3', why: 'V-05' },
   { id: '分类标签 CR', fg: '--cat-cr-fg', bg: '--cat-cr-bg', min: 4.5, sc: '1.4.3', why: 'V-05' },
-  { id: '分类标签 CR+VR', fg: '--cat-crvr-fg', bg: '--cat-crvr-bg', min: 4.5, sc: '1.4.3', why: 'V-06（深色曾 2.55）' },
-  { id: '分类标签 其他', fg: '--cat-other-fg', bg: '--cat-other-bg', min: 4.5, sc: '1.4.3', why: 'V-05' },
-  { id: '分类标签 未分类', fg: '--cat-uncat-fg', bg: '--cat-uncat-bg', min: 4.5, sc: '1.4.3', why: 'V-05 / V-07' },
-  { id: '分数档 high（文字）', fg: '--score-same', bg: '--color-bg-primary', min: 4.5, sc: '1.4.3', why: 'V-03' },
-  { id: '分数档 mid（文字）', fg: '--score-like', bg: '--color-bg-primary', min: 4.5, sc: '1.4.3', why: 'V-03' },
-  { id: '错误 toast 文字', fg: '--color-on-accent', bg: '--toast-err-bg', min: 4.5, sc: '1.4.3', why: 'V-43（本轮新发现）' },
+  {
+    id: '分类标签 CR+VR',
+    fg: '--cat-crvr-fg',
+    bg: '--cat-crvr-bg',
+    min: 4.5,
+    sc: '1.4.3',
+    why: 'V-06（深色曾 2.55）',
+  },
+  {
+    id: '分类标签 其他',
+    fg: '--cat-other-fg',
+    bg: '--cat-other-bg',
+    min: 4.5,
+    sc: '1.4.3',
+    why: 'V-05',
+  },
+  {
+    id: '分类标签 未分类',
+    fg: '--cat-uncat-fg',
+    bg: '--cat-uncat-bg',
+    min: 4.5,
+    sc: '1.4.3',
+    why: 'V-05 / V-07',
+  },
+  {
+    id: '分数档 high（文字）',
+    fg: '--score-same',
+    bg: '--color-bg-primary',
+    min: 4.5,
+    sc: '1.4.3',
+    why: 'V-03',
+  },
+  {
+    id: '分数档 mid（文字）',
+    fg: '--score-like',
+    bg: '--color-bg-primary',
+    min: 4.5,
+    sc: '1.4.3',
+    why: 'V-03',
+  },
+  {
+    id: '错误 toast 文字',
+    fg: '--color-on-accent',
+    bg: '--toast-err-bg',
+    min: 4.5,
+    sc: '1.4.3',
+    why: 'V-43（本轮新发现）',
+  },
   // ⚠️ V-44（本轮新发现，不在原 42 条里）：状态圆点是 **8px 非文字图形** ⇒ 阈值是 SC 1.4.11 的 **3.0**
   //    （不是 4.5）。原先它用 `--color-success` #34c759，压在浅色侧栏底上只有 **2.22:1** ⇒ 不达标。
   //    已改用可读变体 `--color-*-text`。**注意阈值不同** —— 别把非文字图形按正文阈值要求，
   //    也别反过来把它当正文放过。
-  { id: '状态圆点 ok（非文字）', fg: '--color-success-text', bg: '--sidebar-bg', min: 3.0, sc: '1.4.11', why: 'V-44' },
-  { id: '状态圆点 warn（非文字）', fg: '--color-warning-text', bg: '--sidebar-bg', min: 3.0, sc: '1.4.11', why: 'V-44' },
-  { id: '状态圆点 err（非文字）', fg: '--color-critical-text', bg: '--sidebar-bg', min: 3.0, sc: '1.4.11', why: 'V-44' },
+  {
+    id: '状态圆点 ok（非文字）',
+    fg: '--color-success-text',
+    bg: '--sidebar-bg',
+    min: 3.0,
+    sc: '1.4.11',
+    why: 'V-44',
+  },
+  {
+    id: '状态圆点 warn（非文字）',
+    fg: '--color-warning-text',
+    bg: '--sidebar-bg',
+    min: 3.0,
+    sc: '1.4.11',
+    why: 'V-44',
+  },
+  {
+    id: '状态圆点 err（非文字）',
+    fg: '--color-critical-text',
+    bg: '--sidebar-bg',
+    min: 3.0,
+    sc: '1.4.11',
+    why: 'V-44',
+  },
 ];
 
 function evaluate(mode, vars, backdropName) {
@@ -126,7 +231,9 @@ function evaluate(mode, vars, backdropName) {
   for (const p of PAIRS) {
     const bgVar = p.bg;
     // 半透明底色要压在"它实际所处的那个面"上：这里统一按该模式的 surface 合成
-    const bg = p.bg.startsWith('--cat-') ? resolve(bgVar, vars, backdrop) : resolve(bgVar, vars, backdrop);
+    const bg = p.bg.startsWith('--cat-')
+      ? resolve(bgVar, vars, backdrop)
+      : resolve(bgVar, vars, backdrop);
     const fg = resolve(p.fg, vars, bg);
     rows.push({ ...p, value: ratio(fg, bg) });
   }
@@ -136,9 +243,17 @@ function evaluate(mode, vars, backdropName) {
 test('CT-1 ⭐⭐ 令牌配对的对比度必须达 WCAG AA（浅色）', () => {
   const rows = evaluate('light', light, '--color-bg-primary');
   const bad = rows.filter((r) => r.value < r.min);
-  const table = rows.map((r) => `${r.value.toFixed(2).padStart(5)}  ≥${r.min}  ${r.value < r.min ? '✖' : '✔'}  ${r.id}  [${r.sc}] ${r.why}`).join('\n    ');
-  assert.deepEqual(bad.map((r) => `${r.id} = ${r.value.toFixed(2)} < ${r.min}`), [],
-    `浅色档有不达标的配对（阈值来自 WCAG 2.2，不是这里定的）：\n    ${table}\n`);
+  const table = rows
+    .map(
+      (r) =>
+        `${r.value.toFixed(2).padStart(5)}  ≥${r.min}  ${r.value < r.min ? '✖' : '✔'}  ${r.id}  [${r.sc}] ${r.why}`,
+    )
+    .join('\n    ');
+  assert.deepEqual(
+    bad.map((r) => `${r.id} = ${r.value.toFixed(2)} < ${r.min}`),
+    [],
+    `浅色档有不达标的配对（阈值来自 WCAG 2.2，不是这里定的）：\n    ${table}\n`,
+  );
 });
 
 test('CT-2 ⭐⭐ 令牌配对的对比度必须达 WCAG AA（深色，两套块都要过）', () => {
@@ -150,19 +265,25 @@ test('CT-2 ⭐⭐ 令牌配对的对比度必须达 WCAG AA（深色，两套块
       const bg = resolve(p.bg, vars, backdrop);
       const fg = resolve(p.fg, vars, bg);
       const v = ratio(fg, bg);
-      if (v < p.min) failures.push(`${which} · ${p.id} = ${v.toFixed(2)} < ${p.min} [${p.sc}] ${p.why}`);
+      if (v < p.min)
+        failures.push(`${which} · ${p.id} = ${v.toFixed(2)} < ${p.min} [${p.sc}] ${p.why}`);
     }
   });
   assert.deepEqual(failures, [], '深色档有不达标的配对：\n    ' + failures.join('\n    '));
 });
 
-function hexToRgbSafe(h) { return hex2rgb(h); }
+function hexToRgbSafe(h) {
+  return hex2rgb(h);
+}
 
 test('CT-0 自检：配对表非空、令牌都解析得出来（否则上面两条恒真）', () => {
   assert.ok(PAIRS.length >= 8, `配对只有 ${PAIRS.length} 条，太少了`);
   // ⚠️ 不写死 `=== 2`：文件里除两套主深色块外还有变体块（如固定深色侧栏）。
   //    CT-2 会把扫到的**每一块**都算一遍 ⇒ 块越多覆盖越广，不该因此判自检失败。
-  assert.ok(darkBlocks.length >= 2, `深色块应至少 2 个（media + data-theme），实得 ${darkBlocks.length}`);
+  assert.ok(
+    darkBlocks.length >= 2,
+    `深色块应至少 2 个（media + data-theme），实得 ${darkBlocks.length}`,
+  );
   for (const p of PAIRS) {
     const backdrop = resolve('--color-bg-primary', light, hexToRgbSafe('#ffffff'));
     resolve(p.fg, light, backdrop);
@@ -184,7 +305,7 @@ test('CT-3 ⭐ 两套深色块的**键集合必须一致**（V-06 那类漂移�
   assert.deepEqual(
     { 只在media: onlyMedia, 只在dataTheme: onlyTheme },
     { 只在media: [], 只在dataTheme: [] },
-    '两套深色块的键集合不一致 ⇒ 某一套里改过的令牌在另一套里没跟上（V-06 就是这么发生的）。\n'
-    + '修法：把缺的键补到另一套，值保持一致。',
+    '两套深色块的键集合不一致 ⇒ 某一套里改过的令牌在另一套里没跟上（V-06 就是这么发生的）。\n' +
+      '修法：把缺的键补到另一套，值保持一致。',
   );
 });

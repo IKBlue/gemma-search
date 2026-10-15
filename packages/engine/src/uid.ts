@@ -34,7 +34,9 @@ export function relDirOf(relPath: string): string {
  */
 export function uidOf(libId: string, relDir: string | null | undefined, stem: string): string {
   const dir = relDir == null ? '' : normRelDir(String(relDir));
-  return crypto.createHash('sha1')
+  return crypto
+    .createHash('sha1')
     .update(`${libId}|${dir}|${stem}`, 'utf8')
-    .digest('hex').slice(0, 12);
+    .digest('hex')
+    .slice(0, 12);
 }

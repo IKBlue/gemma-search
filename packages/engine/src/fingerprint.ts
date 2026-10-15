@@ -75,15 +75,18 @@ export function fingerprintLines(root: string): FingerprintLines {
       //    （P1）。必须放在 `isDirectory()` **之前** —— `.gs-journal` / `.gs-staging` 是目录，漏判会走进去。
       //    不改的后果（实测）：索引一重建，`doScan()` 的库指纹就跟着变 ⇒ 被算成「库被改过」；
       //    而同一件事在 main/library-rebuild.ts 的 materialDigest 里有跳过 ⇒ 两套口径。
-      if (!isMaterialEntryName(e.name)) continue;   // 保留命名空间 + 隐藏项都**不是素材**（唯一判据）
+      if (!isMaterialEntryName(e.name)) continue; // 保留命名空间 + 隐藏项都**不是素材**（唯一判据）
       const full = path.join(dir, e.name);
-      if (e.isDirectory()) { walk(full); continue; }
-      if (!e.isFile()) continue;                       // 跳过符号链接等（不跟随）
+      if (e.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!e.isFile()) continue; // 跳过符号链接等（不跟随）
       const ext = path.extname(e.name).toLowerCase();
       // bigint: true 才能拿到精确的 mtimeNs（用 mtimeMs 会带入舍入，与 Python 对不上）
       const st = fs.statSync(full, { bigint: true });
       const rel = path.relative(root, full);
-      const mtimeMs = st.mtimeNs / 1_000_000n;         // BigInt 除法 = 截断
+      const mtimeMs = st.mtimeNs / 1_000_000n; // BigInt 除法 = 截断
       lines.push(`${rel}\t${st.size}\t${mtimeMs}\t${ext}`);
       counts.files++;
       totalBytes += Number(st.size);
@@ -94,7 +97,7 @@ export function fingerprintLines(root: string): FingerprintLines {
   };
   walk(root);
 
-  lines.sort();                                        // 按行（= rel_path 前缀）字节序升序
+  lines.sort(); // 按行（= rel_path 前缀）字节序升序
   return { lines, counts, totalBytes };
 }
 
@@ -133,13 +136,19 @@ export interface DeepHashOptions {
  * 深度校验（另一档）：对**预览图**逐个算 sha1。**不含压缩包**（206 GB）。
  * 供"库健康面板"按需触发。
  */
-export function deepHashImages(root: string, { onProgress }: DeepHashOptions = {}): Map<string, string> {
+export function deepHashImages(
+  root: string,
+  { onProgress }: DeepHashOptions = {},
+): Map<string, string> {
   const out = new Map<string, string>();
   let n = 0;
   const walk = (dir: string): void => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, e.name);
-      if (e.isDirectory()) { walk(full); continue; }
+      if (e.isDirectory()) {
+        walk(full);
+        continue;
+      }
       const ext = path.extname(e.name).toLowerCase();
       if (!IMG_EXT.has(ext)) continue;
       const rel = path.relative(root, full);

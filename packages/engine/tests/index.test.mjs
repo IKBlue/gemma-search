@@ -10,9 +10,23 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { readIndexBin, readItems, readMeta, relOf, MAGIC, HEAD_OFF, LEN_OFF } from '../src/index.ts';
-import { compatKey, compatComplete, compatMismatches, compatEqual, compatReason,
-         COMPAT_FIELDS } from '../src/compat.ts';
+import {
+  readIndexBin,
+  readItems,
+  readMeta,
+  relOf,
+  MAGIC,
+  HEAD_OFF,
+  LEN_OFF,
+} from '../src/index.ts';
+import {
+  compatKey,
+  compatComplete,
+  compatMismatches,
+  compatEqual,
+  compatReason,
+  COMPAT_FIELDS,
+} from '../src/compat.ts';
 import { EngineError, ERR, USER_MESSAGE, envelope, err, ok } from '../src/errors.ts';
 import { makeLibrary, writeIndexFixture } from './helpers/lib-fixture.mjs';
 
@@ -35,12 +49,18 @@ function writeIndex(file, { count, dim, header = {}, breakFooter = null, truncat
   for (let i = 0; i < count * dim; i++) body.writeFloatLE((i % 7) / 7, i * 4);
   const h = { format_version: 1, count, dim, ...header };
   const headerJson = Buffer.from(JSON.stringify(h), 'utf8');
-  const lenBuf = Buffer.alloc(4); lenBuf.writeUInt32LE(headerJson.length, 0);
-  let foot = { count, dim, sha1_of_vector_block: crypto.createHash('sha1').update(body).digest('hex'),
-               complete: true };
+  const lenBuf = Buffer.alloc(4);
+  lenBuf.writeUInt32LE(headerJson.length, 0);
+  let foot = {
+    count,
+    dim,
+    sha1_of_vector_block: crypto.createHash('sha1').update(body).digest('hex'),
+    complete: true,
+  };
   if (breakFooter) foot = { ...foot, ...breakFooter };
   const footJson = Buffer.from(JSON.stringify(foot), 'utf8');
-  const footLen = Buffer.alloc(4); footLen.writeUInt32LE(footJson.length, 0);
+  const footLen = Buffer.alloc(4);
+  footLen.writeUInt32LE(footJson.length, 0);
   let out = Buffer.concat([MAGIC, lenBuf, headerJson, body, footLen, footJson]);
   if (truncate) out = out.subarray(0, out.length - truncate);
   fs.writeFileSync(file, out);
@@ -53,7 +73,11 @@ function tmpdir() {
 
 test('index: 合法索引可读回，且向量与写入一致', () => {
   const d = tmpdir();
-  const f = writeIndex(path.join(d, 'index.bin'), { count: 3, dim: 4, header: { seq_length: 140 } });
+  const f = writeIndex(path.join(d, 'index.bin'), {
+    count: 3,
+    dim: 4,
+    header: { seq_length: 140 },
+  });
   const r = readIndexBin(f);
   assert.equal(r.count, 3);
   assert.equal(r.dim, 4);
@@ -67,21 +91,34 @@ test('index: MAGIC 不对 → INDEX_CORRUPT（不是"读到了半个文件"）',
   const d = tmpdir();
   const f = writeIndex(path.join(d, 'index.bin'), { count: 2, dim: 2 });
   const buf = fs.readFileSync(f);
-  buf[0] = 0x00;                                  // 破坏 MAGIC 首字节
+  buf[0] = 0x00; // 破坏 MAGIC 首字节
   fs.writeFileSync(f, buf);
-  assert.throws(() => readIndexBin(f), (e) => e instanceof EngineError && e.code === ERR.INDEX_CORRUPT);
+  assert.throws(
+    () => readIndexBin(f),
+    (e) => e instanceof EngineError && e.code === ERR.INDEX_CORRUPT,
+  );
 });
 
 test('index: 截断文件 → 拒绝（footer 校验起作用）', () => {
   const d = tmpdir();
   const f = writeIndex(path.join(d, 'index.bin'), { count: 2, dim: 2, truncate: 10 });
-  assert.throws(() => readIndexBin(f), (e) => e.code === ERR.INDEX_CORRUPT);
+  assert.throws(
+    () => readIndexBin(f),
+    (e) => e.code === ERR.INDEX_CORRUPT,
+  );
 });
 
 test('index: footer.complete 不是 true → 拒绝（写入未完成的判定）', () => {
   const d = tmpdir();
-  const f = writeIndex(path.join(d, 'index.bin'), { count: 2, dim: 2, breakFooter: { complete: false } });
-  assert.throws(() => readIndexBin(f), (e) => e.code === ERR.INDEX_CORRUPT);
+  const f = writeIndex(path.join(d, 'index.bin'), {
+    count: 2,
+    dim: 2,
+    breakFooter: { complete: false },
+  });
+  assert.throws(
+    () => readIndexBin(f),
+    (e) => e.code === ERR.INDEX_CORRUPT,
+  );
 });
 
 test('index: 向量块被改一个字节 → sha1 不符 → 拒绝', () => {
@@ -89,27 +126,41 @@ test('index: 向量块被改一个字节 → sha1 不符 → 拒绝', () => {
   const f = writeIndex(path.join(d, 'index.bin'), { count: 2, dim: 2 });
   const buf = fs.readFileSync(f);
   const headerLen = buf.readUInt32LE(LEN_OFF);
-  buf[HEAD_OFF + headerLen + 1] ^= 0xff;           // 翻转向量块里的一个字节
+  buf[HEAD_OFF + headerLen + 1] ^= 0xff; // 翻转向量块里的一个字节
   fs.writeFileSync(f, buf);
-  assert.throws(() => readIndexBin(f), (e) => e.code === ERR.INDEX_CORRUPT);
+  assert.throws(
+    () => readIndexBin(f),
+    (e) => e.code === ERR.INDEX_CORRUPT,
+  );
 });
 
 test('index: 文件不存在 → INDEX_MISSING（与"损坏"区分开）', () => {
   const d = tmpdir();
-  assert.throws(() => readIndexBin(path.join(d, 'nope.bin')),
-                (e) => e.code === ERR.INDEX_MISSING);
+  assert.throws(
+    () => readIndexBin(path.join(d, 'nope.bin')),
+    (e) => e.code === ERR.INDEX_MISSING,
+  );
 });
 
 test('index: readItems / readMeta 对坏 JSON 抛 INDEX_CORRUPT', () => {
   const d = tmpdir();
   const bad = path.join(d, 'items.json');
   fs.writeFileSync(bad, '{ not json');
-  assert.throws(() => readItems(bad), (e) => e.code === ERR.INDEX_CORRUPT);
+  assert.throws(
+    () => readItems(bad),
+    (e) => e.code === ERR.INDEX_CORRUPT,
+  );
   fs.writeFileSync(bad, '[]');
-  assert.throws(() => readItems(bad), (e) => e.code === ERR.INDEX_CORRUPT);
+  assert.throws(
+    () => readItems(bad),
+    (e) => e.code === ERR.INDEX_CORRUPT,
+  );
   const m = path.join(d, 'meta.json');
   fs.writeFileSync(m, 'x');
-  assert.throws(() => readMeta(m), (e) => e.code === ERR.INDEX_CORRUPT);
+  assert.throws(
+    () => readMeta(m),
+    (e) => e.code === ERR.INDEX_CORRUPT,
+  );
 });
 
 test('index: relOf 同时认新格式 relPath 与旧档 rel_path', () => {
@@ -124,15 +175,30 @@ test('index: relOf 同时认新格式 relPath 与旧档 rel_path', () => {
 const H = (over = {}) => ({
   model_repo: 'onnx-community/embeddinggemma-2-ONNX',
   model_revision: 'daa72c51243991dfcaf9f9137d2c573d8f7790c0',
-  model_weights_dtype: 'fp32', preprocessing_version: 1,
-  seq_length: 140, dim: 768, normalization: 'l2', pooling: 'mean_soft_tokens',
+  model_weights_dtype: 'fp32',
+  preprocessing_version: 1,
+  seq_length: 140,
+  dim: 768,
+  normalization: 'l2',
+  pooling: 'mean_soft_tokens',
   ...over,
 });
 
 test('compat: 8 个成员，顺序固定', () => {
   assert.equal(COMPAT_FIELDS.length, 8);
-  assert.deepEqual([...COMPAT_FIELDS], ['model_repo', 'model_revision', 'model_weights_dtype',
-    'preprocessing_version', 'seq_length', 'dim', 'normalization', 'pooling']);
+  assert.deepEqual(
+    [...COMPAT_FIELDS],
+    [
+      'model_repo',
+      'model_revision',
+      'model_weights_dtype',
+      'preprocessing_version',
+      'seq_length',
+      'dim',
+      'normalization',
+      'pooling',
+    ],
+  );
 });
 
 test('compat: device / gpu 型号**不参与**（否则 CPU 回退会拒绝自己的索引）', () => {
@@ -163,8 +229,7 @@ test('compat: compatReason 结构化原因含"哪一项不符 + 期望 + 实际"
   assert.equal(r.kind, 'compat-mismatch');
   assert.equal(r.mismatches.length, 2);
   // 顺序按 COMPAT_FIELDS 的规范顺序（确定性优先），所以这里不假设哪个排前面
-  assert.deepEqual(r.mismatches.map((m) => m.field).sort(),
-                   ['model_weights_dtype', 'seq_length']);
+  assert.deepEqual(r.mismatches.map((m) => m.field).sort(), ['model_weights_dtype', 'seq_length']);
   const byField = Object.fromEntries(r.mismatches.map((m) => [m.field, m]));
   assert.equal(byField.seq_length.expected, 140);
   assert.equal(byField.seq_length.actual, 280);
@@ -180,8 +245,11 @@ test('compat: 真实索引用例（data/idx-full 存在时读其 header 并自�
   const meta = path.join(ROOT, 'data', 'idx-full', 'meta.json');
   if (!fs.existsSync(meta)) return t.skip('尚无 data/idx-full/meta.json');
   const h = JSON.parse(fs.readFileSync(meta, 'utf8'));
-  assert.ok(compatComplete(h), '真实索引的 compat 字段应齐全：' + JSON.stringify(
-    COMPAT_FIELDS.filter((f) => h[f] === undefined)));
+  assert.ok(
+    compatComplete(h),
+    '真实索引的 compat 字段应齐全：' +
+      JSON.stringify(COMPAT_FIELDS.filter((f) => h[f] === undefined)),
+  );
   assert.equal(compatKey(h), h.compat, 'meta.compat 应与按字段算出的串一致');
   assert.ok(compatEqual(h, h));
 });
@@ -218,15 +286,26 @@ test('S7a ⭐ 错误码表 == SPEC §5 的 28 个，且 DB_OPEN_FAILED 有自己
 
   const msg = USER_MESSAGE[ERR.DB_OPEN_FAILED];
   assert.ok(typeof msg === 'string' && msg.length > 0, 'DB_OPEN_FAILED 缺 userMessage');
-  assert.notEqual(msg, USER_MESSAGE[ERR.INDEX_CORRUPT], '库坏 ≠ 索引坏：文案不能与 INDEX_CORRUPT 相同');
-  assert.ok(!msg.includes('**'), 'userMessage 不许出现 Markdown 加粗标记（V-40：界面会按字面显示）');
+  assert.notEqual(
+    msg,
+    USER_MESSAGE[ERR.INDEX_CORRUPT],
+    '库坏 ≠ 索引坏：文案不能与 INDEX_CORRUPT 相同',
+  );
+  assert.ok(
+    !msg.includes('**'),
+    'userMessage 不许出现 Markdown 加粗标记（V-40：界面会按字面显示）',
+  );
   assert.ok(!/[A-Za-z]:\\/.test(msg), 'userMessage 不许含绝对路径');
 });
 
 test('errors: envelope 永不抛异常给调用方', async () => {
-  const r1 = await envelope(async () => { throw new EngineError(ERR.UID_NOT_FOUND, 'x'); });
+  const r1 = await envelope(async () => {
+    throw new EngineError(ERR.UID_NOT_FOUND, 'x');
+  });
   assert.equal(r1.error.code, 'UID_NOT_FOUND');
-  const r2 = await envelope(async () => { throw new Error('boom'); });
+  const r2 = await envelope(async () => {
+    throw new Error('boom');
+  });
   assert.equal(r2.error.code, 'INTERNAL');
   const r3 = await envelope(async () => ok({ v: 1 }));
   assert.equal(r3.ok, true);
@@ -247,11 +326,15 @@ test('index: footLen 非法（0 / 巨大）⇒ 明说「footer 长度非法」�
     buf.writeUInt32LE(bad >>> 0, footOff);
     const f = path.join(dir, 'bad-' + String(bad) + '.bin');
     fs.writeFileSync(f, buf);
-    assert.throws(() => readIndexBin(f), (e) => {
-      assert.equal(e.code, ERR.INDEX_CORRUPT);
-      assert.match(e.message, /footer 长度非法/, '要说清是长度非法：' + e.message);
-      return true;
-    }, 'footLen=' + String(bad) + ' 必须被拒');
+    assert.throws(
+      () => readIndexBin(f),
+      (e) => {
+        assert.equal(e.code, ERR.INDEX_CORRUPT);
+        assert.match(e.message, /footer 长度非法/, '要说清是长度非法：' + e.message);
+        return true;
+      },
+      'footLen=' + String(bad) + ' 必须被拒',
+    );
   }
   // 反面：正常索引不能被这条新校验误伤
   const good = path.join(dir, 'good.bin');

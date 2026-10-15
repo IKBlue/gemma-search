@@ -70,22 +70,36 @@ export interface AmbiguityDetail {
  */
 export function cleanStaging(rec: TxnRecord): void {
   for (const f of rec.files || []) {
-    try { if (f.stage && fs.existsSync(f.stage)) fs.rmSync(f.stage, { force: true }); } catch { /* 删不掉不致命 */ }
+    try {
+      if (f.stage && fs.existsSync(f.stage)) fs.rmSync(f.stage, { force: true });
+    } catch {
+      /* 删不掉不致命 */
+    }
   }
   // 收集"本事务自己的 staging 目录"。原实现是 map→null→filter(Boolean)，换成显式循环：
   // filter(Boolean) 不能收窄类型（TS 只看到 (string|null)[]），而这里本就只关心非空 stage。
   const dirs = new Set<string>();
   for (const f of rec.files || []) if (f.stage) dirs.add(path.dirname(f.stage));
   for (const d of dirs) {
-    try { if (fs.existsSync(d) && fs.readdirSync(d).length === 0) fs.rmdirSync(d); } catch { /* 同上 */ }
+    try {
+      if (fs.existsSync(d) && fs.readdirSync(d).length === 0) fs.rmdirSync(d);
+    } catch {
+      /* 同上 */
+    }
     // 父目录 `.gs-staging/` 若也空了就一并收掉 —— 素材库里少留一点我们自己的东西。
     // ⚠️ `rmdir` **只在空目录时成功**，所以并发场景下竞争失败是安全的（不会删掉别人的 staging）。
     const parent = path.dirname(d);
     try {
-      if (path.basename(parent) === STAGING_DIRNAME && fs.existsSync(parent) && fs.readdirSync(parent).length === 0) {
+      if (
+        path.basename(parent) === STAGING_DIRNAME &&
+        fs.existsSync(parent) &&
+        fs.readdirSync(parent).length === 0
+      ) {
         fs.rmdirSync(parent);
       }
-    } catch { /* 同上 */ }
+    } catch {
+      /* 同上 */
+    }
   }
 }
 
@@ -116,27 +130,38 @@ export function commitRenames(
   const doneIdx: number[] = [];
   for (let i = 0; i < rec.files.length; i += 1) {
     const f = rec.files[i];
-    if (f._idempotent) { doneIdx.push(i); continue; }
+    if (f._idempotent) {
+      doneIdx.push(i);
+      continue;
+    }
     if (!fs.existsSync(f.stage)) {
       // staging 不在：要么已经 rename 过（目标在且字节一致），要么数据丢了（由歧义判定处理）
-      if (fs.existsSync(f.dst) && sha1File(f.dst) === f.sha1) { doneIdx.push(i); continue; }
+      if (fs.existsSync(f.dst) && sha1File(f.dst) === f.sha1) {
+        doneIdx.push(i);
+        continue;
+      }
       return { doneIdx, error: `staging 与目标都不在：${f.dst}` };
     }
     if (fs.existsSync(f.dst)) {
-      if (sha1File(f.dst) === f.sha1) {                 // 规则 ②：幂等命中
-        try { fs.rmSync(f.stage, { force: true }); } catch { /* 不影响正确性 */ }
+      if (sha1File(f.dst) === f.sha1) {
+        // 规则 ②：幂等命中
+        try {
+          fs.rmSync(f.stage, { force: true });
+        } catch {
+          /* 不影响正确性 */
+        }
         doneIdx.push(i);
         continue;
       }
       return { doneIdx, error: `目标已被占用且字节不同（绝不覆盖）：${f.dst}` };
     }
     try {
-      fs.renameSync(f.stage, f.dst);                    // 同卷、单文件原子
+      fs.renameSync(f.stage, f.dst); // 同卷、单文件原子
     } catch (e) {
       return { doneIdx, error: `rename 失败：${f.dst} —— ${messageOf(e)}` };
     }
     doneIdx.push(i);
-    if (onEach) onEach(i);                              // 故障注入点挂在两条 rename 之间
+    if (onEach) onEach(i); // 故障注入点挂在两条 rename 之间
   }
   return { doneIdx, error: null };
 }
@@ -152,7 +177,10 @@ export function applyIndex(indexPort: IndexPort, rec: TxnRecord): ApplyIndexResu
   if (rec.indexUpdate && rec.indexUpdate.done) return { ok: true, skipped: true };
   try {
     indexPort.update({
-      txnId: rec.txnId, libId: rec.libId, uid: rec.uid, op: rec.op,
+      txnId: rec.txnId,
+      libId: rec.libId,
+      uid: rec.uid,
+      op: rec.op,
       files: (rec.files || []).map((f) => ({ role: f.role, src: f.src, dst: f.dst })),
     });
     return { ok: true, skipped: false };
@@ -174,9 +202,12 @@ export function applyIndex(indexPort: IndexPort, rec: TxnRecord): ApplyIndexResu
 export function cleanupSources(rec: TxnRecord): number[] {
   const deleted: number[] = [];
   rec.files.forEach((f, i) => {
-    if (f.srcDeleted) return;                           // 幂等：已删过
-    if (path.resolve(f.src) === path.resolve(f.dst)) return;   // 第二道锁：绝不删"源即目标"
-    if (fs.existsSync(f.src)) { fs.rmSync(f.src, { force: true }); deleted.push(i); }
+    if (f.srcDeleted) return; // 幂等：已删过
+    if (path.resolve(f.src) === path.resolve(f.dst)) return; // 第二道锁：绝不删"源即目标"
+    if (fs.existsSync(f.src)) {
+      fs.rmSync(f.src, { force: true });
+      deleted.push(i);
+    }
     f.srcDeleted = true;
   });
   return deleted;
@@ -219,7 +250,10 @@ export function validateRecord(rec: unknown): { ok: boolean; missing: string[] }
  *
  * 只读，不动任何文件。返回明细（哪一条、缺什么），因为 §4 要求界面能列出来。
  */
-export function assessAmbiguity(rec: TxnRecord): { ambiguous: boolean; details: AmbiguityDetail[] } {
+export function assessAmbiguity(rec: TxnRecord): {
+  ambiguous: boolean;
+  details: AmbiguityDetail[];
+} {
   const details: AmbiguityDetail[] = [];
   (rec.files || []).forEach((f, i) => {
     const srcExists = fs.existsSync(f.src);
@@ -230,15 +264,33 @@ export function assessAmbiguity(rec: TxnRecord): { ambiguous: boolean; details: 
     // ⚠️ 目标是否"就是期望的那份字节" —— 用来区分"rename 已完成"与"数据不知去向"。
     //    只有源不在时才需要算（否则不影响判定，算了也是白读盘）。
     let dstHasExpectedBytes: boolean | null = null;
-    if (!srcExists && dstExists) dstHasExpectedBytes = f.sha1 ? (sha1File(f.dst) === f.sha1) : null;
+    if (!srcExists && dstExists) dstHasExpectedBytes = f.sha1 ? sha1File(f.dst) === f.sha1 : null;
 
-    if (!isAmbiguous({ srcExists, dstExists, sameBytes, stagingExists: stageExists, dstHasExpectedBytes })) return;
+    if (
+      !isAmbiguous({
+        srcExists,
+        dstExists,
+        sameBytes,
+        stagingExists: stageExists,
+        dstHasExpectedBytes,
+      })
+    )
+      return;
     details.push({
-      index: i, role: f.role, src: f.src, dst: f.dst, stage: f.stage,
-      srcExists, dstExists, stagingExists: stageExists, sameBytes, dstHasExpectedBytes,
-      reason: (srcExists && dstExists && sameBytes === false)
-        ? '源与目标都存在且字节不同'
-        : 'staging 丢失、源也不在，且目标不是期望的内容（数据去向不明）',
+      index: i,
+      role: f.role,
+      src: f.src,
+      dst: f.dst,
+      stage: f.stage,
+      srcExists,
+      dstExists,
+      stagingExists: stageExists,
+      sameBytes,
+      dstHasExpectedBytes,
+      reason:
+        srcExists && dstExists && sameBytes === false
+          ? '源与目标都存在且字节不同'
+          : 'staging 丢失、源也不在，且目标不是期望的内容（数据去向不明）',
     });
   });
   return { ambiguous: details.length > 0, details };

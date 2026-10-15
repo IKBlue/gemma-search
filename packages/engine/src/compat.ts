@@ -38,18 +38,29 @@ export function compatKey(header: CompatHeader): string {
 
 /** header 里的 compat 字段是否齐全（缺任一即不可用于比对）。 */
 export function compatComplete(header: CompatHeader): boolean {
-  return header != null && COMPAT_FIELDS.every((f) => header[f] !== undefined && header[f] !== null && header[f] !== '');
+  return (
+    header != null &&
+    COMPAT_FIELDS.every((f) => header[f] !== undefined && header[f] !== null && header[f] !== '')
+  );
 }
 
 /**
  * 逐字段找差异（契约 §6 要求界面能显示"哪一项不符 + 期望值 + 实际值"）。
  */
-export function compatMismatches(expectedHeader: CompatHeader, actualHeader: CompatHeader): CompatMismatch[] {
+export function compatMismatches(
+  expectedHeader: CompatHeader,
+  actualHeader: CompatHeader,
+): CompatMismatch[] {
   const out: CompatMismatch[] = [];
   for (const f of COMPAT_FIELDS) {
     const e = expectedHeader == null ? undefined : expectedHeader[f];
     const a = actualHeader == null ? undefined : actualHeader[f];
-    if (e !== a) out.push({ field: f, expected: e === undefined ? null : e, actual: a === undefined ? null : a });
+    if (e !== a)
+      out.push({
+        field: f,
+        expected: e === undefined ? null : e,
+        actual: a === undefined ? null : a,
+      });
   }
   return out;
 }
@@ -73,7 +84,11 @@ export interface CompatReason {
  * @param actual   被判不兼容的库的 header
  * @param userLabel 可选：给用户看的库名（不含路径）
  */
-export function compatReason(expected: CompatHeader, actual: CompatHeader, userLabel?: string): CompatReason {
+export function compatReason(
+  expected: CompatHeader,
+  actual: CompatHeader,
+  userLabel?: string,
+): CompatReason {
   const mismatches = compatMismatches(expected, actual);
   const human = mismatches
     .map((m) => `${m.field}（期望 ${String(m.expected)}，实际 ${String(m.actual)}）`)

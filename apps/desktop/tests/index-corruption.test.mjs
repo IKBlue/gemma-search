@@ -47,7 +47,7 @@ function realIndexBytes(t) {
 let seq = 0;
 /** 每个用例一个独立目录 + 一份副本（破坏只发生在副本上） */
 function fixtureDir(label, bytes) {
-  const dir = path.join(TMP, label + '-' + (++seq));
+  const dir = path.join(TMP, label + '-' + ++seq);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, INDEX_NAME), bytes);
@@ -76,9 +76,15 @@ function bumpFooterNumber(out, layout, key, delta) {
   const m = new RegExp('"' + key + '"\s*:\s*(\\d+)').exec(layout.footText);
   assert.ok(m, '夹具前提：footer 里必须有 "' + key + '":<数字>');
   const bumped = String(Number(m[1]) + delta);
-  assert.equal(bumped.length, m[1].length, '夹具前提：' + key + ' 加 ' + String(delta) + ' 后位数不能变');
+  assert.equal(
+    bumped.length,
+    m[1].length,
+    '夹具前提：' + key + ' 加 ' + String(delta) + ' 后位数不能变',
+  );
   const replaced =
-    layout.footText.slice(0, m.index) + m[0].replace(m[1], bumped) + layout.footText.slice(m.index + m[0].length);
+    layout.footText.slice(0, m.index) +
+    m[0].replace(m[1], bumped) +
+    layout.footText.slice(m.index + m[0].length);
   assert.equal(replaced.length, layout.footText.length);
   out.write(replaced, layout.footStart, 'utf8');
   return out;
@@ -98,7 +104,9 @@ function mutate(bytes, kind, layout) {
     const m = /"complete"\s*:\s*true/.exec(layout.footText); // 第 3 道：true → null（等长、仍是合法 JSON）
     assert.ok(m, '夹具前提：footer 里必须有 "complete":true');
     const replaced =
-      layout.footText.slice(0, m.index) + m[0].replace('true', 'null') + layout.footText.slice(m.index + m[0].length);
+      layout.footText.slice(0, m.index) +
+      m[0].replace('true', 'null') +
+      layout.footText.slice(m.index + m[0].length);
     assert.equal(replaced.length, layout.footText.length, '替换必须等长');
     out.write(replaced, layout.footStart, 'utf8');
     return out;
@@ -118,7 +126,13 @@ function expectReadable(dir, t, label) {
   assert.equal(r.count, 3594);
   assert.equal(r.dim, 768);
   t.diagnostic(
-    label + ' 破坏前：count=' + String(r.count) + ' · dim=' + String(r.dim) + ' · bytes=' + String(r.bytes) +
+    label +
+      ' 破坏前：count=' +
+      String(r.count) +
+      ' · dim=' +
+      String(r.dim) +
+      ' · bytes=' +
+      String(r.bytes) +
       ' ⇒ 读取成功（同一份副本，只差下面那一处破坏）',
   );
   return r;
@@ -133,7 +147,9 @@ function expectCorrupt(dir, pattern, t, label) {
     err = e;
   }
   assert.ok(err, label + '：破坏后必须抛错（静默返回半可信数据是最危险的失败模式）');
-  t.diagnostic(label + ' 破坏后：name=' + err.name + ' · code=' + err.code + ' · message=' + err.message);
+  t.diagnostic(
+    label + ' 破坏后：name=' + err.name + ' · code=' + err.code + ' · message=' + err.message,
+  );
   assert.equal(err.code, 'INDEX_CORRUPT', label + ' 必须报索引损坏，而不是别的错');
   assert.match(err.message, pattern, label + ' 的报错必须指向这一道');
   return err;
@@ -162,11 +178,24 @@ test('D0 ⭐ 控制组：副本本身可读（破坏前的基线），且原件�
   const dir = fixtureDir('D0', bytes);
   const r = expectReadable(dir, t, 'D0');
   t.diagnostic(
-    'D0 破坏前：count=' + String(r.count) + ' · dim=' + String(r.dim) + ' · bytes=' + String(r.bytes) +
-      ' · headerLen=' + String(layout.headerLen) + ' · blockBytes=' + String(layout.blockBytes) +
-      ' · footer=' + layout.footText,
+    'D0 破坏前：count=' +
+      String(r.count) +
+      ' · dim=' +
+      String(r.dim) +
+      ' · bytes=' +
+      String(r.bytes) +
+      ' · headerLen=' +
+      String(layout.headerLen) +
+      ' · blockBytes=' +
+      String(layout.blockBytes) +
+      ' · footer=' +
+      layout.footText,
   );
-  assert.equal(sha1(fs.readFileSync(path.join(dir, INDEX_NAME))), ORIGINAL_SHA1, '副本必须与原件逐字节相同');
+  assert.equal(
+    sha1(fs.readFileSync(path.join(dir, INDEX_NAME))),
+    ORIGINAL_SHA1,
+    '副本必须与原件逐字节相同',
+  );
   const engine = readIndexBin(REAL);
   assert.equal(engine.count, r.count);
   assert.equal(engine.dim, r.dim);
@@ -245,7 +274,10 @@ test('D6 ⭐（附）长度自洽：文件太短 / headerLen 超出文件 / 向�
   const dirHeader = fixtureDir('D6-headerLen', hugeHeader);
   expectCorrupt(dirHeader, /headerLen 超出文件/, t, 'D6-headerLen');
 
-  const dirBlock = fixtureDir('D6-block', bytes.subarray(0, layout.footLenOff - Math.floor(layout.blockBytes / 2)));
+  const dirBlock = fixtureDir(
+    'D6-block',
+    bytes.subarray(0, layout.footLenOff - Math.floor(layout.blockBytes / 2)),
+  );
   expectCorrupt(dirBlock, /向量块超出文件/, t, 'D6-block');
 
   // 反例锚：同一份 layout 下**没有**破坏的副本仍然读得通（否则上面三条可能"怎么都报错"）

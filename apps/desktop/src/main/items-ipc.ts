@@ -69,7 +69,10 @@ export interface ItemsWireRow {
   vectorRow: number | null;
 }
 
-export interface FacetValue { value: string; count: number }
+export interface FacetValue {
+  value: string;
+  count: number;
+}
 export interface ItemsFacets {
   folders: FacetValue[];
   exts: FacetValue[];
@@ -141,7 +144,9 @@ const ALIAS_PAIRS: readonly (readonly [column: string, alias: string])[] = Objec
 ]);
 
 /** 别名清单（耦合测试用 —— 「映射器读的键」必须都在这里） */
-export const ITEMS_ALIASES: readonly string[] = Object.freeze(ALIAS_PAIRS.map(([, alias]) => alias));
+export const ITEMS_ALIASES: readonly string[] = Object.freeze(
+  ALIAS_PAIRS.map(([, alias]) => alias),
+);
 
 const COLLIST: string = ALIAS_PAIRS.map(([column, alias]) => column + ' AS ' + alias).join(', ');
 
@@ -155,8 +160,14 @@ const JOINS: string =
 export function buildFilter(params: ItemsQueryParams): { where: string; values: unknown[] } {
   const parts: string[] = ['a.lib_id = ?'];
   const values: unknown[] = [params.libId];
-  if (typeof params.folder === 'string') { parts.push('a.folder = ?'); values.push(params.folder); }
-  if (typeof params.ext === 'string') { parts.push('p.ext = ?'); values.push(params.ext); }
+  if (typeof params.folder === 'string') {
+    parts.push('a.folder = ?');
+    values.push(params.folder);
+  }
+  if (typeof params.ext === 'string') {
+    parts.push('p.ext = ?');
+    values.push(params.ext);
+  }
   if (params.hasArchive === true) parts.push('r.rel_path IS NOT NULL');
   if (params.hasArchive === false) parts.push('r.rel_path IS NULL');
   return { where: ' WHERE ' + parts.join(' AND '), values };
@@ -204,7 +215,9 @@ function failure(e: unknown, what: string, libId: string): Envelope {
   // 否则 DB_MISSING 会变成 DB_OPEN_FAILED，界面就拿不到"先扫一次"这句准确的话。
   const code = Object.prototype.hasOwnProperty.call(OWN_MESSAGE, raw)
     ? raw
-    : (ENGINE_CODES.has(raw) ? raw : asEngineError(e, what).code);
+    : ENGINE_CODES.has(raw)
+      ? raw
+      : asEngineError(e, what).code;
   const message = messageOf(e);
   log('!! ' + what + '失败 [' + code + ']', message);
   const own = OWN_MESSAGE[code];
@@ -229,7 +242,12 @@ export function runItemsQuery(input: ItemsQueryInput, params: ItemsQueryParams):
   const desc = sortKey.startsWith('-');
   const bare = desc ? sortKey.slice(1) : sortKey;
   const sortCol = SORT_COLUMNS[bare];
-  if (!sortCol) return failure(Object.assign(new Error('排序字段不合法：' + sortKey), { code: 'BAD_REQUEST' }), '读取列表', libId);
+  if (!sortCol)
+    return failure(
+      Object.assign(new Error('排序字段不合法：' + sortKey), { code: 'BAD_REQUEST' }),
+      '读取列表',
+      libId,
+    );
 
   let layout;
   try {
@@ -248,13 +266,18 @@ export function runItemsQuery(input: ItemsQueryInput, params: ItemsQueryParams):
   if (!fs.existsSync(layout.dbPath)) {
     return failure(
       Object.assign(new Error('元数据文件不存在：' + layout.dbPath), { code: 'DB_MISSING' }),
-      '读取列表', libId,
+      '读取列表',
+      libId,
     );
   }
   const { where, values } = buildFilter({ ...params, libId });
   let opened;
   try {
-    opened = openGsDb(input.driver ? { dbPath: layout.dbPath, readOnly: true, driver: input.driver } : { dbPath: layout.dbPath, readOnly: true });
+    opened = openGsDb(
+      input.driver
+        ? { dbPath: layout.dbPath, readOnly: true, driver: input.driver }
+        : { dbPath: layout.dbPath, readOnly: true },
+    );
   } catch (e) {
     return failure(e, '读取列表', libId);
   }
@@ -265,24 +288,39 @@ export function runItemsQuery(input: ItemsQueryInput, params: ItemsQueryParams):
     // ① total（筛选后；**越界也如实给** —— 它就是 COUNT，不是 rows.length）
     const totalRow = db.prepare('SELECT COUNT(*) AS n' + JOINS + where).get(...(values as never[]));
     // ⚠️ DF-2：COUNT(*) 在 readBigInts 下是 bigint ⇒ 旧写法会静默读成 0（"整库 0 条"却无报错）
-    const total = numberOf(totalRow === undefined ? undefined : totalRow['n'], 'items.total(COUNT(*))');
+    const total = numberOf(
+      totalRow === undefined ? undefined : totalRow['n'],
+      'items.total(COUNT(*))',
+    );
 
     // ② 这一页（排序带 a.uid 兜底 ⇒ 分页确定、不会同一行出现在两页）
     const order = ' ORDER BY ' + sortCol + (desc ? ' DESC' : ' ASC') + ', a.uid ASC';
     const rows = db
       .prepare('SELECT ' + COLLIST + JOINS + where + order + ' LIMIT ? OFFSET ?')
       .all(...(values as never[]), limit, offset)
-      .map((r: Record<string, unknown>, i: number) => toWire(r, root, 'items[' + String(offset + i) + ']'));
+      .map((r: Record<string, unknown>, i: number) =>
+        toWire(r, root, 'items[' + String(offset + i) + ']'),
+      );
 
     // ③ facets：**按库统计、不受筛选影响**（一条 GROUP BY；禁止从 rows 推导）
     const folderRows = db
-      .prepare('SELECT a.folder AS value, COUNT(*) AS count FROM asset a WHERE a.lib_id = ? GROUP BY a.folder ORDER BY count DESC, value ASC LIMIT ?')
+      .prepare(
+        'SELECT a.folder AS value, COUNT(*) AS count FROM asset a WHERE a.lib_id = ? GROUP BY a.folder ORDER BY count DESC, value ASC LIMIT ?',
+      )
       .all(libId, FACET_LIMIT);
     const extRows = db
-      .prepare("SELECT p.ext AS value, COUNT(*) AS count FROM asset a JOIN asset_file p ON p.uid = a.uid AND p.role = 'preview' WHERE a.lib_id = ? GROUP BY p.ext ORDER BY count DESC, value ASC LIMIT ?")
+      .prepare(
+        "SELECT p.ext AS value, COUNT(*) AS count FROM asset a JOIN asset_file p ON p.uid = a.uid AND p.role = 'preview' WHERE a.lib_id = ? GROUP BY p.ext ORDER BY count DESC, value ASC LIMIT ?",
+      )
       .all(libId, FACET_LIMIT);
-    const foldersTotal = db.prepare('SELECT COUNT(DISTINCT a.folder) AS n FROM asset a WHERE a.lib_id = ?').get(libId)?.['n'];
-    const extsTotal = db.prepare("SELECT COUNT(DISTINCT p.ext) AS n FROM asset a JOIN asset_file p ON p.uid = a.uid AND p.role = 'preview' WHERE a.lib_id = ?").get(libId)?.['n'];
+    const foldersTotal = db
+      .prepare('SELECT COUNT(DISTINCT a.folder) AS n FROM asset a WHERE a.lib_id = ?')
+      .get(libId)?.['n'];
+    const extsTotal = db
+      .prepare(
+        "SELECT COUNT(DISTINCT p.ext) AS n FROM asset a JOIN asset_file p ON p.uid = a.uid AND p.role = 'preview' WHERE a.lib_id = ?",
+      )
+      .get(libId)?.['n'];
 
     const facets: ItemsFacets = {
       // ⚠️ DF-2：这里同样是 DB 行 —— count/total 在 readBigInts 下是 bigint（旧写法会静默变 0）
@@ -298,13 +336,24 @@ export function runItemsQuery(input: ItemsQueryInput, params: ItemsQueryParams):
       extsTotal: numberOf(extsTotal, 'items.facets.extsTotal'),
     };
 
-    log('[列表]', libId, 'total=' + String(total), 'rows=' + String(rows.length),
-        'offset=' + String(offset), 'limit=' + String(limit), 'sort=' + sortKey);
+    log(
+      '[列表]',
+      libId,
+      'total=' + String(total),
+      'rows=' + String(rows.length),
+      'offset=' + String(offset),
+      'limit=' + String(limit),
+      'sort=' + sortKey,
+    );
     const data: ItemsQueryResult = { rows, total, facets, page: { offset, limit, sort: sortKey } };
     return { ok: true, data };
   } catch (e) {
     return failure(e, '读取列表', libId);
   } finally {
-    try { db.close(); } catch { /* 已关 */ }
+    try {
+      db.close();
+    } catch {
+      /* 已关 */
+    }
   }
 }

@@ -9,8 +9,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { isSafeRelPath, resolveInLibrary, resolveQueryImage, assertCollectDirAllowed,
-         LibraryRegistry } from '../src/library.ts';
+import {
+  isSafeRelPath,
+  resolveInLibrary,
+  resolveQueryImage,
+  assertCollectDirAllowed,
+  LibraryRegistry,
+} from '../src/library.ts';
 import { ERR, EngineError } from '../src/errors.ts';
 import { fingerprintV1, fingerprintLines } from '../src/fingerprint.ts';
 import { resolveTestLibraryRoot } from './lib-root.mjs';
@@ -30,14 +35,25 @@ const ROOT = (() => {
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'gs-lib-'));
 const codeOf = (fn) => {
-  try { fn(); return null; } catch (e) { return e instanceof EngineError ? e.code : 'NOT_ENGINE_ERROR'; }
+  try {
+    fn();
+    return null;
+  } catch (e) {
+    return e instanceof EngineError ? e.code : 'NOT_ENGINE_ERROR';
+  }
 };
 
 // ---------------- ① 只接受相对路径 ----------------
 
 test('① 绝对路径一律拒绝（盘符 / UNC / 前导斜杠）', () => {
-  for (const bad of ['C:\\evil.txt', 'c:/evil.txt', '\\\\server\\share\\x', '//server/share',
-                     '/etc/passwd', 'G:\\model\\VR\\x.jpg']) {
+  for (const bad of [
+    'C:\\evil.txt',
+    'c:/evil.txt',
+    '\\\\server\\share\\x',
+    '//server/share',
+    '/etc/passwd',
+    'G:\\model\\VR\\x.jpg',
+  ]) {
     assert.equal(isSafeRelPath(bad), false, `应拒绝：${bad}`);
   }
 });
@@ -56,8 +72,10 @@ test('① 正常相对路径接受', () => {
 
 test('①..④ 经由 .. 逃逸 → PATH_ESCAPES_LIB', () => {
   const root = tmp();
-  assert.equal(codeOf(() => resolveInLibrary(root, '..\\..\\windows\\system32\\x.dll')),
-               ERR.PATH_ESCAPES_LIB);
+  assert.equal(
+    codeOf(() => resolveInLibrary(root, '..\\..\\windows\\system32\\x.dll')),
+    ERR.PATH_ESCAPES_LIB,
+  );
 });
 
 // ---------------- ③ 库根包含校验 ----------------
@@ -72,10 +90,12 @@ test('③ 解析后的真实路径必须仍在库根内', () => {
 
 test('③ 与之同前缀的兄弟目录不能蒙混过关（前缀比较要带分隔符）', () => {
   const root = tmp();
-  const sibling = root + '-evil';        // 与 root 只差一个后缀
+  const sibling = root + '-evil'; // 与 root 只差一个后缀
   fs.mkdirSync(sibling, { recursive: true });
-  assert.equal(codeOf(() => resolveInLibrary(root, '..\\' + path.basename(sibling) + '\\x')),
-               ERR.PATH_ESCAPES_LIB);
+  assert.equal(
+    codeOf(() => resolveInLibrary(root, '..\\' + path.basename(sibling) + '\\x')),
+    ERR.PATH_ESCAPES_LIB,
+  );
   fs.rmSync(sibling, { recursive: true, force: true });
 });
 
@@ -92,8 +112,10 @@ test('④ 库内指向库外的目录联接 → SYMLINK_REJECTED', (t) => {
   } catch (e) {
     return t.skip('本环境无法创建 junction：' + e.message);
   }
-  assert.equal(codeOf(() => resolveInLibrary(root, 'link-out\\secret.jpg')),
-               ERR.SYMLINK_REJECTED);
+  assert.equal(
+    codeOf(() => resolveInLibrary(root, 'link-out\\secret.jpg')),
+    ERR.SYMLINK_REJECTED,
+  );
   // 清理：**必须用 rmdir** —— junction 是"目录"，且递归 rm 有可能穿过链接删掉目标内容
   fs.rmdirSync(link);
 });
@@ -109,7 +131,10 @@ test('④ 指向库外的文件符号链接 → SYMLINK_REJECTED', (t) => {
   } catch (e) {
     return t.skip('本环境无法创建文件符号链接：' + e.message);
   }
-  assert.equal(codeOf(() => resolveInLibrary(root, 'alias.jpg')), ERR.SYMLINK_REJECTED);
+  assert.equal(
+    codeOf(() => resolveInLibrary(root, 'alias.jpg')),
+    ERR.SYMLINK_REJECTED,
+  );
   fs.rmSync(link, { force: true });
 });
 
@@ -117,14 +142,21 @@ test('④ 指向库外的文件符号链接 → SYMLINK_REJECTED', (t) => {
 
 test('② 取件目标在白名单外 → COLLECT_DIR_NOT_ALLOWED', () => {
   const allow = ['E:\\素材待用'];
-  assert.equal(codeOf(() => assertCollectDirAllowed('C:\\Windows', allow)),
-               ERR.COLLECT_DIR_NOT_ALLOWED);
-  assert.equal(codeOf(() => assertCollectDirAllowed('E:\\素材待用\\子目录', allow)), null);
+  assert.equal(
+    codeOf(() => assertCollectDirAllowed('C:\\Windows', allow)),
+    ERR.COLLECT_DIR_NOT_ALLOWED,
+  );
+  assert.equal(
+    codeOf(() => assertCollectDirAllowed('E:\\素材待用\\子目录', allow)),
+    null,
+  );
 });
 
 test('② 白名单要求整段匹配（E:\\素材待用-x 不算命中）', () => {
-  assert.equal(codeOf(() => assertCollectDirAllowed('E:\\素材待用-x', ['E:\\素材待用'])),
-               ERR.COLLECT_DIR_NOT_ALLOWED);
+  assert.equal(
+    codeOf(() => assertCollectDirAllowed('E:\\素材待用-x', ['E:\\素材待用'])),
+    ERR.COLLECT_DIR_NOT_ALLOWED,
+  );
 });
 
 // ---------------- 查询图：唯一的例外，但只读 + 扩展名白名单 ----------------
@@ -134,9 +166,18 @@ test('查询图：扩展名白名单 + 必须是已存在的文件', () => {
   const good = path.join(d, 'q.jpg');
   fs.writeFileSync(good, 'x');
   assert.equal(resolveQueryImage(good), good);
-  assert.equal(codeOf(() => resolveQueryImage(path.join(d, 'q.exe'))), ERR.BAD_REQUEST);
-  assert.equal(codeOf(() => resolveQueryImage(path.join(d, '缺失.jpg'))), ERR.BAD_REQUEST);
-  assert.equal(codeOf(() => resolveQueryImage('')), ERR.BAD_REQUEST);
+  assert.equal(
+    codeOf(() => resolveQueryImage(path.join(d, 'q.exe'))),
+    ERR.BAD_REQUEST,
+  );
+  assert.equal(
+    codeOf(() => resolveQueryImage(path.join(d, '缺失.jpg'))),
+    ERR.BAD_REQUEST,
+  );
+  assert.equal(
+    codeOf(() => resolveQueryImage('')),
+    ERR.BAD_REQUEST,
+  );
 });
 
 // ---------------- ⑤ 只读操作绝不写库 ----------------
@@ -158,9 +199,15 @@ test('⑤ 解析与指纹是只读的：库指纹在操作前后不变', () => {
 
 test('注册表：未注册的库 → LIB_NOT_FOUND；根不存在 → LIB_ROOT_MISSING', () => {
   const r = new LibraryRegistry({ libraries: [{ libId: 'L1', root: tmp() }] });
-  assert.equal(codeOf(() => r.get('L9')), ERR.LIB_NOT_FOUND);
+  assert.equal(
+    codeOf(() => r.get('L9')),
+    ERR.LIB_NOT_FOUND,
+  );
   const r2 = new LibraryRegistry({ libraries: [{ libId: 'L1', root: path.join(tmp(), 'nope') }] });
-  assert.equal(codeOf(() => r2.requireExistingRoot('L1')), ERR.LIB_ROOT_MISSING);
+  assert.equal(
+    codeOf(() => r2.requireExistingRoot('L1')),
+    ERR.LIB_ROOT_MISSING,
+  );
 });
 
 test('注册表：uid → 路径解析走索引里的 relPath（不接受客户端路径）', () => {
@@ -172,14 +219,20 @@ test('注册表：uid → 路径解析走索引里的 relPath（不接受客户�
   const got = r.resolveByUid('L1', 'aaaa11112222', items);
   assert.equal(got.rel, 'VR\\ID-1.jpg');
   assert.ok(got.abs.toLowerCase().endsWith('id-1.jpg'));
-  assert.equal(codeOf(() => r.resolveByUid('L1', '不存在000000', items)), ERR.UID_NOT_FOUND);
+  assert.equal(
+    codeOf(() => r.resolveByUid('L1', '不存在000000', items)),
+    ERR.UID_NOT_FOUND,
+  );
 });
 
 test('注册表：索引里的 relPath 若被投毒（..\\..）→ 仍被拦住', () => {
   const root = tmp();
   const r = new LibraryRegistry({ libraries: [{ libId: 'L1', root }] });
   const items = [{ uid: 'bbbb11112222', relPath: '..\\..\\windows\\system32\\x.dll' }];
-  assert.equal(codeOf(() => r.resolveByUid('L1', 'bbbb11112222', items)), ERR.PATH_ESCAPES_LIB);
+  assert.equal(
+    codeOf(() => r.resolveByUid('L1', 'bbbb11112222', items)),
+    ERR.PATH_ESCAPES_LIB,
+  );
 });
 
 // ---------------- 指纹：与 Python 侧记录值交叉验证 ----------------
@@ -190,17 +243,23 @@ test('指纹 v1：与 baseline-v1.json 记录的值一致（跨语言一致性�
   // 库根用与生产同序的解析（环境变量 → config.json → 索引自举），
   // 不再只认已删除的 config.json —— 否则这条会**永久跳过**（见 lib-root.mjs 文件头）
   const found = resolveTestLibraryRoot(ROOT);
-  if (!found) return t.skip('本机没有可用的素材库根（GEMMA_LIB_ROOT / config.json / 索引 meta 都没有）');
+  if (!found)
+    return t.skip('本机没有可用的素材库根（GEMMA_LIB_ROOT / config.json / 索引 meta 都没有）');
   const base = JSON.parse(fs.readFileSync(basePath, 'utf8'));
   const recorded = base.disk && base.disk.fingerprint_v1;
   if (!recorded) return t.skip('baseline-v1.json 里没有记录 fingerprint_v1');
 
   const got = fingerprintV1(found.root);
-  assert.equal(got.fingerprint, recorded,
-    'JS 与 Python 算出的指纹必须逐字节一致，否则等于没有指纹');
+  assert.equal(
+    got.fingerprint,
+    recorded,
+    'JS 与 Python 算出的指纹必须逐字节一致，否则等于没有指纹',
+  );
   assert.equal(got.counts.files, base.disk.files_total);
-  t.diagnostic(`库 ${got.counts.images} 图 + ${got.counts.archives} 包 · 指纹 ${got.fingerprint.slice(0, 12)}` +
-               ` · 库根来自 ${found.source}`);
+  t.diagnostic(
+    `库 ${got.counts.images} 图 + ${got.counts.archives} 包 · 指纹 ${got.fingerprint.slice(0, 12)}` +
+      ` · 库根来自 ${found.source}`,
+  );
 });
 
 // ---------------- ④ DF-7 B：悬挂链接不得被静默跳过 ----------------
@@ -215,14 +274,28 @@ test('④⭐ 悬挂 junction（目标已删）⇒ **拒绝**，绝不返回带�
   } catch (e) {
     return t.skip('本环境无法创建 junction：' + e.message);
   }
-  fs.rmSync(outside, { recursive: true, force: true });   // 目标没了 ⇒ 悬挂
-  assert.equal(fs.existsSync(link), false,
-    '前置：悬挂链接下 existsSync 必须是 false —— 这正是旧实现被绕过的原因（stat 跟随链接）');
-  assert.equal(fs.lstatSync(link).isSymbolicLink(), true, '前置：lstat 能看见它（所以改用 lstat 才能拦住）');
+  fs.rmSync(outside, { recursive: true, force: true }); // 目标没了 ⇒ 悬挂
+  assert.equal(
+    fs.existsSync(link),
+    false,
+    '前置：悬挂链接下 existsSync 必须是 false —— 这正是旧实现被绕过的原因（stat 跟随链接）',
+  );
+  assert.equal(
+    fs.lstatSync(link).isSymbolicLink(),
+    true,
+    '前置：lstat 能看见它（所以改用 lstat 才能拦住）',
+  );
   const code = codeOf(() => resolveInLibrary(root, 'sub\\x.jpg'));
-  assert.equal(code, ERR.PATH_ESCAPES_LIB,
-    '拿不到真实路径 ⇒ 必须 fail-closed；旧实现这里返回了一条**真落在库外**的路径');
-  try { fs.rmdirSync(link); } catch { /* 清理失败不影响结论 */ }
+  assert.equal(
+    code,
+    ERR.PATH_ESCAPES_LIB,
+    '拿不到真实路径 ⇒ 必须 fail-closed；旧实现这里返回了一条**真落在库外**的路径',
+  );
+  try {
+    fs.rmdirSync(link);
+  } catch {
+    /* 清理失败不影响结论 */
+  }
 });
 
 test('④ 语义钉住：库内 → 库内 的目录链接**允许**（不变式是「真实路径仍在库内」，不是「不许有链接」）', (t) => {
@@ -242,12 +315,21 @@ test('④ 语义钉住：库内 → 库内 的目录链接**允许**（不变式
   //   （本机 os.tmpdir() 给的是 8.3 短名 ADMINI~1，词法 ≠ 真实路径，混用会误报）
   const rootReal = fs.realpathSync.native(root).toLowerCase();
   // ① 目标存在（走真实路径分支）
-  assert.ok(resolveInLibrary(root, 'alias\\a.jpg').toLowerCase().startsWith(rootReal),
-    '目标存在 ⇒ 返回真实路径，且仍在库内');
+  assert.ok(
+    resolveInLibrary(root, 'alias\\a.jpg').toLowerCase().startsWith(rootReal),
+    '目标存在 ⇒ 返回真实路径，且仍在库内',
+  );
   // ② 目标不存在（走逐段下行分支）—— 库内链接同样放行，且必须仍在库内
   const q = resolveInLibrary(root, 'alias\\new.jpg');
-  assert.ok(q.toLowerCase().startsWith(root.toLowerCase()), '目标不存在 ⇒ 返回词法路径，仍在词法库根内：' + q);
-  try { fs.rmdirSync(link); } catch { /* 清理失败不影响结论 */ }
+  assert.ok(
+    q.toLowerCase().startsWith(root.toLowerCase()),
+    '目标不存在 ⇒ 返回词法路径，仍在词法库根内：' + q,
+  );
+  try {
+    fs.rmdirSync(link);
+  } catch {
+    /* 清理失败不影响结论 */
+  }
 });
 
 // ---------------- ② DF-9：白名单判定不得只看词法 ----------------
@@ -261,23 +343,39 @@ test('②⭐ 白名单目录里塞 junction（悬挂）⇒ **拒绝**：不得�
   } catch (e) {
     return t.skip('本环境无法创建 junction：' + e.message);
   }
-  fs.rmSync(outside, { recursive: true, force: true });   // 目标没了 ⇒ 悬挂
-  assert.equal(fs.existsSync(link), false, '前置：悬挂链接下 existsSync=false —— 词法判定看不出问题');
-  assert.equal(codeOf(() => assertCollectDirAllowed(path.join(link, 'System32'), [allow])),
+  fs.rmSync(outside, { recursive: true, force: true }); // 目标没了 ⇒ 悬挂
+  assert.equal(
+    fs.existsSync(link),
+    false,
+    '前置：悬挂链接下 existsSync=false —— 词法判定看不出问题',
+  );
+  assert.equal(
+    codeOf(() => assertCollectDirAllowed(path.join(link, 'System32'), [allow])),
     ERR.COLLECT_DIR_NOT_ALLOWED,
-    '白名单里的链接指向库外/悬挂 ⇒ 必须 fail-closed（旧实现词法命中就放行）');
-  try { fs.rmdirSync(link); } catch { /* 清理失败不影响结论 */ }
+    '白名单里的链接指向库外/悬挂 ⇒ 必须 fail-closed（旧实现词法命中就放行）',
+  );
+  try {
+    fs.rmdirSync(link);
+  } catch {
+    /* 清理失败不影响结论 */
+  }
 });
 
 test('② 合法白名单仍放行（防空转）+ 白名单内→白名单内链接允许（与 resolveInLibrary 同口径）', (t) => {
   const allow = tmp();
   fs.mkdirSync(path.join(allow, '子', '目录'), { recursive: true });
-  assert.equal(codeOf(() => assertCollectDirAllowed(path.join(allow, '子', '目录'), [allow])), null,
-    '合法子目录必须放行（防空转：新校验不许把它一起拒了）');
+  assert.equal(
+    codeOf(() => assertCollectDirAllowed(path.join(allow, '子', '目录'), [allow])),
+    null,
+    '合法子目录必须放行（防空转：新校验不许把它一起拒了）',
+  );
   // 同前缀的兄弟目录仍拒（带分隔符比较）
   const sibling = allow + '-evil';
   fs.mkdirSync(sibling, { recursive: true });
-  assert.equal(codeOf(() => assertCollectDirAllowed(sibling, [allow])), ERR.COLLECT_DIR_NOT_ALLOWED);
+  assert.equal(
+    codeOf(() => assertCollectDirAllowed(sibling, [allow])),
+    ERR.COLLECT_DIR_NOT_ALLOWED,
+  );
   // 白名单内 → 白名单内 的链接：**允许**（与 resolveInLibrary 库里→库里 同一口径）
   const inner = path.join(allow, 'real-2024');
   fs.mkdirSync(inner);
@@ -289,8 +387,15 @@ test('② 合法白名单仍放行（防空转）+ 白名单内→白名单内�
     fs.rmSync(sibling, { recursive: true, force: true });
     return;
   }
-  assert.equal(codeOf(() => assertCollectDirAllowed(path.join(link, 'x'), [allow])), null,
-    '白名单内→白名单内的链接应放行（不变式是「真实路径仍在白名单内」）');
-  try { fs.rmdirSync(link); } catch { /* 清理失败不影响结论 */ }
+  assert.equal(
+    codeOf(() => assertCollectDirAllowed(path.join(link, 'x'), [allow])),
+    null,
+    '白名单内→白名单内的链接应放行（不变式是「真实路径仍在白名单内」）',
+  );
+  try {
+    fs.rmdirSync(link);
+  } catch {
+    /* 清理失败不影响结论 */
+  }
   fs.rmSync(sibling, { recursive: true, force: true });
 });

@@ -67,7 +67,10 @@ function readJournalMode(db: SqlDatabase): string {
 }
 
 /** 只读打开时的"迁移结果"：什么都没做，如实汇报库里的版本 */
-function readOnlyMigrationResult(db: SqlDatabase, migrations: readonly Migration[]): MigrationResult {
+function readOnlyMigrationResult(
+  db: SqlDatabase,
+  migrations: readonly Migration[],
+): MigrationResult {
   const version = readSchemaVersion(db);
   const targetVersion = targetVersionOf(migrations);
   return {
@@ -140,7 +143,8 @@ export function openGsDb(options: OpenGsDbOptions): OpenGsDbResult {
       db.close();
     } catch (closeError) {
       // 连关都关不掉也不能覆盖原始错误；把事实拼进原错误消息（不吞）
-      if (e instanceof Error) e.message += `（附带：关闭 .gs.db 也失败：${describeError(closeError)}）`;
+      if (e instanceof Error)
+        e.message += `（附带：关闭 .gs.db 也失败：${describeError(closeError)}）`;
     }
     if (e instanceof GsDbError) throw e;
     // 非本层的错误（几乎只有一种：文件不是 SQLite —— SQLite 是**懒**的，坏文件要等第一条语句才报）

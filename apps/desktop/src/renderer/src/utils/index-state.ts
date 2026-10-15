@@ -16,27 +16,50 @@
 
 /** 四档的定义（文案与语气色只在这里写一份） */
 export const INDEX_STATES = Object.freeze({
-  encoded: Object.freeze({ key: 'encoded', label: '已编码', tone: 'ok', hint: '向量可用，可参与语义检索' }),
-  pending: Object.freeze({ key: 'pending', label: '待编码', tone: 'warn', hint: '已发现但还没编码 —— 尚不能参与检索' }),
-  stale: Object.freeze({ key: 'stale', label: '待重编码', tone: 'warn', hint: '文件被外部改过（size/mtime 变了），当前向量与内容已不对应' }),
-  removed: Object.freeze({ key: 'removed', label: '已从索引移除', tone: 'err', hint: '索引里有、磁盘上已找不到 —— 定位/取件都会失败' }),
+  encoded: Object.freeze({
+    key: 'encoded',
+    label: '已编码',
+    tone: 'ok',
+    hint: '向量可用，可参与语义检索',
+  }),
+  pending: Object.freeze({
+    key: 'pending',
+    label: '待编码',
+    tone: 'warn',
+    hint: '已发现但还没编码 —— 尚不能参与检索',
+  }),
+  stale: Object.freeze({
+    key: 'stale',
+    label: '待重编码',
+    tone: 'warn',
+    hint: '文件被外部改过（size/mtime 变了），当前向量与内容已不对应',
+  }),
+  removed: Object.freeze({
+    key: 'removed',
+    label: '已从索引移除',
+    tone: 'err',
+    hint: '索引里有、磁盘上已找不到 —— 定位/取件都会失败',
+  }),
 });
 
 /** 四档之一：`{key,label,tone,hint}`。组件只吃这个形状，不自己造文案 */
-export type IndexState = (typeof INDEX_STATES)[keyof typeof INDEX_STATES]
+export type IndexState = (typeof INDEX_STATES)[keyof typeof INDEX_STATES];
 
 /** `item` 方法 data 里**本文件用得到**的那部分（其余字段与本判定无关） */
-export type IndexStateItem = {
-  uid?: string
-  exists?: { image?: boolean; archive?: boolean } | null
-} | null | undefined
+export type IndexStateItem =
+  | {
+      uid?: string;
+      exists?: { image?: boolean; archive?: boolean } | null;
+    }
+  | null
+  | undefined;
 
 /** 一次 `scan` 的差异（可选；没扫过就是 `null` —— 不自动扫，见 `needsScanToDecide`） */
 export type ScanDiff = {
-  changed?: string[]
-  missing?: string[]
-  added?: string[]
-} | null
+  changed?: string[];
+  missing?: string[];
+  added?: string[];
+} | null;
 
 /**
  * @param item `item` 方法的 data

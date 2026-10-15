@@ -22,7 +22,13 @@
 import { S, ACTION, recoveryActionOf } from './states.ts';
 import { listTxns, persistState, archiveTxn, writeTxn } from './journal.ts';
 import {
-  cleanStaging, verifyStaged, commitRenames, applyIndex, cleanupSources, assessAmbiguity, validateRecord,
+  cleanStaging,
+  verifyStaged,
+  commitRenames,
+  applyIndex,
+  cleanupSources,
+  assessAmbiguity,
+  validateRecord,
 } from './steps.ts';
 import { messageOf } from '../errors.ts';
 import type { TxnRecord, BrokenTxn } from './journal.ts';
@@ -94,7 +100,11 @@ interface AdvanceResult {
 }
 
 /** 把"待处理"整理成界面能直接展示的形状（§4：库、uid、源、目标、缺什么） */
-function describePending(rec: TxnRecord, reason: string, ambiguity: { details: AmbiguityDetail[] } | null = null): PendingDescription {
+function describePending(
+  rec: TxnRecord,
+  reason: string,
+  ambiguity: { details: AmbiguityDetail[] } | null = null,
+): PendingDescription {
   return {
     txnId: rec.txnId,
     libId: rec.libId,
@@ -124,7 +134,11 @@ function describePending(rec: TxnRecord, reason: string, ambiguity: { details: A
 /**
  * 扫描日志并恢复。
  */
-export function recoverJournal({ journalDir, indexPort, now = Date.now }: RecoveryOptions = {}): RecoveryResult {
+export function recoverJournal({
+  journalDir,
+  indexPort,
+  now = Date.now,
+}: RecoveryOptions = {}): RecoveryResult {
   if (!journalDir) throw new Error('recoverJournal: 必须注入 journalDir');
   if (!indexPort || typeof indexPort.update !== 'function') {
     throw new Error('recoverJournal: 必须注入 indexPort.update（前进路径要更新索引）');
@@ -145,7 +159,13 @@ export function recoverJournal({ journalDir, indexPort, now = Date.now }: Recove
     if (amb.ambiguous) {
       let cur = rec;
       if (cur.state !== S.RECOVERY_NEEDED) {
-        cur = persistState(journal, cur, S.RECOVERY_NEEDED, { recoveryReason: '判定不唯一', ambiguity: amb.details }, now());
+        cur = persistState(
+          journal,
+          cur,
+          S.RECOVERY_NEEDED,
+          { recoveryReason: '判定不唯一', ambiguity: amb.details },
+          now(),
+        );
       }
       pending.push(describePending(cur, '恢复时判定不唯一', amb));
       return { outcome: 'recovery_needed', rec: cur, action: ACTION.ASK_HUMAN };
@@ -154,13 +174,22 @@ export function recoverJournal({ journalDir, indexPort, now = Date.now }: Recove
     // ② 把还没 rename 的补上（**幂等**：已经 rename 过去的条目会被 `commitRenames` 跳过）
     const ren = commitRenames(rec);
     if (ren.error) {
-      const cur = persistState(journal, rec, S.RECOVERY_NEEDED, { recoveryReason: ren.error }, now());
+      const cur = persistState(
+        journal,
+        rec,
+        S.RECOVERY_NEEDED,
+        { recoveryReason: ren.error },
+        now(),
+      );
       pending.push(describePending(cur, ren.error));
       return { outcome: 'recovery_needed', rec: cur, action: ACTION.ADVANCE };
     }
 
     // ③ VERIFIED → COMMITTED
-    let cur = rec.state === S.VERIFIED ? persistState(journal, rec, S.COMMITTED, { committedAt: iso() }, now()) : rec;
+    let cur =
+      rec.state === S.VERIFIED
+        ? persistState(journal, rec, S.COMMITTED, { committedAt: iso() }, now())
+        : rec;
 
     // ④ 索引（**幂等**：`indexUpdate.done` 已为真就跳过，不会重复写索引）
     const ix = applyIndex(port, cur);
@@ -194,24 +223,39 @@ export function recoverJournal({ journalDir, indexPort, now = Date.now }: Recove
       //    把一个合法事务静默 ABORT 掉，且理由是假的）。按 §4 的精神 ⇒ 停下问人。
       const v = validateRecord(rec);
       if (!v.ok) {
-        pending.push(describePending(rec, `日志记录不完整（缺 ${v.missing.join('、')}）—— 无法据它安全恢复`));
-        results.push({ txnId: rec.txnId, state: rec.state, action: ACTION.ASK_HUMAN, outcome: 'recovery_needed' });
+        pending.push(
+          describePending(rec, `日志记录不完整（缺 ${v.missing.join('、')}）—— 无法据它安全恢复`),
+        );
+        results.push({
+          txnId: rec.txnId,
+          state: rec.state,
+          action: ACTION.ASK_HUMAN,
+          outcome: 'recovery_needed',
+        });
         continue;
       }
       if (action === ACTION.ARCHIVE) {
-        archiveTxn(journal, rec.txnId);                    // 终态：只归档，不动文件
+        archiveTxn(journal, rec.txnId); // 终态：只归档，不动文件
         results.push({ txnId: rec.txnId, state: rec.state, action, outcome: 'archived' });
         continue;
       }
       if (action === ACTION.ASK_HUMAN) {
-        pending.push(describePending(rec, '恢复判定不唯一：需要人来决定（重试 / 回退 / 保留现状）'));
+        pending.push(
+          describePending(rec, '恢复判定不唯一：需要人来决定（重试 / 回退 / 保留现状）'),
+        );
         results.push({ txnId: rec.txnId, state: rec.state, action, outcome: 'recovery_needed' });
         continue;
       }
       if (action === ACTION.ROLLBACK) {
         // PREPARED：计划已写盘、尚未动任何最终文件 ⇒ 删 staging，源不动，落到 ABORTED
         cleanStaging(rec);
-        const cur = persistState(journal, rec, S.ABORTED, { recoveredAt: iso(), recoveryReason: 'PREPARED 中断 ⇒ 回退' }, now());
+        const cur = persistState(
+          journal,
+          rec,
+          S.ABORTED,
+          { recoveredAt: iso(), recoveryReason: 'PREPARED 中断 ⇒ 回退' },
+          now(),
+        );
         archiveTxn(journal, cur.txnId);
         results.push({ txnId: rec.txnId, state: rec.state, action, outcome: 'aborted' });
         continue;
@@ -220,7 +264,13 @@ export function recoverJournal({ journalDir, indexPort, now = Date.now }: Recove
         // STAGED：先判歧义，再校验 staging
         const amb = assessAmbiguity(rec);
         if (amb.ambiguous) {
-          const cur = persistState(journal, rec, S.RECOVERY_NEEDED, { recoveryReason: '判定不唯一', ambiguity: amb.details }, now());
+          const cur = persistState(
+            journal,
+            rec,
+            S.RECOVERY_NEEDED,
+            { recoveryReason: '判定不唯一', ambiguity: amb.details },
+            now(),
+          );
           pending.push(describePending(cur, '恢复时判定不唯一', amb));
           results.push({ txnId: rec.txnId, state: rec.state, action, outcome: 'recovery_needed' });
           continue;
@@ -228,7 +278,13 @@ export function recoverJournal({ journalDir, indexPort, now = Date.now }: Recove
         const ver = verifyStaged(rec);
         if (!ver.ok) {
           cleanStaging(rec);
-          const cur = persistState(journal, rec, S.ABORTED, { recoveredAt: iso(), recoveryReason: 'staging 校验不一致 ⇒ 回退' }, now());
+          const cur = persistState(
+            journal,
+            rec,
+            S.ABORTED,
+            { recoveredAt: iso(), recoveryReason: 'staging 校验不一致 ⇒ 回退' },
+            now(),
+          );
           archiveTxn(journal, cur.txnId);
           results.push({ txnId: rec.txnId, state: rec.state, action, outcome: 'aborted' });
           continue;

@@ -13,7 +13,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { scanLibrary } from '../src/scanner.ts';
-import { isReservedLibraryName, GS_INDEX_NAME, GS_DB_NAME, GS_JOURNAL_NAME } from '../src/gs-names.ts';
+import {
+  isReservedLibraryName,
+  GS_INDEX_NAME,
+  GS_DB_NAME,
+  GS_JOURNAL_NAME,
+} from '../src/gs-names.ts';
 import { detectImageFormat, extMatchesFormat, FORMAT_OF_EXT } from '../src/magic.ts';
 import { uidOf, relDirOf } from '../src/uid.ts';
 import { STAGING_DIRNAME } from '../src/transactions/steps.ts';
@@ -54,11 +59,19 @@ const rels = (items) => items.map((i) => norm(i.relPath)).sort();
 function snapshot(root) {
   const out = [];
   const walk = (dir) => {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    for (const e of fs
+      .readdirSync(dir, { withFileTypes: true })
+      .sort((a, b) => (a.name < b.name ? -1 : 1))) {
       const full = path.join(dir, e.name);
-      if (e.isDirectory()) { out.push('D ' + norm(path.relative(root, full))); walk(full); continue; }
+      if (e.isDirectory()) {
+        out.push('D ' + norm(path.relative(root, full)));
+        walk(full);
+        continue;
+      }
       const st = fs.statSync(full, { bigint: true });
-      out.push('F ' + norm(path.relative(root, full)) + ' ' + String(st.size) + ' ' + String(st.mtimeNs));
+      out.push(
+        'F ' + norm(path.relative(root, full)) + ' ' + String(st.size) + ' ' + String(st.mtimeNs),
+      );
     }
   };
   walk(root);
@@ -72,7 +85,11 @@ test('SC-A 魔数判定：jpeg/png/bmp 认得出；认不出的必须如实回 u
   assert.equal(detectImageFormat(HEAD.png), 'png');
   assert.equal(detectImageFormat(HEAD.bmp), 'bmp');
   assert.equal(detectImageFormat(HEAD.empty), 'unknown', '空文件没有格式 —— 不许瞎猜');
-  assert.equal(detectImageFormat(Buffer.from('ffd8', 'hex')), 'unknown', '只有 2 字节的"半个 JPEG"不算 JPEG');
+  assert.equal(
+    detectImageFormat(Buffer.from('ffd8', 'hex')),
+    'unknown',
+    '只有 2 字节的"半个 JPEG"不算 JPEG',
+  );
   assert.equal(detectImageFormat(HEAD.unknown), 'unknown');
 
   assert.equal(extMatchesFormat('.jpg', 'jpeg'), true);
@@ -92,8 +109,16 @@ test('SC-B ⭐⭐ U11 反例：保留名判据必须覆盖 .gs.db 家族（".gs-
   assert.equal('.gs.db-journal'.startsWith('.gs-'), false);
 
   // 唯一判据（engine/src/gs-names.ts）必须认得它们全部
-  for (const n of ['.gs-index.bin', '.gs-journal', '.gs-staging', '.gs-write-probe-4711',
-                   '.gs.db', '.gs.db-wal', '.gs.db-shm', '.gs.db-journal']) {
+  for (const n of [
+    '.gs-index.bin',
+    '.gs-journal',
+    '.gs-staging',
+    '.gs-write-probe-4711',
+    '.gs.db',
+    '.gs.db-wal',
+    '.gs.db-shm',
+    '.gs.db-journal',
+  ]) {
     assert.equal(isReservedLibraryName(n), true, n + ' 是库内产物，绝不是素材');
   }
   assert.equal(isReservedLibraryName(STAGING_DIRNAME), true, 'staging 名字的唯一来源是 steps.ts');
@@ -144,26 +169,41 @@ test('SC-C ⭐⭐ U11 反例端到端：库根下的 .gs.db 家族 / .gs-journal
   const r = scanLibrary(root, { libId: 'L1' });
 
   assert.deepEqual(rels(r.items), ['CR/ID-2.jpg', 'VR/ID-1.jpg'], '只有真实素材该进结果');
-  assert.equal(r.counts.skippedReserved, 9,
-    '.gs.db + 3 边车 + .gs-index.bin + .gs-write-probe-4711 + .gs-journal/ + 两个 .gs-staging/');
-  assert.equal(r.counts.skippedHidden, 4, 'CR/.hidden.jpg + CR/.hidden.rar + .gitignore + .gsfoo.jpg');
+  assert.equal(
+    r.counts.skippedReserved,
+    9,
+    '.gs.db + 3 边车 + .gs-index.bin + .gs-write-probe-4711 + .gs-journal/ + 两个 .gs-staging/',
+  );
+  assert.equal(
+    r.counts.skippedHidden,
+    4,
+    'CR/.hidden.jpg + CR/.hidden.rar + .gitignore + .gsfoo.jpg',
+  );
   assert.equal(r.skipped.total, 13);
-  assert.ok(r.skipped.reserved.every((p) => isReservedLibraryName(path.basename(p))),
-    '跳过的保留名明细应逐条满足唯一判据');
-  assert.ok(r.skipped.hidden.some((p) => p.endsWith('.gsfoo.jpg')),
-    '.gsfoo.jpg 不是保留名，但仍是隐藏项 ⇒ 归到 hidden（判据与"点开头"是两件事）');
+  assert.ok(
+    r.skipped.reserved.every((p) => isReservedLibraryName(path.basename(p))),
+    '跳过的保留名明细应逐条满足唯一判据',
+  );
+  assert.ok(
+    r.skipped.hidden.some((p) => p.endsWith('.gsfoo.jpg')),
+    '.gsfoo.jpg 不是保留名，但仍是隐藏项 ⇒ 归到 hidden（判据与"点开头"是两件事）',
+  );
   for (const it of r.items) {
     assert.equal(isReservedLibraryName(path.basename(it.relPath)), false, '结果里不得出现库内产物');
     assert.ok(!path.basename(it.relPath).startsWith('.'), '结果里不得出现隐藏项');
   }
-  assert.equal(r.counts.missingArchive, 1, 'CR/ID-2.jpg 无包；.gs-journal/ 里的图与 .gs 产物都不算');
+  assert.equal(
+    r.counts.missingArchive,
+    1,
+    'CR/ID-2.jpg 无包；.gs-journal/ 里的图与 .gs 产物都不算',
+  );
 });
 
 // ============================================================ ② 缺包登记 / 有包无图
 
 test('SC-D ⭐ 缺包是**合法状态**：登记进 missingArchive，扫描不报错', () => {
   const root = tmpLib();
-  put(root, path.join('VR', 'ID-3.jpg'), HEAD.jpeg);      // 无包
+  put(root, path.join('VR', 'ID-3.jpg'), HEAD.jpeg); // 无包
   put(root, path.join('VR', 'ID-4.jpg'), HEAD.jpeg);
   put(root, path.join('VR', 'ID-4.zip'), Buffer.from('z'));
 
@@ -172,7 +212,10 @@ test('SC-D ⭐ 缺包是**合法状态**：登记进 missingArchive，扫描不�
   assert.equal(r.items.length, 2);
   const noPack = r.items.find((i) => i.stem === 'ID-3');
   assert.equal(noPack.archive, null, '缺包 ⇒ archive 为 null');
-  assert.deepEqual(r.missingArchive.map((m) => m.uid), [noPack.uid]);
+  assert.deepEqual(
+    r.missingArchive.map((m) => m.uid),
+    [noPack.uid],
+  );
   assert.equal(r.missingArchive[0].stem, 'ID-3');
   assert.equal(r.counts.missingArchive, 1);
   assert.equal(r.counts.paired, 1);
@@ -195,11 +238,11 @@ test('SC-E 有包无图 ⇒ 进 missingImage，且**不**当作素材塞进 item
 
 test('SC-F ⭐ 名 .jpg 实为 BMP 必须标注（体检 ⑥）；未知/空文件也如实回 unknown', () => {
   const root = tmpLib();
-  put(root, path.join('VR', 'J-BMP.jpg'), HEAD.bmp);        // ← 真实库那 20 张的形态
+  put(root, path.join('VR', 'J-BMP.jpg'), HEAD.bmp); // ← 真实库那 20 张的形态
   put(root, path.join('VR', 'J-OK.jpg'), HEAD.jpeg);
   put(root, path.join('VR', 'P-PNG.png'), HEAD.png);
-  put(root, path.join('VR', 'P-JPEG.png'), HEAD.jpeg);      // 名 .png 实为 JPEG（真实库有 68 张）
-  put(root, path.join('VR', 'J-PNG.jpg'), HEAD.png);        // 名 .jpg 实为 PNG（真实库有 17 张）
+  put(root, path.join('VR', 'P-JPEG.png'), HEAD.jpeg); // 名 .png 实为 JPEG（真实库有 68 张）
+  put(root, path.join('VR', 'J-PNG.jpg'), HEAD.png); // 名 .jpg 实为 PNG（真实库有 17 张）
   put(root, path.join('VR', 'X-UNKNOWN.jpg'), HEAD.unknown);
   put(root, path.join('VR', 'Z-EMPTY.jpg'), HEAD.empty);
 
@@ -234,10 +277,10 @@ test('SC-G 配对语义：同目录同主干才算一套；.rar/.zip/.7z 都认�
   const root = tmpLib();
   put(root, path.join('VR', 'A.jpg'), HEAD.jpeg);
   put(root, path.join('VR', 'A.rar'), Buffer.from('r'));
-  put(root, path.join('VR', 'A.zip'), Buffer.from('z'));    // 同主干第二个包：不该多出一条素材
+  put(root, path.join('VR', 'A.zip'), Buffer.from('z')); // 同主干第二个包：不该多出一条素材
   put(root, path.join('CR', 'A.jpg'), HEAD.jpeg);
   put(root, path.join('CR', 'A.7z'), Buffer.from('7'));
-  put(root, 'TOP.jpg', HEAD.jpeg);                          // 根目录下的素材
+  put(root, 'TOP.jpg', HEAD.jpeg); // 根目录下的素材
 
   const r = scanLibrary(root, { libId: 'L1' });
 
@@ -295,7 +338,8 @@ test('SC-I ⭐ 扫描**只读**：前后整树快照（名字/大小/mtimeNs）�
 
 test('SC-J ⭐⭐ 真实库实跑：3594 条对账 · 缺包 · 异常 20（BMP 伪装 .jpg）· 只读', (t) => {
   const found = resolveTestLibraryRoot(ROOT);
-  if (!found) return t.skip('本机没有可用的素材库根（GEMMA_LIB_ROOT / config.json / 索引 meta 都没有）');
+  if (!found)
+    return t.skip('本机没有可用的素材库根（GEMMA_LIB_ROOT / config.json / 索引 meta 都没有）');
 
   const before = snapshot(found.root);
   const r = scanLibrary(found.root, { libId: found.libId || 'L1' });
@@ -306,7 +350,11 @@ test('SC-J ⭐⭐ 真实库实跑：3594 条对账 · 缺包 · 异常 20（BMP 
   assert.ok(r.counts.images > 3000, '图片数应 >3000，实得 ' + r.counts.images);
   assert.equal(new Set(r.items.map((i) => i.uid)).size, r.items.length, 'uid 必须唯一');
   assert.equal(r.counts.paired + r.counts.missingArchive, r.counts.images);
-  assert.equal(r.counts.unreadable, 0, '不该有读不动的目录/文件：' + JSON.stringify(r.unreadable.slice(0, 3)));
+  assert.equal(
+    r.counts.unreadable,
+    0,
+    '不该有读不动的目录/文件：' + JSON.stringify(r.unreadable.slice(0, 3)),
+  );
   assert.equal(r.items.length, r.counts.images);
 
   const perFolder = new Map();
@@ -320,15 +368,59 @@ test('SC-J ⭐⭐ 真实库实跑：3594 条对账 · 缺包 · 异常 20（BMP 
   }
   const bmpAsJpg = r.formatMismatch.filter((m) => m.imageExt === '.jpg' && m.actual === 'bmp');
 
-  t.diagnostic('库根 ' + found.root + '（来源 ' + found.source + ' · libId ' + (found.libId || '(未记录)') + '）');
-  t.diagnostic('条目 ' + r.counts.images + ' · 配对 ' + r.counts.paired + ' · 缺包 ' + r.counts.missingArchive
-    + ' · 有包无图 ' + r.counts.missingImage + ' · 零字节 ' + r.counts.zeroByte);
-  t.diagnostic('分目录 ' + [...perFolder].sort((a, b) => b[1] - a[1]).map(([k, v]) => (k || '(根)') + ' ' + v).join(' · '));
-  t.diagnostic('真实格式 ' + [...perFormat].sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ' ' + v).join(' · '));
-  t.diagnostic('扩展名与内容不符 ' + r.counts.formatMismatch + '（' + [...perPair].sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ' ' + v).join(' · ') + '）');
+  t.diagnostic(
+    '库根 ' +
+      found.root +
+      '（来源 ' +
+      found.source +
+      ' · libId ' +
+      (found.libId || '(未记录)') +
+      '）',
+  );
+  t.diagnostic(
+    '条目 ' +
+      r.counts.images +
+      ' · 配对 ' +
+      r.counts.paired +
+      ' · 缺包 ' +
+      r.counts.missingArchive +
+      ' · 有包无图 ' +
+      r.counts.missingImage +
+      ' · 零字节 ' +
+      r.counts.zeroByte,
+  );
+  t.diagnostic(
+    '分目录 ' +
+      [...perFolder]
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => (k || '(根)') + ' ' + v)
+        .join(' · '),
+  );
+  t.diagnostic(
+    '真实格式 ' +
+      [...perFormat]
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => k + ' ' + v)
+        .join(' · '),
+  );
+  t.diagnostic(
+    '扩展名与内容不符 ' +
+      r.counts.formatMismatch +
+      '（' +
+      [...perPair]
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => k + ' ' + v)
+        .join(' · ') +
+      '）',
+  );
   t.diagnostic('其中「名 .jpg 实为 BMP」= ' + bmpAsJpg.length + ' ← SPEC §7 的锚点（已知且合法）');
-  t.diagnostic('跳过库内产物（.gs-* / .gs.db 家族 / staging）= ' + r.counts.skippedReserved + ' · 跳过其他隐藏项 = ' + r.counts.skippedHidden
-    + '（本库根没有这类条目；跳过机制由 SC-C 的诱饵树证明）');
+  t.diagnostic(
+    '跳过库内产物（.gs-* / .gs.db 家族 / staging）= ' +
+      r.counts.skippedReserved +
+      ' · 跳过其他隐藏项 = ' +
+      r.counts.skippedHidden +
+      '（本库根没有这类条目；跳过机制由 SC-C 的诱饵树证明）',
+  );
 
   assert.ok(bmpAsJpg.length >= 1, '本库应有「名 .jpg 实为 BMP」的条目（SPEC §7 记为已知且合法）');
 });

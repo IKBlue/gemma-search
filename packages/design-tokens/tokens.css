@@ -58,26 +58,38 @@
    * 而 `--color-critical`（#ff3b30）承载白字只有 **3.55:1**。它需要"深到能压白字"的红
    * ⇒ 单独一个令牌；白字压 #c7362b = **5.26:1** ✔。 */
   --toast-err-bg: #c7362b;
-  --color-glass: rgba(255, 255, 255, .72);
+  --color-glass: rgba(255, 255, 255, 0.72);
 
   /* type */
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
-    "Hiragino Sans GB", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei",
-    Helvetica, Arial, sans-serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Hiragino Sans GB',
+    'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei', Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   /* space */
-  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
-  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-12: 48px;
-  --space-16: 64px; --space-18: 72px; --space-24: 96px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-18: 72px;
+  --space-24: 96px;
 
   /* radius */
-  --radius-sm: 8px;  --radius-md: 10px; --radius-lg: 12px;
-  --radius-xl: 16px; --radius-2xl: 24px; --radius-pill: 999px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-pill: 999px;
 
   /* shadow & control */
   --shadow-outline: 0 0 0 1px var(--color-separator-subtle);
-  --shadow-control: 0 1px 2px rgba(0, 0, 0, .12);
+  --shadow-control: 0 1px 2px rgba(0, 0, 0, 0.12);
   --touch-min: 44px;
 
   /* ---------- 2) 领域补充（令牌表里没有、但本应用必须有） ---------- */
@@ -102,11 +114,14 @@
    *    原值 VR #2f6feb 3.96 · CR #8250df 4.28 · 其他 #69707d 4.29 · 未分类 #a56a12 4.00
    *    全部低于 11px 正文要求的 4.5:1。压暗后依次 4.55 / 4.57 / 4.58 / 4.59（仍同色系）。
    *    ⚠️ 未分类同时是 **V-07**：原值属于 Apple **深色档**橙系，浅色档不该用它。 */
-  --cat-vr-bg: #e8effe;      --cat-vr-fg: #2b66d8;
-  --cat-cr-bg: #f1e9fd;      --cat-cr-fg: #7d4dd6;
+  --cat-vr-bg: #e8effe;
+  --cat-vr-fg: #2b66d8;
+  --cat-cr-bg: #f1e9fd;
+  --cat-cr-fg: #7d4dd6;
   --cat-crvr-bg: color-mix(in srgb, var(--color-success) 14%, transparent);
   --cat-crvr-fg: #1a7f37;
-  --cat-other-bg: #eceef2;   --cat-other-fg: #656c78;
+  --cat-other-bg: #eceef2;
+  --cat-other-fg: #656c78;
   --cat-uncat-bg: color-mix(in srgb, var(--color-warning) 16%, transparent);
   --cat-uncat-fg: #986211;
 
@@ -124,8 +139,8 @@
      §12 说"新增值要标注来源"。以下 5 个是为**弹窗/遮罩/图上覆盖**新增的，
      来源标注为「本项目新增 · 用于浮起层与图像上的遮罩」。 */
   --shadow-float: 0 12px 35px color-mix(in srgb, #000 22%, transparent);
-  --scrim: color-mix(in srgb, #000 60%, transparent);          /* 弹窗遮罩 */
-  --scrim-media: color-mix(in srgb, #000 45%, transparent);    /* 图上标签底 */
+  --scrim: color-mix(in srgb, #000 60%, transparent); /* 弹窗遮罩 */
+  --scrim-media: color-mix(in srgb, #000 45%, transparent); /* 图上标签底 */
   --scrim-media-strong: color-mix(in srgb, #000 72%, transparent);
   --hairline-on-media: color-mix(in srgb, #fff 25%, transparent);
 
@@ -134,37 +149,37 @@
      有成文数值却没有变量。按 §12「找不到再加，并标注来源」补成变量，供渲染层使用。
      阶梯外的原型值（22px 边距、35px 图标按钮、23px 指标值…）按 §4.1「就近取整」处理，
      取整结果写在括号里。 */
-  --type-h1: 27px;                    /* 应用主标题（文档阶梯无此档，取自原型并登记） */
-  --type-title2: 24px;                /* §3.2 title2 */
+  --type-h1: 27px; /* 应用主标题（文档阶梯无此档，取自原型并登记） */
+  --type-title2: 24px; /* §3.2 title2 */
   --type-title2-lh: 1.25;
   --type-title2-ls: -0.01em;
-  --type-metric: 23px;                /* 指标卡数值（取自原型；文档阶梯无此档） */
-  --type-lede: 19px;                  /* §3.2 lede */
+  --type-metric: 23px; /* 指标卡数值（取自原型；文档阶梯无此档） */
+  --type-lede: 19px; /* §3.2 lede */
   --type-lede-lh: 1.4;
-  --type-body-app: 16px;              /* §3.2 body.app（搜索框输入） */
+  --type-body-app: 16px; /* §3.2 body.app（搜索框输入） */
   --type-body-app-lh: 1.5;
-  --type-callout: 14px;               /* §3.2 callout（导航项、卡片包名） */
+  --type-callout: 14px; /* §3.2 callout（导航项、卡片包名） */
   --type-callout-lh: 1.4;
-  --type-caption: 13px;               /* §3.2 caption（元信息、胶囊、小按钮） */
+  --type-caption: 13px; /* §3.2 caption（元信息、胶囊、小按钮） */
   --type-caption-lh: 1.4;
-  --type-micro: 11px;                 /* 指标卡注释 / 侧栏小字（文档阶梯最小 13px，按 §12 登记） */
+  --type-micro: 11px; /* 指标卡注释 / 侧栏小字（文档阶梯最小 13px，按 §12 登记） */
 
-  --layout-sidebar-width: 220px;      /* §4.2 layout.sidebar.width（原型 230px → 取文档值） */
-  --layout-grid-min-card: 240px;      /* §4.2 layout.grid.min-card */
-  --layout-page-padding: 24px;        /* §4.2 是 22px → §4.1 就近取整到 24 */
-  --layout-content-max: 1500px;       /* 应用是整窗，取原型的内容上限 */
-  --layout-topbar-height: 68px;       /* 原型 68px（§4.2 的 nav.height 48px 是网页吸顶导航） */
-  --layout-dialog-width: 420px;       /* **本项目新增**（2026-10-13 T4）：确认弹窗的宽度上限。
+  --layout-sidebar-width: 220px; /* §4.2 layout.sidebar.width（原型 230px → 取文档值） */
+  --layout-grid-min-card: 240px; /* §4.2 layout.grid.min-card */
+  --layout-page-padding: 24px; /* §4.2 是 22px → §4.1 就近取整到 24 */
+  --layout-content-max: 1500px; /* 应用是整窗，取原型的内容上限 */
+  --layout-topbar-height: 68px; /* 原型 68px（§4.2 的 nav.height 48px 是网页吸顶导航） */
+  --layout-dialog-width: 420px; /* **本项目新增**（2026-10-13 T4）：确认弹窗的宽度上限。
                                          §10 的变量表里没有弹窗尺寸；按 §12「找不到再加，并标注来源」登记。
                                          420px ≈ 3 个 --layout-grid-min-card（240px）的视觉比例，
                                          够放两行文案 + 两个按钮；小屏由 `calc(100vw - --space-12)` 兜底。 */
 
-  --radius-circle: 50%;               /* §5 radius.circle */
-  --control-icon-size: 18px;          /* §7 control.icon.size */
-  --control-icon-btn: 36px;           /* 原型 35px → 就近取整 36 */
-  --control-search-height: var(--touch-min);   /* §7 control.search.height = 44px */
-  --control-segment-height: 38px;     /* §7 control.segment.height */
-  --control-chip-padding: 8px 16px;   /* §7 是 9px 16px → §4.1 就近取整到 8px 16px */
+  --radius-circle: 50%; /* §5 radius.circle */
+  --control-icon-size: 18px; /* §7 control.icon.size */
+  --control-icon-btn: 36px; /* 原型 35px → 就近取整 36 */
+  --control-search-height: var(--touch-min); /* §7 control.search.height = 44px */
+  --control-segment-height: 38px; /* §7 control.segment.height */
+  --control-chip-padding: 8px 16px; /* §7 是 9px 16px → §4.1 就近取整到 8px 16px */
 
   /* ---------- 3) 旧变量桥接 ----------
      style.css / app.css 里用的是旧名（--bg、--line、--accent…）。
@@ -190,7 +205,7 @@
 
 /* ---------- 4) 深色模式（令牌 §10 原样 + 领域补充跟随） ---------- */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme='light']) {
     --color-bg-primary: #000000;
     --color-bg-secondary: #161617;
     --color-bg-elevated: #1d1d1f;
@@ -211,20 +226,24 @@
     --color-success-text: #30d158;
     --color-warning-text: #ff9f0a;
     --toast-err-bg: #c7362b;
-    --color-glass: rgba(22, 22, 23, .72);
+    --color-glass: rgba(22, 22, 23, 0.72);
 
-    --cat-vr-bg: #16233a;   --cat-vr-fg: #9ec2ff;
-    --cat-cr-bg: #241a33;   --cat-cr-fg: #d0b4ff;
+    --cat-vr-bg: #16233a;
+    --cat-vr-fg: #9ec2ff;
+    --cat-cr-bg: #241a33;
+    --cat-cr-fg: #d0b4ff;
     /* V-06：本块原先**没有**覆盖 CR+VR 的底色/前景 ⇒ 前景仍用浅色档的 #1a7f37，
      * 压在深绿底上只有 **3.47:1**（脚本复算）。按本块其余分类的同一路子显式给出。 */
-    --cat-crvr-bg: #0f2e18;  --cat-crvr-fg: #7fd6a0;
-    --cat-other-bg: #232329; --cat-other-fg: #c3c9d1;
+    --cat-crvr-bg: #0f2e18;
+    --cat-crvr-fg: #7fd6a0;
+    --cat-other-bg: #232329;
+    --cat-other-fg: #c3c9d1;
     --cat-uncat-fg: #f0cf8a;
     --thumb-fallback: linear-gradient(150deg, #232329, #1a1a1f);
   }
 }
 
-:root[data-theme="dark"] {
+:root[data-theme='dark'] {
   --color-bg-primary: #000000;
   --color-bg-secondary: #161617;
   --color-bg-elevated: #1d1d1f;
@@ -243,12 +262,16 @@
   --color-success-text: #30d158;
   --color-warning-text: #ff9f0a;
   --toast-err-bg: #c7362b;
-  --color-glass: rgba(22, 22, 23, .72);
+  --color-glass: rgba(22, 22, 23, 0.72);
 
-  --cat-vr-bg: #16233a;   --cat-vr-fg: #9ec2ff;
-  --cat-cr-bg: #241a33;   --cat-cr-fg: #d0b4ff;
-  --cat-crvr-bg: #0f2e18;  --cat-crvr-fg: #7fd6a0;
-  --cat-other-bg: #232329; --cat-other-fg: #c3c9d1;
+  --cat-vr-bg: #16233a;
+  --cat-vr-fg: #9ec2ff;
+  --cat-cr-bg: #241a33;
+  --cat-cr-fg: #d0b4ff;
+  --cat-crvr-bg: #0f2e18;
+  --cat-crvr-fg: #7fd6a0;
+  --cat-other-bg: #232329;
+  --cat-other-fg: #c3c9d1;
   --cat-uncat-fg: #f0cf8a;
   --thumb-fallback: linear-gradient(150deg, #232329, #1a1a1f);
 }
@@ -257,23 +280,29 @@
    默认跟随令牌（浅色模式浅侧栏 / 深色模式深侧栏）。
    若希望**始终深色侧栏**，在 <html> 上加 data-sidebar="dark"。
    采用的值就是令牌的深色档，不是新造的颜色。 */
-:root[data-sidebar="dark"] {
+:root[data-sidebar='dark'] {
   --sidebar-bg: #161617;
   --sidebar-fg: #f5f5f7;
   --sidebar-muted: #a1a1a6;
-  --sidebar-hover: rgba(255, 255, 255, .06);
+  --sidebar-hover: rgba(255, 255, 255, 0.06);
   --sidebar-selected: #2c2c2e;
   --sidebar-line: #2c2c2e;
 }
 
 /* ---------- 6) 基础应用 ---------- */
-html { -webkit-font-smoothing: antialiased; }
+html {
+  -webkit-font-smoothing: antialiased;
+}
 body {
   font-family: var(--font-sans);
   background: var(--color-bg-primary);
   color: var(--color-text-primary);
 }
-.mono, code, kbd { font-family: var(--font-mono); }
+.mono,
+code,
+kbd {
+  font-family: var(--font-mono);
+}
 
 /* 焦点环（令牌 §7）；键盘可见，鼠标点击不出环 */
 :focus-visible {
@@ -284,9 +313,17 @@ body {
 
 /* 动效：令牌 §8 —— 不做进入动画与悬停位移，且尊重 reduced-motion */
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+  * {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
 }
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+}
 
 /* 缩略图占位底（真实缩略图未内嵌时） */
-.ph-fallback { background: var(--thumb-fallback); }
+.ph-fallback {
+  background: var(--thumb-fallback);
+}

@@ -51,9 +51,15 @@ function fakeTarget() {
 function recorder({ isPackaged = true } = {}) {
   const state = { logs: [], trace: [], exitCodes: [], target: fakeTarget() };
   const deps = {
-    log: (...a) => { state.logs.push(a.map((x) => String(x)).join(' ')); state.trace.push('log'); },
+    log: (...a) => {
+      state.logs.push(a.map((x) => String(x)).join(' '));
+      state.trace.push('log');
+    },
     flush: () => state.trace.push('flush'),
-    exit: (code) => { state.exitCodes.push(code); state.trace.push('exit'); },
+    exit: (code) => {
+      state.exitCodes.push(code);
+      state.trace.push('exit');
+    },
     isPackaged,
     target: state.target,
   };
@@ -76,7 +82,11 @@ test('C1 ⭐ uncaughtException ⇒ 先落盘(flush) 再 exit(1)，并记录可�
 
   policy.onUncaughtException(new Error('boom-uncaught'));
 
-  assert.deepEqual(state.exitCodes, [CRASH_EXIT_CODE], '未捕获异常必须请求退出（code=' + String(CRASH_EXIT_CODE) + '）');
+  assert.deepEqual(
+    state.exitCodes,
+    [CRASH_EXIT_CODE],
+    '未捕获异常必须请求退出（code=' + String(CRASH_EXIT_CODE) + '）',
+  );
   assert.equal(CRASH_EXIT_CODE, 1, '退出码必须非 0（异常退出要能被外部脚本区分）');
 
   // 顺序是契约：先写日志 → flush → 再退出
@@ -88,8 +98,14 @@ test('C1 ⭐ uncaughtException ⇒ 先落盘(flush) 再 exit(1)，并记录可�
   assert.ok(exitAt > flushAt, 'exit 必须在 flush 之后');
   assert.equal(exitAt, state.trace.length - 1, 'exit 必须是最后一步（退出之后不该再有动作）');
 
-  assert.ok(state.logs.some((l) => l.includes('boom-uncaught')), '日志里必须有可读原因：' + JSON.stringify(state.logs));
-  assert.ok(state.logs.some((l) => /半初始化|半写/.test(l)), '要说清"为什么不能继续跑"');
+  assert.ok(
+    state.logs.some((l) => l.includes('boom-uncaught')),
+    '日志里必须有可读原因：' + JSON.stringify(state.logs),
+  );
+  assert.ok(
+    state.logs.some((l) => /半初始化|半写/.test(l)),
+    '要说清"为什么不能继续跑"',
+  );
 
   assert.equal(policy.isUnhealthy(), true);
   assert.equal(policy.unhealthyCount(), 1);
@@ -104,13 +120,23 @@ test('C2 ⭐ unhandledRejection ⇒ 记日志 + 标记不健康，**不退出**'
 
   policy.onUnhandledRejection('some-benign-rejection');
 
-  assert.deepEqual(state.exitCodes, [], '未处理的 rejection **不许**退出（良性 rejection 不该杀应用）');
+  assert.deepEqual(
+    state.exitCodes,
+    [],
+    '未处理的 rejection **不许**退出（良性 rejection 不该杀应用）',
+  );
   assert.equal(state.trace.includes('exit'), false);
   assert.equal(policy.isUnhealthy(), true, '必须被标记为不健康');
   assert.equal(policy.unhealthyCount(), 1);
   assert.match(String(policy.unhealthyReason()), /unhandledRejection: some-benign-rejection/);
-  assert.ok(state.logs.some((l) => l.includes('some-benign-rejection')), '日志里要有原因');
-  assert.ok(state.logs.some((l) => /不退出/.test(l)), '日志要写明"不退出"（否则读日志的人以为是崩溃）');
+  assert.ok(
+    state.logs.some((l) => l.includes('some-benign-rejection')),
+    '日志里要有原因',
+  );
+  assert.ok(
+    state.logs.some((l) => /不退出/.test(l)),
+    '日志要写明"不退出"（否则读日志的人以为是崩溃）',
+  );
 });
 
 // ============================================================ C3 状态语义
@@ -123,7 +149,11 @@ test('C3 ⭐ 状态可观测：第一条原因优先（根因不被余波覆盖�
   policy.onUnhandledRejection(new Error('later-noise'));
 
   assert.equal(policy.unhealthyCount(), 2, '每次都要计数（"出过几次"是可诊断信息）');
-  assert.match(String(policy.unhealthyReason()), /root-cause/, '第一条原因是根因，不许被后面的余波覆盖');
+  assert.match(
+    String(policy.unhealthyReason()),
+    /root-cause/,
+    '第一条原因是根因，不许被后面的余波覆盖',
+  );
   assert.equal(String(policy.unhealthyReason()).includes('later-noise'), false);
 
   // reasonText 的边界：Error 给 stack、字符串原样、循环对象不许抛
@@ -141,7 +171,7 @@ test('C4：install 注册两个事件且幂等；dispose 摘干净', () => {
   const policy = createCrashPolicy(deps);
 
   policy.install();
-  policy.install();     // 幂等
+  policy.install(); // 幂等
   assert.equal(state.target.handlers.get('uncaughtException').length, 1);
   assert.equal(state.target.handlers.get('unhandledRejection').length, 1);
 
@@ -150,7 +180,7 @@ test('C4：install 注册两个事件且幂等；dispose 摘干净', () => {
   assert.equal(policy.isUnhealthy(), true);
 
   policy.dispose();
-  policy.dispose();     // 幂等
+  policy.dispose(); // 幂等
   assert.deepEqual(state.target.handlers.get('uncaughtException'), []);
   assert.deepEqual(state.target.handlers.get('unhandledRejection'), []);
 });
@@ -167,8 +197,16 @@ test('C5 ⭐ 生产态不自动打开 DevTools；手动 F12 路径仍在', () =>
 
   // 策略接线必须是"一份"：index.ts 不许再自己挂 process.on 的这两个事件
   assert.ok(/installCrashPolicy\s*\(/.test(code), 'index.ts 必须走 crash-policy 的安装入口');
-  assert.equal(/process\.on\(\s*['"]uncaughtException['"]/.test(code), false, '不许在 index.ts 再散一份 uncaughtException 处理器');
-  assert.equal(/process\.on\(\s*['"]unhandledRejection['"]/.test(code), false, '不许在 index.ts 再散一份 unhandledRejection 处理器');
+  assert.equal(
+    /process\.on\(\s*['"]uncaughtException['"]/.test(code),
+    false,
+    '不许在 index.ts 再散一份 uncaughtException 处理器',
+  );
+  assert.equal(
+    /process\.on\(\s*['"]unhandledRejection['"]/.test(code),
+    false,
+    '不许在 index.ts 再散一份 unhandledRejection 处理器',
+  );
 });
 
 // ============================================================ C6 安装入口（模块槽）
@@ -176,7 +214,11 @@ test('C5 ⭐ 生产态不自动打开 DevTools；手动 F12 路径仍在', () =>
 test('C6：installCrashPolicy 后 crashUnhealthyState() 读得到已安装策略的状态', () => {
   const first = recorder();
   installCrashPolicy(first.deps);
-  assert.deepEqual(crashUnhealthyState(), { unhealthy: false, reason: null, count: 0 }, '刚装上、还没出事 ⇒ 健康');
+  assert.deepEqual(
+    crashUnhealthyState(),
+    { unhealthy: false, reason: null, count: 0 },
+    '刚装上、还没出事 ⇒ 健康',
+  );
 
   first.state.target.handlers.get('unhandledRejection')[0](new Error('observable'));
   assert.deepEqual(crashUnhealthyState().unhealthy, true);
@@ -185,7 +227,11 @@ test('C6：installCrashPolicy 后 crashUnhealthyState() 读得到已安装策略
   // 再安装一个 ⇒ 旧的监听器必须先被摘掉（不积攒）
   const second = recorder();
   installCrashPolicy(second.deps);
-  assert.deepEqual(first.state.target.handlers.get('unhandledRejection'), [], '替换安装时要摘掉旧监听器');
+  assert.deepEqual(
+    first.state.target.handlers.get('unhandledRejection'),
+    [],
+    '替换安装时要摘掉旧监听器',
+  );
   assert.equal(second.state.target.handlers.get('uncaughtException').length, 1);
   second.state.target.handlers.get('uncaughtException')[0](new Error('fresh-instance'));
   assert.deepEqual(second.state.exitCodes, [CRASH_EXIT_CODE]);

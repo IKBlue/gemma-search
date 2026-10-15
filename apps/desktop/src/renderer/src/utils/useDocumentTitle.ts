@@ -10,17 +10,17 @@
 //   的结构；那是一次更大的改动，而收益相同。这里 3 个页面各调一行，**实现只有一份**（不是 P2 的复制）。
 //
 // ⚠️ 应用名（后缀）与页面名（前缀）**都来自 `router/paths.ts`** —— 别在这里再写一遍字面量。
-import { useEffect } from 'react'
+import { useEffect } from 'react';
 
-import { APP_NAME } from '../router/paths.ts'
+import { APP_NAME } from '../router/paths.ts';
 
 /**
  * @param pageLabel 当前页面名字；缺省则只显示应用名
  */
 export function useDocumentTitle(pageLabel?: string): void {
   useEffect(() => {
-    document.title = pageLabel ? `${pageLabel} · ${APP_NAME}` : APP_NAME
-  }, [pageLabel])
+    document.title = pageLabel ? `${pageLabel} · ${APP_NAME}` : APP_NAME;
+  }, [pageLabel]);
 }
 
-export default useDocumentTitle
+export default useDocumentTitle;

@@ -49,7 +49,10 @@ import { STAGING_DIRNAME } from '../../../../packages/engine/src/transactions/st
 // 各写一份正是 P1 的复发形态，而 2026-10-15 的 U11（`.gs.db` 不匹配 `.gs-` 前缀）就是两处判据同时踩的坑。
 // 反向依赖（engine → main）会成环、也会破坏「引擎可脱离 Electron 单独测试」⇒ 唯一实现落引擎侧。
 import {
-  GS_INDEX_NAME, GS_DB_NAME, GS_JOURNAL_NAME, GS_WRITE_PROBE_PREFIX,
+  GS_INDEX_NAME,
+  GS_DB_NAME,
+  GS_JOURNAL_NAME,
+  GS_WRITE_PROBE_PREFIX,
 } from '../../../../packages/engine/src/gs-names.ts';
 export { GS_INDEX_NAME, GS_DB_NAME, GS_JOURNAL_NAME };
 
@@ -93,12 +96,22 @@ export interface StorageFs {
 export const NODE_FS: StorageFs = {
   existsSync: (p: string): boolean => fs.existsSync(p),
   isDirectory: (p: string): boolean => {
-    try { return fs.statSync(p).isDirectory(); } catch { return false; }
+    try {
+      return fs.statSync(p).isDirectory();
+    } catch {
+      return false;
+    }
   },
   readdirSync: (p: string): string[] => fs.readdirSync(p),
-  writeFileSync: (p: string, data: string): void => { fs.writeFileSync(p, data, 'utf8'); },
-  mkdirSync: (p: string): void => { fs.mkdirSync(p, { recursive: true }); },
-  unlinkSync: (p: string): void => { fs.unlinkSync(p); },
+  writeFileSync: (p: string, data: string): void => {
+    fs.writeFileSync(p, data, 'utf8');
+  },
+  mkdirSync: (p: string): void => {
+    fs.mkdirSync(p, { recursive: true });
+  },
+  unlinkSync: (p: string): void => {
+    fs.unlinkSync(p);
+  },
 };
 
 /** unknown → 错误码（拿不到就是 UNKNOWN，不猜） */
@@ -133,10 +146,15 @@ export interface WriteProbe {
  */
 export function probeWritable(dir: string, fsImpl: StorageFs = NODE_FS): WriteProbe {
   if (!dir) return { writable: false, code: 'EMPTY', reason: '目录为空，无法判断可写性' };
-  if (!fsImpl.existsSync(dir)) return { writable: false, code: 'ENOENT', reason: `目录不存在：${dir}` };
-  if (!fsImpl.isDirectory(dir)) return { writable: false, code: 'ENOTDIR', reason: `不是目录：${dir}` };
+  if (!fsImpl.existsSync(dir))
+    return { writable: false, code: 'ENOENT', reason: `目录不存在：${dir}` };
+  if (!fsImpl.isDirectory(dir))
+    return { writable: false, code: 'ENOTDIR', reason: `不是目录：${dir}` };
 
-  const file = path.join(dir, PROBE_PREFIX + String(process.pid) + '-' + String(++probeSeq) + '-' + String(Date.now()));
+  const file = path.join(
+    dir,
+    PROBE_PREFIX + String(process.pid) + '-' + String(++probeSeq) + '-' + String(Date.now()),
+  );
   try {
     fsImpl.writeFileSync(file, '');
   } catch (e) {
@@ -160,8 +178,10 @@ export function probeWritable(dir: string, fsImpl: StorageFs = NODE_FS): WritePr
  */
 function existenceOnlyProbe(dir: string, fsImpl: StorageFs): WriteProbe {
   if (!dir) return { writable: false, code: 'EMPTY', reason: '目录为空' };
-  if (!fsImpl.existsSync(dir)) return { writable: false, code: 'ENOENT', reason: `目录不存在：${dir}` };
-  if (!fsImpl.isDirectory(dir)) return { writable: false, code: 'ENOTDIR', reason: `不是目录：${dir}` };
+  if (!fsImpl.existsSync(dir))
+    return { writable: false, code: 'ENOENT', reason: `目录不存在：${dir}` };
+  if (!fsImpl.isDirectory(dir))
+    return { writable: false, code: 'ENOTDIR', reason: `不是目录：${dir}` };
   return { writable: true, code: '', reason: `目录存在：${dir}（未做写探测，可写性未验证）` };
 }
 
@@ -241,7 +261,12 @@ const MODEL_SOURCE_LABEL: Record<ModelSource, string> = {
  *    它是**兜底**而不是"该放模型的地方"，所以排在最后；但不放进这个常量里，
  *    就会出现"第二份候选顺序"（P1）——那正是 T-17 要收掉的债。
  */
-export const MODEL_SEARCH_ORDER: readonly ModelSource[] = Object.freeze(['user', 'app', 'userData', 'modelCache']);
+export const MODEL_SEARCH_ORDER: readonly ModelSource[] = Object.freeze([
+  'user',
+  'app',
+  'userData',
+  'modelCache',
+]);
 
 /** 顺序的人读串（日志与指引都用它；**从 MODEL_SEARCH_ORDER 派生**，不另写一份） */
 export function modelSearchOrderText(): string {
@@ -256,7 +281,10 @@ export function modelSearchOrderText(): string {
  *
  * @returns dir = 找到的 fp32 目录（找不到是 null）；note = 人读理由（进日志/指引）
  */
-export function findModelCacheDir(base: string, fsImpl: StorageFs = NODE_FS): { dir: string | null; note: string } {
+export function findModelCacheDir(
+  base: string,
+  fsImpl: StorageFs = NODE_FS,
+): { dir: string | null; note: string } {
   const root = path.join(base, 'onnx', 'embeddinggemma-2');
   if (!base) return { dir: null, note: '没有配置模型缓存目录' };
   if (!fsImpl.existsSync(root)) return { dir: null, note: '缓存目录不存在：' + root };
@@ -272,12 +300,18 @@ export function findModelCacheDir(base: string, fsImpl: StorageFs = NODE_FS): { 
       return { dir: d, note: '缓存里找到 ' + MODEL_MARKER_REL + '（' + d + '）' };
     }
   }
-  return { dir: null, note: '扫过 ' + revs.length + ' 个 revision，都没有 ' + MODEL_MARKER_REL + '（' + root + '）' };
+  return {
+    dir: null,
+    note: '扫过 ' + revs.length + ' 个 revision，都没有 ' + MODEL_MARKER_REL + '（' + root + '）',
+  };
 }
 
 /** 缺模型时的明确指引（T-17 的输入：能报出找过哪些路径 + 不假装可用） */
 function buildModelGuidance(
-  appDir: string, userDataDir: string | null, modelCacheDir: string | null, searched: ModelCandidate[],
+  appDir: string,
+  userDataDir: string | null,
+  modelCacheDir: string | null,
+  searched: ModelCandidate[],
 ): string {
   const lines: string[] = [];
   lines.push(`未找到 ONNX 模型（搜索顺序取自 SPEC §2：${modelSearchOrderText()}）。`);
@@ -288,17 +322,32 @@ function buildModelGuidance(
   //    否则顺序一改，这段指引就开始骗人（"照抄的文案会漂移"是本仓库栽过的坑）。
   for (const source of MODEL_SEARCH_ORDER) {
     if (source === 'user') {
-      lines.push('  · 在设置里指定模型目录（config.json 的 onnx_model_dir）—— 显式指定，**优先级最高**');
+      lines.push(
+        '  · 在设置里指定模型目录（config.json 的 onnx_model_dir）—— 显式指定，**优先级最高**',
+      );
     } else if (source === 'app') {
       lines.push(`  · ${path.join(appDir, MODELS_DIRNAME, MODEL_MARKER_REL)}`);
     } else if (source === 'userData') {
-      if (userDataDir) lines.push(`  · ${path.join(userDataDir, MODELS_DIRNAME, MODEL_MARKER_REL)}`);
+      if (userDataDir)
+        lines.push(`  · ${path.join(userDataDir, MODELS_DIRNAME, MODEL_MARKER_REL)}`);
     } else if (source === 'modelCache' && modelCacheDir) {
-      lines.push('  · 或放进既有模型缓存布局：' + path.join(modelCacheDir, 'onnx', 'embeddinggemma-2', '<revision>', 'fp32', MODEL_MARKER_REL));
+      lines.push(
+        '  · 或放进既有模型缓存布局：' +
+          path.join(
+            modelCacheDir,
+            'onnx',
+            'embeddinggemma-2',
+            '<revision>',
+            'fp32',
+            MODEL_MARKER_REL,
+          ),
+      );
     }
   }
   lines.push('放好后重启应用即可重试。');
-  lines.push('⚠️ 在找到模型之前**不会显示任何检索结果** —— 不假装可用（SPEC §2「都找不到 ⇒ 显示明确指引」）。');
+  lines.push(
+    '⚠️ 在找到模型之前**不会显示任何检索结果** —— 不假装可用（SPEC §2「都找不到 ⇒ 显示明确指引」）。',
+  );
   return lines.join('\n');
 }
 
@@ -316,23 +365,46 @@ export function resolveModels(opts: ResolveModelsOptions): ModelResolution {
 
   // 候选 = 顺序常量 × 当前可用的来源。order 是它在**实际搜索次序**里的位置（1 起）。
   const modelCacheDir = (opts.modelCacheDir ?? '').trim();
-  const plan: Array<{ order: number; source: ModelSource; label: string; dir: string; note?: string }> = [];
+  const plan: Array<{
+    order: number;
+    source: ModelSource;
+    label: string;
+    dir: string;
+    note?: string;
+  }> = [];
   for (const source of MODEL_SEARCH_ORDER) {
     if (source === 'app') {
-      plan.push({ order: plan.length + 1, source, label: MODEL_SOURCE_LABEL[source], dir: path.join(opts.appDir, MODELS_DIRNAME) });
+      plan.push({
+        order: plan.length + 1,
+        source,
+        label: MODEL_SOURCE_LABEL[source],
+        dir: path.join(opts.appDir, MODELS_DIRNAME),
+      });
     } else if (source === 'userData') {
       if (userDataDir) {
-        plan.push({ order: plan.length + 1, source, label: MODEL_SOURCE_LABEL[source], dir: path.join(userDataDir, MODELS_DIRNAME) });
+        plan.push({
+          order: plan.length + 1,
+          source,
+          label: MODEL_SOURCE_LABEL[source],
+          dir: path.join(userDataDir, MODELS_DIRNAME),
+        });
       }
     } else if (source === 'user') {
       if (userModelDir) {
-        plan.push({ order: plan.length + 1, source, label: MODEL_SOURCE_LABEL[source], dir: path.resolve(userModelDir) });
+        plan.push({
+          order: plan.length + 1,
+          source,
+          label: MODEL_SOURCE_LABEL[source],
+          dir: path.resolve(userModelDir),
+        });
       }
     } else if (modelCacheDir) {
       // 这一位不是一个固定目录：要在 <cache>/onnx/embeddinggemma-2/<rev>/fp32 里找出可用的那个
       const hit = findModelCacheDir(modelCacheDir, fsImpl);
       plan.push({
-        order: plan.length + 1, source, label: MODEL_SOURCE_LABEL[source],
+        order: plan.length + 1,
+        source,
+        label: MODEL_SOURCE_LABEL[source],
         dir: hit.dir ?? path.join(modelCacheDir, 'onnx', 'embeddinggemma-2'),
         note: hit.note,
       });
@@ -375,7 +447,9 @@ export function resolveModels(opts: ResolveModelsOptions): ModelResolution {
     source: hit ? hit.source : null,
     installDir: firstWritable ? firstWritable.dir : null,
     searched,
-    guidance: hit ? '' : buildModelGuidance(opts.appDir, userDataDir, modelCacheDir || null, searched),
+    guidance: hit
+      ? ''
+      : buildModelGuidance(opts.appDir, userDataDir, modelCacheDir || null, searched),
   };
 }
 
@@ -470,7 +544,8 @@ export function resolveLibraryStorage(
   const userDataDir = opts.userDataDir ?? null;
   const libId = safeLibIdSegment(lib.libId);
   const declaredRoot = path.resolve(lib.root || '');
-  const at = (dir: string): WriteProbe => (probeWrites ? probeWritable(dir, fsImpl) : existenceOnlyProbe(dir, fsImpl));
+  const at = (dir: string): WriteProbe =>
+    probeWrites ? probeWritable(dir, fsImpl) : existenceOnlyProbe(dir, fsImpl);
 
   const declaredProbe = at(declaredRoot);
 
@@ -509,9 +584,9 @@ export function resolveLibraryStorage(
   const fbReason = fbProbe.writable
     ? `回退目录已存在且可写（${fallbackRoot}）`
     : fbProbe.code === 'ENOENT'
-      ? (userDataIsDir
-          ? `回退目录尚未创建（${fallbackRoot}）—— 首次写入时按需创建`
-          : `回退目录尚未创建，且 userData 本身不存在（${fallbackRoot}）`)
+      ? userDataIsDir
+        ? `回退目录尚未创建（${fallbackRoot}）—— 首次写入时按需创建`
+        : `回退目录尚未创建，且 userData 本身不存在（${fallbackRoot}）`
       : `回退目录不可写（${fbProbe.reason}）`;
 
   return makeLibraryStorage({
@@ -557,18 +632,23 @@ export function resolveStorageRoots(opts: ResolveStorageRootsOptions): StorageRo
   const probeWrites = opts.probeWrites !== false;
 
   const models = resolveModels({
-    appDir: opts.appDir, userDataDir,
-    userModelDir: opts.userModelDir, modelCacheDir: opts.modelCacheDir, fs: fsImpl,
+    appDir: opts.appDir,
+    userDataDir,
+    userModelDir: opts.userModelDir,
+    modelCacheDir: opts.modelCacheDir,
+    fs: fsImpl,
   });
 
   const libs = opts.libraries ?? [];
-  const libraries = libs.map((l) => resolveLibraryStorage(l, { userDataDir, probeWrites, fs: fsImpl }));
+  const libraries = libs.map((l) =>
+    resolveLibraryStorage(l, { userDataDir, probeWrites, fs: fsImpl }),
+  );
 
   const notes: string[] = [];
   if (!libraries.length) {
     notes.push(
       '没有已解析的库 ⇒ 索引 / .gs.db / 事务日志暂时没有落点；先解决「库从哪来」' +
-      '（GEMMA_LIB_ROOT / userData 注册表 / data/libraries/* 索引自举，四条路见 library-config.ts）',
+        '（GEMMA_LIB_ROOT / userData 注册表 / data/libraries/* 索引自举，四条路见 library-config.ts）',
     );
   }
   return { appDir: opts.appDir, userDataDir, probeWrites, models, libraries, notes };
@@ -583,37 +663,51 @@ export function resolveStorageRoots(opts: ResolveStorageRootsOptions): StorageRo
 export function describeStorageRoots(r: StorageRootsResult): string[] {
   const out: string[] = [];
   const srcLabel = (s: ModelSource | null): string =>
-    s === 'app' ? '程序目录 models/' : s === 'userData' ? 'userData models/' : s === 'user' ? '用户指定' : '(无)';
+    s === 'app'
+      ? '程序目录 models/'
+      : s === 'userData'
+        ? 'userData models/'
+        : s === 'user'
+          ? '用户指定'
+          : '(无)';
 
   out.push(`程序目录 = ${r.appDir}`);
   out.push(`userData = ${r.userDataDir ?? '(不可用)'}`);
   out.push(
-    `写探测 = ${r.probeWrites
-      ? '开启（在已存在的目录里写一个 .gs-write-probe-* 临时文件再删；不用 fs.access(W_OK) —— Windows 上它对 ACL 拒绝的目录会假报可写）'
-      : '关闭（只看存在性，可写性未验证）'}`,
+    `写探测 = ${
+      r.probeWrites
+        ? '开启（在已存在的目录里写一个 .gs-write-probe-* 临时文件再删；不用 fs.access(W_OK) —— Windows 上它对 ACL 拒绝的目录会假报可写）'
+        : '关闭（只看存在性，可写性未验证）'
+    }`,
   );
 
   if (r.models.found) out.push(`模型 = ${r.models.found}（来源：${srcLabel(r.models.source)}）`);
   else out.push('模型 = **未找到**（在找到模型之前不会显示任何检索结果 —— 不假装可用）');
   out.push(`模型搜索顺序 = ${modelSearchOrderText()}`);
-  for (const c of r.models.searched) out.push(`  ${c.order}. ${c.label} = ${c.dir} ⇒ ${c.reason}；${c.writeReason}`);
+  for (const c of r.models.searched)
+    out.push(`  ${c.order}. ${c.label} = ${c.dir} ⇒ ${c.reason}；${c.writeReason}`);
   if (r.models.installDir) {
-    out.push(`模型建议放置目录 = ${r.models.installDir}（搜索顺序里第一个可写的候选；安装目录通常不可写，见 PLAN R8）`);
+    out.push(
+      `模型建议放置目录 = ${r.models.installDir}（搜索顺序里第一个可写的候选；安装目录通常不可写，见 PLAN R8）`,
+    );
   } else if (!r.models.found) {
-    out.push('模型候选目录现在都不可写：需要先建出 <程序目录>/models 或 <userData>/models，或在设置里指向一个可写目录。');
+    out.push(
+      '模型候选目录现在都不可写：需要先建出 <程序目录>/models 或 <userData>/models，或在设置里指向一个可写目录。',
+    );
   }
-  if (r.models.guidance) for (const line of r.models.guidance.split('\n')) out.push(`模型指引：${line}`);
+  if (r.models.guidance)
+    for (const line of r.models.guidance.split('\n')) out.push(`模型指引：${line}`);
 
   for (const l of r.libraries) {
     out.push(`库 ${l.libId}：声明库根 = ${l.declaredRoot}`);
     out.push(
       `库 ${l.libId}：落点 = ${l.root ?? '(无可用落点)'}${l.fallback ? '（**回退 userData**）' : '（用库根本身）'}` +
-      `；为什么 = ${l.reason}`,
+        `；为什么 = ${l.reason}`,
     );
     if (l.root !== null) {
       out.push(
         `库 ${l.libId}：索引 ${l.index ?? ''} · 元数据 ${l.db ?? ''} · 事务日志 ${l.journal ?? ''} · ` +
-        `暂存 ${l.stagingDirName}/<txnId>/（${l.stagingNote}）`,
+          `暂存 ${l.stagingDirName}/<txnId>/（${l.stagingNote}）`,
       );
     }
   }

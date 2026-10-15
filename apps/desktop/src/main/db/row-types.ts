@@ -125,12 +125,15 @@ export interface ParsedItem {
 function valueLabel(v: unknown): string {
   if (v === null) return 'null';
   if (typeof v === 'string') return 'string("' + (v.length > 32 ? v.slice(0, 32) + '…' : v) + '")';
-  if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint') return typeof v + '(' + String(v) + ')';
+  if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint')
+    return typeof v + '(' + String(v) + ')';
   if (Array.isArray(v)) return 'array(' + String(v.length) + ')';
   return typeof v;
 }
 
-const ITEM_FIELD_SET: ReadonlySet<string> = new Set<string>(ITEM_FIELDS.map((f: ItemField): string => f));
+const ITEM_FIELD_SET: ReadonlySet<string> = new Set<string>(
+  ITEM_FIELDS.map((f: ItemField): string => f),
+);
 
 function invalid(where: string, why: string): GsDbError {
   return new GsDbError('IMPORT_RECORD_INVALID', where + '：' + why);
@@ -153,7 +156,8 @@ function pick(rec: Record<string, unknown>, field: ItemField, where: string): un
 
 function requireText(rec: Record<string, unknown>, field: ItemField, where: string): string {
   const v = pick(rec, field, where);
-  if (typeof v !== 'string') throw invalid(where, '字段 ' + field + ' 类型不对：期望 string，实际 ' + valueLabel(v));
+  if (typeof v !== 'string')
+    throw invalid(where, '字段 ' + field + ' 类型不对：期望 string，实际 ' + valueLabel(v));
   return v;
 }
 
@@ -165,18 +169,30 @@ function requireInteger(rec: Record<string, unknown>, field: ItemField, where: s
   return v;
 }
 
-function optionalText(rec: Record<string, unknown>, field: ItemField, where: string): string | null {
+function optionalText(
+  rec: Record<string, unknown>,
+  field: ItemField,
+  where: string,
+): string | null {
   const v = pick(rec, field, where);
   if (v === null) return null;
-  if (typeof v !== 'string') throw invalid(where, '字段 ' + field + ' 类型不对：期望 string 或 null，实际 ' + valueLabel(v));
+  if (typeof v !== 'string')
+    throw invalid(where, '字段 ' + field + ' 类型不对：期望 string 或 null，实际 ' + valueLabel(v));
   return v;
 }
 
-function optionalInteger(rec: Record<string, unknown>, field: ItemField, where: string): number | null {
+function optionalInteger(
+  rec: Record<string, unknown>,
+  field: ItemField,
+  where: string,
+): number | null {
   const v = pick(rec, field, where);
   if (v === null) return null;
   if (typeof v !== 'number' || !Number.isFinite(v)) {
-    throw invalid(where, '字段 ' + field + ' 类型不对：期望有限的 number 或 null，实际 ' + valueLabel(v));
+    throw invalid(
+      where,
+      '字段 ' + field + ' 类型不对：期望有限的 number 或 null，实际 ' + valueLabel(v),
+    );
   }
   return v;
 }

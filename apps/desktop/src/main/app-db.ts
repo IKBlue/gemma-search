@@ -15,8 +15,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
-  changesOf, DEFAULT_BUSY_TIMEOUT_MS, flagOf, GsDbError, migrateApp, numberOf,
-  openNodeSqlite, textOf, textOrNullOf,
+  changesOf,
+  DEFAULT_BUSY_TIMEOUT_MS,
+  flagOf,
+  GsDbError,
+  migrateApp,
+  numberOf,
+  openNodeSqlite,
+  textOf,
+  textOrNullOf,
 } from './db/index.ts';
 import type { MigrationResult, SqlDatabase, SqlRow } from './db/index.ts';
 
@@ -57,9 +64,24 @@ export function openAppDb(options: OpenAppDbOptions): AppDb {
   try {
     db.exec('PRAGMA journal_mode = WAL;');
     const migration = migrateApp(db, options.now ? { now: options.now } : {});
-    return { db, dbPath, migration, close: () => { try { db.close(); } catch { /* 已关 */ } } };
+    return {
+      db,
+      dbPath,
+      migration,
+      close: () => {
+        try {
+          db.close();
+        } catch {
+          /* 已关 */
+        }
+      },
+    };
   } catch (e) {
-    try { db.close(); } catch { /* 已经不可用 */ }
+    try {
+      db.close();
+    } catch {
+      /* 已经不可用 */
+    }
     throw e;
   }
 }
@@ -128,7 +150,10 @@ function toCollectDir(row: SqlRow): CollectDirRow {
 
 /** library_registry 全部行（按 sort_order, lib_id —— 与索引 idx_library_registry_sort 同序） */
 export function listLibraries(db: SqlDatabase): LibraryRow[] {
-  return db.prepare('SELECT * FROM library_registry ORDER BY sort_order, lib_id').all().map(toLibrary);
+  return db
+    .prepare('SELECT * FROM library_registry ORDER BY sort_order, lib_id')
+    .all()
+    .map(toLibrary);
 }
 
 export function getLibrary(db: SqlDatabase, libId: string): LibraryRow | null {
@@ -170,13 +195,17 @@ export function normalizeRootPath(root: string): string {
   let resolved = path.resolve(raw);
   try {
     resolved = fs.realpathSync.native(resolved);
-  } catch { /* 不存在/无权限：保持 resolve 的结果 */ }
+  } catch {
+    /* 不存在/无权限：保持 resolve 的结果 */
+  }
   const trimmed = resolved.replace(/[\\/]+$/, '');
   return trimmed || resolved;
 }
 
 export function nextSortOrder(db: SqlDatabase): number {
-  const row = db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM library_registry').get();
+  const row = db
+    .prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM library_registry')
+    .get();
   // COALESCE(MAX(...), -1) 保证这行**一定存在**且是数字；不是就抛（不静默给 0）
   return numberOf(row === undefined ? undefined : row['n'], 'library_registry.MAX(sort_order)+1');
 }
@@ -197,7 +226,7 @@ export function insertLibrary(db: SqlDatabase, input: InsertLibraryInput): Libra
   const ts = now();
   db.prepare(
     'INSERT INTO library_registry (lib_id, root, display_name, enabled, compat_key, sort_order, registered_at_ms, updated_at_ms) ' +
-    'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   ).run(
     input.libId,
     normalizeRootPath(input.root),
@@ -209,18 +238,37 @@ export function insertLibrary(db: SqlDatabase, input: InsertLibraryInput): Libra
     ts,
   );
   const row = getLibrary(db, input.libId);
-  if (row === null) throw new GsDbError('UNEXPECTED_SQL_VALUE', '登记后读不回这一行：' + input.libId);
+  if (row === null)
+    throw new GsDbError('UNEXPECTED_SQL_VALUE', '登记后读不回这一行：' + input.libId);
   return row;
 }
 
 /** 停用/启用（**不动任何文件** —— 停用不等于删除） */
-export function updateLibraryEnabled(db: SqlDatabase, libId: string, enabled: boolean, now: () => number = Date.now): LibraryRow | null {
-  db.prepare('UPDATE library_registry SET enabled = ?, updated_at_ms = ? WHERE lib_id = ?').run(enabled ? 1 : 0, now(), libId);
+export function updateLibraryEnabled(
+  db: SqlDatabase,
+  libId: string,
+  enabled: boolean,
+  now: () => number = Date.now,
+): LibraryRow | null {
+  db.prepare('UPDATE library_registry SET enabled = ?, updated_at_ms = ? WHERE lib_id = ?').run(
+    enabled ? 1 : 0,
+    now(),
+    libId,
+  );
   return getLibrary(db, libId);
 }
 
-export function updateLibrarySortOrder(db: SqlDatabase, libId: string, sortOrder: number, now: () => number = Date.now): LibraryRow | null {
-  db.prepare('UPDATE library_registry SET sort_order = ?, updated_at_ms = ? WHERE lib_id = ?').run(sortOrder, now(), libId);
+export function updateLibrarySortOrder(
+  db: SqlDatabase,
+  libId: string,
+  sortOrder: number,
+  now: () => number = Date.now,
+): LibraryRow | null {
+  db.prepare('UPDATE library_registry SET sort_order = ?, updated_at_ms = ? WHERE lib_id = ?').run(
+    sortOrder,
+    now(),
+    libId,
+  );
   return getLibrary(db, libId);
 }
 
@@ -230,16 +278,26 @@ export function updateLibrarySortOrder(db: SqlDatabase, libId: string, sortOrder
  *    静态测试（tests/app-db.test.mjs 的 D4）会扫描 main/** 里的字面 SQL —— 调用方自己写就红。
  */
 export function updateLibraryRootAndName(
-  db: SqlDatabase, libId: string, root: string, displayName: string, now: () => number = Date.now,
+  db: SqlDatabase,
+  libId: string,
+  root: string,
+  displayName: string,
+  now: () => number = Date.now,
 ): LibraryRow | null {
-  db.prepare('UPDATE library_registry SET root = ?, display_name = ?, updated_at_ms = ? WHERE lib_id = ?')
-    .run(normalizeRootPath(root), displayName, now(), libId);
+  db.prepare(
+    'UPDATE library_registry SET root = ?, display_name = ?, updated_at_ms = ? WHERE lib_id = ?',
+  ).run(normalizeRootPath(root), displayName, now(), libId);
   return getLibrary(db, libId);
 }
 
 export function deleteLibrary(db: SqlDatabase, libId: string): boolean {
   // changes 在适配层声明的类型就是 number | bigint ⇒ 走同一套收窄（不许 > 0 隐式比较 bigint）
-  return changesOf(db.prepare('DELETE FROM library_registry WHERE lib_id = ?').run(libId), 'library_registry DELETE') > 0;
+  return (
+    changesOf(
+      db.prepare('DELETE FROM library_registry WHERE lib_id = ?').run(libId),
+      'library_registry DELETE',
+    ) > 0
+  );
 }
 
 // ---------------------------------------------------------------- 写：collect_dir（唯一写入口）
@@ -255,7 +313,8 @@ export interface InsertCollectDirInput {
 export function insertCollectDir(db: SqlDatabase, input: InsertCollectDirInput): CollectDirRow {
   const abs = path.resolve(String(input.absPath).trim());
   const label = String(input.label).trim();
-  if (!abs || !label) throw new GsDbError('IMPORT_INPUT_INVALID', 'collectDirAdd 需要非空的 absPath 与 label');
+  if (!abs || !label)
+    throw new GsDbError('IMPORT_INPUT_INVALID', 'collectDirAdd 需要非空的 absPath 与 label');
   const dirId = crypto.randomUUID();
   db.prepare(
     'INSERT INTO collect_dir (dir_id, label, abs_path, is_default, created_at_ms) VALUES (?, ?, ?, 0, ?)',
@@ -267,7 +326,12 @@ export function insertCollectDir(db: SqlDatabase, input: InsertCollectDirInput):
 }
 
 export function deleteCollectDir(db: SqlDatabase, dirId: string): boolean {
-  return changesOf(db.prepare('DELETE FROM collect_dir WHERE dir_id = ?').run(dirId), 'collect_dir DELETE') > 0;
+  return (
+    changesOf(
+      db.prepare('DELETE FROM collect_dir WHERE dir_id = ?').run(dirId),
+      'collect_dir DELETE',
+    ) > 0
+  );
 }
 
 /**
@@ -285,7 +349,11 @@ export function setDefaultCollectDir(db: SqlDatabase, dirId: string): CollectDir
     db.prepare('UPDATE collect_dir SET is_default = 1 WHERE dir_id = ?').run(dirId);
     db.exec('COMMIT');
   } catch (e) {
-    try { db.exec('ROLLBACK'); } catch { /* 回滚失败：原样抛出下面的错 */ }
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      /* 回滚失败：原样抛出下面的错 */
+    }
     throw e;
   }
   return listCollectDirs(db).find((r) => r.dirId === dirId) ?? null;

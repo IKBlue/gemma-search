@@ -18,7 +18,10 @@ import { fileURLToPath } from 'node:url';
 import { resolveIndexLocation } from '../../../packages/engine/src/index-layout.ts';
 import { checkLibraryHealth } from '../src/main/library-health.ts';
 // ⚠️ 夹具**复用**引擎测试里那一份（P1：同一份库的构造只留一份）
-import { makeLibrary, writeIndexFixture } from '../../../packages/engine/tests/helpers/lib-fixture.mjs';
+import {
+  makeLibrary,
+  writeIndexFixture,
+} from '../../../packages/engine/tests/helpers/lib-fixture.mjs';
 import { resolveTestLibraryRoot } from '../../../packages/engine/tests/lib-root.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -55,20 +58,38 @@ test('T44-U1 resolveIndexLocation：新布局 / 旧布局 / 都没有 —— lay
   const newPath = path.join(root, '.gs-index.bin');
   const oldPath = path.join(legacy, 'L1', 'index.bin');
 
-  const none = resolveIndexLocation({ libId: 'L1', libraryRoot: root, legacyLibrariesDir: legacy, exists });
+  const none = resolveIndexLocation({
+    libId: 'L1',
+    libraryRoot: root,
+    legacyLibrariesDir: legacy,
+    exists,
+  });
   assert.equal(none.layout, 'none');
   assert.equal(none.indexPath, null);
   assert.equal(none.preferredPath, newPath, '首选路径永远是**新布局**（没有命中时错误信息要指它）');
   assert.equal(none.candidates.length, 2);
-  assert.ok(none.reason.includes(newPath) && none.reason.includes(oldPath), '理由里要列清找过哪些路径');
+  assert.ok(
+    none.reason.includes(newPath) && none.reason.includes(oldPath),
+    '理由里要列清找过哪些路径',
+  );
 
   seen.add(path.resolve(oldPath));
-  const old = resolveIndexLocation({ libId: 'L1', libraryRoot: root, legacyLibrariesDir: legacy, exists });
+  const old = resolveIndexLocation({
+    libId: 'L1',
+    libraryRoot: root,
+    legacyLibrariesDir: legacy,
+    exists,
+  });
   assert.equal(old.layout, 'legacy');
   assert.equal(old.indexPath, oldPath);
 
   seen.add(path.resolve(newPath));
-  const fresh = resolveIndexLocation({ libId: 'L1', libraryRoot: root, legacyLibrariesDir: legacy, exists });
+  const fresh = resolveIndexLocation({
+    libId: 'L1',
+    libraryRoot: root,
+    legacyLibrariesDir: legacy,
+    exists,
+  });
   assert.equal(fresh.layout, 'library-root', '两处都有 ⇒ 新布局优先');
   assert.equal(fresh.indexPath, newPath);
 
@@ -92,7 +113,7 @@ test('T44-H1 新布局：库根下的 .gs-index.bin 通过五道校验 ⇒ index
 });
 
 test('T44-H2 ⭐ 旧布局回退：库根没有索引，但 <dataDir>/libraries/<libId>/index.bin 有效 ⇒ **照样 ok**（不许报缺失）', () => {
-  const s = setup();   // 索引只在旧布局位置
+  const s = setup(); // 索引只在旧布局位置
   const rep = checkLibraryHealth({ libId: 'L1', root: s.libRoot, legacyLibrariesDir: s.legacyDir });
   const c = indexCheck(rep);
   assert.equal(rep.indexLayout, 'legacy');
@@ -104,7 +125,7 @@ test('T44-H2 ⭐ 旧布局回退：库根没有索引，但 <dataDir>/libraries/
 
 test('T44-H3 真缺失：两处都没有 ⇒ INDEX_MISSING，且理由列出找过的两条路径', () => {
   const s = setup();
-  fs.rmSync(path.join(s.legacyDir, 'L1'), { recursive: true, force: true });   // 旧布局那份也删掉
+  fs.rmSync(path.join(s.legacyDir, 'L1'), { recursive: true, force: true }); // 旧布局那份也删掉
   const rep = checkLibraryHealth({ libId: 'L1', root: s.libRoot, legacyLibrariesDir: s.legacyDir });
   const c = indexCheck(rep);
   assert.equal(rep.indexLayout, 'none');
@@ -115,13 +136,17 @@ test('T44-H3 真缺失：两处都没有 ⇒ INDEX_MISSING，且理由列出找�
 });
 
 test('T44-H4 不给旧布局根（迁移完成后的口径）⇒ 只认新布局，缺了就是 INDEX_MISSING（与上面区分开）', () => {
-  const s = setup();   // 旧布局里有索引，但调用方没给旧布局根
+  const s = setup(); // 旧布局里有索引，但调用方没给旧布局根
   const rep = checkLibraryHealth({ libId: 'L1', root: s.libRoot });
   const c = indexCheck(rep);
   assert.equal(rep.indexLayout, 'none');
   assert.equal(c.ok, false);
   assert.equal(c.code, 'INDEX_MISSING');
-  assert.equal(c.reason.includes(s.legacyDir), false, '没给旧布局根就**不许**声称找过它（.gs-index.bin 里也含 index.bin 子串，所以按目录判）');
+  assert.equal(
+    c.reason.includes(s.legacyDir),
+    false,
+    '没给旧布局根就**不许**声称找过它（.gs-index.bin 里也含 index.bin 子串，所以按目录判）',
+  );
 });
 
 // ─────────────────────────────────────────── 真库实跑（旧布局）
@@ -131,7 +156,8 @@ test('T44-R ⭐⭐ 真库实跑 data/libraries/L1（旧布局）：带旧布局�
   if (!found) return t.skip('本机没有可用的素材库根');
   const legacyDir = path.join(REPO_ROOT, 'data', 'libraries');
   const libId = found.libId || 'L1';
-  if (!fs.existsSync(path.join(legacyDir, libId, 'index.bin'))) return t.skip('本机没有旧布局索引可对账');
+  if (!fs.existsSync(path.join(legacyDir, libId, 'index.bin')))
+    return t.skip('本机没有旧布局索引可对账');
 
   const withLegacy = checkLibraryHealth({ libId, root: found.root, legacyLibrariesDir: legacyDir });
   const withoutLegacy = checkLibraryHealth({ libId, root: found.root });
@@ -139,9 +165,23 @@ test('T44-R ⭐⭐ 真库实跑 data/libraries/L1（旧布局）：带旧布局�
   const b = indexCheck(withoutLegacy);
 
   t.diagnostic('库根 ' + found.root + '（来源 ' + found.source + '）· 旧布局根 ' + legacyDir);
-  t.diagnostic('带旧布局根：layout=' + withLegacy.indexLayout + ' · ok=' + String(a.ok) + ' · code=' + JSON.stringify(a.code));
+  t.diagnostic(
+    '带旧布局根：layout=' +
+      withLegacy.indexLayout +
+      ' · ok=' +
+      String(a.ok) +
+      ' · code=' +
+      JSON.stringify(a.code),
+  );
   t.diagnostic('  reason: ' + a.reason);
-  t.diagnostic('不带（旧口径）：layout=' + withoutLegacy.indexLayout + ' · ok=' + String(b.ok) + ' · code=' + JSON.stringify(b.code));
+  t.diagnostic(
+    '不带（旧口径）：layout=' +
+      withoutLegacy.indexLayout +
+      ' · ok=' +
+      String(b.ok) +
+      ' · code=' +
+      JSON.stringify(b.code),
+  );
   t.diagnostic('  reason: ' + b.reason);
 
   assert.equal(a.ok, true, '真库那份旧布局索引应当过引擎五道校验：' + a.reason);

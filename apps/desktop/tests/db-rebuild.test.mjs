@@ -41,7 +41,7 @@ const now = () => FIXED_NOW;
 
 let seq = 0;
 function freshDir(label) {
-  const dir = path.join(TMP, label + '-' + (++seq));
+  const dir = path.join(TMP, label + '-' + ++seq);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   return dir;
@@ -60,12 +60,24 @@ function scalar(db, sql, ...params) {
 function makeItem(uid, over = {}) {
   return Object.assign(
     {
-      uid, libId: 'L1', folder: 'CR', stem: 'ID-' + uid, name: 'ID-' + uid + '.jpg',
-      relPath: 'CR/ID-' + uid + '.jpg', absPath: 'X:/lib/CR/ID-' + uid + '.jpg',
-      imageExt: '.jpg', imageSize: 1000, imageMtime: 1700000000000,
-      archiveName: 'ID-' + uid + '.rar', archiveRelPath: 'CR/ID-' + uid + '.rar',
-      archiveAbsPath: 'X:/lib/CR/ID-' + uid + '.rar', archiveExt: '.rar',
-      archiveSize: 2000, archiveMtime: 1699999999999, vectorRow: 0, vectorSource: 'native',
+      uid,
+      libId: 'L1',
+      folder: 'CR',
+      stem: 'ID-' + uid,
+      name: 'ID-' + uid + '.jpg',
+      relPath: 'CR/ID-' + uid + '.jpg',
+      absPath: 'X:/lib/CR/ID-' + uid + '.jpg',
+      imageExt: '.jpg',
+      imageSize: 1000,
+      imageMtime: 1700000000000,
+      archiveName: 'ID-' + uid + '.rar',
+      archiveRelPath: 'CR/ID-' + uid + '.rar',
+      archiveAbsPath: 'X:/lib/CR/ID-' + uid + '.rar',
+      archiveExt: '.rar',
+      archiveSize: 2000,
+      archiveMtime: 1699999999999,
+      vectorRow: 0,
+      vectorSource: 'native',
     },
     over,
   );
@@ -76,7 +88,7 @@ const U3 = 'cccccccccccc';
 
 /**
  * 一次"全库快照"：重建前后要逐项比的就是它。
- * digest = 全行按 uid 排序后的规范化序列化（字段集合见下面的 FIELDS，单一来源）的 sha1 —— 
+ * digest = 全行按 uid 排序后的规范化序列化（字段集合见下面的 FIELDS，单一来源）的 sha1 ——
  * 比"逐行 deepEqual"更省事，且差异一定来自真实内容（不是对象键序）。
  */
 function snapshot(db, libId) {
@@ -87,9 +99,26 @@ function snapshot(db, libId) {
     .prepare(ASSET_ITEM_SELECT_ALL_SQL)
     .all(libId)
     .map((row, i) => joinedRowToItemRecord(row, 'X:/lib', 'db-rebuild asset[' + String(i) + ']'));
-  const FIELDS = ['uid', 'libId', 'folder', 'stem', 'name', 'relPath', 'absPath', 'imageExt', 'imageSize',
-    'imageMtime', 'archiveName', 'archiveRelPath', 'archiveAbsPath', 'archiveExt', 'archiveSize', 'archiveMtime',
-    'vectorRow', 'vectorSource'];
+  const FIELDS = [
+    'uid',
+    'libId',
+    'folder',
+    'stem',
+    'name',
+    'relPath',
+    'absPath',
+    'imageExt',
+    'imageSize',
+    'imageMtime',
+    'archiveName',
+    'archiveRelPath',
+    'archiveAbsPath',
+    'archiveExt',
+    'archiveSize',
+    'archiveMtime',
+    'vectorRow',
+    'vectorSource',
+  ];
   const lines = rows.map((r) => FIELDS.map((f) => JSON.stringify(r[f])).join('|'));
   const digest = crypto.createHash('sha1').update(lines.join('\n')).digest('hex');
   const rowToUid = new Map();
@@ -99,7 +128,10 @@ function snapshot(db, libId) {
     count: rows.length,
     sqlCount: scalar(db, 'SELECT COUNT(*) AS n FROM asset WHERE lib_id = ?', libId),
     distinctUid: scalar(db, 'SELECT COUNT(DISTINCT uid) AS n FROM asset WHERE lib_id = ?', libId),
-    distinctRows: scalar(db, 'SELECT COUNT(DISTINCT vector_row) AS n FROM asset_index_state WHERE vector_row IS NOT NULL'),
+    distinctRows: scalar(
+      db,
+      'SELECT COUNT(DISTINCT vector_row) AS n FROM asset_index_state WHERE vector_row IS NOT NULL',
+    ),
     minRow: scalar(db, 'SELECT MIN(vector_row) AS n FROM asset_index_state'),
     maxRow: scalar(db, 'SELECT MAX(vector_row) AS n FROM asset_index_state'),
     digest,
@@ -117,7 +149,9 @@ function snapshot(db, libId) {
     lib: null,
     /** 旧表**不得**复活：绿地 6 张表里没有 items / library（这条抓的是"有人把旧表加回来"） */
     legacyTables: db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('items', 'library') ORDER BY name")
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('items', 'library') ORDER BY name",
+      )
       .all()
       .map((r) => r.name),
   };
@@ -153,14 +187,22 @@ test('R1 ⭐ 真实库删库重建：行数 / uid 集合 / vectorRow 对齐 / �
   const indexBinPath = path.join(libDir, 'index.bin');
   const metaPath = path.join(libDir, 'meta.json');
   if (!fs.existsSync(itemsJsonPath) || !fs.existsSync(indexBinPath) || !fs.existsSync(metaPath)) {
-    t.skip('本机没有 ' + libDir + ' 的 items.json/index.bin/meta.json（真实库未就位）—— 该断言无法执行');
+    t.skip(
+      '本机没有 ' + libDir + ' 的 items.json/index.bin/meta.json（真实库未就位）—— 该断言无法执行',
+    );
     return;
   }
   const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
   const dir = freshDir('R1');
   // 计数来源 = expectedCount（meta.json 的 count，Lead 裁定的**默认**路径）
   const opts = {
-    library: { libId: meta.lib_id, root: meta.lib_root, dim: meta.dim, seq: meta.seq_length, compat: meta.compat },
+    library: {
+      libId: meta.lib_id,
+      root: meta.lib_root,
+      dim: meta.dim,
+      seq: meta.seq_length,
+      compat: meta.compat,
+    },
     itemsJsonPath,
     expectedCount: meta.count,
   };
@@ -182,7 +224,11 @@ test('R1 ⭐ 真实库删库重建：行数 / uid 集合 / vectorRow 对齐 / �
   //   (a) 字段契约（恒 false）；(b) 库里真的**没有**库注册表行、也**没有**旧表。
   // 【为何非放宽】旧断言要求「建了库行」（新 schema 下永远做不到 ⇒ 恒红）；新断言要求「库行不存在 + 旧表不存在」，
   //   能被「有人把库行/旧表加回来」打红 —— 方向从「期待旧行为」变成「禁止旧结构」。
-  assert.equal(rebuilt.report.libraryCreated, false, '绿地后导入不写库注册表 ⇒ 该字段恒 false（契约）');
+  assert.equal(
+    rebuilt.report.libraryCreated,
+    false,
+    '绿地后导入不写库注册表 ⇒ 该字段恒 false（契约）',
+  );
   assert.equal(rebuilt.snap.lib, null, '重建后的库级 .gs.db 不得有库注册表行（它在 app.db）');
   assert.deepEqual(rebuilt.snap.legacyTables, [], '重建后的库级 .gs.db 不得有旧表 items / library');
 
@@ -192,14 +238,34 @@ test('R1 ⭐ 真实库删库重建：行数 / uid 集合 / vectorRow 对齐 / �
   assert.equal(rebuilt.snap.sqlCount, first.snap.sqlCount);
   assert.equal(rebuilt.snap.distinctUid, first.snap.distinctUid, 'uid 去重数一致');
   assert.deepEqual(rebuilt.snap.uids, first.snap.uids, 'uid 集合必须逐条一致（排序后比对）');
-  assert.deepEqual(rebuilt.snap.uidVectorRow, first.snap.uidVectorRow, 'uid→vectorRow 必须逐条一致');
-  assert.deepEqual(rebuilt.snap.vectorRowUid, first.snap.vectorRowUid, 'vectorRow→uid 反向映射也必须一致');
-  assert.equal(rebuilt.snap.digest, first.snap.digest, '全行规范化摘要必须一致（比逐行 deepEqual 更严）');
+  assert.deepEqual(
+    rebuilt.snap.uidVectorRow,
+    first.snap.uidVectorRow,
+    'uid→vectorRow 必须逐条一致',
+  );
+  assert.deepEqual(
+    rebuilt.snap.vectorRowUid,
+    first.snap.vectorRowUid,
+    'vectorRow→uid 反向映射也必须一致',
+  );
+  assert.equal(
+    rebuilt.snap.digest,
+    first.snap.digest,
+    '全行规范化摘要必须一致（比逐行 deepEqual 更严）',
+  );
   // 【改前】assert.deepEqual(rebuilt.snap.lib, first.snap.lib, 'library 行必须一致…')
   // 【改后】库级 .gs.db **不得**有库注册表行 / 不得有旧表（都比"两边相等"更强：旧口径在新 schema 下恒真）
   // 【为何非放宽】旧断言在绿地口径下两条都是 null ⇒ 恒真；新断言要求"旧东西**不存在**"，能被"有人把旧表加回来"打红。
-  assert.equal(rebuilt.snap.lib, null, '导入**不得**在库级 .gs.db 建库注册表行（它在 app.db，由 library* 方法写）');
-  assert.deepEqual(rebuilt.snap.legacyTables, [], '库级 .gs.db **不得**出现旧表 items / library（绿地 6 张表）');
+  assert.equal(
+    rebuilt.snap.lib,
+    null,
+    '导入**不得**在库级 .gs.db 建库注册表行（它在 app.db，由 library* 方法写）',
+  );
+  assert.deepEqual(
+    rebuilt.snap.legacyTables,
+    [],
+    '库级 .gs.db **不得**出现旧表 items / library（绿地 6 张表）',
+  );
   assert.equal(rebuilt.snap.version, first.snap.version);
   assert.equal(rebuilt.snap.version, TARGET_SCHEMA_VERSION);
 
@@ -216,12 +282,21 @@ test('R1 ⭐ 真实库删库重建：行数 / uid 集合 / vectorRow 对齐 / �
 
   // ---- 第二次删库重建：重建本身是确定的，不是"碰巧对上了一次"
   const again = deleteAndRebuild(dir, opts);
-  assert.equal(again.snap.digest, first.snap.digest, '第二次重建的摘要必须与首次导入一致（确定性）');
+  assert.equal(
+    again.snap.digest,
+    first.snap.digest,
+    '第二次重建的摘要必须与首次导入一致（确定性）',
+  );
   assert.deepEqual(again.snap.uidVectorRow, first.snap.uidVectorRow);
 
   t.diagnostic(
-    'R1 对账：count=' + String(first.snap.count) + ' · index.count=' + String(indexCount) +
-      ' · digest=' + first.snap.digest + ' · 三次（首次/重建1/重建2）摘要全等',
+    'R1 对账：count=' +
+      String(first.snap.count) +
+      ' · index.count=' +
+      String(indexCount) +
+      ' · digest=' +
+      first.snap.digest +
+      ' · 三次（首次/重建1/重建2）摘要全等',
   );
 });
 
@@ -229,7 +304,13 @@ test('R1 ⭐ 真实库删库重建：行数 / uid 集合 / vectorRow 对齐 / �
 
 test('R2 ⭐ 重建结果只取决于源文件：旧库的残留不会带进新库', () => {
   const dirOld = freshDir('R2-old');
-  const items5 = writeItems(path.join(dirOld, 'items5.json'), [U1, U2, U3, 'dddddddddddd', 'eeeeeeeeeeee']);
+  const items5 = writeItems(path.join(dirOld, 'items5.json'), [
+    U1,
+    U2,
+    U3,
+    'dddddddddddd',
+    'eeeeeeeeeeee',
+  ]);
   const old = importAndSnapshot(dirOld, {
     library: { libId: 'L1', root: 'X:/lib' },
     itemsJsonPath: items5,
@@ -284,7 +365,11 @@ test('R3 ⭐ .gs.db 损坏 ⇒ 打开时响亮报错（不是"空库"），删�
   const rebuilt = deleteAndRebuild(dir, opts);
   assert.equal(rebuilt.opened.created, true);
   assert.equal(rebuilt.snap.count, 3);
-  assert.equal(rebuilt.snap.digest, first.snap.digest, '损坏后重建的结果必须与损坏前一致（源文件没变）');
+  assert.equal(
+    rebuilt.snap.digest,
+    first.snap.digest,
+    '损坏后重建的结果必须与损坏前一致（源文件没变）',
+  );
 });
 
 // ============================================================ R4 计数来源：默认 expectedCount
@@ -293,7 +378,11 @@ test('R4 ⭐ 计数来源取舍：默认 expectedCount 不读索引；indexBinPa
   const libDir = freshDir('R4-lib');
   const itemsJsonPath = writeItems(path.join(libDir, 'items.json'), [U1, U2, U3]);
   const metaPath = path.join(libDir, 'meta.json');
-  fs.writeFileSync(metaPath, JSON.stringify({ lib_id: 'L1', lib_root: 'X:/lib', count: 3 }), 'utf8');
+  fs.writeFileSync(
+    metaPath,
+    JSON.stringify({ lib_id: 'L1', lib_root: 'X:/lib', count: 3 }),
+    'utf8',
+  );
   const junkIndex = path.join(libDir, 'index.bin');
   fs.writeFileSync(junkIndex, 'not a GSIDX file', 'utf8');
   const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
@@ -320,20 +409,25 @@ test('R4 ⭐ 计数来源取舍：默认 expectedCount 不读索引；indexBinPa
   const opened2 = openGsDb({ dbPath: path.join(freshDir('R4b'), '.gs.db'), now });
   try {
     assert.throws(
-      () => importItemsFromJson({
-        db: opened2.db,
-        library: { libId: meta.lib_id, root: meta.lib_root },
-        itemsJsonPath,
-        expectedCount: meta.count,
-        indexBinPath: junkIndex,
-        now,
-      }),
+      () =>
+        importItemsFromJson({
+          db: opened2.db,
+          library: { libId: meta.lib_id, root: meta.lib_root },
+          itemsJsonPath,
+          expectedCount: meta.count,
+          indexBinPath: junkIndex,
+          now,
+        }),
       (e) => e instanceof GsDbError && e.code === 'IMPORT_INDEX_UNREADABLE',
     );
     // 【改前】数的是**旧宽表**（绿地 schema 里不存在 ⇒ 那条会抛 no such table）—— 三行记录见 s2.txt
     // 【改后】查事实层的 asset —— 语义完全相同：**坏索引 ⇒ 一行都不导入**。
     // 【为何非放宽】仍是"必须 0 行"的强断言；改的只是被数的表（旧表已退役）。
-    assert.equal(scalar(opened2.db, 'SELECT COUNT(*) AS n FROM asset'), 0, '索引坏了 ⇒ 一行都不导入');
+    assert.equal(
+      scalar(opened2.db, 'SELECT COUNT(*) AS n FROM asset'),
+      0,
+      '索引坏了 ⇒ 一行都不导入',
+    );
   } finally {
     opened2.db.close();
   }
@@ -344,8 +438,16 @@ test('R4 ⭐ 计数来源取舍：默认 expectedCount 不读索引；indexBinPa
 test('R5：重建会重新跑迁移（v0→目标版本），且不会留下旧的 -wal/-shm', () => {
   const dir = freshDir('R5');
   const itemsJsonPath = writeItems(path.join(dir, 'items.json'), [U1]);
-  const first = importAndSnapshot(dir, { library: { libId: 'L1', root: 'X:/lib' }, itemsJsonPath, expectedCount: 1 });
-  const rebuilt = deleteAndRebuild(dir, { library: { libId: 'L1', root: 'X:/lib' }, itemsJsonPath, expectedCount: 1 });
+  const first = importAndSnapshot(dir, {
+    library: { libId: 'L1', root: 'X:/lib' },
+    itemsJsonPath,
+    expectedCount: 1,
+  });
+  const rebuilt = deleteAndRebuild(dir, {
+    library: { libId: 'L1', root: 'X:/lib' },
+    itemsJsonPath,
+    expectedCount: 1,
+  });
   assert.equal(rebuilt.opened.migration.fromVersion, 0);
   // 【改前】assert.deepEqual(applied.map(m => m.version), [1, 2])  ← 把**旧库的两条迁移**写死了
   // 【改后】绿地只有一条库级迁移 ⇒ applied 必须恰为 [TARGET_SCHEMA_VERSION]（**跟随清单**，不写死数字）
@@ -362,6 +464,10 @@ test('R5：重建会重新跑迁移（v0→目标版本），且不会留下旧�
 });
 
 function writeItems(p, uids) {
-  fs.writeFileSync(p, JSON.stringify(uids.map((uid, i) => makeItem(uid, { vectorRow: i }))), 'utf8');
+  fs.writeFileSync(
+    p,
+    JSON.stringify(uids.map((uid, i) => makeItem(uid, { vectorRow: i }))),
+    'utf8',
+  );
   return p;
 }

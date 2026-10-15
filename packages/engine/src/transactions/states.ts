@@ -31,13 +31,25 @@ export type StateName = string;
  * 标注成 readonly string[] 是为了让 `FORWARD.indexOf(st)`（st: string）能编译 ——
  * 若保留字面量元组类型，indexOf 会退化成只接受那几个字面量。
  */
-export const FORWARD: readonly string[] = Object.freeze([S.PREPARED, S.STAGED, S.VERIFIED, S.COMMITTED, S.CLEANED]);
+export const FORWARD: readonly string[] = Object.freeze([
+  S.PREPARED,
+  S.STAGED,
+  S.VERIFIED,
+  S.COMMITTED,
+  S.CLEANED,
+]);
 
 /** 终态：到了就不该再动文件（§4「归档日志，不动文件」） */
 export const TERMINAL: readonly string[] = Object.freeze([S.CLEANED, S.ABORTED]);
 
 /** 中间态：进程被杀后需要恢复介入的状态 */
-export const NON_TERMINAL: readonly string[] = Object.freeze([S.PREPARED, S.STAGED, S.VERIFIED, S.COMMITTED, S.RECOVERY_NEEDED]);
+export const NON_TERMINAL: readonly string[] = Object.freeze([
+  S.PREPARED,
+  S.STAGED,
+  S.VERIFIED,
+  S.COMMITTED,
+  S.RECOVERY_NEEDED,
+]);
 
 /** S 的值集合（同 FORWARD 的理由：让 string 参数能查） */
 const KNOWN_STATES: readonly string[] = Object.values(S);
@@ -63,11 +75,11 @@ export function nextOf(st: StateName): string | null {
  */
 export function canTransition(from: StateName, to: StateName): boolean {
   if (!isKnown(from) || !isKnown(to)) return false;
-  if (from === to) return false;                     // 原地不动不算跃迁
-  if (isTerminal(from)) return false;                // 终态不可再变（幂等恢复的前提）
+  if (from === to) return false; // 原地不动不算跃迁
+  if (isTerminal(from)) return false; // 终态不可再变（幂等恢复的前提）
   if (to === S.RECOVERY_NEEDED) return !isTerminal(from);
   if (to === S.ABORTED) return from === S.PREPARED || from === S.STAGED || from === S.VERIFIED;
-  return nextOf(from) === to;                        // 其余只允许主链前进一步
+  return nextOf(from) === to; // 其余只允许主链前进一步
 }
 
 /**
@@ -84,11 +96,11 @@ export const canCancel = (st: StateName): boolean =>
  * 返回值刻意是**动作名**而不是函数：这样它可断言、可双向验证，也不会在判定阶段就动文件。
  */
 export const ACTION = Object.freeze({
-  ROLLBACK: 'rollback',      // 清 staging，源不动
-  VERIFY: 'verify',          // 比对 stagedSha1：一致→前进；不一致→回退
-  ADVANCE: 'advance',        // 继续把它做完（rename / 索引 / 清源）
-  ASK_HUMAN: 'ask-human',    // 判定不唯一 ⇒ 停下问人，绝不猜
-  ARCHIVE: 'archive',        // 终态 ⇒ 归档日志，不动文件
+  ROLLBACK: 'rollback', // 清 staging，源不动
+  VERIFY: 'verify', // 比对 stagedSha1：一致→前进；不一致→回退
+  ADVANCE: 'advance', // 继续把它做完（rename / 索引 / 清源）
+  ASK_HUMAN: 'ask-human', // 判定不唯一 ⇒ 停下问人，绝不猜
+  ARCHIVE: 'archive', // 终态 ⇒ 归档日志，不动文件
 });
 
 /** ACTION 的取值联合 */
@@ -96,14 +108,22 @@ export type RecoveryAction = (typeof ACTION)[keyof typeof ACTION];
 
 export function recoveryActionOf(st: StateName): RecoveryAction {
   switch (st) {
-    case S.PREPARED: return ACTION.ROLLBACK;      // §4「PREPARED → 回退（删 staging）」
-    case S.STAGED: return ACTION.VERIFY;          // §4「STAGED → 校验 staging；一致则前进，不一致则回退」
-    case S.VERIFIED: return ACTION.ADVANCE;       // §4「VERIFIED / COMMITTED → 前进」
-    case S.COMMITTED: return ACTION.ADVANCE;
-    case S.RECOVERY_NEEDED: return ACTION.ASK_HUMAN;
-    case S.CLEANED: return ACTION.ARCHIVE;
-    case S.ABORTED: return ACTION.ARCHIVE;
-    default: return ACTION.ASK_HUMAN;             // 认不出的状态**不许猜**，交给人（同 §2 的"判定不唯一"精神）
+    case S.PREPARED:
+      return ACTION.ROLLBACK; // §4「PREPARED → 回退（删 staging）」
+    case S.STAGED:
+      return ACTION.VERIFY; // §4「STAGED → 校验 staging；一致则前进，不一致则回退」
+    case S.VERIFIED:
+      return ACTION.ADVANCE; // §4「VERIFIED / COMMITTED → 前进」
+    case S.COMMITTED:
+      return ACTION.ADVANCE;
+    case S.RECOVERY_NEEDED:
+      return ACTION.ASK_HUMAN;
+    case S.CLEANED:
+      return ACTION.ARCHIVE;
+    case S.ABORTED:
+      return ACTION.ARCHIVE;
+    default:
+      return ACTION.ASK_HUMAN; // 认不出的状态**不许猜**，交给人（同 §2 的"判定不唯一"精神）
   }
 }
 

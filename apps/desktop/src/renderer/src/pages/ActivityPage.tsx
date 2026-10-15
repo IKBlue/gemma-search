@@ -7,26 +7,36 @@
 //   不留假按钮、不显示一张空表假装"你没有记录"，而是如实说明"等对应的表上线"。
 //
 //   ⚠️ 外壳（AppShell + SearchSidebar + Topbar + 返回搜索链接）**必须保留**（同 TasksPage 的教训）。
-import { Link } from 'react-router'
+import { Link } from 'react-router';
 
-import AppShell from '../layout/AppShell.tsx'
-import Main from '../layout/Main.tsx'
-import PageHead from '../layout/PageHead.tsx'
-import Topbar from '../layout/Topbar.tsx'
-import Button from '../ui/Button.tsx'
-import SearchSidebar from '../search/SearchSidebar.tsx'
-import { LABELS } from '../router/paths.ts'
-import { useDocumentTitle } from '../utils/useDocumentTitle.ts'
+import AppShell from '../layout/AppShell.tsx';
+import Main from '../layout/Main.tsx';
+import PageHead from '../layout/PageHead.tsx';
+import Topbar from '../layout/Topbar.tsx';
+import Button from '../ui/Button.tsx';
+import SearchSidebar from '../search/SearchSidebar.tsx';
+import { LABELS } from '../router/paths.ts';
+import { useDocumentTitle } from '../utils/useDocumentTitle.ts';
 
 export default function ActivityPage() {
-  useDocumentTitle(LABELS.activity)
+  useDocumentTitle(LABELS.activity);
 
   return (
     <AppShell sidebar={<SearchSidebar lib={null} indexLoading={false} indexError={null} />}>
       <Main>
         <Topbar
-          crumb={<>工作区 <span className="crumb-sep">/</span> <strong>操作记录</strong></>}
-          actions={<Button variant="icon" asChild><Link to="/" aria-label="返回搜索" title="返回搜索">←</Link></Button>}
+          crumb={
+            <>
+              工作区 <span className="crumb-sep">/</span> <strong>操作记录</strong>
+            </>
+          }
+          actions={
+            <Button variant="icon" asChild>
+              <Link to="/" aria-label="返回搜索" title="返回搜索">
+                ←
+              </Link>
+            </Button>
+          }
         />
 
         <div className="content">
@@ -49,5 +59,5 @@ export default function ActivityPage() {
         </div>
       </Main>
     </AppShell>
-  )
+  );
 }

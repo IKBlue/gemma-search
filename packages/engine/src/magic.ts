@@ -31,14 +31,29 @@ const WEBP = 'WEBP';
 /** 从文件头字节判定真实格式（纯函数，可单测；不碰盘） */
 export function detectImageFormat(head: Buffer): ImageFormat {
   // JPEG: FF D8 FF
-  if (head.length >= 3 && head[0] === 0xFF && head[1] === 0xD8 && head[2] === 0xFF) return 'jpeg';
+  if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return 'jpeg';
   // PNG: 89 50 4E 47 0D 0A 1A 0A（8 字节全查：只看前 4 字节会把某些截断文件也判成 PNG）
-  if (head.length >= 8 && head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4E && head[3] === 0x47
-      && head[4] === 0x0D && head[5] === 0x0A && head[6] === 0x1A && head[7] === 0x0A) return 'png';
+  if (
+    head.length >= 8 &&
+    head[0] === 0x89 &&
+    head[1] === 0x50 &&
+    head[2] === 0x4e &&
+    head[3] === 0x47 &&
+    head[4] === 0x0d &&
+    head[5] === 0x0a &&
+    head[6] === 0x1a &&
+    head[7] === 0x0a
+  )
+    return 'png';
   // BMP: 'BM'
-  if (head.length >= 2 && head[0] === 0x42 && head[1] === 0x4D) return 'bmp';
+  if (head.length >= 2 && head[0] === 0x42 && head[1] === 0x4d) return 'bmp';
   // WebP: 'RIFF' ???? 'WEBP'
-  if (head.length >= 12 && head.toString('latin1', 0, 4) === RIFF && head.toString('latin1', 8, 12) === WEBP) return 'webp';
+  if (
+    head.length >= 12 &&
+    head.toString('latin1', 0, 4) === RIFF &&
+    head.toString('latin1', 8, 12) === WEBP
+  )
+    return 'webp';
   // GIF: 'GIF8'
   if (head.length >= 4 && head.toString('latin1', 0, 4) === 'GIF8') return 'gif';
   return 'unknown';

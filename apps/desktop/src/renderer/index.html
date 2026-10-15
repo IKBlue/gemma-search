@@ -1,20 +1,22 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8" />
-  <!-- CSP：应用自身 + thumb: 缩略图；不连任何远程源（离线要求）。
+  <head>
+    <meta charset="utf-8" />
+    <!-- CSP：应用自身 + thumb: 缩略图；不连任何远程源（离线要求）。
        dev 态 electron-vite 会额外放宽 connect-src 以放行 HMR 的 ws 连接，见 electron.vite.config.mjs。
        style-src 的 'unsafe-inline' 是 Vite 注入样式所必需（生产态样式会抽成文件）。 -->
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
                  img-src 'self' thumb: data:; font-src 'self'; connect-src 'self';
-                 object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" />
-  <title>gemma-search · 素材库语义检索</title>
-</head>
-<body>
-  <!-- 渲染进程由 React 挂载（src/main.tsx）；这里只留挂载点。
+                 object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    />
+    <title>gemma-search · 素材库语义检索</title>
+  </head>
+  <body>
+    <!-- 渲染进程由 React 挂载（src/main.tsx）；这里只留挂载点。
        界面结构、类名与样式（src/app.css）沿用迁移前那一版，行为不变。 -->
-  <div id="root"></div>
-  <script type="module" src="/src/main.tsx"></script>
-</body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>

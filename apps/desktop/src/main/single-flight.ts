@@ -29,8 +29,12 @@ export function createSingleFlight<T>(): SingleFlight<T> {
       // 用 then(两个回调) 而不是 finally：顺手把「这个拒绝已经有人处理」也做掉，
       // 否则调用方只挂自己的 catch 时，这里会留下一次 unhandledRejection。
       p.then(
-        () => { if (current === p) current = null; },
-        () => { if (current === p) current = null; },
+        () => {
+          if (current === p) current = null;
+        },
+        () => {
+          if (current === p) current = null;
+        },
       );
       return p;
     },

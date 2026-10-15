@@ -15,22 +15,22 @@
 //    `{libraries: [], chosen: null}` 表示"四条路都没找到库"，那也必须进向导。
 
 /** 判定结果（四个字面量就是界面的四个分支） */
-export type GateDecision = 'loading' | 'error' | 'wizard' | 'app'
+export type GateDecision = 'loading' | 'error' | 'wizard' | 'app';
 
 /** `useLibraryConfig()` 的返回（或任何**同形状**的注入源 —— 所以只要结构对就收） */
 export type GateState = {
-  loading?: boolean
-  error?: unknown
-  data?: { libraries?: unknown[] } | null
-}
+  loading?: boolean;
+  error?: unknown;
+  data?: { libraries?: unknown[] } | null;
+};
 
 /**
  * @param state `useLibraryConfig()` 的返回（或任何同形状的注入源）；`null` 按"什么都没读到"处理
  */
 export function decideGate(state?: GateState | null): GateDecision {
-  const s: GateState = state || {}
-  if (s.loading) return 'loading'
-  if (s.error) return 'error'
-  const libs = (s.data && s.data.libraries) || []
-  return Array.isArray(libs) && libs.length > 0 ? 'app' : 'wizard'
+  const s: GateState = state || {};
+  if (s.loading) return 'loading';
+  if (s.error) return 'error';
+  const libs = (s.data && s.data.libraries) || [];
+  return Array.isArray(libs) && libs.length > 0 ? 'app' : 'wizard';
 }

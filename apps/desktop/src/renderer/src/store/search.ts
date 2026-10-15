@@ -10,24 +10,24 @@
 //
 // ⚠️ 提示文案（toast）**不进 store**：它是 UI 关切。动作把它当参数收（`run(onToast)`），
 //   这样 store 保持与界面无关，也不会出现"状态层偷偷改界面"。
-import { create } from 'zustand'
+import { create } from 'zustand';
 
-import { invoke as apiInvoke } from '../adapter/api.ts'
-import type { AdapterError } from '../adapter/api.ts'
+import { invoke as apiInvoke } from '../adapter/api.ts';
+import type { AdapterError } from '../adapter/api.ts';
 
 /** 与库的业务维度一致（素材库的四个目录）；'未分类' 是入库默认目录，索引里可能还没有 */
-export const FOLDERS = ['VR', 'CR', 'CR+VR', '其他']
-export const CHIPS = ['全部', ...FOLDERS, '未分类']
+export const FOLDERS = ['VR', 'CR', 'CR+VR', '其他'];
+export const CHIPS = ['全部', ...FOLDERS, '未分类'];
 
 /** 一条检索结果（只声明本 store 用到的字段；其余原样透出） */
 export type SearchResult = {
-  uid?: string
-  libId?: string
-  stem?: string
-  score?: number
-  archive?: unknown
-  exists?: { image?: boolean; archive?: boolean } | null
-}
+  uid?: string;
+  libId?: string;
+  stem?: string;
+  score?: number;
+  archive?: unknown;
+  exists?: { image?: boolean; archive?: boolean } | null;
+};
 
 /**
  * 排序（**纯函数**，导出以便单测）。
@@ -35,48 +35,51 @@ export type SearchResult = {
  *   name         —— 文件名升序
  *   recent       —— 目前与 score 相同（"最近添加"要索引提供 mtime，P3b 再补，界面会给提示）
  */
-export function sortResults<T extends { stem?: string; score?: number }>(list: T[] | null, sort: string): T[] | null {
-  if (!list) return list
-  const out = [...list]
-  if (sort === 'name') out.sort((a, b) => String(a.stem || '').localeCompare(String(b.stem || '')))
-  else if (sort !== 'recent') out.sort((a, b) => Number(b.score) - Number(a.score))
-  return out
+export function sortResults<T extends { stem?: string; score?: number }>(
+  list: T[] | null,
+  sort: string,
+): T[] | null {
+  if (!list) return list;
+  const out = [...list];
+  if (sort === 'name') out.sort((a, b) => String(a.stem || '').localeCompare(String(b.stem || '')));
+  else if (sort !== 'recent') out.sort((a, b) => Number(b.score) - Number(a.score));
+  return out;
 }
 
 /** `search` 的响应载荷（本 store 消费的部分） */
 export type SearchData = {
-  results?: SearchResult[]
-  tookMs?: number
-  libsSkipped?: Array<{ reason: { userMessage: string } }>
-}
+  results?: SearchResult[];
+  tookMs?: number;
+  libsSkipped?: Array<{ reason: { userMessage: string } }>;
+};
 
 /** `collect` 的响应载荷（本 store 消费的部分） */
 export type CollectData = {
-  succeeded: unknown[]
-  skipped: unknown[]
-  failed: unknown[]
-  targetDir: string
-}
+  succeeded: unknown[];
+  skipped: unknown[];
+  failed: unknown[];
+  targetDir: string;
+};
 
 /** 提示语气（与 `hooks/useToast` 的约定一致） */
-export type ToastTone = 'info' | 'err'
+export type ToastTone = 'info' | 'err';
 /** store 不 import UI，只收一个"怎么提示"的回调 */
-export type ToastFn = (msg: unknown, tone?: ToastTone) => void
+export type ToastFn = (msg: unknown, tone?: ToastTone) => void;
 
 /** 检索模式 */
-export type SearchMode = 'text' | 'image'
+export type SearchMode = 'text' | 'image';
 
 /** store 的状态部分 */
 export type SearchState = {
-  mode: SearchMode          // text | image
-  query: string
-  folder: string
-  sort: string
-  busy: boolean
-  meta: string
-  rawResults: SearchResult[] | null   // null = 还没搜过（界面据此显示引导块）；[] = 搜过但没结果
-  error: AdapterError | null
-  queryImagePath: string | null
+  mode: SearchMode; // text | image
+  query: string;
+  folder: string;
+  sort: string;
+  busy: boolean;
+  meta: string;
+  rawResults: SearchResult[] | null; // null = 还没搜过（界面据此显示引导块）；[] = 搜过但没结果
+  error: AdapterError | null;
+  queryImagePath: string | null;
   /**
    * 待确认的取件项（`null` = 没有待确认的东西）。
    *
@@ -86,8 +89,8 @@ export type SearchState = {
    * ⚠️ 状态放在 **store** 而不是组件里：这是"该不该执行一个破坏性动作"的**决策**，
    *   它属于 Operation 层；而且放在这里，`npm test` 才能断言"取消 ⇒ 一个 IPC 都没发"。
    */
-  pendingCollect: SearchResult | null
-}
+  pendingCollect: SearchResult | null;
+};
 
 const initial: SearchState = {
   mode: 'text',
@@ -100,27 +103,27 @@ const initial: SearchState = {
   error: null,
   queryImagePath: null,
   pendingCollect: null,
-}
+};
 
 /** store 的形状：状态 + 动作 */
 export type SearchStore = SearchState & {
-  setMode: (mode: SearchMode) => void
-  setQuery: (query: string) => void
-  setFolder: (folder: string) => void
-  setSort: (sort: string) => void
-  setQueryImagePath: (p: string | null) => void
-  clear: () => void
-  run: (onToast?: ToastFn) => Promise<void>
-  reveal: (item: SearchResult, onToast?: ToastFn) => Promise<void>
-  collect: (item: SearchResult, onToast?: ToastFn) => Promise<void>
+  setMode: (mode: SearchMode) => void;
+  setQuery: (query: string) => void;
+  setFolder: (folder: string) => void;
+  setSort: (sort: string) => void;
+  setQueryImagePath: (p: string | null) => void;
+  clear: () => void;
+  run: (onToast?: ToastFn) => Promise<void>;
+  reveal: (item: SearchResult, onToast?: ToastFn) => Promise<void>;
+  collect: (item: SearchResult, onToast?: ToastFn) => Promise<void>;
   /** 只给测试用：把 store 回到初始态（避免测试之间互相污染） */
-  __reset: () => void
+  __reset: () => void;
   /** 请求取件（只记下来 → 界面据此弹出确认框，**不执行任何 IPC**） */
-  requestCollect: (item?: SearchResult | null) => void
+  requestCollect: (item?: SearchResult | null) => void;
   /** 取消（丢弃请求 —— 这是"用户拒绝"的唯一路径） */
-  cancelCollect: () => void
-  confirmCollect: (onToast?: ToastFn) => Promise<void>
-}
+  cancelCollect: () => void;
+  confirmCollect: (onToast?: ToastFn) => Promise<void>;
+};
 
 export const useSearchStore = create<SearchStore>()((set, get) => ({
   ...initial,
@@ -139,59 +142,79 @@ export const useSearchStore = create<SearchStore>()((set, get) => ({
    * `onToast` 可选 —— 校验失败时要告诉用户，但 store 不 import 任何 UI。
    */
   run: async (onToast) => {
-    const { busy, mode, query, folder, queryImagePath } = get()
-    if (busy) return
+    const { busy, mode, query, folder, queryImagePath } = get();
+    if (busy) return;
 
-    const params: Record<string, unknown> = { mode, topK: 60, filters: { folders: folder === '全部' ? FOLDERS : [folder] } }
+    const params: Record<string, unknown> = {
+      mode,
+      topK: 60,
+      filters: { folders: folder === '全部' ? FOLDERS : [folder] },
+    };
     if (mode === 'text') {
-      const text = query.trim()
-      if (!text) { if (onToast) onToast('请输入要查找的内容'); return }
-      params.text = text
+      const text = query.trim();
+      if (!text) {
+        if (onToast) onToast('请输入要查找的内容');
+        return;
+      }
+      params.text = text;
     } else {
-      if (!queryImagePath) { if (onToast) onToast('请先选择一张参考图'); return }
-      params.queryImagePath = queryImagePath
+      if (!queryImagePath) {
+        if (onToast) onToast('请先选择一张参考图');
+        return;
+      }
+      params.queryImagePath = queryImagePath;
     }
 
-    set({ busy: true, meta: '检索中…（首次会载入模型，约 3 秒）', error: null })
+    set({ busy: true, meta: '检索中…（首次会载入模型，约 3 秒）', error: null });
 
     // Adapter 永不抛 ⇒ 不需要 try/catch（见 `adapter/api.ts` 的 A5 断言）
-    const r = await apiInvoke<SearchData>('search', params)
+    const r = await apiInvoke<SearchData>('search', params);
     if (!r.ok) {
-      set({ busy: false, meta: '', rawResults: [], error: r.error })
-      console.log('[ui] search 失败', JSON.stringify(r.error))
-      return
+      set({ busy: false, meta: '', rawResults: [], error: r.error });
+      console.log('[ui] search 失败', JSON.stringify(r.error));
+      return;
     }
 
-    const list = r.data.results || []
-    set({ busy: false, rawResults: list, meta: `${list.length} 条 · ${r.data.tookMs} ms` })
-    console.log(`[ui] search ${mode} → ${list.length} 条 · ${r.data.tookMs}ms`)
+    const list = r.data.results || [];
+    set({ busy: false, rawResults: list, meta: `${list.length} 条 · ${r.data.tookMs} ms` });
+    console.log(`[ui] search ${mode} → ${list.length} 条 · ${r.data.tookMs}ms`);
 
-    const skipped = r.data.libsSkipped || []
-    if (skipped.length && onToast) onToast(`有 ${skipped.length} 个库被跳过：${skipped[0].reason.userMessage}`)
+    const skipped = r.data.libsSkipped || [];
+    if (skipped.length && onToast)
+      onToast(`有 ${skipped.length} 个库被跳过：${skipped[0].reason.userMessage}`);
   },
 
   reveal: async (item, onToast) => {
     const r = await apiInvoke('reveal', {
-      libId: item.libId, uid: item.uid, target: item.archive ? 'archive' : 'image',
-    })
+      libId: item.libId,
+      uid: item.uid,
+      target: item.archive ? 'archive' : 'image',
+    });
     // ⚠️ 成功文案**不能写成「已在资源管理器中定位」**（F-01 独立复核的 R-1）。
     // `r.ok` 只等价于「文件在盘上 + shell 端口被调用过」—— Electron 的
     // `shell.showItemInFolder` **返回 void、不报告失败**，所以我们**不知道**资源管理器有没有真的弹出来。
     // 写「已定位」就是又一次过度声称：用户没看到窗口时会以为是应用的 bug。
     // 见 `packages/engine/src/engine.mjs` reveal 处的注释与 `docs/spec/CONTRACT-engine-v1.md` §2.4。
     if (onToast) {
-      onToast(r.ok ? '已请求在资源管理器中定位（系统未回报结果）' : r.error.userMessage,
-              r.ok ? 'info' : 'err')
+      onToast(
+        r.ok ? '已请求在资源管理器中定位（系统未回报结果）' : r.error.userMessage,
+        r.ok ? 'info' : 'err',
+      );
     }
   },
 
   collect: async (item, onToast) => {
-    const r = await apiInvoke<CollectData>('collect', { libId: item.libId, uids: [item.uid] })
-    if (!r.ok) { if (onToast) onToast(r.error.userMessage, 'err'); return }
-    const d = r.data
+    const r = await apiInvoke<CollectData>('collect', { libId: item.libId, uids: [item.uid] });
+    if (!r.ok) {
+      if (onToast) onToast(r.error.userMessage, 'err');
+      return;
+    }
+    const d = r.data;
     if (onToast) {
-      onToast(`取件：成功 ${d.succeeded.length} · 跳过 ${d.skipped.length} · 失败 ${d.failed.length} → ${d.targetDir}`,
-        d.failed.length ? 'err' : 'info')
+      onToast(
+        `取件：成功 ${d.succeeded.length} · 跳过 ${d.skipped.length} · 失败 ${d.failed.length} → ${d.targetDir}`,
+        d.failed.length ? 'err' : 'info',
+      );
     }
   },
 
@@ -215,9 +238,9 @@ export const useSearchStore = create<SearchStore>()((set, get) => ({
    *    而取件的第二次调用在语义上是"重复搬同一套素材" —— 不是一个安全的操作。
    */
   confirmCollect: async (onToast) => {
-    const item = get().pendingCollect
-    if (!item) return                       // 没有待确认项 ⇒ 什么都不做（防误调）
-    set({ pendingCollect: null })
-    await get().collect(item, onToast)
+    const item = get().pendingCollect;
+    if (!item) return; // 没有待确认项 ⇒ 什么都不做（防误调）
+    set({ pendingCollect: null });
+    await get().collect(item, onToast);
   },
-}))
+}));

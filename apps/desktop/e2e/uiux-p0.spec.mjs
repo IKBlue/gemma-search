@@ -9,131 +9,134 @@
 //
 // ⚠️ 这一套用的是**引擎桩**（`helpers/engine-stub.mjs`）：它证明的是**接线与可达性**，
 //    **不是**检索质量、也不是详情页内容正确性（那两条各有 E9 与 TODO B-3 负责）。
-import { test, expect } from '@playwright/test'
+import { test, expect } from '@playwright/test';
 
-import { launchWithLibrary } from './helpers/app.mjs'
-import { firstWindow } from './helpers/launch.mjs'
-import { searchOnce } from './helpers/engine-stub.mjs'
+import { launchWithLibrary } from './helpers/app.mjs';
+import { firstWindow } from './helpers/launch.mjs';
+import { searchOnce } from './helpers/engine-stub.mjs';
 
 /** 侧栏链接（真实渲染出来的 `<a>`） */
-const navLink = (win, name) => win.locator('.nav a', { hasText: name })
+const navLink = (win, name) => win.locator('.nav a', { hasText: name });
 
 test('E12-a ⭐ 结果卡的标题是**真链接**，指向详情页（V-28）', async () => {
-  const { app, cleanup } = await launchWithLibrary()
+  const { app, cleanup } = await launchWithLibrary();
   try {
-    const win = await firstWindow(app)
-    await searchOnce(app, win)
+    const win = await firstWindow(app);
+    await searchOnce(app, win);
 
-    const link = win.getByTestId('card-detail-link').first()
-    await expect(link).toBeVisible()
+    const link = win.getByTestId('card-detail-link').first();
+    await expect(link).toBeVisible();
     // 是 `<a>` 而不是 `<div>` —— 这条同时保证"能用键盘 Tab 到"
-    expect(await link.evaluate((el) => el.tagName)).toBe('A')
-    const href = await link.getAttribute('href')
-    expect(href, `详情链接的 href 应指向 /item/L1/<uid>，实际 ${href}`).toContain('#/item/L1/aaa111aaa111')
+    expect(await link.evaluate((el) => el.tagName)).toBe('A');
+    const href = await link.getAttribute('href');
+    expect(href, `详情链接的 href 应指向 /item/L1/<uid>，实际 ${href}`).toContain(
+      '#/item/L1/aaa111aaa111',
+    );
   } finally {
-    await app.close()
-    cleanup()
+    await app.close();
+    cleanup();
   }
-})
+});
 
 test('E12-b ⭐ 点标题**真的能进详情页**（hash + 窗口标题都变）（V-28）', async () => {
-  const { app, cleanup } = await launchWithLibrary()
+  const { app, cleanup } = await launchWithLibrary();
   try {
-    const win = await firstWindow(app)
-    await searchOnce(app, win)
+    const win = await firstWindow(app);
+    await searchOnce(app, win);
 
     // 点之前：在搜索页
-    await expect(win).toHaveTitle(/语义搜索/)
+    await expect(win).toHaveTitle(/语义搜索/);
 
-    await win.getByTestId('card-detail-link').first().click()
+    await win.getByTestId('card-detail-link').first().click();
 
     // ⭐ 判据是"地址栏真的变了 + 标题真的换了"，不是"链接存在"
-    await expect.poll(() => win.evaluate(() => location.hash), { timeout: 10_000 })
-      .toBe('#/item/L1/aaa111aaa111')
-    await expect(win).toHaveTitle(/图片详情/)
+    await expect
+      .poll(() => win.evaluate(() => location.hash), { timeout: 10_000 })
+      .toBe('#/item/L1/aaa111aaa111');
+    await expect(win).toHaveTitle(/图片详情/);
   } finally {
-    await app.close()
-    cleanup()
+    await app.close();
+    cleanup();
   }
-})
+});
 
 test('E12-c ⭐ 侧栏当前页有 `active` 类（V-01：修前恒为 undefined）', async () => {
-  const { app, cleanup } = await launchWithLibrary()
+  const { app, cleanup } = await launchWithLibrary();
   try {
-    const win = await firstWindow(app)
-    await searchOnce(app, win)
+    const win = await firstWindow(app);
+    await searchOnce(app, win);
 
-    const current = navLink(win, '语义搜索')
-    await expect(current).toBeVisible()
+    const current = navLink(win, '语义搜索');
+    await expect(current).toBeVisible();
     // ⚠️ 必须用**会重试**的断言：class 由 React 渲染出来，直接 getAttribute 会与渲染赛跑。
     //    2026-10-14 全量 e2e 里 E12-e 就是这么翻的车：读到渲染前的一帧 ⇒ class=null。
-    await expect(current).toHaveClass(/\bactive\b/)
+    await expect(current).toHaveClass(/\bactive\b/);
   } finally {
-    await app.close()
-    cleanup()
+    await app.close();
+    cleanup();
   }
-})
+});
 
 test('E12-d ⭐⭐ 侧栏当前项**计算背景不透明**（V-01 的真正判据：看得见）', async () => {
-  const { app, cleanup } = await launchWithLibrary()
+  const { app, cleanup } = await launchWithLibrary();
   try {
-    const win = await firstWindow(app)
-    await searchOnce(app, win)
+    const win = await firstWindow(app);
+    await searchOnce(app, win);
 
-    const current = navLink(win, '语义搜索')
+    const current = navLink(win, '语义搜索');
     const styles = await current.evaluate((el) => {
-      const s = getComputedStyle(el)
-      return { bg: s.backgroundColor, shadow: s.boxShadow, color: s.color }
-    })
+      const s = getComputedStyle(el);
+      return { bg: s.backgroundColor, shadow: s.boxShadow, color: s.color };
+    });
     // 修前实测是 `rgba(0, 0, 0, 0)` + `none` —— 用户完全看不出自己在哪一页
-    expect(styles.bg, `当前项背景不该是透明，实际 ${styles.bg}`).not.toBe('rgba(0, 0, 0, 0)')
-    expect(styles.shadow, '当前项应有左侧强调条（inset box-shadow）').not.toBe('none')
+    expect(styles.bg, `当前项背景不该是透明，实际 ${styles.bg}`).not.toBe('rgba(0, 0, 0, 0)');
+    expect(styles.shadow, '当前项应有左侧强调条（inset box-shadow）').not.toBe('none');
   } finally {
-    await app.close()
-    cleanup()
+    await app.close();
+    cleanup();
   }
-})
+});
 
 test('E12-e ⭐ 换一页之后 active **跟着转移**（证明它不是恒真）', async () => {
-  const { app, cleanup } = await launchWithLibrary()
+  const { app, cleanup } = await launchWithLibrary();
   try {
-    const win = await firstWindow(app)
-    await searchOnce(app, win)
+    const win = await firstWindow(app);
+    await searchOnce(app, win);
 
-    await navLink(win, '索引任务').click()
-    await expect.poll(() => win.evaluate(() => location.hash), { timeout: 10_000 }).toBe('#/tasks')
+    await navLink(win, '索引任务').click();
+    await expect.poll(() => win.evaluate(() => location.hash), { timeout: 10_000 }).toBe('#/tasks');
 
-    const tasks = navLink(win, '索引任务')
+    const tasks = navLink(win, '索引任务');
     // hash 变了 ≠ React 已经重渲染：这里必须**重试等待** active 真的跟过来。
     // 2026-10-14：全量跑时此处在渲染前的一帧读到 class=null 而失败，单跑 6/6 绿 ⇒ 是竞态，不是回归。
-    await expect(tasks).toHaveClass(/\bactive\b/)
-    const bg = await tasks.evaluate((el) => getComputedStyle(el).backgroundColor)
-    expect(bg).not.toBe('rgba(0, 0, 0, 0)')
+    await expect(tasks).toHaveClass(/\bactive\b/);
+    const bg = await tasks.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(bg).not.toBe('rgba(0, 0, 0, 0)');
   } finally {
-    await app.close()
-    cleanup()
+    await app.close();
+    cleanup();
   }
-})
+});
 
 test('E12-f ⭐ 非当前项**没有** active（防"全都带 active"这种假绿）', async () => {
-  const { app, cleanup } = await launchWithLibrary()
+  const { app, cleanup } = await launchWithLibrary();
   try {
-    const win = await firstWindow(app)
-    await searchOnce(app, win)
+    const win = await firstWindow(app);
+    await searchOnce(app, win);
 
     // 起始在搜索页 ⇒ 其余三项都不该 active
     for (const name of ['索引任务', '操作记录']) {
-      const other = navLink(win, name)
-      await expect(other).toBeVisible()
+      const other = navLink(win, name);
+      await expect(other).toBeVisible();
       // ⚠️ 顺序很重要：先确认「当前项**确实** active」，再断言其它项没有。
       //    否则"整个侧栏还没渲染出来"会让下面那条**假绿**（这正是 V-01 那类空断言的形态）。
-      await expect(navLink(win, '语义搜索')).toHaveClass(/\bactive\b/)
-      await expect(other).not.toHaveClass(/\bactive\b/)
-      const bg = await other.evaluate((el) => getComputedStyle(el).backgroundColor)
-      expect(bg, `非当前项「${name}」背景不该是选中色`).toBe('rgba(0, 0, 0, 0)')
+      await expect(navLink(win, '语义搜索')).toHaveClass(/\bactive\b/);
+      await expect(other).not.toHaveClass(/\bactive\b/);
+      const bg = await other.evaluate((el) => getComputedStyle(el).backgroundColor);
+      expect(bg, `非当前项「${name}」背景不该是选中色`).toBe('rgba(0, 0, 0, 0)');
     }
   } finally {
-    await app.close()
-    cleanup()
+    await app.close();
+    cleanup();
   }
-})
+});

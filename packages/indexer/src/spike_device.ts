@@ -12,15 +12,27 @@ import type { ModelDevice } from './third_party_types.ts';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
 
 interface DeviceSpikeResult {
-  device: string; seq: number; n: number;
-  load_ms?: number; text_first_ms?: number; text_dim?: number | null;
-  dim?: number | null; per_image_ms?: number[]; first_image_ms?: number;
-  steady_avg_ms?: number | null; avg_ms?: number; ok?: boolean; error?: string;
+  device: string;
+  seq: number;
+  n: number;
+  load_ms?: number;
+  text_first_ms?: number;
+  text_dim?: number | null;
+  dim?: number | null;
+  per_image_ms?: number[];
+  first_image_ms?: number;
+  steady_avg_ms?: number | null;
+  avg_ms?: number;
+  ok?: boolean;
+  error?: string;
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const [modelDir, device = 'cpu', seqArg = '140', nArg = '8'] = process.argv.slice(2);
-if (!modelDir) { console.error('用法: node spike_device.mjs <模型目录> <device> <seq> [张数]'); process.exit(2); }
+if (!modelDir) {
+  console.error('用法: node spike_device.mjs <模型目录> <device> <seq> [张数]');
+  process.exit(2);
+}
 const SEQ = parseInt(seqArg, 10);
 const N = parseInt(nArg, 10);
 
@@ -31,7 +43,7 @@ const selPath = path.join(here, '..', 'spike_selection.json');
 const sel = JSON.parse(fs.readFileSync(selPath, 'utf8')).slice(0, N);
 
 const log = (...a: unknown[]) => console.error('[device]', ...a);
-const t = () => Number(process.hrtime.bigint()) / 1e6;   // ms
+const t = () => Number(process.hrtime.bigint()) / 1e6; // ms
 
 const result: DeviceSpikeResult = { device, seq: SEQ, n: sel.length };
 
@@ -45,7 +57,11 @@ try {
     processor.image_processor.max_soft_tokens = SEQ;
     processor.image_processor.image_seq_length = SEQ;
   }
-  const model = await AutoModel.from_pretrained(modelDir, { config, dtype: 'fp32', device: device as ModelDevice });
+  const model = await AutoModel.from_pretrained(modelDir, {
+    config,
+    dtype: 'fp32',
+    device: device as ModelDevice,
+  });
   result.load_ms = Math.round(t() - t0);
   log(`device=${device} 载入 ${result.load_ms} ms`);
 
@@ -71,10 +87,14 @@ try {
   result.per_image_ms = per;
   result.first_image_ms = per[0];
   const rest = per.slice(1);
-  result.steady_avg_ms = rest.length ? Math.round(rest.reduce((a, b) => a + b, 0) / rest.length) : null;
+  result.steady_avg_ms = rest.length
+    ? Math.round(rest.reduce((a, b) => a + b, 0) / rest.length)
+    : null;
   result.avg_ms = Math.round(per.reduce((a, b) => a + b, 0) / per.length);
 
-  log(`首张 ${result.first_image_ms} ms | 稳态均值 ${result.steady_avg_ms} ms | 总均值 ${result.avg_ms} ms`);
+  log(
+    `首张 ${result.first_image_ms} ms | 稳态均值 ${result.steady_avg_ms} ms | 总均值 ${result.avg_ms} ms`,
+  );
   log(`逐张: ${per.join(', ')}`);
   result.ok = true;
 } catch (e) {

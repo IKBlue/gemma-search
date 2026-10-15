@@ -19,29 +19,30 @@
 
 // ⚠️ `humanSize` 2026-10-13 已移到 `utils/format.js`（格式化工具属 Operation 层）。
 //    这里**只 import 不重新定义** —— 别在本文件里再写一份字节换算（P1）。
-import { humanSize } from '../utils/format.ts'
+import { humanSize } from '../utils/format.ts';
 
 /** 引擎 band → 中文文案。集中在这里，避免同一个概念散落多处。 */
-const BAND_TEXT: Record<string, string> = { high: '同款区间', mid: '很接近', low: '较弱' }
+const BAND_TEXT: Record<string, string> = { high: '同款区间', mid: '很接近', low: '较弱' };
 
 export type ScoreProps = {
   /** 引擎给的分数（原样显示，界面不做任何判定） */
-  score: number | string
+  score: number | string;
   /** 引擎给的档位。**缺失时只显示分数**，不猜 */
-  band?: 'high' | 'mid' | 'low' | string
+  band?: 'high' | 'mid' | 'low' | string;
   /** 包体积（字节） */
-  size?: number | null
-}
+  size?: number | null;
+};
 
 export default function Score({ score, band, size }: ScoreProps) {
   // 用引擎给的 band 直接做 CSS 类，**不再经过任何本地换算**。
   // 未知值（引擎将来加了新档位）同样只显示分数 —— 诚实降级，不假装认识它。
-  const known = !!band && Object.prototype.hasOwnProperty.call(BAND_TEXT, band)
-  const cls = known ? `score ${band}` : 'score'
-  const tail = [known ? BAND_TEXT[band] : '', humanSize(size)].filter(Boolean).join(' · ')
+  const known = !!band && Object.prototype.hasOwnProperty.call(BAND_TEXT, band);
+  const cls = known ? `score ${band}` : 'score';
+  const tail = [known ? BAND_TEXT[band] : '', humanSize(size)].filter(Boolean).join(' · ');
   return (
     <span className={cls} data-band={known ? band : undefined}>
-      {Number(score).toFixed(4)}{tail ? ` · ${tail}` : ''}
+      {Number(score).toFixed(4)}
+      {tail ? ` · ${tail}` : ''}
     </span>
-  )
+  );
 }

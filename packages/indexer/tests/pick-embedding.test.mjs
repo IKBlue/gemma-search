@@ -32,12 +32,21 @@ test('ENC-1 ⭐⭐ last_hidden_state：mean-pool + L2 归一（正常路径的�
 
 test('ENC-1 ⭐⭐ 全零输入必须**拒绝并报错**（不许静默返回全零向量 —— 检索永不命中）', () => {
   // 旧行为：`Math.sqrt(n) || 1` ⇒ 归一化成 0/1 = 0 ⇒ 悄悄回一个全零向量（静默失效）
-  assert.throws(() => pickEmbedding({ last_hidden_state: { data: f32([0, 0, 0, 0]), dims: [1, 2, 2] } }), /全零/);
-  assert.throws(() => pickEmbedding({ sentence_embedding: { data: f32([0, 0]), dims: [1, 2] } }), /全零/);
+  assert.throws(
+    () => pickEmbedding({ last_hidden_state: { data: f32([0, 0, 0, 0]), dims: [1, 2, 2] } }),
+    /全零/,
+  );
+  assert.throws(
+    () => pickEmbedding({ sentence_embedding: { data: f32([0, 0]), dims: [1, 2] } }),
+    /全零/,
+  );
   assert.throws(() => pickEmbedding({ text_embeds: { data: f32([0]), dims: [1, 1] } }), /全零/);
 });
 
 test('ENC-1 ⭐⭐ T === 0 与「三者都缺」也必须报错（三种坏输入都不许静默）', () => {
-  assert.throws(() => pickEmbedding({ last_hidden_state: { data: f32([]), dims: [1, 0, 4] } }), /T === 0/);
+  assert.throws(
+    () => pickEmbedding({ last_hidden_state: { data: f32([]), dims: [1, 0, 4] } }),
+    /T === 0/,
+  );
   assert.throws(() => pickEmbedding({}), /既无 sentence_embedding 也无 last_hidden_state/);
 });

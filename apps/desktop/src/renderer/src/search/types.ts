@@ -6,16 +6,16 @@
 
 /** 结果卡/详情页要用到的一条素材（store 的 `SearchResult` 是它的超集） */
 export type SearchItem = {
-  uid?: string
-  libId?: string
-  stem?: string
-  relPath?: string
-  folder?: string | null
-  score?: number
-  band?: string
-  vectorSource?: string
-  imageSize?: number | null
-  imageMtime?: number | null
+  uid?: string;
+  libId?: string;
+  stem?: string;
+  relPath?: string;
+  folder?: string | null;
+  score?: number;
+  band?: string;
+  vectorSource?: string;
+  imageSize?: number | null;
+  imageMtime?: number | null;
   /**
    * 同名压缩包（缺包是允许的）。
    * ⚠️ 形状写 `unknown` 是**有意的**，与 `store/search.ts` 的 `SearchResult.archive` 保持一致：
@@ -23,12 +23,12 @@ export type SearchItem = {
    *    真要用里面的字段时在**组件里**窄化（见 `PhotoCard` 的 `archiveOf`）。
    *    写成具体对象形状会让 store 的数据类型**对不上**（TS2322），那会逼调用点写断言。
    */
-  archive?: unknown
-  exists?: { image?: boolean; archive?: boolean } | null
-}
+  archive?: unknown;
+  exists?: { image?: boolean; archive?: boolean } | null;
+};
 
 /** 归一化后的错误（Adapter 保证 `userMessage` 非空） */
-export type SearchError = { code?: string; userMessage: string }
+export type SearchError = { code?: string; userMessage: string };
 
 /** 结果区/详情页的错误可以是 `null`（还没出错） */
-export type SearchErrorish = SearchError | null
+export type SearchErrorish = SearchError | null;

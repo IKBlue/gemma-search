@@ -75,7 +75,12 @@ function failure(e: unknown, what: string, libId: string): Envelope {
   log('!! ' + what + '失败 [' + code + ']', message);
   return {
     ok: false,
-    error: { code, message, userMessage: userMessageFor(code), details: { libId, rawCode: codeOf(e) } },
+    error: {
+      code,
+      message,
+      userMessage: userMessageFor(code),
+      details: { libId, rawCode: codeOf(e) },
+    },
   };
 }
 
@@ -129,8 +134,14 @@ export function runLibraryRebuild(input: LibraryMethodInput): Envelope {
       itemsJsonPath: path.join(storage.root, 'items.json'),
       legacyLibrariesDir: input.legacyLibrariesDir ?? null,
     });
-    log('[重建]', input.libId, '· dbCount=' + String(report.import.dbCount),
-        '· 索引处置=' + report.index.action, '·', report.reason);
+    log(
+      '[重建]',
+      input.libId,
+      '· dbCount=' + String(report.import.dbCount),
+      '· 索引处置=' + report.index.action,
+      '·',
+      report.reason,
+    );
     return { ok: true, data: report };
   } catch (e) {
     return failure(e, '重建', input.libId);

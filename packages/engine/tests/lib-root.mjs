@@ -28,7 +28,9 @@ function fromIndexMeta(root) {
     try {
       const m = JSON.parse(fs.readFileSync(meta, 'utf8').replace(/^\uFEFF/, ''));
       if (m.lib_root) out.push({ libId: m.lib_id || d.name, root: String(m.lib_root) });
-    } catch { /* 坏 meta 跳过：这里不负责报错，只负责"有就用" */ }
+    } catch {
+      /* 坏 meta 跳过：这里不负责报错，只负责"有就用" */
+    }
   }
   return out;
 }
@@ -49,7 +51,9 @@ export function resolveTestLibraryRoot(repoRoot) {
       if (cfg.library_root && fs.existsSync(cfg.library_root)) {
         return { root: cfg.library_root, source: 'config.json' };
       }
-    } catch { /* 坏 config 就当没有 */ }
+    } catch {
+      /* 坏 config 就当没有 */
+    }
   }
 
   for (const l of fromIndexMeta(repoRoot)) {

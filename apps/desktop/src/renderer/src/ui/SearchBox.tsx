@@ -4,16 +4,16 @@
 //
 // 2026-10-14 转 TSX：`forwardRef` 的 ref 是**回调 ref 也能用**的那种，所以类型写成
 // `Ref<HTMLInputElement>`；调用点（SearchPanel）传 `useRef<HTMLInputElement>(null)` 即可。
-import { forwardRef } from 'react'
-import type { KeyboardEventHandler, Ref } from 'react'
+import { forwardRef } from 'react';
+import type { KeyboardEventHandler, Ref } from 'react';
 
 export type SearchBoxProps = {
-  value?: string
-  onChange: (value: string) => void
-  onKeyDown?: KeyboardEventHandler<HTMLInputElement>
-  placeholder?: string
-  ariaLabel?: string
-}
+  value?: string;
+  onChange: (value: string) => void;
+  onKeyDown?: KeyboardEventHandler<HTMLInputElement>;
+  placeholder?: string;
+  ariaLabel?: string;
+};
 
 const SearchBox = forwardRef(function SearchBox(
   { value, onChange, onKeyDown, placeholder, ariaLabel }: SearchBoxProps,
@@ -21,7 +21,9 @@ const SearchBox = forwardRef(function SearchBox(
 ) {
   return (
     <div className="search-box">
-      <span aria-hidden="true" className="search-ico">⌕</span>
+      <span aria-hidden="true" className="search-ico">
+        ⌕
+      </span>
       <input
         ref={ref}
         id="query"
@@ -32,7 +34,7 @@ const SearchBox = forwardRef(function SearchBox(
         onKeyDown={onKeyDown}
       />
     </div>
-  )
-})
+  );
+});
 
-export default SearchBox
+export default SearchBox;

@@ -40,7 +40,7 @@ function isWorkspaceRoot(dir: string): boolean {
     const txt = fs.readFileSync(pkg, 'utf8').replace(/^\uFEFF/, '');
     return (JSON.parse(txt) as { workspaces?: unknown }).workspaces !== undefined;
   } catch {
-    return false;                      // 坏了/不可读就当它不是，继续向上
+    return false; // 坏了/不可读就当它不是，继续向上
   }
 }
 
@@ -51,7 +51,7 @@ function detectRepoRoot(start: string): string | null {
     if (isWorkspaceRoot(p)) return p;
     if (engineRoot === null && fs.existsSync(path.join(p, ENGINE_MARKER))) engineRoot = p;
     const up = path.dirname(p);
-    if (up === p) return engineRoot;   // 已到盘根：退而求其次
+    if (up === p) return engineRoot; // 已到盘根：退而求其次
     p = up;
   }
 }
@@ -78,7 +78,8 @@ function packedUserDataDir(): string | null {
   try {
     const req = createRequire(import.meta.url);
     const el = req('electron') as { app?: { getPath?: (name: string) => string } };
-    const p = el && el.app && typeof el.app.getPath === 'function' ? el.app.getPath('userData') : '';
+    const p =
+      el && el.app && typeof el.app.getPath === 'function' ? el.app.getPath('userData') : '';
     return typeof p === 'string' && p ? p : null;
   } catch {
     return null;
@@ -94,8 +95,9 @@ export const ROOT: string = process.env.GEMMA_ROOT || detectRepoRoot(HERE) || FA
  * 日志文件：显式覆盖 > 打包态 <userData>/logs/app.log > <ROOT>/data/_app.log（源码/构建态）。
  * ⚠️ 打包态**绝不**落 asar 内 —— 那正是 T-22a 抓到的 P0。
  */
-export const LOG_FILE: string = process.env.GEMMA_APP_LOG
-  || (PACKED && PACKED_USER_DATA
+export const LOG_FILE: string =
+  process.env.GEMMA_APP_LOG ||
+  (PACKED && PACKED_USER_DATA
     ? path.join(PACKED_USER_DATA, 'logs', 'app.log')
     : path.join(ROOT, 'data', '_app.log'));
 
@@ -103,10 +105,17 @@ const stamp = (): string => new Date().toISOString().slice(11, 23);
 
 /** 任何值 → 一行可读字符串（永不抛） */
 const fmt = (x: unknown): string =>
-  typeof x === 'string' ? x
+  typeof x === 'string'
+    ? x
     : x && typeof x === 'object' && typeof (x as { stack?: unknown }).stack === 'string'
       ? (x as { stack: string }).stack
-      : (() => { try { return JSON.stringify(x); } catch { return String(x); } })();
+      : (() => {
+          try {
+            return JSON.stringify(x);
+          } catch {
+            return String(x);
+          }
+        })();
 
 /**
  * 首次写日志时的**自我断言**：ROOT 必须真的是仓库根。
@@ -115,9 +124,9 @@ const fmt = (x: unknown): string =>
  */
 let rootAsserted = false;
 function assertRootOnce(): void {
-  if (rootAsserted) return;            // 先置位 → 下面递归调用 log() 时不会重入
+  if (rootAsserted) return; // 先置位 → 下面递归调用 log() 时不会重入
   rootAsserted = true;
-  if (PACKED) return;                  // 打包态无仓库根可言
+  if (PACKED) return; // 打包态无仓库根可言
 
   const hasWorkspaces = isWorkspaceRoot(ROOT);
   const hasEngineMarker = fs.existsSync(path.join(ROOT, ENGINE_MARKER));
@@ -134,7 +143,9 @@ function assertRootOnce(): void {
   log('!!   HERE =', HERE);
   log('!!   查过 =', path.join(ROOT, 'package.json'), '（不存在/无 workspaces）');
   log('!!         ', path.join(ROOT, ENGINE_MARKER), '（不存在）');
-  log('!!   后果 = 日志会写到错误目录（静默）、data/ 也会找错 —— 请设 GEMMA_ROOT=<仓库根> 后重跑。');
+  log(
+    '!!   后果 = 日志会写到错误目录（静默）、data/ 也会找错 —— 请设 GEMMA_ROOT=<仓库根> 后重跑。',
+  );
   log('!'.repeat(82));
 }
 
@@ -154,7 +165,14 @@ let failureAnnounced = false;
 
 /** 读当前日志落点与写入状态（N7 用；也可用于测试断言"失败可见"） */
 export function logStatus(): LogStatus {
-  return { file: LOG_FILE, dir: path.dirname(LOG_FILE), ok: logOk, failures: logFailures, error: logError, packed: PACKED };
+  return {
+    file: LOG_FILE,
+    dir: path.dirname(LOG_FILE),
+    ok: logOk,
+    failures: logFailures,
+    error: logError,
+    packed: PACKED,
+  };
 }
 
 /**
@@ -167,10 +185,24 @@ export function logStatus(): LogStatus {
 export function announceLogFailure(err: unknown): void {
   if (failureAnnounced) return;
   failureAnnounced = true;
-  const msg = '[gemma-search] !! 日志写入失败：' + fmt(err) + ' · 目标 = ' + LOG_FILE
-    + ' · packed=' + String(PACKED) + ' · 后续仍会尝试写入；诊断面板可读 logStatus()';
-  try { process.stderr.write(msg + '\n'); } catch { /* GUI 子系统可能没有 stderr */ }
-  try { process.stdout.write(msg + '\n'); } catch { /* 同上 */ }
+  const msg =
+    '[gemma-search] !! 日志写入失败：' +
+    fmt(err) +
+    ' · 目标 = ' +
+    LOG_FILE +
+    ' · packed=' +
+    String(PACKED) +
+    ' · 后续仍会尝试写入；诊断面板可读 logStatus()';
+  try {
+    process.stderr.write(msg + '\n');
+  } catch {
+    /* GUI 子系统可能没有 stderr */
+  }
+  try {
+    process.stdout.write(msg + '\n');
+  } catch {
+    /* 同上 */
+  }
 }
 
 /** 记一次写失败：状态 + 大声报一次（永不抛） */
@@ -183,26 +215,61 @@ function noteFailure(err: unknown): void {
 
 /** 写一行日志：文件 + stdout，两边都失败也不能让应用崩。 */
 export function log(...args: unknown[]): void {
-  assertRootOnce();                    // ← 首次调用即自检（递归安全：标志已先置位）
+  assertRootOnce(); // ← 首次调用即自检（递归安全：标志已先置位）
   const line = `[` + stamp() + `] ` + args.map(fmt).join(' ') + '\n';
-  try { fs.appendFileSync(LOG_FILE, line, 'utf8'); } catch (e) { noteFailure(e); }
-  try { process.stdout.write(line); } catch { /* GUI 子系统没有 stdout */ }
+  try {
+    fs.appendFileSync(LOG_FILE, line, 'utf8');
+  } catch (e) {
+    noteFailure(e);
+  }
+  try {
+    process.stdout.write(line);
+  } catch {
+    /* GUI 子系统没有 stdout */
+  }
 }
 
 // ---------------------------------------------------------------- 初始化
 // ⚠️ 写不进去**必须可见**：T-22a 实测打包态这三处静默失败 ⇒ 零日志而界面一切正常（P0）。
 //    现在失败会记进 logStatus() 并大声报一次（见 announceLogFailure）。
-try { fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true }); } catch (e) { noteFailure(e); }
-try { fs.writeFileSync(LOG_FILE, '', 'utf8'); } catch (e) { noteFailure(e); }
+try {
+  fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
+} catch (e) {
+  noteFailure(e);
+}
+try {
+  fs.writeFileSync(LOG_FILE, '', 'utf8');
+} catch (e) {
+  noteFailure(e);
+}
 
 log('=== gemma-search 启动 ===');
-log('electron', process.versions.electron, '· chrome', process.versions.chrome, '· node', process.versions.node);
+log(
+  'electron',
+  process.versions.electron,
+  '· chrome',
+  process.versions.chrome,
+  '· node',
+  process.versions.node,
+);
 log('ELECTRON_RUN_AS_NODE =', JSON.stringify(process.env.ELECTRON_RUN_AS_NODE ?? null));
 log('argv =', JSON.stringify(process.argv.slice(1)));
 log('日志文件 =', LOG_FILE);
-log('日志落点来源 =', process.env.GEMMA_APP_LOG ? 'GEMMA_APP_LOG 覆盖'
-  : (PACKED && PACKED_USER_DATA ? '打包态 <userData>/logs' : '<ROOT>/data'), '· PACKED =', PACKED);
+log(
+  '日志落点来源 =',
+  process.env.GEMMA_APP_LOG
+    ? 'GEMMA_APP_LOG 覆盖'
+    : PACKED && PACKED_USER_DATA
+      ? '打包态 <userData>/logs'
+      : '<ROOT>/data',
+  '· PACKED =',
+  PACKED,
+);
 log('应用根 =', ROOT);
 if (PACKED || LOG_FILE.includes('app.asar')) {
-  log('!! 注意：应用根落在 asar 内（HERE=' + HERE + '），data/ 无法写入 —— 打包态需要改用 userData（P6）');
+  log(
+    '!! 注意：应用根落在 asar 内（HERE=' +
+      HERE +
+      '），data/ 无法写入 —— 打包态需要改用 userData（P6）',
+  );
 }

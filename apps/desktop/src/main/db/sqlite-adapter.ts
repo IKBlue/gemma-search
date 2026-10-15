@@ -90,7 +90,6 @@ function narrowValue(value: unknown): SqlValue {
   );
 }
 
-
 // ---------------------------------------------------------------- 行的取值器（**单一实现**）
 //
 // ⚠️ 为什么必须放在适配层（而不是各模块自己写）：node:sqlite 的 `SqlValue` **明确允许 bigint**
@@ -115,11 +114,17 @@ export function numberOf(value: unknown, where: string): number {
   if (typeof value === 'bigint') {
     const n = Number(value);
     if (!Number.isSafeInteger(n)) {
-      throw new GsDbError('UNEXPECTED_SQL_VALUE', where + ' 的 bigint 超出安全整数范围：' + value.toString());
+      throw new GsDbError(
+        'UNEXPECTED_SQL_VALUE',
+        where + ' 的 bigint 超出安全整数范围：' + value.toString(),
+      );
     }
     return n;
   }
-  throw new GsDbError('UNEXPECTED_SQL_VALUE', where + ' 期望 number/bigint，实得 ' + typeNameOf(value));
+  throw new GsDbError(
+    'UNEXPECTED_SQL_VALUE',
+    where + ' 期望 number/bigint，实得 ' + typeNameOf(value),
+  );
 }
 
 /** 同上，但 **null 合法**（可空列：archiveSize / vector_row 这类） */
@@ -138,7 +143,10 @@ export function textOf(value: unknown, where: string): string {
 export function textOrNullOf(value: unknown, where: string): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value === 'string') return value;
-  throw new GsDbError('UNEXPECTED_SQL_VALUE', where + ' 期望 string/null，实得 ' + typeNameOf(value));
+  throw new GsDbError(
+    'UNEXPECTED_SQL_VALUE',
+    where + ' 期望 string/null，实得 ' + typeNameOf(value),
+  );
 }
 
 /**
@@ -148,7 +156,10 @@ export function textOrNullOf(value: unknown, where: string): string | null {
 export function flagOf(value: unknown, where: string): boolean {
   const n = numberOf(value, where);
   if (n !== 0 && n !== 1) {
-    throw new GsDbError('UNEXPECTED_SQL_VALUE', where + ' 只允许 0/1（DDL 的 CHECK），实得 ' + String(n));
+    throw new GsDbError(
+      'UNEXPECTED_SQL_VALUE',
+      where + ' 只允许 0/1（DDL 的 CHECK），实得 ' + String(n),
+    );
   }
   return n === 1;
 }
@@ -221,7 +232,11 @@ export const openNodeSqlite: SqlOpenFn = (filename, options = {}) => {
  * 打开失败的统一包装：把驱动的原始报错（含 SQLite 错误码）塞进 cause，并给一句能行动的提示。
  * 单独抽出来是为了让"打开失败"的错误路径**只有一处**（P2）。
  */
-export function openOrThrow(open: SqlOpenFn, filename: string, options: SqlOpenOptions): SqlDatabase {
+export function openOrThrow(
+  open: SqlOpenFn,
+  filename: string,
+  options: SqlOpenOptions,
+): SqlDatabase {
   try {
     return open(filename, options);
   } catch (e) {

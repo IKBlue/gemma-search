@@ -47,7 +47,7 @@ const now = () => FIXED_NOW;
 
 let seq = 0;
 function freshDir(label) {
-  const dir = path.join(TMP, label + '-' + (++seq));
+  const dir = path.join(TMP, label + '-' + ++seq);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   return dir;
@@ -70,12 +70,24 @@ function realIndexBytes(t) {
 function makeItem(uid, over = {}) {
   return Object.assign(
     {
-      uid, libId: 'L1', folder: 'CR', stem: 'ID-' + uid, name: 'ID-' + uid + '.jpg',
-      relPath: 'CR/ID-' + uid + '.jpg', absPath: 'X:/lib/CR/ID-' + uid + '.jpg',
-      imageExt: '.jpg', imageSize: 1000, imageMtime: 1700000000000,
-      archiveName: 'ID-' + uid + '.rar', archiveRelPath: 'CR/ID-' + uid + '.rar',
-      archiveAbsPath: 'X:/lib/CR/ID-' + uid + '.rar', archiveExt: '.rar',
-      archiveSize: 2000, archiveMtime: 1699999999999, vectorRow: 0, vectorSource: 'native',
+      uid,
+      libId: 'L1',
+      folder: 'CR',
+      stem: 'ID-' + uid,
+      name: 'ID-' + uid + '.jpg',
+      relPath: 'CR/ID-' + uid + '.jpg',
+      absPath: 'X:/lib/CR/ID-' + uid + '.jpg',
+      imageExt: '.jpg',
+      imageSize: 1000,
+      imageMtime: 1700000000000,
+      archiveName: 'ID-' + uid + '.rar',
+      archiveRelPath: 'CR/ID-' + uid + '.rar',
+      archiveAbsPath: 'X:/lib/CR/ID-' + uid + '.rar',
+      archiveExt: '.rar',
+      archiveSize: 2000,
+      archiveMtime: 1699999999999,
+      vectorRow: 0,
+      vectorSource: 'native',
     },
     over,
   );
@@ -85,7 +97,11 @@ const U2 = 'bbbbbbbbbbbb';
 const U3 = 'cccccccccccc';
 
 function writeItems(p, uids) {
-  fs.writeFileSync(p, JSON.stringify(uids.map((uid, i) => makeItem(uid, { vectorRow: i }))), 'utf8');
+  fs.writeFileSync(
+    p,
+    JSON.stringify(uids.map((uid, i) => makeItem(uid, { vectorRow: i }))),
+    'utf8',
+  );
   return p;
 }
 
@@ -138,16 +154,24 @@ function logicalSnapshot(dbPath, libId, root) {
   const opened = openGsDb({ dbPath, readOnly: true });
   try {
     const joined = opened.db.prepare(ASSET_ITEM_SELECT_ALL_SQL).all(libId);
-    const records = joined.map((row, i) => joinedRowToItemRecord(row, root, 'snapshot[' + String(i) + ']'));
+    const records = joined.map((row, i) =>
+      joinedRowToItemRecord(row, root, 'snapshot[' + String(i) + ']'),
+    );
     const tables = new Set(
-      opened.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name),
+      opened.db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all()
+        .map((r) => r.name),
     );
     return {
       version: readSchemaVersion(opened.db),
       count: records.length,
       // 逐字段序列化：任何一列（含合成的 absPath）漂移都会让两次重建的快照不相等 —— 这就是 H9 要抓的
       rows: records.map((rec) =>
-        Object.keys(rec).sort().map((k) => k + '=' + JSON.stringify(rec[k])).join('|'),
+        Object.keys(rec)
+          .sort()
+          .map((k) => k + '=' + JSON.stringify(rec[k]))
+          .join('|'),
       ),
       /** 库级库里**不得**有库注册表（它在应用级 app.db；旧的 library 宽表已无对应物） */
       registryTablesInLibraryDb: ['library', 'library_registry'].filter((t) => tables.has(t)),
@@ -161,9 +185,17 @@ function logicalSnapshot(dbPath, libId, root) {
 
 test('H1 ⭐ 自检：库根不存在 ⇒ **只报这一项**，不假装别的检查通过', () => {
   const missing = path.join(TMP, 'H1-nope', 'lib');
-  const r = checkLibraryHealth({ libId: 'L1', root: missing, itemsJsonPath: path.join(missing, 'items.json') });
+  const r = checkLibraryHealth({
+    libId: 'L1',
+    root: missing,
+    itemsJsonPath: path.join(missing, 'items.json'),
+  });
   assert.equal(r.ok, false);
-  assert.deepEqual(r.checks.map((c) => c.id), ['library-root'], '库根不在时后面的检查无从谈起（不许编出假绿）');
+  assert.deepEqual(
+    r.checks.map((c) => c.id),
+    ['library-root'],
+    '库根不在时后面的检查无从谈起（不许编出假绿）',
+  );
   assert.equal(r.checks[0].code, 'LIB_ROOT_MISSING');
   assert.equal(r.checks[0].rebuildable, false);
   assert.equal(r.needsDbRebuild, false);
@@ -176,15 +208,26 @@ test('H2 ⭐ 自检：空库根（无 .gs.db / 无索引）⇒ 失败项各归�
   const dir = freshDir('H2');
   const itemsJsonPath = writeItems(path.join(dir, 'items.json'), [U1, U2, U3]);
   const r = checkLibraryHealth({ libId: 'L1', root: dir, itemsJsonPath });
-  assert.deepEqual(r.checks.map((c) => c.id), ['library-root', 'items-file', 'index', 'db-file']);
+  assert.deepEqual(
+    r.checks.map((c) => c.id),
+    ['library-root', 'items-file', 'index', 'db-file'],
+  );
   assert.equal(checkById(r, 'library-root').ok, true);
   assert.equal(checkById(r, 'items-file').ok, true);
   assert.deepEqual(
-    { ok: checkById(r, 'index').ok, code: checkById(r, 'index').code, rebuildable: checkById(r, 'index').rebuildable },
+    {
+      ok: checkById(r, 'index').ok,
+      code: checkById(r, 'index').code,
+      rebuildable: checkById(r, 'index').rebuildable,
+    },
     { ok: false, code: 'INDEX_MISSING', rebuildable: false },
   );
   assert.deepEqual(
-    { ok: checkById(r, 'db-file').ok, code: checkById(r, 'db-file').code, rebuildable: checkById(r, 'db-file').rebuildable },
+    {
+      ok: checkById(r, 'db-file').ok,
+      code: checkById(r, 'db-file').code,
+      rebuildable: checkById(r, 'db-file').rebuildable,
+    },
     { ok: false, code: 'DB_MISSING', rebuildable: true },
   );
   assert.equal(r.needsDbRebuild, true, '缺 .gs.db ⇒ 重建有意义');
@@ -209,25 +252,44 @@ test('H3 ⭐ 自检：健康库全绿；EXPECTED_TABLES 与 sqlite_master 机械
   // 事实层两张表的**确切行数**：3 条素材 ⇒ 3 行 asset；都带包 ⇒ 3 preview + 3 archive = 6 行 asset_file
   assert.match(checkById(r, 'db-read').reason, /asset=3 行/);
   assert.match(checkById(r, 'db-read').reason, /asset_file=6 行/);
-  assert.match(checkById(r, 'db-schema').reason, new RegExp('schema_version=' + String(TARGET_SCHEMA_VERSION)));
+  assert.match(
+    checkById(r, 'db-schema').reason,
+    new RegExp('schema_version=' + String(TARGET_SCHEMA_VERSION)),
+  );
   // db-tables 的"应有张数"也要被钉住：绿地库级 = 3 张业务表 + 账本（旧口径是 8 张）
   assert.match(checkById(r, 'db-tables').reason, /应有的 4 张表都在/);
 
   // EXPECTED_TABLES（从 DDL 派生）必须与实际表集合一致 —— 否则"表是否在"的检查会漂。
   // 内容按**绿地 6 张表**口径换新（方向不变：断言"派生清单 == 库里真实集合"）。
-  assert.deepEqual([...EXPECTED_TABLES], [
-    'asset', 'asset_file', 'asset_index_state', 'schema_version',
-  ]);
+  assert.deepEqual(
+    [...EXPECTED_TABLES],
+    ['asset', 'asset_file', 'asset_index_state', 'schema_version'],
+  );
   const opened = openGsDb({ dbPath: s.dbPath, readOnly: true });
   try {
-    const have = opened.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((row) => row.name);
+    const have = opened.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+      .all()
+      .map((row) => row.name);
     assert.deepEqual(have, [...EXPECTED_TABLES]);
     // 更强的正向断言：旧设计的表**一张都不许**在（旧清单被删掉，但"它没回来"要单独钉）
-    for (const gone of ['items', 'library', 'doc_dirs', 'documents', 'doc_chunks', 'health_runs', 'health_ledger']) {
+    for (const gone of [
+      'items',
+      'library',
+      'doc_dirs',
+      'documents',
+      'doc_chunks',
+      'health_runs',
+      'health_ledger',
+    ]) {
       assert.equal(have.includes(gone), false, '绿地 schema 不得再有旧表 ' + gone);
     }
     // 库注册表属于应用级 app.db：库级库里出现它就是**越界写**
-    assert.equal(have.includes('library_registry'), false, 'library_registry 在 app.db，不许落在库级 .gs.db');
+    assert.equal(
+      have.includes('library_registry'),
+      false,
+      'library_registry 在 app.db，不许落在库级 .gs.db',
+    );
   } finally {
     opened.db.close();
   }
@@ -237,7 +299,11 @@ test('H3 ⭐ 自检：健康库全绿；EXPECTED_TABLES 与 sqlite_master 机械
 
 test('H4 ⭐ 自检：索引损坏 ⇒ INDEX_CORRUPT，且**不**提示重建元数据（删库重建修不好索引）', () => {
   const s = setupLibrary('H4', [U1, U2, U3]);
-  fs.writeFileSync(path.join(s.dir, '.gs-index.bin'), Buffer.from('not a gsidx file at all'), 'utf8');
+  fs.writeFileSync(
+    path.join(s.dir, '.gs-index.bin'),
+    Buffer.from('not a gsidx file at all'),
+    'utf8',
+  );
   const r = checkLibraryHealth({ libId: 'L1', root: s.dir, itemsJsonPath: s.itemsJsonPath });
   const idx = checkById(r, 'index');
   assert.equal(idx.ok, false);
@@ -255,7 +321,11 @@ test('H5 ⭐ 自检：.gs.db 损坏 ⇒ DB_OPEN_FAILED，可重建', () => {
   const r = checkLibraryHealth({ libId: 'L1', root: s.dir, itemsJsonPath: s.itemsJsonPath });
   assert.equal(checkById(r, 'db-file').ok, true, '文件在（只是内容坏了）');
   assert.deepEqual(
-    { ok: checkById(r, 'db-open').ok, code: checkById(r, 'db-open').code, rebuildable: checkById(r, 'db-open').rebuildable },
+    {
+      ok: checkById(r, 'db-open').ok,
+      code: checkById(r, 'db-open').code,
+      rebuildable: checkById(r, 'db-open').rebuildable,
+    },
     { ok: false, code: 'DB_OPEN_FAILED', rebuildable: true },
   );
   assert.equal(checkById(r, 'db-schema'), undefined, '打不开就不可能查 schema —— 跳过，不假装通过');
@@ -270,7 +340,11 @@ test('H6 自检：schema_version 落后 ⇒ SCHEMA_OUTDATED，其它 db 项仍�
   opened.db.close();
   const r = checkLibraryHealth({ libId: 'L1', root: s.dir, itemsJsonPath: s.itemsJsonPath });
   assert.deepEqual(
-    { ok: checkById(r, 'db-schema').ok, code: checkById(r, 'db-schema').code, rebuildable: checkById(r, 'db-schema').rebuildable },
+    {
+      ok: checkById(r, 'db-schema').ok,
+      code: checkById(r, 'db-schema').code,
+      rebuildable: checkById(r, 'db-schema').rebuildable,
+    },
     { ok: false, code: 'SCHEMA_OUTDATED', rebuildable: true },
   );
   assert.equal(checkById(r, 'db-tables').ok, true);
@@ -300,10 +374,19 @@ test('H8 ⭐ 重建：.gs.db 损坏 ⇒ 删库重建 + 复检，素材摘要一�
   corruptDb(s.dbPath);
   const digestBefore = materialDigest(s.dir, { withContent: true });
 
-  const rep = rebuildLibraryDb({ libId: 'L1', root: s.dir, itemsJsonPath: s.itemsJsonPath, expectedCount: 3, now });
+  const rep = rebuildLibraryDb({
+    libId: 'L1',
+    root: s.dir,
+    itemsJsonPath: s.itemsJsonPath,
+    expectedCount: 3,
+    now,
+  });
   assert.ok(rep.before, '默认要做重建前自检');
   assert.equal(rep.before.needsDbRebuild, true, '重建前自检必须指出"该重建"');
-  assert.ok(rep.removedDbFiles.some((p) => p.endsWith('.gs.db')), '真的删了 .gs.db');
+  assert.ok(
+    rep.removedDbFiles.some((p) => p.endsWith('.gs.db')),
+    '真的删了 .gs.db',
+  );
   assert.equal(rep.created, true);
   assert.deepEqual(rep.schema, { fromVersion: 0, toVersion: TARGET_SCHEMA_VERSION, applied: [1] });
   assert.equal(rep.import.dbCount, 3);
@@ -311,26 +394,53 @@ test('H8 ⭐ 重建：.gs.db 损坏 ⇒ 删库重建 + 复检，素材摘要一�
   assert.equal(rep.indexOk, false, '这个夹具里没有索引');
   assert.equal(rep.ok, false, '索引缺失 ⇒ 整个库还不健康（不许因为"db 建好了"就报成功）');
   assert.match(rep.reason, /重建完成/);
-  assert.deepEqual(materialDigest(s.dir, { withContent: true }), digestBefore, '素材必须一个字节都没变');
+  assert.deepEqual(
+    materialDigest(s.dir, { withContent: true }),
+    digestBefore,
+    '素材必须一个字节都没变',
+  );
 });
 
 // ============================================================ H9 幂等
 
 test('H9 ⭐ 幂等：重建两次的逻辑内容完全一致（不比 .gs.db 文件字节）', (t) => {
   const s = setupLibrary('H9', [U1, U2, U3]);
-  const first = rebuildLibraryDb({ libId: 'L1', root: s.dir, itemsJsonPath: s.itemsJsonPath, expectedCount: 3, now });
+  const first = rebuildLibraryDb({
+    libId: 'L1',
+    root: s.dir,
+    itemsJsonPath: s.itemsJsonPath,
+    expectedCount: 3,
+    now,
+  });
   const snap1 = logicalSnapshot(s.dbPath, 'L1', s.dir);
-  const second = rebuildLibraryDb({ libId: 'L1', root: s.dir, itemsJsonPath: s.itemsJsonPath, expectedCount: 3, now });
+  const second = rebuildLibraryDb({
+    libId: 'L1',
+    root: s.dir,
+    itemsJsonPath: s.itemsJsonPath,
+    expectedCount: 3,
+    now,
+  });
   const snap2 = logicalSnapshot(s.dbPath, 'L1', s.dir);
 
   assert.equal(first.import.dbCount, 3);
   assert.equal(second.import.dbCount, 3);
-  assert.deepEqual(snap2, snap1, '行集（逐字段，含 uid→vectorRow 与合成的 absPath）+ 版本必须逐项一致');
+  assert.deepEqual(
+    snap2,
+    snap1,
+    '行集（逐字段，含 uid→vectorRow 与合成的 absPath）+ 版本必须逐项一致',
+  );
   assert.equal(snap1.count, 3);
   assert.equal(snap1.version, TARGET_SCHEMA_VERSION);
-  assert.deepEqual(snap1.registryTablesInLibraryDb, [], '库级 .gs.db 不得出现库注册表（它在 app.db）');
+  assert.deepEqual(
+    snap1.registryTablesInLibraryDb,
+    [],
+    '库级 .gs.db 不得出现库注册表（它在 app.db）',
+  );
   t.diagnostic(
-    'H9 两次重建的逻辑快照一致（count=' + String(snap1.count) + ' · version=' + String(snap1.version) +
+    'H9 两次重建的逻辑快照一致（count=' +
+      String(snap1.count) +
+      ' · version=' +
+      String(snap1.version) +
       '）；⚠️ **不比 .gs.db 文件字节**：SQLite 页布局 / freelist / WAL checkpoint / 文件内时间戳不保证逐字节可复现',
   );
 });
@@ -343,21 +453,38 @@ test('H10 ⭐ 索引三态：written / kept / still-broken', (t) => {
 
   const a = setupLibrary('H10a', [U1, U2]);
   const written = rebuildLibraryDb({
-    libId: 'L1', root: a.dir, itemsJsonPath: a.itemsJsonPath, expectedCount: 2, indexBytes: bytes, now,
+    libId: 'L1',
+    root: a.dir,
+    itemsJsonPath: a.itemsJsonPath,
+    expectedCount: 2,
+    indexBytes: bytes,
+    now,
   });
   assert.equal(written.index.action, 'written');
   assert.equal(written.index.count, 3594);
   assert.equal(written.indexOk, true);
   assert.equal(written.ok, true, '索引写成功 + db 全绿 ⇒ 整体成功');
 
-  const kept = rebuildLibraryDb({ libId: 'L1', root: a.dir, itemsJsonPath: a.itemsJsonPath, expectedCount: 2, now });
+  const kept = rebuildLibraryDb({
+    libId: 'L1',
+    root: a.dir,
+    itemsJsonPath: a.itemsJsonPath,
+    expectedCount: 2,
+    now,
+  });
   assert.equal(kept.index.action, 'kept', '没给新字节 ⇒ 绝不动索引');
   assert.equal(kept.index.count, 3594);
   assert.equal(kept.ok, true);
 
   const b = setupLibrary('H10b', [U1, U2]);
   fs.writeFileSync(path.join(b.dir, '.gs-index.bin'), Buffer.from('junk'), 'utf8');
-  const broken = rebuildLibraryDb({ libId: 'L1', root: b.dir, itemsJsonPath: b.itemsJsonPath, expectedCount: 2, now });
+  const broken = rebuildLibraryDb({
+    libId: 'L1',
+    root: b.dir,
+    itemsJsonPath: b.itemsJsonPath,
+    expectedCount: 2,
+    now,
+  });
   assert.equal(broken.index.action, 'still-broken');
   assert.equal(broken.dbOk, true, 'db 那部分依然是成功的');
   assert.equal(broken.ok, false, '索引没修好 ⇒ **不许报成功**');
@@ -383,7 +510,11 @@ test('H11 ⭐ 重建只碰 .gs-*：素材摘要（含内容）与文件集合一
   const rep = rebuildLibraryDb({ libId: 'L1', root: dir, itemsJsonPath, expectedCount: 2, now });
   assert.equal(rep.import.dbCount, 2);
 
-  assert.deepEqual(materialDigest(dir, { withContent: true }), before, '素材的路径/大小/mtime/内容都必须完全不变');
+  assert.deepEqual(
+    materialDigest(dir, { withContent: true }),
+    before,
+    '素材的路径/大小/mtime/内容都必须完全不变',
+  );
   const added = allFiles(dir).filter((rel) => !namesBefore.has(rel));
   for (const rel of added) {
     // ⚠️ 用**布局权威**的判据，不是手写 startsWith('.gs-') —— .gs.db 不以 .gs- 开头（本轮实测踩到）
@@ -412,7 +543,12 @@ test('H13 ⭐ 重建：库根不存在 ⇒ LIB_ROOT_MISSING 且**不创建目录
   const missing = path.join(TMP, 'H13-parent', 'lib');
   let err = null;
   try {
-    rebuildLibraryDb({ libId: 'L1', root: missing, itemsJsonPath: path.join(missing, 'items.json'), now });
+    rebuildLibraryDb({
+      libId: 'L1',
+      root: missing,
+      itemsJsonPath: path.join(missing, 'items.json'),
+      now,
+    });
   } catch (e) {
     err = e;
   }
@@ -425,7 +561,14 @@ test('H13 ⭐ 重建：库根不存在 ⇒ LIB_ROOT_MISSING 且**不创建目录
   // 没有落点时也要明确拒绝，而不是猜一个
   const dir = freshDir('H13b');
   assert.throws(
-    () => rebuildLibraryDb({ libId: 'L1', root: dir, itemsJsonPath: writeItems(path.join(dir, 'items.json'), [U1]), dbPath: null, now }),
+    () =>
+      rebuildLibraryDb({
+        libId: 'L1',
+        root: dir,
+        itemsJsonPath: writeItems(path.join(dir, 'items.json'), [U1]),
+        dbPath: null,
+        now,
+      }),
     (e) => e && e.code === 'DB_PATH_REQUIRED',
   );
 });
@@ -438,7 +581,9 @@ test('H12 ⭐ 真实库副本：先弄坏 .gs.db → 自检报错 → 重建 →
   const srcItems = path.join(REAL_LIB, 'items.json');
   const srcMeta = path.join(REAL_LIB, 'meta.json');
   if (!fs.existsSync(srcItems) || !fs.existsSync(srcMeta)) {
-    t.skip('本机没有 ' + REAL_LIB + ' 的 items.json/meta.json（真实库未就位）—— 该验收场景无法执行');
+    t.skip(
+      '本机没有 ' + REAL_LIB + ' 的 items.json/meta.json（真实库未就位）—— 该验收场景无法执行',
+    );
     return;
   }
   const meta = JSON.parse(fs.readFileSync(srcMeta, 'utf8'));
@@ -447,11 +592,22 @@ test('H12 ⭐ 真实库副本：先弄坏 .gs.db → 自检报错 → 重建 →
     fs.copyFileSync(path.join(REAL_LIB, name), path.join(work, name));
   }
   const itemsJsonPath = path.join(work, 'items.json');
-  const library = { compat: meta.compat, dim: meta.dim, seq: meta.seq_length, metaJson: JSON.stringify(meta) };
+  const library = {
+    compat: meta.compat,
+    dim: meta.dim,
+    seq: meta.seq_length,
+    metaJson: JSON.stringify(meta),
+  };
 
   // 第 1 步：正常重建一次（把索引也写进去）—— 前提到位
   const first = rebuildLibraryDb({
-    libId: meta.lib_id, root: work, itemsJsonPath, expectedCount: meta.count, indexBytes: bytes, library, now,
+    libId: meta.lib_id,
+    root: work,
+    itemsJsonPath,
+    expectedCount: meta.count,
+    indexBytes: bytes,
+    library,
+    now,
   });
   assert.equal(first.ok, true, first.reason);
   assert.equal(first.import.dbCount, 3594);
@@ -467,7 +623,12 @@ test('H12 ⭐ 真实库副本：先弄坏 .gs.db → 自检报错 → 重建 →
 
   // 第 3 步：重建
   const rep = rebuildLibraryDb({
-    libId: meta.lib_id, root: work, itemsJsonPath, expectedCount: meta.count, library, now,
+    libId: meta.lib_id,
+    root: work,
+    itemsJsonPath,
+    expectedCount: meta.count,
+    library,
+    now,
   });
   assert.equal(rep.before.needsDbRebuild, true);
   assert.equal(rep.created, true);
@@ -479,15 +640,36 @@ test('H12 ⭐ 真实库副本：先弄坏 .gs.db → 自检报错 → 重建 →
   assert.equal(rep.dbOk, true);
   assert.equal(rep.indexOk, true);
   t.diagnostic(
-    'H12 重建：删除 ' + String(rep.removedDbFiles.length) + ' 个 .gs.db 文件 · schema v' +
-      String(rep.schema.fromVersion) + '→v' + String(rep.schema.toVersion) + ' · 导入 ' + String(rep.import.dbCount) +
-      ' 条（新增 ' + String(rep.import.inserted) + '）· 索引 ' + rep.index.action + '（count=' + String(rep.index.count) + '）· 素材摘要 ' + digestBefore.digest,
+    'H12 重建：删除 ' +
+      String(rep.removedDbFiles.length) +
+      ' 个 .gs.db 文件 · schema v' +
+      String(rep.schema.fromVersion) +
+      '→v' +
+      String(rep.schema.toVersion) +
+      ' · 导入 ' +
+      String(rep.import.dbCount) +
+      ' 条（新增 ' +
+      String(rep.import.inserted) +
+      '）· 索引 ' +
+      rep.index.action +
+      '（count=' +
+      String(rep.index.count) +
+      '）· 素材摘要 ' +
+      digestBefore.digest,
   );
 
   // 第 4 步：素材（items.json / meta.json / index.bin —— 都不是 .gs-*）一个字节都没变
-  assert.deepEqual(materialDigest(work, { withContent: true }), digestBefore, '素材必须一个字节都没变');
+  assert.deepEqual(
+    materialDigest(work, { withContent: true }),
+    digestBefore,
+    '素材必须一个字节都没变',
+  );
   const snap = logicalSnapshot(path.join(work, '.gs.db'), meta.lib_id, work);
   assert.equal(snap.count, 3594);
   assert.equal(snap.version, TARGET_SCHEMA_VERSION);
-  assert.deepEqual(snap.registryTablesInLibraryDb, [], '库级 .gs.db 不得出现库注册表（它在 app.db）');
+  assert.deepEqual(
+    snap.registryTablesInLibraryDb,
+    [],
+    '库级 .gs.db 不得出现库注册表（它在 app.db）',
+  );
 });

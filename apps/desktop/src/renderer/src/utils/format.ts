@@ -7,13 +7,16 @@
 
 /** 把字节数写成人类可读（与原型示例里的 "2.3 MB" 一致） */
 export function humanSize(bytes: unknown): string {
-  const n = Number(bytes)
-  if (!Number.isFinite(n) || n <= 0) return ''
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  let v = n
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1 }
-  return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
 
 /**
@@ -22,9 +25,9 @@ export function humanSize(bytes: unknown): string {
  *   （那属于领域判断，见 `utils/index-state.ts` 的分工）。
  */
 export function humanTime(ms: unknown): string {
-  const n = Number(ms)
-  if (!Number.isFinite(n) || n <= 0) return ''
-  const d = new Date(n)
-  const p = (x: number): string => String(x).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const d = new Date(n);
+  const p = (x: number): string => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }

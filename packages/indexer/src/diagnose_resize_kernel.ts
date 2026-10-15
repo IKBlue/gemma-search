@@ -24,29 +24,47 @@ import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingfac
 import type { ResizeOptions } from 'sharp';
 import type { ImageProcessorConfigView, ModelDevice, ModelDtype } from './third_party_types.ts';
 import { readImageWithFallback } from './bmp_decode.ts';
-import { pickEmbedding } from './embedding.ts';   // 唯一实现（ENC-1 / P1）
+import { pickEmbedding } from './embedding.ts'; // 唯一实现（ENC-1 / P1）
 
-interface KernelCall { kernel: string; from: number[]; to: (number | null | undefined)[] }
-interface FailedSample { rel_path: string; error: string }
+interface KernelCall {
+  kernel: string;
+  from: number[];
+  to: (number | null | undefined)[];
+}
+interface FailedSample {
+  rel_path: string;
+  error: string;
+}
 interface DiagnoseResult {
-  model_dir: string; seq: number; device: string; kernels: string[];
+  model_dir: string;
+  seq: number;
+  device: string;
+  kernels: string[];
   vectors: Record<string, Record<string, number[]>>;
   failed?: Record<string, FailedSample[]>;
   resize_calls_sample?: KernelCall[];
 }
 
 const argv = process.argv.slice(2);
-const arg = (n: string, d?: string): string => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : (d as string); };
+const arg = (n: string, d?: string): string => {
+  const i = argv.indexOf('--' + n);
+  return i >= 0 ? argv[i + 1] : (d as string);
+};
 
 const MODEL_DIR = arg('model') || process.env.GEMMA_ONNX_MODEL;
 const IN_JSON = arg('in');
 const OUT_JSON = arg('out');
 const SEQ = parseInt(arg('seq', '140'), 10);
 const DEVICE = arg('device', 'webgpu');
-const KERNELS = (arg('kernels', 'baseline,cubic,mitchell,lanczos3')).split(',').map((s) => s.trim()).filter(Boolean);
+const KERNELS = arg('kernels', 'baseline,cubic,mitchell,lanczos3')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 if (!MODEL_DIR || !IN_JSON || !OUT_JSON) {
-  console.error('用法: node diagnose_resize_kernel.mjs --model <目录> --in <列表.json> --out <结果.json>');
+  console.error(
+    '用法: node diagnose_resize_kernel.mjs --model <目录> --in <列表.json> --out <结果.json>',
+  );
   process.exit(2);
 }
 
@@ -63,18 +81,29 @@ const calls: KernelCall[] = [];
  * baseline = 原样调用（即 transformers.js 的 affine-bicubic 路径）。
  * 尺寸按上游算法先补齐（只处理"其中一维为 null"的情形，其余原样透传）。
  */
-RawImage.prototype.resize = async function resize(this: RawImage, width: number | null | undefined, height: number | null | undefined, opts: { resample?: string | 0 | 1 | 2 | 3 | 4 | 5 } = {}) {
+RawImage.prototype.resize = async function resize(
+  this: RawImage,
+  width: number | null | undefined,
+  height: number | null | undefined,
+  opts: { resample?: string | 0 | 1 | 2 | 3 | 4 | 5 } = {},
+) {
   if (this.width === width && this.height === height) return this;
   if (width === null || width === undefined) {
-    width = Math.round(height! / this.height * this.width);
+    width = Math.round((height! / this.height) * this.width);
   } else if (height === null || height === undefined) {
-    height = Math.round(width / this.width * this.height);
+    height = Math.round((width / this.width) * this.height);
   }
   calls.push({ kernel: KERNEL, from: [this.width, this.height], to: [width, height] });
   if (KERNEL === 'baseline') return origResize.call(this, width, height!, opts);
   const buf = await this.toSharp()
-    .resize({ width: Math.round(width), height: Math.round(height!), fit: 'fill', kernel: KERNEL as ResizeOptions['kernel'] })
-    .png().toBuffer();
+    .resize({
+      width: Math.round(width),
+      height: Math.round(height!),
+      fit: 'fill',
+      kernel: KERNEL as ResizeOptions['kernel'],
+    })
+    .png()
+    .toBuffer();
   return await RawImage.fromBlob(new Blob([buf]));
 };
 
@@ -90,12 +119,23 @@ processor.image_seq_length = SEQ;
 if (processor.image_processor) {
   processor.image_processor.max_soft_tokens = SEQ;
   processor.image_processor.image_seq_length = SEQ;
-  if (processor.image_processor.config) (processor.image_processor.config as ImageProcessorConfigView).image_seq_length = SEQ;
+  if (processor.image_processor.config)
+    (processor.image_processor.config as ImageProcessorConfigView).image_seq_length = SEQ;
 }
-const model = await AutoModel.from_pretrained(MODEL_DIR, { config, dtype: 'float32' as ModelDtype, device: DEVICE as ModelDevice });
+const model = await AutoModel.from_pretrained(MODEL_DIR, {
+  config,
+  dtype: 'float32' as ModelDtype,
+  device: DEVICE as ModelDevice,
+});
 log('模型载入完成');
 
-const result: DiagnoseResult = { model_dir: MODEL_DIR, seq: SEQ, device: DEVICE, kernels: KERNELS, vectors: {} };
+const result: DiagnoseResult = {
+  model_dir: MODEL_DIR,
+  seq: SEQ,
+  device: DEVICE,
+  kernels: KERNELS,
+  vectors: {},
+};
 for (const k of KERNELS) {
   KERNEL = k;
   const t0 = Date.now();
@@ -107,7 +147,7 @@ for (const k of KERNELS) {
       if (!image) throw new Error('解码失败');
       const inputs = await processor(null, [image]);
       const out = await model.forward(inputs);
-      const emb = pickEmbedding(out);   // 缺键/全零都由唯一实现拒绝
+      const emb = pickEmbedding(out); // 缺键/全零都由唯一实现拒绝
       vectors[it.rel_path] = Array.from(emb.data);
     } catch (e) {
       failed.push({ rel_path: it.rel_path, error: e instanceof Error ? e.message : String(e) });
@@ -115,8 +155,10 @@ for (const k of KERNELS) {
   }
   result.vectors[k] = vectors;
   const secs = (Date.now() - t0) / 1000;
-  log(`  ${k}: ${Object.keys(vectors).length} 条 · 失败 ${failed.length} · ${secs.toFixed(1)}s`
-    + `（${(secs / Math.max(1, list.length)).toFixed(2)} s/张）`);
+  log(
+    `  ${k}: ${Object.keys(vectors).length} 条 · 失败 ${failed.length} · ${secs.toFixed(1)}s` +
+      `（${(secs / Math.max(1, list.length)).toFixed(2)} s/张）`,
+  );
   if (failed.length) log(`    失败示例: ${JSON.stringify(failed.slice(0, 2))}`);
   result.failed = result.failed || {};
   result.failed[k] = failed;

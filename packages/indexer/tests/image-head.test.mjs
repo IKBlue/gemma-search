@@ -9,7 +9,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { readFileHead, isBmpHead, isBmp, HEAD_SNIFF_BYTES, makeSyntheticBmp } from '../src/bmp_decode.ts';
+import {
+  readFileHead,
+  isBmpHead,
+  isBmp,
+  HEAD_SNIFF_BYTES,
+  makeSyntheticBmp,
+} from '../src/bmp_decode.ts';
 import { readImageAny } from '../../../apps/desktop/src/main/encoder.ts';
 
 function tmpFile(name, bytes) {
@@ -42,10 +48,18 @@ test('ENC-1 ⭐ 魔数判据唯一：isBmpHead / isBmp 对 BMP 与非 BMP 的判
 
 test('ENC-1 ⭐⭐ 编码路径不再整读：注入头读计数 ⇒ 读取字节 ≤ 上限（且注入的 reader 必须被调用）', async () => {
   const big = tmpFile('big.jpg', Buffer.alloc(8 * 1024 * 1024, 0x41));
-  let calls = 0; let bytes = 0;
-  const reader = (p, max) => { calls += 1; const b = readFileHead(p, max); bytes += b.length; return b; };
+  let calls = 0;
+  let bytes = 0;
+  const reader = (p, max) => {
+    calls += 1;
+    const b = readFileHead(p, max);
+    bytes += b.length;
+    return b;
+  };
   // 这个文件不是合法图片 ⇒ 解码必然抛；这里只关心**读了多少字节**
-  await readImageAny(big, reader).catch(() => { /* 预期：解码失败 */ });
+  await readImageAny(big, reader).catch(() => {
+    /* 预期：解码失败 */
+  });
   assert.equal(calls, 1, '必须经注入的头读（若还在 fs.readFileSync 整读，这里会是 0）');
   assert.ok(bytes > 0 && bytes <= HEAD_SNIFF_BYTES, '读取字节必须 ≤ 上限，实得 ' + bytes);
 });

@@ -24,7 +24,10 @@ import { openGsDb, importItemsFromJson } from '../src/main/db/index.ts';
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const REAL = path.join(ROOT, 'data', 'libraries', 'L1');
 const TMP = path.join(ROOT, 'data', '_t15a2', 'library-methods-' + process.pid);
-const TINY_JPEG = Buffer.from('/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==', 'base64');
+const TINY_JPEG = Buffer.from(
+  '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==',
+  'base64',
+);
 const sha1 = (p) => crypto.createHash('sha1').update(fs.readFileSync(p)).digest('hex');
 
 let base = '';
@@ -38,11 +41,18 @@ function cloneBase(name) {
   fs.cpSync(base, dir, { recursive: true });
   return dir;
 }
-const deps = (dir, libs) => ({ libId: libs[0].libId, libraries: libs, userDataDir: path.join(TMP, 'userdata') });
+const deps = (dir, libs) => ({
+  libId: libs[0].libId,
+  libraries: libs,
+  userDataDir: path.join(TMP, 'userdata'),
+});
 const LIBS = (dir) => [{ libId: 'L1', root: dir }];
 
 before(() => {
-  assert.ok(fs.existsSync(path.join(REAL, 'items.json')), '需要真实库 data/libraries/L1（本机存在）');
+  assert.ok(
+    fs.existsSync(path.join(REAL, 'items.json')),
+    '需要真实库 data/libraries/L1（本机存在）',
+  );
   fs.rmSync(TMP, { recursive: true, force: true });
   base = path.join(TMP, 'base');
   fs.mkdirSync(base, { recursive: true });
@@ -77,7 +87,11 @@ before(() => {
 });
 
 after(() => {
-  try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* 临时目录 */ }
+  try {
+    fs.rmSync(TMP, { recursive: true, force: true });
+  } catch {
+    /* 临时目录 */
+  }
 });
 
 test('L1 契约：两条新方法登记 · 未登记仍被拒 · .strict() 拒多传 · 缺/非法 libId 被拒', () => {
@@ -93,8 +107,16 @@ test('L1 契约：两条新方法登记 · 未登记仍被拒 · .strict() 拒�
   assert.equal(validateCall('libraryRebuild', { libId: 'L1' }).ok, true);
 
   // .strict()：多传一个字段就拒（两条都要）
-  assert.equal(validateCall('libraryHealth', { libId: 'L1', root: 'D:/x' }).ok, false, '体检多传 root 必须被拒');
-  assert.equal(validateCall('libraryRebuild', { libId: 'L1', path: 'D:/x' }).ok, false, '重建多传 path 必须被拒');
+  assert.equal(
+    validateCall('libraryHealth', { libId: 'L1', root: 'D:/x' }).ok,
+    false,
+    '体检多传 root 必须被拒',
+  );
+  assert.equal(
+    validateCall('libraryRebuild', { libId: 'L1', path: 'D:/x' }).ok,
+    false,
+    '重建多传 path 必须被拒',
+  );
 
   // 缺 libId / 形状不合法
   assert.equal(validateCall('libraryHealth', {}).ok, false);
@@ -119,7 +141,8 @@ test('L2 体检（健康库）：结构化结论 · 每项 ok · 不需要重建
   assert.equal(byId['items-file'].ok, true);
   assert.equal(byId['db-file'].ok, true);
   assert.equal(byId['db-open'].ok, true);
-  for (const c of rep.checks) assert.ok(c.reason && c.reason.length > 0, '每项都要有人话理由（ok 时也要）');
+  for (const c of rep.checks)
+    assert.ok(c.reason && c.reason.length > 0, '每项都要有人话理由（ok 时也要）');
   assert.ok(rep.reason.length > 0);
 });
 
@@ -127,14 +150,18 @@ test('L3 体检（坏索引）：index 项 code=INDEX_CORRUPT —— 不许归�
   const dir = cloneBase('badindex');
   const idx = path.join(dir, '.gs-index.bin');
   const buf = fs.readFileSync(idx);
-  buf.writeUInt32LE(0xdeadbeef, 0);          // 破坏 MAGIC ⇒ 引擎五道校验必挂
+  buf.writeUInt32LE(0xdeadbeef, 0); // 破坏 MAGIC ⇒ 引擎五道校验必挂
   fs.writeFileSync(idx, buf);
 
   const res = runLibraryHealth(deps(dir, LIBS(dir)));
   assert.equal(res.ok, true, '体检对坏库也应当是"成功的结构化结论"，不是错误信封');
   const idxCheck = res.data.checks.find((c) => c.id === 'index');
   assert.equal(idxCheck.ok, false);
-  assert.equal(idxCheck.code, 'INDEX_CORRUPT', '坏索引必须是 INDEX_CORRUPT（实测 code=' + idxCheck.code + '）');
+  assert.equal(
+    idxCheck.code,
+    'INDEX_CORRUPT',
+    '坏索引必须是 INDEX_CORRUPT（实测 code=' + idxCheck.code + '）',
+  );
   assert.notEqual(idxCheck.code, 'INTERNAL', '不许归成 INTERNAL');
   assert.equal(res.data.ok, false, '索引坏了 ⇒ 整库不 ok');
   assert.equal(res.data.needsIndexRebuild, true, '索引坏了要**重新建索引**，不是重建元数据');
@@ -155,11 +182,18 @@ test('L4 重建（真实副本）：素材摘要前后一致 · 索引字节未�
   const rep = res.data;
   assert.equal(rep.libId, 'L1');
   assert.equal(rep.created, true, '.gs.db 应当是这次重建新建的');
-  assert.ok(rep.removedDbFiles.length >= 1, '要真的删掉旧的 .gs.db（实测 ' + JSON.stringify(rep.removedDbFiles) + '）');
+  assert.ok(
+    rep.removedDbFiles.length >= 1,
+    '要真的删掉旧的 .gs.db（实测 ' + JSON.stringify(rep.removedDbFiles) + '）',
+  );
   assert.equal(rep.import.dbCount, meta.count);
   assert.equal(rep.dbOk, true, '重建目标（db-* 检查）必须通过');
   assert.equal(rep.after.ok, true, '复检（整个库）必须通过：' + rep.after.reason);
-  assert.equal(rep.index.action, 'kept', '没给 indexBytes ⇒ 绝不动索引（实测 ' + rep.index.action + '）');
+  assert.equal(
+    rep.index.action,
+    'kept',
+    '没给 indexBytes ⇒ 绝不动索引（实测 ' + rep.index.action + '）',
+  );
   assert.ok(dbBefore > 0);
 
   // ⭐ 关键断言：素材摘要**前后完全一致**（重建只碰 .gs-* 命名空间）
@@ -178,7 +212,11 @@ test('L5 未知库：LIB_NOT_FOUND 信封（不抛）· userMessage 非空', () 
   const dir = cloneBase('unknown');
   // ⚠️ 这里必须**显式**传"清单里只有 L1、却问 L9"：deps() 会取 libs[0].libId 当被问的库，
   //    写成 deps(dir, [{libId:'L9'...}]) 等于"问一个已登记的 L9"（第一版就是这么假绿的）。
-  const unknown = { libId: 'L9', libraries: [{ libId: 'L1', root: dir }], userDataDir: path.join(TMP, 'userdata') };
+  const unknown = {
+    libId: 'L9',
+    libraries: [{ libId: 'L1', root: dir }],
+    userDataDir: path.join(TMP, 'userdata'),
+  };
   const res = runLibraryHealth(unknown);
   assert.equal(res.ok, false);
   assert.equal(res.error.code, 'LIB_NOT_FOUND');
@@ -216,9 +254,14 @@ test('L7 坏 .gs.db：体检报出来（结构化）→ 重建修好 → 复检 
   const dbOpen = res.data.checks.find((c) => c.id === 'db-open');
   const dbIntegrity = res.data.checks.find((c) => c.id === 'db-integrity');
   const broken = [dbOpen, dbIntegrity].filter((c) => c && !c.ok);
-  assert.ok(broken.length >= 1, '坏 .gs.db 必须被体检报出来：' + JSON.stringify(res.data.checks.map((c) => [c.id, c.ok, c.code])));
+  assert.ok(
+    broken.length >= 1,
+    '坏 .gs.db 必须被体检报出来：' +
+      JSON.stringify(res.data.checks.map((c) => [c.id, c.ok, c.code])),
+  );
   assert.equal(res.data.needsDbRebuild, true, '这一项是**可重建**的（rebuildable=true）');
-  for (const c of broken) assert.notEqual(c.code, 'INTERNAL', '具体码要能说清坏在哪（实测 ' + c.code + '）');
+  for (const c of broken)
+    assert.notEqual(c.code, 'INTERNAL', '具体码要能说清坏在哪（实测 ' + c.code + '）');
 
   const rebuilt = runLibraryRebuild(deps(dir, LIBS(dir)));
   assert.equal(rebuilt.ok, true, JSON.stringify(rebuilt).slice(0, 600));
@@ -243,16 +286,32 @@ test('IM1 ⭐ IMPORT_* 经信封出去**不得**变成 INDEX_CORRUPT（T-42 的�
   const itemsPath = path.join(dir, 'items.json');
   const cloned = JSON.parse(fs.readFileSync(itemsPath, 'utf8'));
   assert.ok(cloned.length >= 2, '夹具前提：items.json 至少两条');
-  assert.notEqual(cloned[1].relPath, cloned[0].relPath, '夹具前提：前两条的 relPath 本来不同（否则这条断言空转）');
-  assert.notEqual(cloned[1].uid, cloned[0].uid, '夹具前提：两条 uid 不同 ⇒ 前置校验放行，失败发生在写事务内');
-  cloned[1].relPath = cloned[0].relPath;          // 撞 UNIQUE(lib_id, rel_path) 的**路径**
+  assert.notEqual(
+    cloned[1].relPath,
+    cloned[0].relPath,
+    '夹具前提：前两条的 relPath 本来不同（否则这条断言空转）',
+  );
+  assert.notEqual(
+    cloned[1].uid,
+    cloned[0].uid,
+    '夹具前提：两条 uid 不同 ⇒ 前置校验放行，失败发生在写事务内',
+  );
+  cloned[1].relPath = cloned[0].relPath; // 撞 UNIQUE(lib_id, rel_path) 的**路径**
   fs.writeFileSync(itemsPath, JSON.stringify(cloned), 'utf8');
 
   const res = runLibraryRebuild(deps(dir, LIBS(dir)));
   assert.equal(res.ok, false, '路径撞车必须让重建失败（这就是复现路径）');
-  assert.equal(res.error.code, 'IMPORT_COUNT_MISMATCH', '写事务内的计数复核失败 ⇒ 必须是这个 IMPORT_* 码（实测 ' + res.error.code + '）');
+  assert.equal(
+    res.error.code,
+    'IMPORT_COUNT_MISMATCH',
+    '写事务内的计数复核失败 ⇒ 必须是这个 IMPORT_* 码（实测 ' + res.error.code + '）',
+  );
   assert.notEqual(res.error.code, 'INDEX_CORRUPT', '**不许**把它说成索引损坏（假因果）');
-  assert.equal(res.error.details.rawCode, res.error.code, 'details.rawCode 必须与 code 同名（信封不许二次改名）');
+  assert.equal(
+    res.error.details.rawCode,
+    res.error.code,
+    'details.rawCode 必须与 code 同名（信封不许二次改名）',
+  );
   assert.ok(res.error.userMessage.length > 0, 'userMessage 恒非空');
   // 文案判据要**精确**：拦的是"谎称索引文件坏了"，不是"提到索引两个字"
   //   （IMPORT_COUNT_MISMATCH 的引擎文案本来就写着"条目表与索引的条数对不上"，那是事实，不是假因果）。
@@ -264,8 +323,16 @@ test('IM1 ⭐ IMPORT_* 经信封出去**不得**变成 INDEX_CORRUPT（T-42 的�
   // 更强的正向断言：写事务**整条回滚** ⇒ 新建的 .gs.db 里一条事实行都没有（"没有半份导入"）
   const opened = openGsDb({ dbPath: path.join(dir, '.gs.db'), readOnly: true });
   try {
-    assert.equal(opened.db.prepare('SELECT COUNT(*) AS n FROM asset').get().n, 0, '失败的导入不许留下半条 asset 行');
-    assert.equal(opened.db.prepare('SELECT COUNT(*) AS n FROM asset_file').get().n, 0, 'asset_file 同样不许留行（CASCADE 之外也要自证）');
+    assert.equal(
+      opened.db.prepare('SELECT COUNT(*) AS n FROM asset').get().n,
+      0,
+      '失败的导入不许留下半条 asset 行',
+    );
+    assert.equal(
+      opened.db.prepare('SELECT COUNT(*) AS n FROM asset_file').get().n,
+      0,
+      'asset_file 同样不许留行（CASCADE 之外也要自证）',
+    );
   } finally {
     opened.db.close();
   }

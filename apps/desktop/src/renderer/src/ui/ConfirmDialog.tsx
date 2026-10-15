@@ -37,21 +37,21 @@
 // ⚠️ 任意值说明：`max-w-dialog` = `--layout-dialog-width`（已在 tokens.css 登记来源）；
 //    小屏用 `calc(100vw - var(--space-12))` 兜底 —— 仍然走令牌，没写死像素。
 //    `z-40/50` 是**本图层内部**的层叠序（遮罩 < 内容），不跨层比较，故未上令牌。
-import { useEffect, useRef } from 'react'
-import { AlertDialog } from 'radix-ui'
+import { useEffect, useRef } from 'react';
+import { AlertDialog } from 'radix-ui';
 
-import Button from './Button.tsx'
-import { cn } from './cn.ts'
+import Button from './Button.tsx';
+import { cn } from './cn.ts';
 
 export type ConfirmDialogProps = {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  title: string
-  description: string
-  confirmText?: string
-  cancelText?: string
-  onConfirm?: () => void
-}
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description: string;
+  confirmText?: string;
+  cancelText?: string;
+  onConfirm?: () => void;
+};
 
 export default function ConfirmDialog({
   open,
@@ -63,7 +63,7 @@ export default function ConfirmDialog({
   onConfirm,
 }: ConfirmDialogProps) {
   /** 打开弹窗前，焦点在谁身上（就是那个「取件」按钮）—— 关闭时还回去 */
-  const restoreRef = useRef<HTMLElement | null>(null)
+  const restoreRef = useRef<HTMLElement | null>(null);
   /**
    * 最后一次**实际拿到焦点**的元素（全局跟踪）。
    *
@@ -75,15 +75,15 @@ export default function ConfirmDialog({
    *   ⇒ 跟踪 `focusin` 相当于「记住用户上一次真的把焦点放在哪」，比单点采样稳，
    *     而且这是**真的无障碍改进**：键盘/读屏用户不该因为一次重渲染就丢失位置。
    */
-  const lastFocusedRef = useRef<HTMLElement | null>(null)
+  const lastFocusedRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const onFocusIn = (e: FocusEvent): void => {
       // `focusin` 的 target 是 Document | Element：只有 HTMLElement 才可能能聚焦
-      if (e.target instanceof HTMLElement) lastFocusedRef.current = e.target
-    }
-    document.addEventListener('focusin', onFocusIn)
-    return () => document.removeEventListener('focusin', onFocusIn)
-  }, [])
+      if (e.target instanceof HTMLElement) lastFocusedRef.current = e.target;
+    };
+    document.addEventListener('focusin', onFocusIn);
+    return () => document.removeEventListener('focusin', onFocusIn);
+  }, []);
 
   /**
    * 挑出「焦点该还到哪」—— **候选链**，逐个要求**仍然连着 DOM**。
@@ -99,9 +99,9 @@ export default function ConfirmDialog({
    *   那里是属性位置，放 `const` 是语法错误（2026-10-13 实测：构建当场失败）。
    */
   const pickRestoreTarget = (): HTMLElement | null =>
-    [restoreRef.current, lastFocusedRef.current]
-      .find((c): c is HTMLElement => !!c && c !== document.body && c.isConnected)
-      ?? null
+    [restoreRef.current, lastFocusedRef.current].find(
+      (c): c is HTMLElement => !!c && c !== document.body && c.isConnected,
+    ) ?? null;
 
   return (
     <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -117,24 +117,27 @@ export default function ConfirmDialog({
           //   仍是触发它的那个「取件」—— 这才是正确的取样时机。
           //   ⚠️ 这里**不** `preventDefault()`：我们**要** Radix 把焦点落进弹窗（落在「取消」上，见文件头）。
           onOpenAutoFocus={() => {
-            const el = document.activeElement
-            if (el instanceof HTMLElement && el !== document.body) { restoreRef.current = el; return }
-            const last = pickRestoreTarget()
-            if (last) restoreRef.current = last
+            const el = document.activeElement;
+            if (el instanceof HTMLElement && el !== document.body) {
+              restoreRef.current = el;
+              return;
+            }
+            const last = pickRestoreTarget();
+            if (last) restoreRef.current = last;
           }}
           // 关闭时把焦点还给来源元素。
           // `preventDefault()` 是**必须的** —— 不阻止的话 Radix 会自己决定落点（本例落回 body）。
           onCloseAutoFocus={(event) => {
-            const el = pickRestoreTarget()
-            if (!el) return
-            event.preventDefault()
-            el.focus()
+            const el = pickRestoreTarget();
+            if (!el) return;
+            event.preventDefault();
+            el.focus();
             // ⚠️ **下一帧复核一次**。负载下聚焦之后可能立刻被紧随其后的重渲染/Radix 收尾打断，
             //    焦点又回到 body（E7-d 实测到的间歇失败）。复核只做一件事：如果那时焦点不在目标上
             //    **且目标还活着**，再聚一次。这不是「重试到成功」，只在**一帧**后确认。
             requestAnimationFrame(() => {
-              if (el.isConnected && document.activeElement !== el) el.focus()
-            })
+              if (el.isConnected && document.activeElement !== el) el.focus();
+            });
           }}
           className={cn(
             'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
@@ -142,7 +145,9 @@ export default function ConfirmDialog({
             'bg-surface-raised p-6 shadow-raised',
           )}
         >
-          <AlertDialog.Title className="text-title2 font-semibold text-ink">{title}</AlertDialog.Title>
+          <AlertDialog.Title className="text-title2 font-semibold text-ink">
+            {title}
+          </AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-caption text-ink-muted">
             {description}
           </AlertDialog.Description>
@@ -153,11 +158,13 @@ export default function ConfirmDialog({
               <Button>{cancelText}</Button>
             </AlertDialog.Cancel>
             <AlertDialog.Action asChild>
-              <Button variant="primary" onClick={onConfirm}>{confirmText}</Button>
+              <Button variant="primary" onClick={onConfirm}>
+                {confirmText}
+              </Button>
             </AlertDialog.Action>
           </div>
         </AlertDialog.Content>
       </AlertDialog.Portal>
     </AlertDialog.Root>
-  )
+  );
 }

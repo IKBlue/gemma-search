@@ -33,7 +33,7 @@ function walk(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) return walk(p);
-    return /\.(jsx|js|ts|tsx)$/.test(e.name) ? [p] : [];   // 全量 TS 迁移：扫描面必须含 .ts/.tsx
+    return /\.(jsx|js|ts|tsx)$/.test(e.name) ? [p] : []; // 全量 TS 迁移：扫描面必须含 .ts/.tsx
   });
 }
 const rel = (p) => p.replace(/\\/g, '/').split('/src/renderer/src/')[1];
@@ -43,7 +43,10 @@ function braceBody(src, start) {
   let d = 0;
   for (let i = start; i < src.length; i += 1) {
     if (src[i] === '{') d += 1;
-    else if (src[i] === '}') { d -= 1; if (d === 0) return src.slice(start + 1, i); }
+    else if (src[i] === '}') {
+      d -= 1;
+      if (d === 0) return src.slice(start + 1, i);
+    }
   }
   return '';
 }
@@ -53,9 +56,12 @@ function classBodies(file) {
   const masked = maskComments(fs.readFileSync(file, 'utf8'));
   const out = [];
   for (const m of masked.matchAll(/\bclassName\s*=\s*(?:"([^"]*)"|\{)/g)) {
-    if (m[1] !== undefined) { out.push(m[1]); continue; }
+    if (m[1] !== undefined) {
+      out.push(m[1]);
+      continue;
+    }
     const body = braceBody(masked, m.index + m[0].length - 1);
-    out.push(body.replace(/\$\{[^}]*\}/g, ' '));           // 挖掉插值，别把残片当类名
+    out.push(body.replace(/\$\{[^}]*\}/g, ' ')); // 挖掉插值，别把残片当类名
   }
   return out;
 }
@@ -67,7 +73,8 @@ function classTokens(file) {
     // 字符串字面量里的整串 + 裸文本（`className="a b"` 直写的情形）
     const chunks = [body.replace(/['"`]/g, ' ')];
     for (const s of body.matchAll(/['"`]([^'"`]*)['"`]/g)) chunks.push(s[1]);
-    for (const c of chunks) for (const t of c.split(/\s+/)) if (t && /^[\x21-\x7e]+$/.test(t)) toks.add(t);
+    for (const c of chunks)
+      for (const t of c.split(/\s+/)) if (t && /^[\x21-\x7e]+$/.test(t)) toks.add(t);
   }
   return toks;
 }
@@ -101,8 +108,9 @@ function tokenGetsStyle(cssText, tok, siblings) {
       for (const part of sel.split(/[\s>+~]+/)) {
         if (!partHas.test(part)) continue;
         const classesInPart = [...part.matchAll(/\.(-?[A-Za-z_][\w-]*)/g)].map((x) => x[1]);
-        if (classesInPart.length <= 1) sawSoloPart = true;                       // 独自出现（可带标签/伪类）⇒ 有效
-        else if (classesInPart.some((c) => c !== tok && siblings.has(c))) sawCompanionPart = true;  // 这一次用法带了同伴 ⇒ 有效
+        if (classesInPart.length <= 1)
+          sawSoloPart = true; // 独自出现（可带标签/伪类）⇒ 有效
+        else if (classesInPart.some((c) => c !== tok && siblings.has(c))) sawCompanionPart = true; // 这一次用法带了同伴 ⇒ 有效
       }
     }
   }
@@ -113,18 +121,64 @@ function tokenGetsStyle(cssText, tok, siblings) {
 // `text-err` 这类"看起来是颜色/字号、其实 @theme 里没有"的类，Tailwind **不会报错**，只是不生成。
 // 白名单只收 Tailwind 自己的**无令牌特例**，逐条写清为什么 —— 它必须保持**小**。
 const TAILWIND_SPECIALS = new Set([
-  'text-left', 'text-center', 'text-right', 'text-justify', 'text-start', 'text-end',   // 对齐
-  'text-wrap', 'text-nowrap', 'text-balance', 'text-pretty', 'text-ellipsis', 'text-clip', // 折行/截断
-  'bg-none', 'bg-cover', 'bg-contain', 'bg-center', 'bg-top', 'bg-bottom', 'bg-fixed', 'bg-local',
-  'bg-clip-text', 'bg-clip-border', 'bg-clip-padding', 'bg-clip-content',
-  'border-collapse', 'border-separate', 'border-solid', 'border-dashed', 'border-dotted', 'border-double', 'border-none', 'border-hidden',
-  'outline-none', 'outline-hidden', 'outline-solid', 'outline-dashed', 'outline-dotted', 'outline-double',
-  'divide-solid', 'divide-dashed', 'divide-dotted', 'divide-double', 'divide-none',
+  'text-left',
+  'text-center',
+  'text-right',
+  'text-justify',
+  'text-start',
+  'text-end', // 对齐
+  'text-wrap',
+  'text-nowrap',
+  'text-balance',
+  'text-pretty',
+  'text-ellipsis',
+  'text-clip', // 折行/截断
+  'bg-none',
+  'bg-cover',
+  'bg-contain',
+  'bg-center',
+  'bg-top',
+  'bg-bottom',
+  'bg-fixed',
+  'bg-local',
+  'bg-clip-text',
+  'bg-clip-border',
+  'bg-clip-padding',
+  'bg-clip-content',
+  'border-collapse',
+  'border-separate',
+  'border-solid',
+  'border-dashed',
+  'border-dotted',
+  'border-double',
+  'border-none',
+  'border-hidden',
+  'outline-none',
+  'outline-hidden',
+  'outline-solid',
+  'outline-dashed',
+  'outline-dotted',
+  'outline-double',
+  'divide-solid',
+  'divide-dashed',
+  'divide-dotted',
+  'divide-double',
+  'divide-none',
   // ⚠️ 方向型是 **宽度** 工具（`border-b` = `border-bottom-width:1px`），**永远不需要颜色令牌**。
   //    第一版漏了它们 ⇒ 6 条假阳性（实测）。判据只关心"颜色/字号这类**必须查令牌**"的类。
-  'border-b', 'border-t', 'border-l', 'border-r', 'border-x', 'border-y', 'border-s', 'border-e',
-  'divide-x', 'divide-y',
-  'fill-none', 'stroke-none', 'ring-inset',
+  'border-b',
+  'border-t',
+  'border-l',
+  'border-r',
+  'border-x',
+  'border-y',
+  'border-s',
+  'border-e',
+  'divide-x',
+  'divide-y',
+  'fill-none',
+  'stroke-none',
+  'ring-inset',
 ]);
 
 test('SC-1 ⭐ Tailwind 的 `text-*`/`bg-*`/`border-*` 类必须能真的生成（否则静默失效）', () => {
@@ -135,20 +189,31 @@ test('SC-1 ⭐ Tailwind 的 `text-*`/`bg-*`/`border-*` 类必须能真的生成�
       if (!m) continue;
       const [, prefix, name] = m;
       if (TAILWIND_SPECIALS.has(tok)) continue;
-      if (name.startsWith('[') || name.startsWith('(')) continue;        // 任意值 bg-[...] / 函数式
-      if (/^\d/.test(name) || /^(0|px|full|auto|screen|none|inherit|current|transparent|hidden|visible)$/.test(name)) continue;
+      if (name.startsWith('[') || name.startsWith('(')) continue; // 任意值 bg-[...] / 函数式
+      if (
+        /^\d/.test(name) ||
+        /^(0|px|full|auto|screen|none|inherit|current|transparent|hidden|visible)$/.test(name)
+      )
+        continue;
       if (name.startsWith('[')) continue;
       // 变体已被 token 切分排除；这里只认「前缀 + 令牌名」两段形态
       if (name.includes(':') || name.includes('/')) continue;
-      const ok = themeTokens.has(`--color-${name}`) || themeTokens.has(`--text-${name}`)
-        || themeTokens.has(`--${prefix}-${name}`) || themeTokens.has(`--shadow-${name}`)
-        || themeTokens.has(`--radius-${name}`);
+      const ok =
+        themeTokens.has(`--color-${name}`) ||
+        themeTokens.has(`--text-${name}`) ||
+        themeTokens.has(`--${prefix}-${name}`) ||
+        themeTokens.has(`--shadow-${name}`) ||
+        themeTokens.has(`--radius-${name}`);
       if (!ok) bad.push(`${rel(file)}  →  ${tok}`);
     }
   }
-  assert.deepEqual(bad.sort(), [],
-    '以下类名在 @theme 里找不到对应令牌 ⇒ Tailwind **不会生成**它，界面上完全没效果（静默失效）。\n'
-    + '修法二选一：① 在 `styles/tailwind.css` 的 @theme 里补令牌；② 换成已存在的类。\n  ' + bad.join('\n  '));
+  assert.deepEqual(
+    bad.sort(),
+    [],
+    '以下类名在 @theme 里找不到对应令牌 ⇒ Tailwind **不会生成**它，界面上完全没效果（静默失效）。\n' +
+      '修法二选一：① 在 `styles/tailwind.css` 的 @theme 里补令牌；② 换成已存在的类。\n  ' +
+      bad.join('\n  '),
+  );
 });
 
 /** 只取 **`className="字面量"`** 这一种形态（不含表达式）—— 见 SC-2 的注释说明为什么要收窄 */
@@ -167,13 +232,18 @@ function plainClassBodies(file) {
  *    留着它只会让白名单慢慢烂掉 —— 本仓库反复栽在这上面（"白名单一大，防线就废了"）。
  */
 const EXEMPT = new Map([
-  ['search/SearchPanel.tsx|auto',
-    '`ui/Field.tsx:4` 写的是 [\'field\', className].filter(Boolean).join(\' \') ⇒ 实际渲染出 class="field auto"，'
-    + '`renderer.css:163` 的 `.field.auto { width: auto }` **生效**。静态检查看不见组件内部的合成，故豁免。'],
+  [
+    'search/SearchPanel.tsx|auto',
+    "`ui/Field.tsx:4` 写的是 ['field', className].filter(Boolean).join(' ') ⇒ 实际渲染出 class=\"field auto\"，" +
+      '`renderer.css:163` 的 `.field.auto { width: auto }` **生效**。静态检查看不见组件内部的合成，故豁免。',
+  ],
   // ⚠️ 2026-10-15（P4-2）：浏览页两处筛选下拉是**同一个组件、同一条规则**（`<Field className="auto">`），
   //    理由与上一条**逐字相同**（同一个 Field、同一条 .field.auto 规则、同样的静态看不见）。
   //    这里只写「同上」而不重复一遍理由 —— 重复一遍就是同一份解释的第二处实现（P1）。
-  ['pages/BrowsePage.tsx|auto', '同上：`ui/Field.tsx` 内部合成出 class="field auto"，`renderer.css` 的 `.field.auto` 生效。'],
+  [
+    'pages/BrowsePage.tsx|auto',
+    '同上：`ui/Field.tsx` 内部合成出 class="field auto"，`renderer.css` 的 `.field.auto` 生效。',
+  ],
 ]);
 
 test('SC-2 ⭐ `className="字面量"` 里的每个类都必须真有规则（只作复合选择器一部分的类，单独用无效）', () => {
@@ -184,20 +254,31 @@ test('SC-2 ⭐ `className="字面量"` 里的每个类都必须真有规则（�
       const toks = body.split(/\s+/).filter((t) => t && /^[\x21-\x7e]+$/.test(t));
       const sib = new Set(toks);
       for (const tok of toks) {
-        if (!cssClasses.has(tok)) continue;                 // CSS 里根本没有 ⇒ 可能是 Tailwind 工具类，不属本判据
-        if (tokenGetsStyle(css, tok, sib)) continue;         // 这一次用法下拿得到样式 ⇒ 正常
+        if (!cssClasses.has(tok)) continue; // CSS 里根本没有 ⇒ 可能是 Tailwind 工具类，不属本判据
+        if (tokenGetsStyle(css, tok, sib)) continue; // 这一次用法下拿得到样式 ⇒ 正常
         const key = `${rel(file)}|${tok}`;
-        if (EXEMPT.has(key)) { usedExempt.add(key); continue; }
+        if (EXEMPT.has(key)) {
+          usedExempt.add(key);
+          continue;
+        }
         bad.push(`${rel(file)}  →  ${tok}（同一 className 里只有：${toks.join(' ')}）`);
       }
     }
   }
   const stale = [...EXEMPT.keys()].filter((k) => !usedExempt.has(k));
-  assert.deepEqual(stale, [], `以下豁免**已经不命中**了（代码改过了）⇒ 必须删掉，否则白名单会烂掉：${stale.join(', ')}`);
-  assert.deepEqual(bad.sort(), [],
-    '以下类名在 CSS 里**只**出现在"同一元素还有别的类"的选择器里（如 `.toast.err` 的 `err`）⇒\n'
-    + '这一次用法下**拿不到任何样式**（静态看着"有定义"，实际静默失效 —— 正是 V-15）。\n'
-    + '修法：补一条独立规则、改用复合选择器要求的父元素结构，或在 EXEMPT 里**写明理由**豁免。\n  ' + bad.join('\n  '));
+  assert.deepEqual(
+    stale,
+    [],
+    `以下豁免**已经不命中**了（代码改过了）⇒ 必须删掉，否则白名单会烂掉：${stale.join(', ')}`,
+  );
+  assert.deepEqual(
+    bad.sort(),
+    [],
+    '以下类名在 CSS 里**只**出现在"同一元素还有别的类"的选择器里（如 `.toast.err` 的 `err`）⇒\n' +
+      '这一次用法下**拿不到任何样式**（静态看着"有定义"，实际静默失效 —— 正是 V-15）。\n' +
+      '修法：补一条独立规则、改用复合选择器要求的父元素结构，或在 EXEMPT 里**写明理由**豁免。\n  ' +
+      bad.join('\n  '),
+  );
 });
 
 // ═══════════════════════════════════════════════════ 判据三：输出的 data-* 语气属性必须有规则
@@ -210,11 +291,14 @@ test('SC-3 ⭐ 界面输出的 `data-tone` 值必须在 CSS 里有对应规则�
       if (m[2]) for (const s of m[2].matchAll(/['"`]([^'"`]*)['"`]/g)) emitted.add(s[1]);
     }
   }
-  if (emitted.size === 0) return;                            // 没有输出就不适用
+  if (emitted.size === 0) return; // 没有输出就不适用
   const missing = [...emitted].filter((v) => !new RegExp(`\\[data-tone=["']?${v}`).test(css));
-  assert.deepEqual(missing, [],
-    `界面输出了 data-tone=${missing.join('/')}，但 renderer.css 里没有对应的 [data-tone="…"] 规则 ⇒ 属性白输出了。\n`
-    + '修法：补 `[data-tone="…"]` 规则，颜色取令牌。（这正是审查 V-04：索引状态四档徽标长得一模一样。）');
+  assert.deepEqual(
+    missing,
+    [],
+    `界面输出了 data-tone=${missing.join('/')}，但 renderer.css 里没有对应的 [data-tone="…"] 规则 ⇒ 属性白输出了。\n` +
+      '修法：补 `[data-tone="…"]` 规则，颜色取令牌。（这正是审查 V-04：索引状态四档徽标长得一模一样。）',
+  );
 });
 
 // ═══════════════════════════════════════════════════ 自检：断言不是空的
@@ -222,7 +306,10 @@ test('SC-0 自检：扫描面覆盖到东西（否则上面三条恒真）', () 
   const files = walk(SRC);
   assert.ok(files.length >= 40, `渲染层文件数 ${files.length} 偏少，扫描面可能坏了`);
   assert.ok(cssClasses.size >= 50, `renderer.css 类名数 ${cssClasses.size} 偏少，解析可能坏了`);
-  assert.ok(themeTokens.size >= 20, `tailwind @theme 令牌数 ${themeTokens.size} 偏少，解析可能坏了`);
+  assert.ok(
+    themeTokens.size >= 20,
+    `tailwind @theme 令牌数 ${themeTokens.size} 偏少，解析可能坏了`,
+  );
   const all = new Set();
   for (const f of files) for (const t of classTokens(f)) all.add(t);
   assert.ok(all.size >= 100, `提取到的类名 token 只有 ${all.size} 个，提取逻辑可能坏了`);

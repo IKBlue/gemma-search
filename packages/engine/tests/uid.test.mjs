@@ -41,8 +41,7 @@ test('uid: 确定性（同输入同输出）', () => {
 
 test('uid: 目录参与种子（同主干不同目录 → 不同 uid）', () => {
   // 库里真有这种情形：ID-125229472 同时在 VR 与 其他
-  assert.notEqual(uidOf('L1', 'VR', 'ID-125229472'),
-                  uidOf('L1', '其他', 'ID-125229472'));
+  assert.notEqual(uidOf('L1', 'VR', 'ID-125229472'), uidOf('L1', '其他', 'ID-125229472'));
 });
 
 test('uid: lib_id 参与种子（跨库不撞）', () => {
@@ -57,16 +56,18 @@ test('uid: 黄金向量（锁住当前行为，改动即报警）', () => {
   // 由 SPEC-identity §2 的公式直接算出并钉住。
   // 这不是"参考实现的输出"，而是**冻结规则的可检测锚点**：
   // 若将来有人无意改了分隔符/大小写/截断长度，这条会立刻失败。
-  assert.equal(uidOf('L1', 'VR', 'ID-030518714422364'),
-               crypto.createHash('sha1').update('L1|VR|ID-030518714422364', 'utf8')
-                 .digest('hex').slice(0, 12));
+  assert.equal(
+    uidOf('L1', 'VR', 'ID-030518714422364'),
+    crypto.createHash('sha1').update('L1|VR|ID-030518714422364', 'utf8').digest('hex').slice(0, 12),
+  );
 });
 
 test('uid: 整库唯一性（用真实素材库；库不存在则跳过）', (t) => {
   // 库根用与生产同序的解析（环境变量 → config.json → 索引自举）。
   // 原先只读已删除的 config.json ⇒ 这条**永久跳过**，而它守的是"索引主键不碰撞"这个静默错误。
   const found = resolveTestLibraryRoot(ROOT);
-  if (!found) return t.skip('本机没有可用的素材库根（GEMMA_LIB_ROOT / config.json / 索引 meta 都没有）');
+  if (!found)
+    return t.skip('本机没有可用的素材库根（GEMMA_LIB_ROOT / config.json / 索引 meta 都没有）');
   const libRoot = found.root;
 
   const IMG = new Set(['.jpg', '.jpeg', '.png', '.webp', '.bmp']);
@@ -76,7 +77,10 @@ test('uid: 整库唯一性（用真实素材库；库不存在则跳过）', (t)
   const walk = (d) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const full = path.join(d, e.name);
-      if (e.isDirectory()) { walk(full); continue; }
+      if (e.isDirectory()) {
+        walk(full);
+        continue;
+      }
       const ext = path.extname(e.name).toLowerCase();
       if (!IMG.has(ext)) continue;
       const rel = path.relative(libRoot, full);
@@ -84,7 +88,8 @@ test('uid: 整库唯一性（用真实素材库；库不存在则跳过）', (t)
       const stem = path.basename(e.name, ext);
       const u = uidOf(found.libId || 'L1', relDir, stem);
       n++;
-      if (seen.has(u)) dup.push([u, seen.get(u), rel]); else seen.set(u, rel);
+      if (seen.has(u)) dup.push([u, seen.get(u), rel]);
+      else seen.set(u, rel);
     }
   };
   walk(libRoot);

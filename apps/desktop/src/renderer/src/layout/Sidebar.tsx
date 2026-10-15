@@ -2,12 +2,20 @@
 //
 // 只提供结构与通用零件（品牌 / 分组标题 / 导航 / 底部说明），
 // 具体内容由页面组合 —— 这样「索引任务」「操作记录」页可以复用同一套外壳。
-import { NavLink } from 'react-router'
-import type { ReactNode } from 'react'
+import { NavLink } from 'react-router';
+import type { ReactNode } from 'react';
 
-import { cn } from '../ui/cn.ts'
+import { cn } from '../ui/cn.ts';
 
-export function Brand({ logo = 'G', name = 'Gemma Search', sub = 'LOCAL IMAGE INTELLIGENCE' }: { logo?: string; name?: string; sub?: string }) {
+export function Brand({
+  logo = 'G',
+  name = 'Gemma Search',
+  sub = 'LOCAL IMAGE INTELLIGENCE',
+}: {
+  logo?: string;
+  name?: string;
+  sub?: string;
+}) {
   return (
     <div className="brand">
       <div className="logo">{logo}</div>
@@ -16,28 +24,28 @@ export function Brand({ logo = 'G', name = 'Gemma Search', sub = 'LOCAL IMAGE IN
         <div className="brand-sub">{sub}</div>
       </div>
     </div>
-  )
+  );
 }
 
 export function NavLabel({ children }: { children?: ReactNode }) {
-  return <div className="nav-label">{children}</div>
+  return <div className="nav-label">{children}</div>;
 }
 
 export function Nav({ children }: { children?: ReactNode }) {
-  return <nav className="nav">{children}</nav>
+  return <nav className="nav">{children}</nav>;
 }
 
 export type NavItemProps = {
-  icon?: ReactNode
-  children?: ReactNode
+  icon?: ReactNode;
+  children?: ReactNode;
   /** 高亮当前项（`to` 存在时与 `NavLink` 自己的 `isActive` **取或**） */
-  active?: boolean
-  disabled?: boolean
-  title?: string
+  active?: boolean;
+  disabled?: boolean;
+  title?: string;
   /** 给了它就渲染成路由链接；没给就是 `href="#"` + onClick（未实现项） */
-  to?: string
-  onClick?: () => void
-}
+  to?: string;
+  onClick?: () => void;
+};
 
 /**
  * 导航项。
@@ -47,7 +55,15 @@ export type NavItemProps = {
  * 为什么要分两种：2026-10-13 起应用是**多页**的（`router/paths.js`），
  * 已实现的页面必须能真的导航过去；没实现的项仍然如实 disabled + title 说明阶段。
  */
-export function NavItem({ icon, children, active = false, disabled = false, title, to, onClick }: NavItemProps) {
+export function NavItem({
+  icon,
+  children,
+  active = false,
+  disabled = false,
+  title,
+  to,
+  onClick,
+}: NavItemProps) {
   if (to && !disabled) {
     return (
       <NavLink
@@ -69,10 +85,12 @@ export function NavItem({ icon, children, active = false, disabled = false, titl
         className={({ isActive }) => cn({ active: active || isActive }) || undefined}
         title={title}
       >
-        <span className="ico" aria-hidden="true">{icon}</span>
+        <span className="ico" aria-hidden="true">
+          {icon}
+        </span>
         <span>{children}</span>
       </NavLink>
-    )
+    );
   }
   return (
     <a
@@ -80,18 +98,23 @@ export function NavItem({ icon, children, active = false, disabled = false, titl
       className={cn(active && 'active', disabled && 'disabled')}
       title={title}
       aria-disabled={disabled || undefined}
-      onClick={(e) => { e.preventDefault(); if (!disabled && onClick) onClick() }}
+      onClick={(e) => {
+        e.preventDefault();
+        if (!disabled && onClick) onClick();
+      }}
     >
-      <span className="ico" aria-hidden="true">{icon}</span>
+      <span className="ico" aria-hidden="true">
+        {icon}
+      </span>
       <span>{children}</span>
     </a>
-  )
+  );
 }
 
 export function SideNote({ children }: { children?: ReactNode }) {
-  return <div className="side-note">{children}</div>
+  return <div className="side-note">{children}</div>;
 }
 
 export default function Sidebar({ children }: { children?: ReactNode }) {
-  return <aside className="sidebar">{children}</aside>
+  return <aside className="sidebar">{children}</aside>;
 }

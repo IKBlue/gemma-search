@@ -12,7 +12,11 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { configureProcessTempDir, TEMP_ENV_KEYS, TEMP_DIR_OVERRIDE } from '../src/main/db/tmp-dir.ts';
+import {
+  configureProcessTempDir,
+  TEMP_ENV_KEYS,
+  TEMP_DIR_OVERRIDE,
+} from '../src/main/db/tmp-dir.ts';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const REAL = path.join(ROOT, 'data', 'libraries', 'L1');
@@ -28,7 +32,8 @@ function fixtureLib() {
 
 function withEnv(overrides, fn) {
   const saved = {};
-  for (const k of new Set([...TEMP_ENV_KEYS, TEMP_DIR_OVERRIDE, ...Object.keys(overrides)])) saved[k] = process.env[k];
+  for (const k of new Set([...TEMP_ENV_KEYS, TEMP_DIR_OVERRIDE, ...Object.keys(overrides)]))
+    saved[k] = process.env[k];
   try {
     for (const [k, v] of Object.entries(overrides)) {
       if (v === undefined) delete process.env[k];
@@ -45,25 +50,41 @@ function withEnv(overrides, fn) {
 
 test('ST1 默认落点：<userData>/tmp 被建出来，并把 TMP/TEMP/TMPDIR/SQLITE_TMPDIR **一起**指过去', () => {
   const base = path.join(TMP, 'userdata');
-  withEnv(Object.fromEntries(TEMP_ENV_KEYS.map((k) => [k, undefined]).concat([[TEMP_DIR_OVERRIDE, undefined]])), () => {
-    const r = configureProcessTempDir(base);
-    assert.equal(r.dir, path.join(base, 'tmp'), r.why);
-    assert.ok(fs.existsSync(path.join(base, 'tmp')), '目录必须真的建出来');
-    for (const k of TEMP_ENV_KEYS) {
-      assert.equal(process.env[k], path.join(base, 'tmp'), k + ' 必须被指向应用目录（少设一个就可能踩到"另一个才是被读的"）');
-    }
-  });
+  withEnv(
+    Object.fromEntries(
+      TEMP_ENV_KEYS.map((k) => [k, undefined]).concat([[TEMP_DIR_OVERRIDE, undefined]]),
+    ),
+    () => {
+      const r = configureProcessTempDir(base);
+      assert.equal(r.dir, path.join(base, 'tmp'), r.why);
+      assert.ok(fs.existsSync(path.join(base, 'tmp')), '目录必须真的建出来');
+      for (const k of TEMP_ENV_KEYS) {
+        assert.equal(
+          process.env[k],
+          path.join(base, 'tmp'),
+          k + ' 必须被指向应用目录（少设一个就可能踩到"另一个才是被读的"）',
+        );
+      }
+    },
+  );
 });
 
 test('ST2 显式覆盖不可用时：**不假装成功**（保持环境原样，日志里有原文）', () => {
   const blocker = path.join(TMP, 'not-a-dir');
   fs.mkdirSync(TMP, { recursive: true });
-  fs.writeFileSync(blocker, 'x');                        // 父路径是文件 ⇒ mkdir 必然失败
-  withEnv({ [TEMP_DIR_OVERRIDE]: path.join(blocker, 'tmp'), ...Object.fromEntries(TEMP_ENV_KEYS.map((k) => [k, undefined])) }, () => {
-    const r = configureProcessTempDir(path.join(TMP, 'userdata2'));
-    assert.equal(r.dir, null, '覆盖不可用就必须返回 null（不假装成功）');
-    for (const k of TEMP_ENV_KEYS) assert.equal(process.env[k], undefined, '失败时不许偷偷设置 ' + k);
-  });
+  fs.writeFileSync(blocker, 'x'); // 父路径是文件 ⇒ mkdir 必然失败
+  withEnv(
+    {
+      [TEMP_DIR_OVERRIDE]: path.join(blocker, 'tmp'),
+      ...Object.fromEntries(TEMP_ENV_KEYS.map((k) => [k, undefined])),
+    },
+    () => {
+      const r = configureProcessTempDir(path.join(TMP, 'userdata2'));
+      assert.equal(r.dir, null, '覆盖不可用就必须返回 null（不假装成功）');
+      for (const k of TEMP_ENV_KEYS)
+        assert.equal(process.env[k], undefined, '失败时不许偷偷设置 ' + k);
+    },
+  );
 });
 
 test('ST3 ⭐ 机制钉住：TMP 才是被读的那个，SQLITE_TMPDIR 单独设没用', () => {
@@ -73,19 +94,27 @@ test('ST3 ⭐ 机制钉住：TMP 才是被读的那个，SQLITE_TMPDIR 单独设
   //    与任何业务 schema 无关，红窗口里也照常有效。
   const script = path.join(TMP, 'child-temp.mjs');
   fs.mkdirSync(TMP, { recursive: true });
-  fs.writeFileSync(script, [
-    'import { openNodeSqlite } from ' + JSON.stringify(pathToFileURL(path.join(ROOT, 'apps/desktop/src/main/db/sqlite-adapter.ts')).href) + ';',
-    'const lib = process.env.CHILD_LIB;',
-    'const db = openNodeSqlite(lib + "/probe.db", { timeoutMs: 5000 });',
-    'try {',
-    '  db.exec("PRAGMA cache_size = 1;");',
-    '  db.exec("CREATE TABLE t (a TEXT, b TEXT);");',
-    '  db.exec("INSERT INTO t SELECT hex(randomblob(8)), hex(randomblob(8)) FROM (WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x < 20000) SELECT x FROM c);");',
-    '  const rows = db.prepare("SELECT count(*) AS n FROM (SELECT a FROM t ORDER BY b, a)").all();',
-    '  console.log("RESULT" + JSON.stringify({ ok: true, n: rows[0] && rows[0].n }));',
-    '} catch (e) { console.log("RESULT" + JSON.stringify({ ok: false, message: String(e && e.message).slice(0, 140) })); }',
-    'finally { try { db.close(); } catch {} }',
-  ].join('\n'), 'utf8');
+  fs.writeFileSync(
+    script,
+    [
+      'import { openNodeSqlite } from ' +
+        JSON.stringify(
+          pathToFileURL(path.join(ROOT, 'apps/desktop/src/main/db/sqlite-adapter.ts')).href,
+        ) +
+        ';',
+      'const lib = process.env.CHILD_LIB;',
+      'const db = openNodeSqlite(lib + "/probe.db", { timeoutMs: 5000 });',
+      'try {',
+      '  db.exec("PRAGMA cache_size = 1;");',
+      '  db.exec("CREATE TABLE t (a TEXT, b TEXT);");',
+      '  db.exec("INSERT INTO t SELECT hex(randomblob(8)), hex(randomblob(8)) FROM (WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c WHERE x < 20000) SELECT x FROM c);");',
+      '  const rows = db.prepare("SELECT count(*) AS n FROM (SELECT a FROM t ORDER BY b, a)").all();',
+      '  console.log("RESULT" + JSON.stringify({ ok: true, n: rows[0] && rows[0].n }));',
+      '} catch (e) { console.log("RESULT" + JSON.stringify({ ok: false, message: String(e && e.message).slice(0, 140) })); }',
+      'finally { try { db.close(); } catch {} }',
+    ].join('\n'),
+    'utf8',
+  );
 
   const good = path.join(TMP, 'app-owned-tmp');
   const bad = path.join(TMP, 'no-such-temp-' + String(Date.now()));
@@ -93,11 +122,21 @@ test('ST3 ⭐ 机制钉住：TMP 才是被读的那个，SQLITE_TMPDIR 单独设
 
   const run = (extra) => {
     const lib = fixtureLib();
-    const base = Object.assign({}, process.env, { CHILD_LIB: lib, TEMP: bad, TMP: bad, TMPDIR: bad });
+    const base = Object.assign({}, process.env, {
+      CHILD_LIB: lib,
+      TEMP: bad,
+      TMP: bad,
+      TMPDIR: bad,
+    });
     delete base.SQLITE_TMPDIR;
     for (const k of TEMP_ENV_KEYS) delete base[k];
-    const r = spawnSync(process.execPath, [script], { env: Object.assign(base, { TEMP: bad, TMP: bad, TMPDIR: bad }, extra), encoding: 'utf8' });
-    const line = String(r.stdout || '').split(/\r?\n/).find((l) => l.startsWith('RESULT'));
+    const r = spawnSync(process.execPath, [script], {
+      env: Object.assign(base, { TEMP: bad, TMP: bad, TMPDIR: bad }, extra),
+      encoding: 'utf8',
+    });
+    const line = String(r.stdout || '')
+      .split(/\r?\n/)
+      .find((l) => l.startsWith('RESULT'));
     assert.ok(line, '子进程应打出 RESULT：' + (String(r.stdout) + String(r.stderr)).slice(0, 300));
     return JSON.parse(line.slice('RESULT'.length));
   };
@@ -110,7 +149,11 @@ test('ST3 ⭐ 机制钉住：TMP 才是被读的那个，SQLITE_TMPDIR 单独设
   // (2) 只把 SQLITE_TMPDIR 指到可写目录 ⇒ **仍然失败**（这个构建忽略它）—— 证明「为什么必须设 TMP」
   const onlySqlite = run({ SQLITE_TMPDIR: good });
   assert.equal(onlySqlite.ok, false, '只设 SQLITE_TMPDIR 是不够的（实测被忽略）');
-  assert.match(onlySqlite.message, /unable to open database file/i, '失败原因必须是 SQLITE_CANTOPEN（临时文件建不出来）');
+  assert.match(
+    onlySqlite.message,
+    /unable to open database file/i,
+    '失败原因必须是 SQLITE_CANTOPEN（临时文件建不出来）',
+  );
 
   // (3) 对照：一个可写的都没有 ⇒ 同样失败（证明 (1) 不是恒真）
   const control = run({});

@@ -59,9 +59,11 @@ function checkHeader(buf: Buffer): { bpp: number; comp: number } {
   const hdrSize = buf.readUInt32LE(14);
   const bpp = buf.readUInt16LE(28);
   const comp = buf.readUInt32LE(30);
-  if (hdrSize !== 40) throw new Error(`不支持的 BMP 头大小 ${hdrSize}（只支持 BITMAPINFOHEADER=40）`);
+  if (hdrSize !== 40)
+    throw new Error(`不支持的 BMP 头大小 ${hdrSize}（只支持 BITMAPINFOHEADER=40）`);
   if (comp !== 0) throw new Error(`不支持的 BMP 压缩方式 ${comp}（只支持 BI_RGB=0）`);
-  if (bpp !== 24) throw new Error(`不支持的 BMP 位深 ${bpp}（**只验证过 24 位**；32 位未验证，不予猜测）`);
+  if (bpp !== 24)
+    throw new Error(`不支持的 BMP 位深 ${bpp}（**只验证过 24 位**；32 位未验证，不予猜测）`);
   return { bpp, comp };
 }
 
@@ -69,7 +71,9 @@ function checkHeader(buf: Buffer): { bpp: number; comp: number } {
  * 解码 BMP → 顶层 RGB（Buffer，w*h*3）。
  * 布局按**已实测验证**的规则：每像素 4 字节，取 [1][2][3] 作 B,G,R。
  */
-export async function decodeBmpRgb(filePath: string): Promise<{ rgb: Buffer; width: number; height: number }> {
+export async function decodeBmpRgb(
+  filePath: string,
+): Promise<{ rgb: Buffer; width: number; height: number }> {
   const bmpjs = (await import('bmp-js')).default;
   const buf = fs.readFileSync(filePath);
   checkHeader(buf);
@@ -85,9 +89,9 @@ export async function decodeBmpRgb(filePath: string): Promise<{ rgb: Buffer; wid
   const out = Buffer.alloc(w * h * 3);
   for (let i = 0; i < w * h; i++) {
     const o = i * 4;
-    out[i * 3] = data[o + 3];      // R
-    out[i * 3 + 1] = data[o + 2];  // G
-    out[i * 3 + 2] = data[o + 1];  // B
+    out[i * 3] = data[o + 3]; // R
+    out[i * 3 + 1] = data[o + 2]; // G
+    out[i * 3 + 2] = data[o + 1]; // B
   }
   return { rgb: out, width: w, height: h };
 }
@@ -97,33 +101,49 @@ export async function decodeBmpRgb(filePath: string): Promise<{ rgb: Buffer; wid
  * 用来把"取哪几个字节"这件事钉死，不依赖任何外部基准。
  */
 export function makeSyntheticBmp() {
-  const w = 3, h = 2;
-  const rowStride = Math.ceil((w * 3) / 4) * 4;          // 24 位行按 4 字节对齐
+  const w = 3,
+    h = 2;
+  const rowStride = Math.ceil((w * 3) / 4) * 4; // 24 位行按 4 字节对齐
   const pixBytes = rowStride * h;
   const buf = Buffer.alloc(54 + pixBytes, 0);
   buf.write('BM', 0, 'latin1');
   buf.writeUInt32LE(54 + pixBytes, 2);
-  buf.writeUInt32LE(54, 10);                              // 像素数据偏移
-  buf.writeUInt32LE(40, 14);                              // BITMAPINFOHEADER
+  buf.writeUInt32LE(54, 10); // 像素数据偏移
+  buf.writeUInt32LE(40, 14); // BITMAPINFOHEADER
   buf.writeInt32LE(w, 18);
-  buf.writeInt32LE(h, 22);                                // 正高度 = 自下而上
+  buf.writeInt32LE(h, 22); // 正高度 = 自下而上
   buf.writeUInt16LE(1, 26);
   buf.writeUInt16LE(24, 28);
-  buf.writeUInt32LE(0, 30);                               // BI_RGB
+  buf.writeUInt32LE(0, 30); // BI_RGB
 
   // 顶层行 (0,0)=(255,0,0) (1,0)=(0,255,0) (2,0)=(0,0,255)
   // 底层行 (0,1)=(10,20,30) (1,1)=(40,50,60) (2,1)=(70,80,90)
-  const top = [[255, 0, 0], [0, 255, 0], [0, 0, 255]];
-  const bottom = [[10, 20, 30], [40, 50, 60], [70, 80, 90]];
-  const rows = [bottom, top];                             // 文件里先存底层
+  const top = [
+    [255, 0, 0],
+    [0, 255, 0],
+    [0, 0, 255],
+  ];
+  const bottom = [
+    [10, 20, 30],
+    [40, 50, 60],
+    [70, 80, 90],
+  ];
+  const rows = [bottom, top]; // 文件里先存底层
   for (let r = 0; r < h; r++) {
     for (let x = 0; x < w; x++) {
       const [R, G, B] = rows[r][x];
       const o = 54 + r * rowStride + x * 3;
-      buf[o] = B; buf[o + 1] = G; buf[o + 2] = R;         // 文件里是 BGR
+      buf[o] = B;
+      buf[o + 1] = G;
+      buf[o + 2] = R; // 文件里是 BGR
     }
   }
-  return { buf, width: w, height: h, expect: [top[0], top[1], top[2], bottom[0], bottom[1], bottom[2]] };
+  return {
+    buf,
+    width: w,
+    height: h,
+    expect: [top[0], top[1], top[2], bottom[0], bottom[1], bottom[2]],
+  };
 }
 
 /**
@@ -140,14 +160,19 @@ export async function selfTestBmpLayout() {
     for (let i = 0; i < w * h; i++) got.push([rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]]);
     const bad = [];
     for (let i = 0; i < expect.length; i++) {
-      if (got[i].join(',') !== expect[i].join(',')) bad.push(`#${i} 期望 ${expect[i]} 实际 ${got[i]}`);
+      if (got[i].join(',') !== expect[i].join(','))
+        bad.push(`#${i} 期望 ${expect[i]} 实际 ${got[i]}`);
     }
     if (bad.length) {
       throw new Error('BMP 布局自检失败（bmp-js 行为可能已变）：' + bad.join('; '));
     }
     return { ok: true, checked: expect.length, size: `${w}×${h}` };
   } finally {
-    try { fs.unlinkSync(tmp); } catch { /* 忽略 */ }
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* 忽略 */
+    }
   }
 }
 
@@ -155,7 +180,9 @@ export async function selfTestBmpLayout() {
 export async function readBmpAsRawImage(filePath: string): Promise<RawImage> {
   const { rgb, width, height } = await decodeBmpRgb(filePath);
   const sharp = (await import('sharp')).default;
-  const png = await sharp(rgb, { raw: { width, height, channels: 3 } }).png().toBuffer();
+  const png = await sharp(rgb, { raw: { width, height, channels: 3 } })
+    .png()
+    .toBuffer();
   return await RawImage.read(new Blob([png]));
 }
 
@@ -181,7 +208,11 @@ export async function readImageWithFallback(filePath: string): Promise<ImageFall
       const image = await readBmpAsRawImage(filePath);
       return { image, vectorSourceKind: 'bmp-fallback', error: null };
     } catch (e2) {
-      return { image: null, vectorSourceKind: null, error: `native: ${nativeError} | bmp: ${e2 instanceof Error ? e2.message : String(e2)}` };
+      return {
+        image: null,
+        vectorSourceKind: null,
+        error: `native: ${nativeError} | bmp: ${e2 instanceof Error ? e2.message : String(e2)}`,
+      };
     }
   }
 }

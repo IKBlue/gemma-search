@@ -23,22 +23,29 @@
 // —— 此前这条行为只被已删的 DOM 守卫覆盖过。
 //
 // ⚠️ 路由装在**门禁之内**（有库才挂载）。这是有意的：一个库都没有时别的页面都不该可达。
-import useLibraryConfig from '../hooks/useLibraryConfig.ts'
-import type { LibraryConfigApi } from '../hooks/useLibraryConfig.ts'
-import { decideGate } from '../utils/gate.ts'
-import Button from '../ui/Button.tsx'
-import FirstRunWizard from './FirstRunWizard.tsx'
-import AppRouter from '../router/index.tsx'
+import useLibraryConfig from '../hooks/useLibraryConfig.ts';
+import type { LibraryConfigApi } from '../hooks/useLibraryConfig.ts';
+import { decideGate } from '../utils/gate.ts';
+import Button from '../ui/Button.tsx';
+import FirstRunWizard from './FirstRunWizard.tsx';
+import AppRouter from '../router/index.tsx';
 
 /** 注入点只需要这几样（结构上够用即可，不要求调用方给整个 hook 的返回） */
-export type GateConfigSource = () => Pick<LibraryConfigApi, 'loading' | 'data' | 'error' | 'refresh' | 'pickDir' | 'addLibrary'>
+export type GateConfigSource = () => Pick<
+  LibraryConfigApi,
+  'loading' | 'data' | 'error' | 'refresh' | 'pickDir' | 'addLibrary'
+>;
 
-export default function LibraryGate({ configSource = useLibraryConfig }: { configSource?: GateConfigSource }) {
-  const { loading, data, error, refresh, pickDir, addLibrary } = configSource()
-  const where = decideGate({ loading, data, error })
+export default function LibraryGate({
+  configSource = useLibraryConfig,
+}: {
+  configSource?: GateConfigSource;
+}) {
+  const { loading, data, error, refresh, pickDir, addLibrary } = configSource();
+  const where = decideGate({ loading, data, error });
 
   // 还没问出来：留白。宁可空一瞬，也不要「先显示向导再跳走」的闪烁。
-  if (where === 'loading') return null
+  if (where === 'loading') return null;
 
   // 连配置都读不出来（IPC 坏了 / 主进程异常）：如实报，并给重试
   if (where === 'error') {
@@ -48,23 +55,20 @@ export default function LibraryGate({ configSource = useLibraryConfig }: { confi
           <h1 className="wizard-title">读不到库配置</h1>
           <p className="wizard-error">{error}</p>
           <div className="wizard-acts">
-            <Button variant="primary" onClick={refresh}>重试</Button>
+            <Button variant="primary" onClick={refresh}>
+              重试
+            </Button>
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   if (where === 'wizard') {
     return (
-      <FirstRunWizard
-        data={data}
-        onAdded={refresh}
-        onPickDir={pickDir}
-        onAddLibrary={addLibrary}
-      />
-    )
+      <FirstRunWizard data={data} onAdded={refresh} onPickDir={pickDir} onAddLibrary={addLibrary} />
+    );
   }
 
-  return <AppRouter />
+  return <AppRouter />;
 }

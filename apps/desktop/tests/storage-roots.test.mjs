@@ -14,9 +14,19 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  resolveModels, resolveStorageRoots, resolveLibraryStorage, probeWritable, describeStorageRoots,
-  GS_INDEX_NAME, GS_DB_NAME, GS_JOURNAL_NAME, MODELS_DIRNAME, MODEL_MARKER_REL,
-  MODEL_SEARCH_ORDER, modelSearchOrderText, findModelCacheDir,
+  resolveModels,
+  resolveStorageRoots,
+  resolveLibraryStorage,
+  probeWritable,
+  describeStorageRoots,
+  GS_INDEX_NAME,
+  GS_DB_NAME,
+  GS_JOURNAL_NAME,
+  MODELS_DIRNAME,
+  MODEL_MARKER_REL,
+  MODEL_SEARCH_ORDER,
+  modelSearchOrderText,
+  findModelCacheDir,
 } from '../src/main/storage-roots.ts';
 
 /** 期望的搜索顺序（SPEC §2，2026-10-14 所有者授权：显式覆盖优先）。
@@ -31,7 +41,11 @@ const APP = 'C:\\gs\\app';
 const UD = 'C:\\gs\\ud';
 const LIB = 'D:\\libs\\L1';
 
-function mkErr(code, p) { const e = new Error(code + ': ' + p); e.code = code; return e; }
+function mkErr(code, p) {
+  const e = new Error(code + ': ' + p);
+  e.code = code;
+  return e;
+}
 
 /**
  * 内存文件系统：只实现本模块用到的那 5 个能力。
@@ -47,7 +61,12 @@ function memFs(init) {
   const writes = [];
   const unlinks = [];
   return {
-    dirs, files, denied, mkdirs, writes, unlinks,
+    dirs,
+    files,
+    denied,
+    mkdirs,
+    writes,
+    unlinks,
     existsSync: (p) => dirs.has(p) || files.has(p),
     isDirectory: (p) => dirs.has(p),
     writeFileSync: (p) => {
@@ -65,8 +84,15 @@ function memFs(init) {
       for (const f of files) if (path.dirname(f) === p) out.add(path.basename(f));
       return [...out];
     },
-    mkdirSync: (p) => { mkdirs.push(p); dirs.add(p); },
-    unlinkSync: (p) => { if (!files.has(p)) throw mkErr('ENOENT', p); files.delete(p); unlinks.push(p); },
+    mkdirSync: (p) => {
+      mkdirs.push(p);
+      dirs.add(p);
+    },
+    unlinkSync: (p) => {
+      if (!files.has(p)) throw mkErr('ENOENT', p);
+      files.delete(p);
+      unlinks.push(p);
+    },
   };
 }
 
@@ -92,7 +118,11 @@ test('M1 程序目录可写且含模型 ⇒ 命中程序目录，installDir 也�
 test('M2 程序目录**不可写** ⇒ 改用 userData（落点与 installDir 都跟着走）', () => {
   const appModels = path.join(APP, MODELS_DIRNAME);
   const udModels = path.join(UD, MODELS_DIRNAME);
-  const f = memFs({ dirs: [APP, appModels, UD, udModels], denied: [appModels], files: [modelMarker(udModels)] });
+  const f = memFs({
+    dirs: [APP, appModels, UD, udModels],
+    denied: [appModels],
+    files: [modelMarker(udModels)],
+  });
   const r = resolveModels({ appDir: APP, userDataDir: UD, fs: f });
 
   assert.equal(r.found, udModels);
@@ -112,7 +142,10 @@ test('M3 用户指定目录命中 —— **新顺序里它排第一位**（旧�
   assert.equal(r.source, 'user');
   assert.equal(r.searched[0].source, 'user', '用户指定必须**第一个**被找');
   assert.equal(r.searched.length, 3);
-  assert.deepEqual(r.searched.map((c) => c.order), [1, 2, 3]);
+  assert.deepEqual(
+    r.searched.map((c) => c.order),
+    [1, 2, 3],
+  );
 });
 
 test('M4 三位都没有 ⇒ found=null、指引非空且**列出找过的每条路径**', () => {
@@ -129,7 +162,10 @@ test('M4 三位都没有 ⇒ found=null、指引非空且**列出找过的每条
   assert.match(r.guidance, /不会显示任何检索结果/, '要写明"不显示假结果"');
   // 指引里的顺序串是从常量派生的 ⇒ 顺序一改，文案自动跟着改（不许两处各写一半）
   assert.ok(r.guidance.includes(modelSearchOrderText()), '指引里的顺序必须与常量一致');
-  assert.ok(r.guidance.includes('用户指定 → 程序目录 models/ → userData models/'), '缺模型时要说清新的优先级');
+  assert.ok(
+    r.guidance.includes('用户指定 → 程序目录 models/ → userData models/'),
+    '缺模型时要说清新的优先级',
+  );
 });
 
 // ============================================================ ①b 优先级（SPEC §2：显式覆盖优先）
@@ -137,7 +173,10 @@ test('M4 三位都没有 ⇒ found=null、指引非空且**列出找过的每条
 test('M6 ⭐ 用户指定**赢过**程序目录（两边都有模型 ⇒ 用户那份说了算）', () => {
   const appModels = path.join(APP, MODELS_DIRNAME);
   const userDir = 'E:\\my-models';
-  const f = memFs({ dirs: [APP, appModels, UD, userDir], files: [modelMarker(appModels), modelMarker(userDir)] });
+  const f = memFs({
+    dirs: [APP, appModels, UD, userDir],
+    files: [modelMarker(appModels), modelMarker(userDir)],
+  });
   const r = resolveModels({ appDir: APP, userDataDir: UD, userModelDir: userDir, fs: f });
 
   assert.equal(r.found, userDir, '显式指定的目录必须压过程序目录自带的那份');
@@ -149,12 +188,18 @@ test('M6 ⭐ 用户指定**赢过**程序目录（两边都有模型 ⇒ 用户�
 test('M7 ⭐ 程序目录**赢过** userData（没给用户指定时）', () => {
   const appModels = path.join(APP, MODELS_DIRNAME);
   const udModels = path.join(UD, MODELS_DIRNAME);
-  const f = memFs({ dirs: [APP, appModels, UD, udModels], files: [modelMarker(appModels), modelMarker(udModels)] });
+  const f = memFs({
+    dirs: [APP, appModels, UD, udModels],
+    files: [modelMarker(appModels), modelMarker(udModels)],
+  });
   const r = resolveModels({ appDir: APP, userDataDir: UD, fs: f });
 
   assert.equal(r.found, appModels);
   assert.equal(r.source, 'app');
-  assert.deepEqual(r.searched.map((c) => c.source), ['app', 'userData']);
+  assert.deepEqual(
+    r.searched.map((c) => c.source),
+    ['app', 'userData'],
+  );
 });
 
 test('M8 用户指定目录**存在但里面没有模型** ⇒ 不停下，继续往后找（app 命中）', () => {
@@ -171,8 +216,15 @@ test('M8 用户指定目录**存在但里面没有模型** ⇒ 不停下，继�
 });
 
 test('M9 ⭐ 顺序**只有一处常量**：候选次序、日志文案、指引文案都从 MODEL_SEARCH_ORDER 派生', () => {
-  assert.deepEqual([...MODEL_SEARCH_ORDER], EXPECTED_ORDER, '改顺序只该改 storage-roots.ts 的那一行 + 这里的期望值');
-  assert.equal(modelSearchOrderText(), '用户指定 → 程序目录 models/ → userData models/ → 既有模型缓存目录（model-cache）');
+  assert.deepEqual(
+    [...MODEL_SEARCH_ORDER],
+    EXPECTED_ORDER,
+    '改顺序只该改 storage-roots.ts 的那一行 + 这里的期望值',
+  );
+  assert.equal(
+    modelSearchOrderText(),
+    '用户指定 → 程序目录 models/ → userData models/ → 既有模型缓存目录（model-cache）',
+  );
 
   // 四位来源**都可用**时，实际次序必须逐位等于常量（少一位就说明有人在别处改了顺序）
   const userDir = 'E:\\my-models';
@@ -180,11 +232,30 @@ test('M9 ⭐ 顺序**只有一处常量**：候选次序、日志文案、指引
   const cacheRev = path.join(cacheBase, 'onnx', 'embeddinggemma-2', 'rev-a');
   const cacheFp32 = path.join(cacheRev, 'fp32');
   const f = memFs({
-    dirs: [APP, UD, userDir, cacheBase, path.join(cacheBase, 'onnx'), path.join(cacheBase, 'onnx', 'embeddinggemma-2'), cacheRev, cacheFp32],
+    dirs: [
+      APP,
+      UD,
+      userDir,
+      cacheBase,
+      path.join(cacheBase, 'onnx'),
+      path.join(cacheBase, 'onnx', 'embeddinggemma-2'),
+      cacheRev,
+      cacheFp32,
+    ],
     files: [modelMarker(cacheFp32)],
   });
-  const r = resolveModels({ appDir: APP, userDataDir: UD, userModelDir: userDir, modelCacheDir: cacheBase, fs: f });
-  assert.deepEqual(r.searched.map((c) => c.source), [...MODEL_SEARCH_ORDER], '实际搜索次序必须等于常量');
+  const r = resolveModels({
+    appDir: APP,
+    userDataDir: UD,
+    userModelDir: userDir,
+    modelCacheDir: cacheBase,
+    fs: f,
+  });
+  assert.deepEqual(
+    r.searched.map((c) => c.source),
+    [...MODEL_SEARCH_ORDER],
+    '实际搜索次序必须等于常量',
+  );
 });
 
 // ============================================================ ①c 既有 model-cache 布局（第四位）
@@ -194,7 +265,15 @@ test('MC1 只有既有 model-cache 有模型 ⇒ 命中它，来源标 modelCach
   const cacheRev = path.join(cacheBase, 'onnx', 'embeddinggemma-2', 'rev-a');
   const cacheFp32 = path.join(cacheRev, 'fp32');
   const f = memFs({
-    dirs: [APP, UD, cacheBase, path.join(cacheBase, 'onnx'), path.join(cacheBase, 'onnx', 'embeddinggemma-2'), cacheRev, cacheFp32],
+    dirs: [
+      APP,
+      UD,
+      cacheBase,
+      path.join(cacheBase, 'onnx'),
+      path.join(cacheBase, 'onnx', 'embeddinggemma-2'),
+      cacheRev,
+      cacheFp32,
+    ],
     files: [modelMarker(cacheFp32)],
   });
   const r = resolveModels({ appDir: APP, userDataDir: UD, modelCacheDir: cacheBase, fs: f });
@@ -213,7 +292,16 @@ test('MC2 顺序最后：程序目录 与 model-cache 都有模型 ⇒ 程序目
   const cacheRev = path.join(cacheBase, 'onnx', 'embeddinggemma-2', 'rev-a');
   const cacheFp32 = path.join(cacheRev, 'fp32');
   const f = memFs({
-    dirs: [APP, appModels, UD, cacheBase, path.join(cacheBase, 'onnx'), path.join(cacheBase, 'onnx', 'embeddinggemma-2'), cacheRev, cacheFp32],
+    dirs: [
+      APP,
+      appModels,
+      UD,
+      cacheBase,
+      path.join(cacheBase, 'onnx'),
+      path.join(cacheBase, 'onnx', 'embeddinggemma-2'),
+      cacheRev,
+      cacheFp32,
+    ],
     files: [modelMarker(appModels), modelMarker(cacheFp32)],
   });
   const r = resolveModels({ appDir: APP, userDataDir: UD, modelCacheDir: cacheBase, fs: f });
@@ -221,15 +309,29 @@ test('MC2 顺序最后：程序目录 与 model-cache 都有模型 ⇒ 程序目
   assert.equal(r.found, appModels);
   assert.equal(r.source, 'app');
   // 没给用户指定 ⇒ 次序是 app(1) / userData(2) / modelCache(3)；两份都要被找过并记为命中
-  assert.deepEqual(r.searched.map((c) => c.source), ['app', 'userData', 'modelCache']);
-  assert.equal(r.searched.find((c) => c.source === 'modelCache').valid, true, '缓存那份仍然要被找过并记为命中（不是没看见）');
+  assert.deepEqual(
+    r.searched.map((c) => c.source),
+    ['app', 'userData', 'modelCache'],
+  );
+  assert.equal(
+    r.searched.find((c) => c.source === 'modelCache').valid,
+    true,
+    '缓存那份仍然要被找过并记为命中（不是没看见）',
+  );
 });
 
 test('MC3 model-cache 里没有可用 revision ⇒ 不算命中，理由说清扫过几个', () => {
   const cacheBase = 'D:\\cache';
   const cacheRev = path.join(cacheBase, 'onnx', 'embeddinggemma-2', 'rev-a');
   const f = memFs({
-    dirs: [APP, UD, cacheBase, path.join(cacheBase, 'onnx'), path.join(cacheBase, 'onnx', 'embeddinggemma-2'), cacheRev],
+    dirs: [
+      APP,
+      UD,
+      cacheBase,
+      path.join(cacheBase, 'onnx'),
+      path.join(cacheBase, 'onnx', 'embeddinggemma-2'),
+      cacheRev,
+    ],
   });
   const r = resolveModels({ appDir: APP, userDataDir: UD, modelCacheDir: cacheBase, fs: f });
 
@@ -244,7 +346,18 @@ test('MC4 findModelCacheDir：跳过没有 marker 的 revision；读不动就如
   const root = path.join(base, 'onnx', 'embeddinggemma-2');
   const a = path.join(root, 'rev-a', 'fp32');
   const b = path.join(root, 'rev-b', 'fp32');
-  const f = memFs({ dirs: [base, path.join(base, 'onnx'), root, path.join(root, 'rev-a'), a, path.join(root, 'rev-b'), b], files: [modelMarker(b)] });
+  const f = memFs({
+    dirs: [
+      base,
+      path.join(base, 'onnx'),
+      root,
+      path.join(root, 'rev-a'),
+      a,
+      path.join(root, 'rev-b'),
+      b,
+    ],
+    files: [modelMarker(b)],
+  });
   const hit = findModelCacheDir(base, f);
   assert.equal(hit.dir, b, 'rev-a 没有模型 ⇒ 应当取 rev-b');
   assert.match(hit.note, /找到/);
@@ -254,7 +367,12 @@ test('MC4 findModelCacheDir：跳过没有 marker 的 revision；读不动就如
   assert.match(findModelCacheDir('Z:\\nope', f).note, /不存在/);
 
   // 列目录失败（权限/坏盘）：不抛，理由里带原始错误码
-  const bad = { ...f, readdirSync: () => { throw mkErr('EPERM', root); } };
+  const bad = {
+    ...f,
+    readdirSync: () => {
+      throw mkErr('EPERM', root);
+    },
+  };
   const r2 = findModelCacheDir(base, bad);
   assert.equal(r2.dir, null);
   assert.match(r2.note, /EPERM/);
@@ -287,7 +405,10 @@ test('L1 库根可写 ⇒ 索引 / 元数据 / 事务日志都在库根本身', 
   assert.equal(s.stagingDirName, '.gs-staging');
   assert.match(s.reason, /库根可写/);
   // 名字必须与 SPEC §2 的布局图逐字一致 —— 漂了就是"两处各写一半"
-  assert.deepEqual([GS_INDEX_NAME, GS_DB_NAME, GS_JOURNAL_NAME], ['.gs-index.bin', '.gs.db', '.gs-journal']);
+  assert.deepEqual(
+    [GS_INDEX_NAME, GS_DB_NAME, GS_JOURNAL_NAME],
+    ['.gs-index.bin', '.gs.db', '.gs-journal'],
+  );
 });
 
 test('L2 库根不可写 ⇒ 回退 userData/libraries/<libId>，并说清为什么', () => {
@@ -340,8 +461,12 @@ test('L6 多个库各解析一份落点（一个回退、一个不回退）', ()
   const L2 = 'D:\\libs\\L2';
   const f = memFs({ dirs: [LIB, L2, UD], denied: [L2] });
   const r = resolveStorageRoots({
-    appDir: APP, userDataDir: UD,
-    libraries: [{ libId: 'L1', root: LIB }, { libId: 'L2', root: L2 }],
+    appDir: APP,
+    userDataDir: UD,
+    libraries: [
+      { libId: 'L1', root: LIB },
+      { libId: 'L2', root: L2 },
+    ],
     fs: f,
   });
 
@@ -364,7 +489,12 @@ test('L7 一个库都没有 ⇒ 落点为空并说明原因（不编一个落点
 test('P1 探测文件写完即删、解析过程**不创建任何目录**', () => {
   const appModels = path.join(APP, MODELS_DIRNAME);
   const f = memFs({ dirs: [APP, appModels, UD, LIB], files: [modelMarker(appModels)] });
-  resolveStorageRoots({ appDir: APP, userDataDir: UD, libraries: [{ libId: 'L1', root: LIB }], fs: f });
+  resolveStorageRoots({
+    appDir: APP,
+    userDataDir: UD,
+    libraries: [{ libId: 'L1', root: LIB }],
+    fs: f,
+  });
 
   assert.deepEqual(probeLeftovers(f), [], '库根 / 模型目录里不许残留探测文件');
   assert.deepEqual(f.mkdirs, [], '解析不该创建目录（启动路径不留副作用）');
@@ -374,7 +504,10 @@ test('P1 探测文件写完即删、解析过程**不创建任何目录**', () =
 
 test('P2 probeWrites=false 时只按存在性判断，理由**必须**承认"没探测过"', () => {
   const f = memFs({ dirs: [LIB, UD], denied: [LIB] });
-  const s = resolveLibraryStorage({ libId: 'L1', root: LIB }, { userDataDir: UD, fs: f, probeWrites: false });
+  const s = resolveLibraryStorage(
+    { libId: 'L1', root: LIB },
+    { userDataDir: UD, fs: f, probeWrites: false },
+  );
 
   assert.equal(s.root, LIB);
   assert.equal(s.fallback, false);
@@ -408,7 +541,12 @@ test('P3 probeWritable 用真实文件系统：真目录可写且不留文件，
 
 test('D1 describeStorageRoots 把"落在哪 + 为什么"渲染成可读行（启动日志直接用）', () => {
   const f = memFs({ dirs: [APP, UD, LIB], denied: [LIB] });
-  const r = resolveStorageRoots({ appDir: APP, userDataDir: UD, libraries: [{ libId: 'L1', root: LIB }], fs: f });
+  const r = resolveStorageRoots({
+    appDir: APP,
+    userDataDir: UD,
+    libraries: [{ libId: 'L1', root: LIB }],
+    fs: f,
+  });
   const lines = describeStorageRoots(r);
   const text = lines.join('\n');
 
@@ -416,21 +554,30 @@ test('D1 describeStorageRoots 把"落在哪 + 为什么"渲染成可读行（启
   assert.ok(text.includes('userData = ' + UD));
   assert.ok(text.includes('模型搜索顺序'));
   // 顺序串必须与常量一致（顺序一改，日志自动跟着改；这条防的是"日志还印着旧顺序"）
-  assert.ok(text.includes('模型搜索顺序 = ' + modelSearchOrderText()), '日志里的顺序必须来自 MODEL_SEARCH_ORDER');
+  assert.ok(
+    text.includes('模型搜索顺序 = ' + modelSearchOrderText()),
+    '日志里的顺序必须来自 MODEL_SEARCH_ORDER',
+  );
   assert.ok(text.includes('未找到'), '没有模型时必须明说未找到');
   assert.ok(text.includes('库 L1：落点 = ' + path.join(UD, 'libraries', 'L1')));
   assert.ok(text.includes('回退 userData'));
   assert.ok(text.includes('.gs-index.bin'));
   assert.ok(text.includes('.gs-journal'));
   assert.ok(text.includes('.gs-staging'));
-  assert.ok(lines.some((l) => l.includes('为什么 = ')), '要有"为什么是这个落点"这一行');
+  assert.ok(
+    lines.some((l) => l.includes('为什么 = ')),
+    '要有"为什么是这个落点"这一行',
+  );
   assert.equal(text.includes('undefined'), false, '可读行里不许出现 undefined');
   for (const l of lines) assert.equal(typeof l, 'string');
 });
 
 test('S1 libId 里的路径分隔符被安全化（回退目录不许路径穿越）', () => {
   const f = memFs({ dirs: [UD] });
-  const s = resolveLibraryStorage({ libId: '..\\..\\evil', root: 'Z:\\nope' }, { userDataDir: UD, fs: f });
+  const s = resolveLibraryStorage(
+    { libId: '..\\..\\evil', root: 'Z:\\nope' },
+    { userDataDir: UD, fs: f },
+  );
 
   assert.equal(s.libId, '______evil');
   assert.equal(s.root, path.join(UD, 'libraries', '______evil'));
@@ -450,7 +597,11 @@ test('R1 真文件系统跑一遍：模型在程序目录、库根可写 ⇒ 落
     }
     fs.writeFileSync(path.join(appDir, MODELS_DIRNAME, MODEL_MARKER_REL), '', 'utf8');
 
-    const r = resolveStorageRoots({ appDir, userDataDir, libraries: [{ libId: 'L1', root: libRoot }] });
+    const r = resolveStorageRoots({
+      appDir,
+      userDataDir,
+      libraries: [{ libId: 'L1', root: libRoot }],
+    });
 
     assert.equal(r.models.found, path.join(appDir, MODELS_DIRNAME));
     assert.equal(r.models.source, 'app');
@@ -461,7 +612,11 @@ test('R1 真文件系统跑一遍：模型在程序目录、库根可写 ⇒ 落
     const residue = fs.readdirSync(libRoot).filter((n) => n.includes('.gs-write-probe-'));
     assert.deepEqual(residue, [], '库根不许残留探测文件');
     assert.deepEqual(fs.readdirSync(userDataDir), [], 'userData 解析过程零写入');
-    assert.deepEqual(fs.readdirSync(appDir).sort(), [MODELS_DIRNAME], '程序目录只该有 models/ —— 解析不建别的东西');
+    assert.deepEqual(
+      fs.readdirSync(appDir).sort(),
+      [MODELS_DIRNAME],
+      '程序目录只该有 models/ —— 解析不建别的东西',
+    );
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -474,13 +629,21 @@ test('R2 真文件系统：库根不存在 ⇒ 回退 userData，且**不在库�
     fs.mkdirSync(userDataDir, { recursive: true });
     const missingLib = path.join(base, 'not-there');
 
-    const r = resolveStorageRoots({ appDir: base, userDataDir, libraries: [{ libId: 'L1', root: missingLib }] });
+    const r = resolveStorageRoots({
+      appDir: base,
+      userDataDir,
+      libraries: [{ libId: 'L1', root: missingLib }],
+    });
     const s = r.libraries[0];
 
     assert.equal(s.fallback, true);
     assert.equal(s.root, path.join(userDataDir, 'libraries', 'L1'));
     assert.equal(fs.existsSync(missingLib), false, '解析不许把库根创建出来');
-    assert.equal(fs.existsSync(path.join(userDataDir, 'libraries')), false, '解析不许建回退目录（首次写入时再建）');
+    assert.equal(
+      fs.existsSync(path.join(userDataDir, 'libraries')),
+      false,
+      '解析不许建回退目录（首次写入时再建）',
+    );
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

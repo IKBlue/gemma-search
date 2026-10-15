@@ -27,12 +27,12 @@
 // ── 用法 ─────────────────────────────────────────────────────────────
 //   cn('base', cond && 'x', props.className)
 // 传进来的 `className` 放最后 ⇒ 调用方永远能覆盖组件默认样式（这正是 twMerge 要解决的场景）。
-import { clsx } from 'clsx'
-import type { ClassValue } from 'clsx'
-import { extendTailwindMerge } from 'tailwind-merge'
+import { clsx } from 'clsx';
+import type { ClassValue } from 'clsx';
+import { extendTailwindMerge } from 'tailwind-merge';
 
 /** 来自 `styles/tailwind.css` 的 `@theme { --text-* }` —— 与那里保持一一对应 */
-export const TEXT_SIZES = ['h1', 'title2', 'metric', 'lede', 'body', 'callout', 'caption', 'micro']
+export const TEXT_SIZES = ['h1', 'title2', 'metric', 'lede', 'body', 'callout', 'caption', 'micro'];
 
 const twMerge = extendTailwindMerge({
   extend: {
@@ -41,14 +41,14 @@ const twMerge = extendTailwindMerge({
       'font-size': [{ text: TEXT_SIZES }],
     },
   },
-})
+});
 
 /**
  * @param inputs `clsx` 接受的任何东西（字符串 / 条件 / 数组 / 对象）
  * @returns 合并后的 class 串
  */
 export function cn(...inputs: ClassValue[]): string {
-  return twMerge(clsx(inputs))
+  return twMerge(clsx(inputs));
 }
 
-export default cn
+export default cn;

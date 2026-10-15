@@ -81,7 +81,7 @@ export default defineConfig({
     build: {
       outDir: out('preload'),
       rollupOptions: {
-        input: { index: desktop('src', 'preload', 'index.ts') },   // 2026-10-14：preload 源码转 TS（产物仍是 index.cjs）
+        input: { index: desktop('src', 'preload', 'index.ts') }, // 2026-10-14：preload 源码转 TS（产物仍是 index.cjs）
         output: { format: 'cjs', entryFileNames: '[name].cjs' },
       },
     },

@@ -9,8 +9,8 @@
 //    「构建期固化的路径 → 动态 import」的映射。
 declare module '*.css' {
   /** Vite 处理 CSS：模块本身无导出，只有副作用（注入样式） */
-  const css: void
-  export default css
+  const css: void;
+  export default css;
 }
 
 /**
@@ -21,5 +21,5 @@ declare module '*.css' {
  * `eager` 等选项本仓库没有用到，不在这里铺开（YAGNI，也不必假装支持）。
  */
 interface ImportMeta {
-  glob(pattern: string): Record<string, () => Promise<unknown>>
+  glob(pattern: string): Record<string, () => Promise<unknown>>;
 }

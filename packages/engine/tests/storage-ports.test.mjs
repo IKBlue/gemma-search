@@ -35,7 +35,10 @@ function setup() {
   const fx = writeIndexFixture(legacyIdxDir, 'L1', made.rows, { libRoot });
   // 新布局：同一份字节落**库根**（`.gs-index.bin`）
   fs.writeFileSync(path.join(libRoot, '.gs-index.bin'), fx.indexBuffer);
-  const config = { libraries: [{ libId: 'L1', root: libRoot, label: '测试库' }], data_dir: dataDir };
+  const config = {
+    libraries: [{ libId: 'L1', root: libRoot, label: '测试库' }],
+    data_dir: dataDir,
+  };
   return { tmp, libRoot, dataDir, legacyIdxDir, fx, config, rows: made.rows };
 }
 
@@ -49,9 +52,15 @@ function makePorts({ libRoot, items, spies = {}, readIndex = null }) {
   };
   return {
     libraries: {
-      list() { spies.list = (spies.list || 0) + 1; return [{ libId: 'L1', label: '测试库', root: libRoot }]; },
+      list() {
+        spies.list = (spies.list || 0) + 1;
+        return [{ libId: 'L1', label: '测试库', root: libRoot }];
+      },
       has: (id) => id === 'L1',
-      get(id) { if (id !== 'L1') throw fail(ERR.LIB_NOT_FOUND, '库未注册：' + id); return { libId: 'L1', label: '测试库', root: libRoot }; },
+      get(id) {
+        if (id !== 'L1') throw fail(ERR.LIB_NOT_FOUND, '库未注册：' + id);
+        return { libId: 'L1', label: '测试库', root: libRoot };
+      },
       requireExistingRoot(id) {
         // 端口**按契约抛引擎错误** ⇒ 信封里也保得住 code（见 storage-ports.ts 的说明）
         if (id !== 'L1') throw fail(ERR.LIB_NOT_FOUND, '库未注册：' + id);
@@ -60,8 +69,14 @@ function makePorts({ libRoot, items, spies = {}, readIndex = null }) {
       storageOf: (id) => layout,
     },
     items: {
-      listItems(id) { spies.listItems = (spies.listItems || 0) + 1; return items.filter((i) => i.libId === id); },
-      getItem(id, uid) { spies.getItem = (spies.getItem || 0) + 1; return items.find((i) => i.libId === id && i.uid === uid) || null; },
+      listItems(id) {
+        spies.listItems = (spies.listItems || 0) + 1;
+        return items.filter((i) => i.libId === id);
+      },
+      getItem(id, uid) {
+        spies.getItem = (spies.getItem || 0) + 1;
+        return items.find((i) => i.libId === id && i.uid === uid) || null;
+      },
     },
     index: {
       readIndex(id) {
@@ -73,8 +88,10 @@ function makePorts({ libRoot, items, spies = {}, readIndex = null }) {
   };
 }
 
-const engineLegacy = (s, extra = {}) => createEngine({ config: s.config, encoder: fakeEncoder(), ...extra });
-const enginePorts = (s, ports, extra = {}) => createEngine({ config: s.config, encoder: fakeEncoder(), storage: ports, ...extra });
+const engineLegacy = (s, extra = {}) =>
+  createEngine({ config: s.config, encoder: fakeEncoder(), ...extra });
+const enginePorts = (s, ports, extra = {}) =>
+  createEngine({ config: s.config, encoder: fakeEncoder(), storage: ports, ...extra });
 
 // ─────────────────────────────────────────── 不注入：旧路径（形状与行为逐字不变）
 
@@ -87,7 +104,11 @@ test('T16-P1 ⭐ 不注入端口 ⇒ 走旧布局：正常出结果，且**返�
   assert.equal(row.indexed, 4);
   assert.equal(row.encoded, 4);
   assert.equal(row.healthy, true, JSON.stringify(row.problems));
-  assert.equal(Object.prototype.hasOwnProperty.call(row, 'storage'), false, '旧布局不得多出 storage 块');
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(row, 'storage'),
+    false,
+    '旧布局不得多出 storage 块',
+  );
   assert.equal(typeof row.failed, 'number', '旧布局的 failed 仍是数字（meta.json 的台账）');
   assert.equal(row.failed, 0);
 
@@ -117,8 +138,15 @@ test('T16-P2 ⭐⭐ 注入端口 ⇒ 真的走端口（spies 证明），且检�
   const ia = await legacy.item({ libId: 'L1', uid });
   const ib = await wired.item({ libId: 'L1', uid });
   assert.deepEqual(ib.data, ia.data, 'item 结果必须逐字等价');
-  assert.deepEqual((await wired.itemPaths({ libId: 'L1', uid })).data, (await legacy.itemPaths({ libId: 'L1', uid })).data);
-  assert.deepEqual((await wired.scan({ libId: 'L1' })).data, (await legacy.scan({ libId: 'L1' })).data, 'scan 结果必须逐字等价');
+  assert.deepEqual(
+    (await wired.itemPaths({ libId: 'L1', uid })).data,
+    (await legacy.itemPaths({ libId: 'L1', uid })).data,
+  );
+  assert.deepEqual(
+    (await wired.scan({ libId: 'L1' })).data,
+    (await legacy.scan({ libId: 'L1' })).data,
+    'scan 结果必须逐字等价',
+  );
 
   assert.ok(spies.readIndex >= 1, '向量索引端口必须被走到');
   assert.ok(spies.listItems >= 1, '条目端口必须被走到');
@@ -151,7 +179,9 @@ test('T16-P4 ⭐⭐ 索引缺失 ⇒ problems 里带 INDEX_MISSING 与具体路�
   const ports = makePorts({
     libRoot: s.libRoot,
     items: s.fx.items,
-    readIndex: () => { throw fail(ERR.INDEX_MISSING, '索引不存在：' + idxPath); },
+    readIndex: () => {
+      throw fail(ERR.INDEX_MISSING, '索引不存在：' + idxPath);
+    },
   });
   const e = enginePorts(s, ports);
   const st = await e.indexStatus();
@@ -159,9 +189,16 @@ test('T16-P4 ⭐⭐ 索引缺失 ⇒ problems 里带 INDEX_MISSING 与具体路�
   assert.equal(row.healthy, false, '读不到索引不许报 healthy');
   assert.equal(row.problems.length, 1);
   assert.equal(row.problems[0].code, 'INDEX_MISSING');
-  assert.ok(row.problems[0].message.includes('.gs-index.bin'), '理由里要出现具体落点：' + row.problems[0].message);
+  assert.ok(
+    row.problems[0].message.includes('.gs-index.bin'),
+    '理由里要出现具体落点：' + row.problems[0].message,
+  );
   assert.equal(row.indexed, 0);
-  assert.equal(row.storage.indexExists, true, 'storage 是如实快照（文件确实在），与「端口读不到」是两件事');
+  assert.equal(
+    row.storage.indexExists,
+    true,
+    'storage 是如实快照（文件确实在），与「端口读不到」是两件事',
+  );
 
   const r = await e.search({ mode: 'text', text: '任意' });
   assert.equal(r.ok, false);
@@ -171,7 +208,9 @@ test('T16-P4 ⭐⭐ 索引缺失 ⇒ problems 里带 INDEX_MISSING 与具体路�
 test('T16-P5 条目端口抛错 ⇒ 同样给明确理由（不吞、不假成功）', async () => {
   const s = setup();
   const ports = makePorts({ libRoot: s.libRoot, items: s.fx.items });
-  ports.items.listItems = () => { throw coded('INTERNAL', 'sqlite 打不开：' + path.join(s.libRoot, '.gs.db')); };
+  ports.items.listItems = () => {
+    throw coded('INTERNAL', 'sqlite 打不开：' + path.join(s.libRoot, '.gs.db'));
+  };
   const e = enginePorts(s, ports);
   const st = await e.indexStatus();
   const row = st.data.libs[0];
@@ -206,8 +245,11 @@ test('T16-P7 ⭐⭐ 新布局下 scan 不得把库内产物（.gs-index.bin / .g
   const dotted = newRels.filter((rel) => rel.split('/').some((seg) => seg.startsWith('.')));
   assert.deepEqual(dotted, [], '库内产物/隐藏项不是素材；实得 ' + JSON.stringify(dotted));
   // ② 如实钉住**既有**行为：items 只登记图 ⇒ 压缩包本来就会出现在 new（改造前如此，T-16a 不改它）
-  assert.deepEqual(newRels.slice().sort(), ['CR/c.zip', 'CR/d.7z', 'VR/a.rar'].sort(),
-    '压缩包出现在 new 是既有行为（已上报）；这里把它钉住，免得被当成 T-16a 的产物');
+  assert.deepEqual(
+    newRels.slice().sort(),
+    ['CR/c.zip', 'CR/d.7z', 'VR/a.rar'].sort(),
+    '压缩包出现在 new 是既有行为（已上报）；这里把它钉住，免得被当成 T-16a 的产物',
+  );
   assert.deepEqual(r.data.changed, []);
   assert.deepEqual(r.data.missing, []);
 });
@@ -239,8 +281,12 @@ test('T45-E1 ⭐⭐ 任意 IMPORT_* 经**引擎端口**抛进信封 ⇒ 原样�
   for (const code of IMPORT_CODES) {
     assert.equal(ERR[code], code, code + ' 必须在冻结的 ERR 里（SPEC §5：新增=兼容）');
     const ports = makePorts({ libRoot: s.libRoot, items: s.fx.items });
-    ports.items.getItem = () => { throw fail(code, '模拟：.gs.db 行不合法'); };
-    ports.items.listItems = () => { throw fail(code, '模拟：.gs.db 行不合法'); };
+    ports.items.getItem = () => {
+      throw fail(code, '模拟：.gs.db 行不合法');
+    };
+    ports.items.listItems = () => {
+      throw fail(code, '模拟：.gs.db 行不合法');
+    };
     const e = enginePorts(s, ports);
 
     const r = await e.item({ libId: 'L1', uid: s.fx.items[0].uid });
@@ -248,30 +294,57 @@ test('T45-E1 ⭐⭐ 任意 IMPORT_* 经**引擎端口**抛进信封 ⇒ 原样�
     assert.equal(r.error.code, code, 'item 信封：' + code + ' 必须原样带出，实得 ' + r.error.code);
     assert.notEqual(r.error.code, ERR.INDEX_CORRUPT, code + ' 不许被说成索引损坏（假因果）');
     assert.notEqual(r.error.code, ERR.INTERNAL, code + ' 不许被吞成 INTERNAL');
-    assert.ok(r.error.userMessage && r.error.userMessage.length > 0, code + ' 的 userMessage 必须非空');
+    assert.ok(
+      r.error.userMessage && r.error.userMessage.length > 0,
+      code + ' 的 userMessage 必须非空',
+    );
 
     const st = await e.indexStatus();
-    assert.equal(st.data.libs[0].problems[0].code, code, 'indexStatus 的 problems[].code 也必须如实');
+    assert.equal(
+      st.data.libs[0].problems[0].code,
+      code,
+      'indexStatus 的 problems[].code 也必须如实',
+    );
   }
 });
 
 test('S7a-E1 ⭐⭐ DB_OPEN_FAILED 经**引擎端口**抛出 ⇒ 原样带出（不依赖 main 的映射表）', async () => {
   const s = setup();
   const ports = makePorts({ libRoot: s.libRoot, items: s.fx.items });
-  ports.items.getItem = () => { throw fail(ERR.DB_OPEN_FAILED, '模拟：.gs.db 打不开'); };
-  ports.items.listItems = () => { throw fail(ERR.DB_OPEN_FAILED, '模拟：.gs.db 打不开'); };
+  ports.items.getItem = () => {
+    throw fail(ERR.DB_OPEN_FAILED, '模拟：.gs.db 打不开');
+  };
+  ports.items.listItems = () => {
+    throw fail(ERR.DB_OPEN_FAILED, '模拟：.gs.db 打不开');
+  };
   const e = enginePorts(s, ports);
 
   const r = await e.item({ libId: 'L1', uid: s.fx.items[0].uid });
   assert.equal(r.ok, false);
-  assert.equal(r.error.code, 'DB_OPEN_FAILED', 'item 信封必须原样带出 DB_OPEN_FAILED，实得 ' + r.error.code);
-  assert.notEqual(r.error.code, ERR.INDEX_CORRUPT, '库坏 ≠ 索引坏（SPEC §5.2：不得归成 INDEX_CORRUPT）');
+  assert.equal(
+    r.error.code,
+    'DB_OPEN_FAILED',
+    'item 信封必须原样带出 DB_OPEN_FAILED，实得 ' + r.error.code,
+  );
+  assert.notEqual(
+    r.error.code,
+    ERR.INDEX_CORRUPT,
+    '库坏 ≠ 索引坏（SPEC §5.2：不得归成 INDEX_CORRUPT）',
+  );
   assert.notEqual(r.error.code, ERR.INTERNAL, '不许被吞成 INTERNAL');
   assert.ok(r.error.userMessage && r.error.userMessage.length > 0, 'userMessage 必须非空');
-  assert.notEqual(r.error.userMessage, USER_MESSAGE[ERR.INDEX_CORRUPT], '文案也不许说成"索引文件已损坏"');
+  assert.notEqual(
+    r.error.userMessage,
+    USER_MESSAGE[ERR.INDEX_CORRUPT],
+    '文案也不许说成"索引文件已损坏"',
+  );
 
   const st = await e.indexStatus();
-  assert.equal(st.data.libs[0].problems[0].code, 'DB_OPEN_FAILED', 'indexStatus 的 problems[].code 也必须如实');
+  assert.equal(
+    st.data.libs[0].problems[0].code,
+    'DB_OPEN_FAILED',
+    'indexStatus 的 problems[].code 也必须如实',
+  );
 });
 test('T45-E2 每个 IMPORT_* 都有**自己的**用户文案（不冒充"索引损坏"、不含绝对路径）', () => {
   const corruptMsg = USER_MESSAGE[ERR.INDEX_CORRUPT];

@@ -9,7 +9,7 @@
 //   `npm test`  —— `node:test`，纯逻辑，快，无 GUI 依赖（164 条）
 //   `npm run e2e` —— Playwright，真启动 Electron，慢，**需要能出窗的环境**
 //   本沙箱出窗需要 `--no-sandbox` + 提权（见 `tools/probe_electron_start/README.md` 的实测结论）。
-import { defineConfig } from '@playwright/test'
+import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: '.',
@@ -20,4 +20,4 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   reporter: [['list']],
   // 故意的：不配 `projects`/`webServer` —— 我们不测浏览器，只测 Electron 里的构建产物
-})
+});

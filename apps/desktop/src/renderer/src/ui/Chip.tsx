@@ -18,16 +18,16 @@
 //   旧 CSS 的 `.chip.active` 是独立规则所以永远赢，迁到 Tailwind 后这个保证没了 ⇒ 实测「点筛选
 //   胶囊底色不变」。现在虽然 `cn()` 的 `tailwind-merge` **能**按「后者胜」消解冲突（叠加式已安全），
 //   但互斥写法**不依赖任何顺序假设**，更稳 ⇒ 保持互斥。
-import { cn } from './cn.ts'
-import type { ButtonHTMLAttributes } from './types.ts'
+import { cn } from './cn.ts';
+import type { ButtonHTMLAttributes } from './types.ts';
 
-const BASE = 'border rounded-pill px-4 py-2 min-h-8 text-caption'
-const IDLE = 'bg-surface-raised border-line text-ink-muted hover:border-accent'
-const ACTIVE = 'bg-ink border-ink text-surface-raised'
+const BASE = 'border rounded-pill px-4 py-2 min-h-8 text-caption';
+const IDLE = 'bg-surface-raised border-line text-ink-muted hover:border-accent';
+const ACTIVE = 'bg-ink border-ink text-surface-raised';
 
 export type ChipProps = Partial<ButtonHTMLAttributes<HTMLButtonElement>> & {
-  active?: boolean
-}
+  active?: boolean;
+};
 
 export default function Chip({ active = false, onClick, children, className, ...rest }: ChipProps) {
   return (
@@ -41,5 +41,5 @@ export default function Chip({ active = false, onClick, children, className, ...
     >
       {children}
     </button>
-  )
+  );
 }

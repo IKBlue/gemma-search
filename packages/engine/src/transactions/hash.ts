@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 /** 文件的 sha1（十六进制）。用于 §3 的"stagedSha1 == 源 sha1"校验与规则 ② 的字节比较 */
 export function sha1File(absPath: string): string {
   const h = crypto.createHash('sha1');
-  h.update(fs.readFileSync(absPath));      // 不传 encoding ⇒ Buffer，二进制安全
+  h.update(fs.readFileSync(absPath)); // 不传 encoding ⇒ Buffer，二进制安全
   return h.digest('hex');
 }
 

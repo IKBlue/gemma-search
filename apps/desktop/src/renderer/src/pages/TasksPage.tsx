@@ -9,26 +9,36 @@
 //   ⚠️ 外壳（AppShell + SearchSidebar + Topbar + 返回搜索链接）**必须保留**：
 //      实测（S6 全量 e2e）—— 第一版我把整页换成一段裸文本，侧栏就此消失，
 //      于是 a11y E5-b / uiux E12-e / routing E2-e / E6-b 全红。页面改文案，外壳不许动。
-import { Link } from 'react-router'
+import { Link } from 'react-router';
 
-import AppShell from '../layout/AppShell.tsx'
-import Main from '../layout/Main.tsx'
-import PageHead from '../layout/PageHead.tsx'
-import Topbar from '../layout/Topbar.tsx'
-import Button from '../ui/Button.tsx'
-import SearchSidebar from '../search/SearchSidebar.tsx'
-import { LABELS } from '../router/paths.ts'
-import { useDocumentTitle } from '../utils/useDocumentTitle.ts'
+import AppShell from '../layout/AppShell.tsx';
+import Main from '../layout/Main.tsx';
+import PageHead from '../layout/PageHead.tsx';
+import Topbar from '../layout/Topbar.tsx';
+import Button from '../ui/Button.tsx';
+import SearchSidebar from '../search/SearchSidebar.tsx';
+import { LABELS } from '../router/paths.ts';
+import { useDocumentTitle } from '../utils/useDocumentTitle.ts';
 
 export default function TasksPage() {
-  useDocumentTitle(LABELS.tasks)
+  useDocumentTitle(LABELS.tasks);
 
   return (
     <AppShell sidebar={<SearchSidebar lib={null} indexLoading={false} indexError={null} />}>
       <Main>
         <Topbar
-          crumb={<>工作区 <span className="crumb-sep">/</span> <strong>索引任务</strong></>}
-          actions={<Button variant="icon" asChild><Link to="/" aria-label="返回搜索" title="返回搜索">←</Link></Button>}
+          crumb={
+            <>
+              工作区 <span className="crumb-sep">/</span> <strong>索引任务</strong>
+            </>
+          }
+          actions={
+            <Button variant="icon" asChild>
+              <Link to="/" aria-label="返回搜索" title="返回搜索">
+                ←
+              </Link>
+            </Button>
+          }
         />
 
         <div className="content">
@@ -51,5 +61,5 @@ export default function TasksPage() {
         </div>
       </Main>
     </AppShell>
-  )
+  );
 }

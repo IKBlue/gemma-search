@@ -35,7 +35,9 @@ import type { OkEnvelope } from './errors.ts';
 import type { EngineEntry, IndexItem } from './index.ts';
 
 /** 仓库根的 `fixtures/sample-index.json`（本文件在 packages/engine/src/ ⇒ 上溯三层） */
-export const DEFAULT_FIXTURE_PATH = fileURLToPath(new URL('../../../fixtures/sample-index.json', import.meta.url));
+export const DEFAULT_FIXTURE_PATH = fileURLToPath(
+  new URL('../../../fixtures/sample-index.json', import.meta.url),
+);
 
 /** 定时器句柄 / 注入签名（测试用假时钟把它变确定） */
 export type TimerHandle = ReturnType<typeof setTimeout>;
@@ -199,23 +201,57 @@ export interface FakeRecoveryDetails {
 }
 
 /** `indexStart` 的入参 / 返回 */
-export interface StartJobRequest { libId?: string; device?: string; seq?: number; rebuild?: boolean }
-export interface StartJobResult { jobId: string; total: number; phase: string; reused?: number }
+export interface StartJobRequest {
+  libId?: string;
+  device?: string;
+  seq?: number;
+  rebuild?: boolean;
+}
+export interface StartJobResult {
+  jobId: string;
+  total: number;
+  phase: string;
+  reused?: number;
+}
 
 /** 检索请求（模拟模式只用到这几个字段） */
-export interface FakeSearchRequest { mode?: string; text?: string; topK?: number; libIds?: string[] }
+export interface FakeSearchRequest {
+  mode?: string;
+  text?: string;
+  topK?: number;
+  libIds?: string[];
+}
 /** 单条查询 */
-export interface FakeItemRequest { libId?: string; uid?: string }
+export interface FakeItemRequest {
+  libId?: string;
+  uid?: string;
+}
 /** 台账查询 */
-export interface FakeTransactionsRequest { libId?: string | null; txId?: string | null; limit?: number }
+export interface FakeTransactionsRequest {
+  libId?: string | null;
+  txId?: string | null;
+  limit?: number;
+}
 /** 写操作 */
-export interface FakeMutateRequest { libId?: string; uid?: string; op?: string; params?: { txId?: string } }
+export interface FakeMutateRequest {
+  libId?: string;
+  uid?: string;
+  op?: string;
+  params?: { txId?: string };
+}
 /** 入库 */
-export interface FakeIngestRequest { libId?: string; sourcePaths?: string[] }
+export interface FakeIngestRequest {
+  libId?: string;
+  sourcePaths?: string[];
+}
 /** 取消 / 续跑 */
-export interface FakeJobRequest { jobId?: string }
+export interface FakeJobRequest {
+  jobId?: string;
+}
 /** 扫描 */
-export interface FakeScanRequest { libId?: string }
+export interface FakeScanRequest {
+  libId?: string;
+}
 
 /** createFakeKit() 的返回 */
 export interface FakeKit {
@@ -274,7 +310,9 @@ export function createFakeKit({
   clearTimer = clearTimeout,
 }: FakeKitOptions): FakeKit {
   if (typeof bandOf !== 'function') {
-    throw new TypeError('createFakeKit 需要注入 bandOf（别在本模块里重算档位阈值 —— 那会造出第二份阈值）');
+    throw new TypeError(
+      'createFakeKit 需要注入 bandOf（别在本模块里重算档位阈值 —— 那会造出第二份阈值）',
+    );
   }
   const data: SampleIndex = fixture || loadSampleIndex();
   const byLib = groupByLib(data);
@@ -284,7 +322,11 @@ export function createFakeKit({
 
   // ── 内存态（`ingest`/`mutate` 只改这里；进程退出即消失，永不落盘）────────
   const itemsByLib = new Map<string, FixtureItem[]>();
-  for (const [libId, list] of byLib) itemsByLib.set(libId, list.map((it) => ({ ...it })));
+  for (const [libId, list] of byLib)
+    itemsByLib.set(
+      libId,
+      list.map((it) => ({ ...it })),
+    );
   /** 未收尾的事务（用于演示 `RECOVERY_NEEDED` 那条路） */
   let pendingTx: FixtureTx | null = data.pendingTx ? { ...data.pendingTx } : null;
   const txLog: FakeTxLogEntry[] = [];
@@ -312,7 +354,8 @@ export function createFakeKit({
     const meta = (data.libs || []).find((l) => l.libId === libId);
     if (!meta) throw fail(ERR.LIB_NOT_FOUND, `库不存在：${libId}`, { libId });
     // 「索引损坏的库」——界面必须能演示这个状态（契约 §8）
-    if (meta.state === 'corrupt') throw fail(ERR.INDEX_CORRUPT, `索引损坏（模拟）：${libId}`, { libId });
+    if (meta.state === 'corrupt')
+      throw fail(ERR.INDEX_CORRUPT, `索引损坏（模拟）：${libId}`, { libId });
     const items = itemsByLib.get(libId) || [];
     const byUid = new Map<string, IndexItem>(items.map((it): [string, IndexItem] => [it.uid, it]));
     const vectors = items.map((it, i) => ({ row: it.vectorRow ?? i }));
@@ -333,9 +376,10 @@ export function createFakeKit({
         seq: compatBase.seq,
         built_at: 1760000000000,
         // L2 刻意与 L1 的 compat 不同 ⇒ 演示 `COMPAT_MISMATCH`（契约 §6）
-        compat: meta.state === 'compat-mismatch'
-          ? { model_revision: 'other', dtype: 'fp32', preprocess_version: 1, seq: 280 }
-          : compatBase,
+        compat:
+          meta.state === 'compat-mismatch'
+            ? { model_revision: 'other', dtype: 'fp32', preprocess_version: 1, seq: 280 }
+            : compatBase,
       },
       items,
       vectors,
@@ -343,7 +387,9 @@ export function createFakeKit({
       // ⚠️ L3 的 `dim` 在 fixture 里是 `null`（索引损坏）—— 它走不到这里（上面已抛），
       //    用 ?? 0 只是为了满足 entry 的 dim:number；不是"把损坏当 0 维"。
       dim: meta.dim ?? 0,
-      meta: { failed: (jobCfg.failAt || []).map((i) => ({ relPath: items[i]?.relPath ?? `#${i}` })) },
+      meta: {
+        failed: (jobCfg.failAt || []).map((i) => ({ relPath: items[i]?.relPath ?? `#${i}` })),
+      },
       byUid,
       rowToRel: new Map(items.map((it, i) => [it.vectorRow ?? i, it.relPath])),
     };
@@ -353,7 +399,8 @@ export function createFakeKit({
   function doSearch(req: FakeSearchRequest = {}): OkEnvelope<unknown> {
     const mode = req.mode || 'text';
     const topK = Math.max(1, Math.min(200, Number(req.topK) || 50));
-    const only = req.libIds && req.libIds.length ? req.libIds : (data.libs || []).map((l) => l.libId);
+    const only =
+      req.libIds && req.libIds.length ? req.libIds : (data.libs || []).map((l) => l.libId);
     const libsUsed: string[] = [];
     const libsSkipped: Array<Record<string, unknown>> = [];
     const scored: Array<{ libId: string; item: FixtureItem; score: number }> = [];
@@ -361,11 +408,21 @@ export function createFakeKit({
       const meta = (data.libs || []).find((l) => l.libId === libId);
       if (!meta) continue;
       if (meta.state === 'corrupt') {
-        libsSkipped.push({ libId, reason: { kind: 'unavailable', code: ERR.INDEX_CORRUPT, detail: '索引损坏（模拟）' } });
+        libsSkipped.push({
+          libId,
+          reason: { kind: 'unavailable', code: ERR.INDEX_CORRUPT, detail: '索引损坏（模拟）' },
+        });
         continue;
       }
       if (meta.state === 'compat-mismatch') {
-        libsSkipped.push({ libId, reason: { kind: 'incompatible', code: ERR.COMPAT_MISMATCH, detail: 'compat 与基准库不符（模拟）' } });
+        libsSkipped.push({
+          libId,
+          reason: {
+            kind: 'incompatible',
+            code: ERR.COMPAT_MISMATCH,
+            detail: 'compat 与基准库不符（模拟）',
+          },
+        });
         continue;
       }
       libsUsed.push(libId);
@@ -419,14 +476,25 @@ export function createFakeKit({
    */
   function doItem(req: FakeItemRequest = {}): OkEnvelope<unknown> {
     const it = findItem(req);
-    const missing = new Set((data.scan?.[req.libId ?? '']?.missing) || []);
+    const missing = new Set(data.scan?.[req.libId ?? '']?.missing || []);
     const uid = it.uid ?? '';
     return ok({
-      libId: req.libId, uid: it.uid, relPath: it.relPath, folder: it.folder, stem: it.stem,
-      imageExt: it.imageExt, imageSize: it.imageSize, imageMtime: it.imageMtime,
+      libId: req.libId,
+      uid: it.uid,
+      relPath: it.relPath,
+      folder: it.folder,
+      stem: it.stem,
+      imageExt: it.imageExt,
+      imageSize: it.imageSize,
+      imageMtime: it.imageMtime,
       vectorSource: it.vectorSource || 'native',
       archive: it.archiveRelPath
-        ? { relPath: it.archiveRelPath, ext: it.archiveExt, size: it.archiveSize, mtime: it.archiveMtime }
+        ? {
+            relPath: it.archiveRelPath,
+            ext: it.archiveExt,
+            size: it.archiveSize,
+            mtime: it.archiveMtime,
+          }
         : null,
       exists: {
         image: !missing.has(uid),
@@ -438,7 +506,7 @@ export function createFakeKit({
   /** 两条绝对路径。⚠️ **单独的方法**：契约 §0「路径只能由 lib_id+uid 解析」，不主动到处泄 */
   function doItemPaths(req: FakeItemRequest = {}): OkEnvelope<unknown> {
     const it = findItem(req);
-    const missing = new Set((data.scan?.[req.libId ?? '']?.missing) || []);
+    const missing = new Set(data.scan?.[req.libId ?? '']?.missing || []);
     const gone = missing.has(it.uid ?? '');
     return ok({
       libId: req.libId,
@@ -454,18 +522,22 @@ export function createFakeKit({
     //    model_repo|model_revision|model_weights_dtype|preprocessing_version|seq_length|dim|normalization|pooling
     //    我第一版返回了 `'fake'` 一个词 —— 那会让"在模拟模式下能显示、在真库上格式完全不同"。
     //    `tests/fake.test.mjs` 的 **F13** 拿 `COMPAT_FIELDS` 逐段核对。
-    const seg = (l: FixtureLib): string => [
-      'demo-repo',
-      l.state === 'compat-mismatch' ? 'other-rev' : (data.encoding?.modelRevision ?? 'demo-rev-1'),
-      l.state === 'compat-mismatch' ? 'fp32' : (data.encoding?.dtype ?? 'q4f16'),
-      String(l.state === 'compat-mismatch' ? 1 : (data.encoding?.preprocessVersion ?? 2)),
-      String(l.state === 'compat-mismatch' ? 280 : (data.encoding?.seq ?? 140)),
-      String(l.dim ?? ''),
-      l.state === 'compat-mismatch' ? 'none' : 'l2',
-      l.state === 'compat-mismatch' ? 'cls' : 'mean',
-    ].join('|');
+    const seg = (l: FixtureLib): string =>
+      [
+        'demo-repo',
+        l.state === 'compat-mismatch'
+          ? 'other-rev'
+          : (data.encoding?.modelRevision ?? 'demo-rev-1'),
+        l.state === 'compat-mismatch' ? 'fp32' : (data.encoding?.dtype ?? 'q4f16'),
+        String(l.state === 'compat-mismatch' ? 1 : (data.encoding?.preprocessVersion ?? 2)),
+        String(l.state === 'compat-mismatch' ? 280 : (data.encoding?.seq ?? 140)),
+        String(l.dim ?? ''),
+        l.state === 'compat-mismatch' ? 'none' : 'l2',
+        l.state === 'compat-mismatch' ? 'cls' : 'mean',
+      ].join('|');
     const libs = (data.libs || []).map((l) => {
-      let indexed = 0, encoded = 0;
+      let indexed = 0,
+        encoded = 0;
       let problems: Array<{ code: string | undefined; message: string }> = [];
       try {
         const e = load(l.libId);
@@ -475,8 +547,13 @@ export function createFakeKit({
         problems = [{ code: errCodeOf(err), message: errMessageOf(err) }];
       }
       return {
-        libId: l.libId, label: l.label, root, rootExists: true,
-        indexed, encoded, dim: l.dim,
+        libId: l.libId,
+        label: l.label,
+        root,
+        rootExists: true,
+        indexed,
+        encoded,
+        dim: l.dim,
         // ⚠️ 索引读不出来的库，真实引擎返回 **`compat: null`**（`compatComplete` 为假时），
         //    而不是一个"带空段的串"。空段是我第二版犯的错，F13 当场抓到。
         compat: l.state === 'corrupt' ? null : seg(l),
@@ -497,14 +574,19 @@ export function createFakeKit({
   }
 
   // ── 长任务：假进度（契约 §8「indexStart 发假进度（约 10 s 走完）」）────────
-  function emit(ev: FakeEvent): void { onEvent(ev); }
+  function emit(ev: FakeEvent): void {
+    onEvent(ev);
+  }
 
   function recoveryDetails(libId?: string): FakeRecoveryDetails {
     const tx: Record<string, unknown> = pendingTx ?? {};
     return {
-      libId, txId: tx.txId, state: tx.state,
+      libId,
+      txId: tx.txId,
+      state: tx.state,
       startedAt: tx.startedAt,
-      canUndo: Boolean(tx.canUndo), canRollback: Boolean(tx.canRollback),
+      canUndo: Boolean(tx.canUndo),
+      canRollback: Boolean(tx.canRollback),
     };
   }
 
@@ -525,15 +607,44 @@ export function createFakeKit({
     });
   }
 
-  function startJob({ libId, device = 'webgpu', seq = 140, rebuild = false }: StartJobRequest = {}): OkEnvelope<StartJobResult> {
-    if (pendingTx) throw fail(ERR.RECOVERY_NEEDED, '上次操作未完成，需要先恢复。', recoveryDetails(libId));
+  function startJob({
+    libId,
+    device = 'webgpu',
+    seq = 140,
+    rebuild = false,
+  }: StartJobRequest = {}): OkEnvelope<StartJobResult> {
+    if (pendingTx)
+      throw fail(ERR.RECOVERY_NEEDED, '上次操作未完成，需要先恢复。', recoveryDetails(libId));
     const total = jobCfg.total ?? 30;
     const jobId = `j-fake-${++jobSeq}`;
     const phases = jobCfg.phases || ['scan', 'pair', 'encode', 'verify', 'finalize'];
-    const job: FakeJob = { jobId, libId, kind: 'index', cancelled: false, done: 0, total, device, seq, rebuild, startedAt: now(), timer: null };
+    const job: FakeJob = {
+      jobId,
+      libId,
+      kind: 'index',
+      cancelled: false,
+      done: 0,
+      total,
+      device,
+      seq,
+      rebuild,
+      startedAt: now(),
+      timer: null,
+    };
     jobs.set(jobId, job);
     jobHistory.set(jobId, { libId, done: 0, compat: currentCompat(), device, seq });
-    emit({ type: 'index.progress', jobId, libId, done: 0, total, skipped: 0, failed: 0, ratePerSec: 0, etaSec: null, phase: phases[0] });
+    emit({
+      type: 'index.progress',
+      jobId,
+      libId,
+      done: 0,
+      total,
+      skipped: 0,
+      failed: 0,
+      ratePerSec: 0,
+      etaSec: null,
+      phase: phases[0],
+    });
 
     const step = (): void => {
       job.timer = null;
@@ -541,12 +652,18 @@ export function createFakeKit({
       job.done = Math.min(total, job.done + Math.max(1, Math.round(total / 8)));
       const elapsedSec = Math.max(0.001, (now() - job.startedAt) / 1000);
       const ratePerSec = Number((job.done / elapsedSec).toFixed(2));
-      const phase = phases[Math.min(phases.length - 1, Math.floor((job.done / total) * phases.length))];
+      const phase =
+        phases[Math.min(phases.length - 1, Math.floor((job.done / total) * phases.length))];
       const ev: FakeEvent = {
-        type: 'index.progress', jobId, libId,
-        done: job.done, total, skipped: 0,
+        type: 'index.progress',
+        jobId,
+        libId,
+        done: job.done,
+        total,
+        skipped: 0,
         failed: (jobCfg.failAt || []).filter((i) => i < job.done).length,
-        ratePerSec, etaSec: ratePerSec > 0 ? Math.round((total - job.done) / ratePerSec) : null,
+        ratePerSec,
+        etaSec: ratePerSec > 0 ? Math.round((total - job.done) / ratePerSec) : null,
         phase,
       };
       // GPU 回退必须**不静默**（契约 §3）—— 界面要能演示这条
@@ -573,26 +690,35 @@ export function createFakeKit({
    *    （`tests/fake.test.mjs` 的 **F9** 是这条的元断言。）
    */
   function finishJob(job: FakeJob, ranToEnd: boolean): void {
-    if (job.timer) { clearTimer(job.timer); job.timer = null; }
+    if (job.timer) {
+      clearTimer(job.timer);
+      job.timer = null;
+    }
     const hist = jobHistory.get(job.jobId);
-    if (hist) hist.done = job.done;              // 保留"编到第几条"⇒ 续跑要用
-    const all = job.libId === undefined ? [] : (itemsByLib.get(job.libId) || []);
+    if (hist) hist.done = job.done; // 保留"编到第几条"⇒ 续跑要用
+    const all = job.libId === undefined ? [] : itemsByLib.get(job.libId) || [];
     const failed = !ranToEnd
       ? (jobCfg.failAt || []).slice(0, 1).map((i) => ({
-        relPath: all[i]?.relPath ?? `#${i}`,
-        stage: 'encode',
-        error: { code: ERR.INTERNAL, message: '已取消：该条编码未完成' },
-      }))
+          relPath: all[i]?.relPath ?? `#${i}`,
+          stage: 'encode',
+          error: { code: ERR.INTERNAL, message: '已取消：该条编码未完成' },
+        }))
       : (jobCfg.failAt || []).map((i, n) => ({
-        relPath: all[i]?.relPath ?? `#${i}`,
-        stage: (jobCfg.failReasons?.[n]?.stage) || 'encode',
-        error: (jobCfg.failReasons?.[n]?.error) || { code: ERR.INTERNAL, message: '编码失败' },
-      }));
+          relPath: all[i]?.relPath ?? `#${i}`,
+          stage: jobCfg.failReasons?.[n]?.stage || 'encode',
+          error: jobCfg.failReasons?.[n]?.error || { code: ERR.INTERNAL, message: '编码失败' },
+        }));
     emit({
-      type: 'index.done', jobId: job.jobId, libId: job.libId, ok: failed.length === 0,
+      type: 'index.done',
+      jobId: job.jobId,
+      libId: job.libId,
+      ok: failed.length === 0,
       cancelled: Boolean(job.cancelled),
-      indexed: job.done, total: job.total,
-      reused: job.reused ?? 0, encoded: Math.max(0, job.done - failed.length), failed,
+      indexed: job.done,
+      total: job.total,
+      reused: job.reused ?? 0,
+      encoded: Math.max(0, job.done - failed.length),
+      failed,
       compat: 'fake',
     });
     jobs.delete(job.jobId);
@@ -623,8 +749,16 @@ export function createFakeKit({
     if (!job) throw new Error('resumeJob: startJob 没有登记 job（不应发生）');
     job.reused = reuse;
     emit({
-      type: 'index.progress', jobId: out.data.jobId, libId: job.libId, done: reuse, total: job.total,
-      skipped: 0, failed: 0, ratePerSec: 0, etaSec: null, phase: 'encode',
+      type: 'index.progress',
+      jobId: out.data.jobId,
+      libId: job.libId,
+      done: reuse,
+      total: job.total,
+      skipped: 0,
+      failed: 0,
+      ratePerSec: 0,
+      etaSec: null,
+      phase: 'encode',
       note: compatOk ? `复用 ${reuse} 条（compat 相符）` : '复用 0 条：compat 不符',
     });
     out.data.reused = reuse;
@@ -637,10 +771,16 @@ export function createFakeKit({
    * 初值来自 fixture 的 `transactions.items` —— 其中一条刻意是 `recovery_needed`，
    * 让「操作记录」页有**真的待处理**可显示（三条路：重试 / 回退 / 保持现状）。
    */
-  const transactions: FixtureTx[] = ((data.transactions && data.transactions.items) || []).map((t) => ({ ...t }));
+  const transactions: FixtureTx[] = ((data.transactions && data.transactions.items) || []).map(
+    (t) => ({ ...t }),
+  );
 
   /** 契约 §2.11 `transactions`：可按 libId / txId 过滤，也可只要前 N 条 */
-  function doTransactions({ libId = null, txId = null, limit = 50 }: FakeTransactionsRequest = {}): OkEnvelope<unknown> {
+  function doTransactions({
+    libId = null,
+    txId = null,
+    limit = 50,
+  }: FakeTransactionsRequest = {}): OkEnvelope<unknown> {
     let list = transactions;
     if (libId) list = list.filter((t) => t.libId === libId);
     if (txId) list = list.filter((t) => t.txId === txId);
@@ -655,7 +795,11 @@ export function createFakeKit({
 
   function pushTx(rec: FixtureTx): string {
     transactions.unshift({
-      canUndo: false, canRollback: false, finishedAt: now(), changes: [], ...rec,
+      canUndo: false,
+      canRollback: false,
+      finishedAt: now(),
+      changes: [],
+      ...rec,
     });
     return rec.txId;
   }
@@ -674,8 +818,20 @@ export function createFakeKit({
         throw fail(ERR.UNDO_EXPIRED, `该事务已过撤销期：${txId}`, { txId, state: hit.state });
       }
       pendingTx = null;
-      if (hit) { hit.state = 'undone'; hit.canUndo = false; hit.canRollback = false; hit.finishedAt = now(); }
-      else pushTx({ txId, libId: req.libId, op: 'undo', state: 'undone', startedAt: now(), summary: '撤销' });
+      if (hit) {
+        hit.state = 'undone';
+        hit.canUndo = false;
+        hit.canRollback = false;
+        hit.finishedAt = now();
+      } else
+        pushTx({
+          txId,
+          libId: req.libId,
+          op: 'undo',
+          state: 'undone',
+          startedAt: now(),
+          summary: '撤销',
+        });
       txLog.push({ txId, op: 'undo', at: now() });
       return ok({ txId, undone: true });
     }
@@ -683,7 +839,11 @@ export function createFakeKit({
     const txId = `tx-fake-${txLog.length + 1}`;
     const op = req.op || 'rename';
     pushTx({
-      txId, libId: req.libId, op, state: 'committed', startedAt: now(),
+      txId,
+      libId: req.libId,
+      op,
+      state: 'committed',
+      startedAt: now(),
       // 「是否需重编码」按操作语义给：改路径/改配对**不动像素** ⇒ 复用向量；
       // 只有"换图 / 外部内容变更"才要重编码，而那两种在这里没有对应 op（见 P3c 的 IA3）。
       needsReencode: false,
@@ -695,12 +855,18 @@ export function createFakeKit({
   }
 
   function ingest(req: FakeIngestRequest = {}): OkEnvelope<unknown> {
-    if (pendingTx) throw fail(ERR.RECOVERY_NEEDED, '上次操作未完成，需要先恢复。', recoveryDetails(req.libId));
+    if (pendingTx)
+      throw fail(ERR.RECOVERY_NEEDED, '上次操作未完成，需要先恢复。', recoveryDetails(req.libId));
     const src = Array.isArray(req.sourcePaths) ? req.sourcePaths : [];
     const txId = `tx-fake-ingest-${txLog.length + 1}`;
     pushTx({
-      txId, libId: req.libId, op: 'ingest', state: 'committed', startedAt: now(),
-      needsReencode: true, summary: `入库 ${src.length} 个文件（需编码）`,
+      txId,
+      libId: req.libId,
+      op: 'ingest',
+      state: 'committed',
+      startedAt: now(),
+      needsReencode: true,
+      summary: `入库 ${src.length} 个文件（需编码）`,
       changes: src.map((p) => ({ relPath: p, kind: 'ingest' })),
     });
     txLog.push({ txId, op: 'ingest', at: now(), count: src.length });
@@ -708,23 +874,44 @@ export function createFakeKit({
   }
 
   return {
-    registry, load, root,
+    registry,
+    load,
+    root,
     // ⚠️ 返回对象的键**刻意与引擎方法名一一对应**（`indexStart: startJob` 等）。
     //    这样引擎侧就是 `fakeKit[name]` 一句话，不需要再维护一张"方法名→套件名"的映射表
     //    （那种表两个方向都会漂移）。`transactions` 在这里补上别名以保持一致。
-    doSearch, doItem, doItemPaths, doIndexStatus, doScan, doTransactions,
+    doSearch,
+    doItem,
+    doItemPaths,
+    doIndexStatus,
+    doScan,
+    doTransactions,
     transactions: doTransactions,
-    indexStart: startJob, indexCancel: cancelJob, indexResume: resumeJob,
-    mutate, ingest,
+    indexStart: startJob,
+    indexCancel: cancelJob,
+    indexResume: resumeJob,
+    mutate,
+    ingest,
     /** 供测试：造一个未收尾事务，用来演示 `RECOVERY_NEEDED` */
-    __injectPendingTx(tx: FixtureTx = { txId: 'tx-test', state: 'staged', startedAt: 1760000000000, canUndo: true, canRollback: true }): FixtureTx {
+    __injectPendingTx(
+      tx: FixtureTx = {
+        txId: 'tx-test',
+        state: 'staged',
+        startedAt: 1760000000000,
+        canUndo: true,
+        canRollback: true,
+      },
+    ): FixtureTx {
       pendingTx = { ...tx };
       return pendingTx;
     },
     __jobs: jobs,
     __txLog: txLog,
     /** 停掉所有定时器（测试收尾用；不调会让 node:test 挂着不退） */
-    __dispose(): void { for (const j of jobs.values()) if (j.timer) clearTimer(j.timer); jobs.clear(); },
+    __dispose(): void {
+      for (const j of jobs.values()) if (j.timer) clearTimer(j.timer);
+      jobs.clear();
+    },
   };
 }
 

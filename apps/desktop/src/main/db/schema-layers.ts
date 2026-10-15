@@ -70,11 +70,9 @@ export function schemaTables(): string[] {
 
 /** 落在**库级** `.gs.db` 里的表 = 事实 ∪ 过程 ∪ 意图 */
 export function libraryLayerTables(): string[] {
-  return [...new Set([
-    ...SCHEMA_LAYERS.fact,
-    ...SCHEMA_LAYERS.process,
-    ...SCHEMA_LAYERS.intent,
-  ])].sort();
+  return [
+    ...new Set([...SCHEMA_LAYERS.fact, ...SCHEMA_LAYERS.process, ...SCHEMA_LAYERS.intent]),
+  ].sort();
 }
 
 /** 落在**应用级** `app.db` 里的表 = 应用层 */

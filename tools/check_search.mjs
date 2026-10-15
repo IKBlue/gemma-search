@@ -32,13 +32,19 @@ const ROOT = (() => {
 })();
 
 const argv = process.argv.slice(2);
-const arg = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : d; };
+const arg = (n, d) => {
+  const i = argv.indexOf('--' + n);
+  return i >= 0 ? argv[i + 1] : d;
+};
 
 /** 位置参数（跳过 `--lib <值>` 这一对，否则它的值会被误当成向量文件） */
 const positionals = (() => {
   const out = [];
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--lib') { i++; continue; }
+    if (argv[i] === '--lib') {
+      i++;
+      continue;
+    }
     if (argv[i].startsWith('--')) continue;
     out.push(argv[i]);
   }
@@ -71,7 +77,9 @@ const vecFile = positionals[0]
 if (!fs.existsSync(vecFile)) {
   console.error(`查询向量文件不存在：${vecFile}`);
   console.error('用法: node tools/check_search.mjs --lib <素材库根> [向量文件]');
-  console.error('（向量文件由 packages/indexer/src/encode_queries.mjs 生成，默认 data/diag/_q1vec.json）');
+  console.error(
+    '（向量文件由 packages/indexer/src/encode_queries.mjs 生成，默认 data/diag/_q1vec.json）',
+  );
   process.exit(2);
 }
 const query = JSON.parse(fs.readFileSync(vecFile, 'utf8'));
@@ -90,8 +98,12 @@ const engine = createEngine({
     collect: { dirs: {} },
   },
   encoder: {
-    async encodeText() { throw new Error('本检查用向量模式，不需要文本编码器'); },
-    async encodeImage() { throw new Error('本检查用向量模式，不需要图像编码器'); },
+    async encodeText() {
+      throw new Error('本检查用向量模式，不需要文本编码器');
+    },
+    async encodeImage() {
+      throw new Error('本检查用向量模式，不需要图像编码器');
+    },
   },
   onEvent: () => {},
 });
@@ -129,11 +141,16 @@ if (!r.ok) {
 }
 console.log(`\nsearch → ${r.data.results.length} 条 · ${r.data.tookMs} ms`);
 for (const [i, it] of r.data.results.entries()) {
-  console.log(`  ${i + 1}. ${Number(it.score).toFixed(4)}  ${(it.folder ?? '—').padEnd(6)} ${it.relPath ?? it.stem}` +
-    `  ${it.archive ? '包=' + it.archive.ext : '无包'}`);
+  console.log(
+    `  ${i + 1}. ${Number(it.score).toFixed(4)}  ${(it.folder ?? '—').padEnd(6)} ${it.relPath ?? it.stem}` +
+      `  ${it.archive ? '包=' + it.archive.ext : '无包'}`,
+  );
 }
 const first = r.data.results[0];
-if (!first) { console.log('!! 没有任何结果'); process.exit(1); }
+if (!first) {
+  console.log('!! 没有任何结果');
+  process.exit(1);
+}
 
 // ---------------------------------------------------------------- 判定
 //
@@ -160,9 +177,13 @@ if (firstOnDisk) {
   process.exit(0);
 }
 console.log('!! 磁盘存在性断言失败');
-console.log(`   前置条件都成立（库根存在 · indexed=${indexed} · dim=${qDim}），但第一条命中的图不在库根下：`);
+console.log(
+  `   前置条件都成立（库根存在 · indexed=${indexed} · dim=${qDim}），但第一条命中的图不在库根下：`,
+);
 console.log(`     relPath  : ${firstRel}`);
 console.log(`     期望位置 : ${firstAbs}`);
 console.log(`     库根     : ${LIB_ROOT}`);
-console.log('   含义：--lib 指错了库，或索引已失效（素材库被移动过 —— 索引里存的是绝对路径，见 AGENTS §7）。');
+console.log(
+  '   含义：--lib 指错了库，或索引已失效（素材库被移动过 —— 索引里存的是绝对路径，见 AGENTS §7）。',
+);
 process.exit(1);

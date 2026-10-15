@@ -19,7 +19,10 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const argv = process.argv.slice(2);
-const arg = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : d; };
+const arg = (n, d) => {
+  const i = argv.indexOf('--' + n);
+  return i >= 0 ? argv[i + 1] : d;
+};
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -41,10 +44,15 @@ const TEXT = arg('text', '北欧吊灯');
 const LIB = arg('lib', process.env.GEMMA_LIB_ROOT || '');
 
 if (!MODEL || !fs.existsSync(MODEL)) {
-  console.error('用法: node tools/verify_encoder_path.mjs --model <ONNX 模型目录> --lib <素材库根> [--index data/idx-full-v2]');
+  console.error(
+    '用法: node tools/verify_encoder_path.mjs --model <ONNX 模型目录> --lib <素材库根> [--index data/idx-full-v2]',
+  );
   console.error('  或: 设 GEMMA_ONNX_MODEL / GEMMA_LIB_ROOT 后再跑');
-  console.error(MODEL ? `模型目录不存在：${MODEL}`
-                      : '必须显式给出 ONNX 模型目录（不给默认值 —— 猜一个会静默核对到别的目录）。');
+  console.error(
+    MODEL
+      ? `模型目录不存在：${MODEL}`
+      : '必须显式给出 ONNX 模型目录（不给默认值 —— 猜一个会静默核对到别的目录）。',
+  );
   process.exit(2);
 }
 // 素材库根：与上面的 --model **同构** —— 命令行 > 环境变量 > 明确报错，**不给默认值**。
@@ -52,10 +60,17 @@ if (!MODEL || !fs.existsSync(MODEL)) {
 // relPath 核对文件 —— 核对的是别的目录，却报"通过"。见 TODO.md C-12
 //「不把本机绝对路径写进代码」。同类做法见 tools/check_search.mjs 的 --lib。
 if (!LIB || !fs.existsSync(LIB)) {
-  console.error('用法: node tools/verify_encoder_path.mjs --model <ONNX 模型目录> --lib <素材库根> [--index data/idx-full-v2]');
-  console.error('  或: $env:GEMMA_LIB_ROOT="<素材库根>"; node tools/verify_encoder_path.mjs --model <模型目录>');
-  console.error(LIB ? `素材库根不存在：${LIB}`
-                    : '必须显式给出素材库根 —— 本检查会用它核对索引里的相对路径是否真的落在磁盘上，猜一个会静默核对到别的目录。');
+  console.error(
+    '用法: node tools/verify_encoder_path.mjs --model <ONNX 模型目录> --lib <素材库根> [--index data/idx-full-v2]',
+  );
+  console.error(
+    '  或: $env:GEMMA_LIB_ROOT="<素材库根>"; node tools/verify_encoder_path.mjs --model <模型目录>',
+  );
+  console.error(
+    LIB
+      ? `素材库根不存在：${LIB}`
+      : '必须显式给出素材库根 —— 本检查会用它核对索引里的相对路径是否真的落在磁盘上，猜一个会静默核对到别的目录。',
+  );
   process.exit(2);
 }
 
@@ -77,18 +92,27 @@ console.log('  设备  :', DEVICE);
 //    Windows 上 `import('D:\\...\\x.mjs')` 会被当成 URL 解析并以
 //    `ERR_UNSUPPORTED_ESM_URL_SCHEME: Received protocol 'd:'` 崩掉（实测）。
 //    本文件下面三处（encoder / resize_compat / index）都遵守这一条 —— 别"简化"回去。
-const enc = await import(pathToFileURL(path.join(ROOT, 'apps', 'desktop', 'src', 'main', 'encoder.ts')).href);
+const enc = await import(
+  pathToFileURL(path.join(ROOT, 'apps', 'desktop', 'src', 'main', 'encoder.ts')).href
+);
 const { createEncoder, QUERY_PREFIX } = enc;
 console.log();
 console.log('--- 1) 编码器初始化 ---');
 
 // 模块图里 RawImage 必须是**同一个类**且已被 shim 替换 —— encoder.ts 内部会断言，
 // 这里再独立核一次，确认断言真的跑了（不是被 try/catch 吞掉）。
-const { resizeCompatState } = await import(pathToFileURL(path.join(ROOT, 'packages', 'indexer', 'src', 'resize_compat.ts')).href);
+const { resizeCompatState } = await import(
+  pathToFileURL(path.join(ROOT, 'packages', 'indexer', 'src', 'resize_compat.ts')).href
+);
 
 let encoder = null;
 try {
-  encoder = await createEncoder({ modelDir: MODEL, seq: 140, device: DEVICE, log: (m) => console.log('    [enc] ' + m) });
+  encoder = await createEncoder({
+    modelDir: MODEL,
+    seq: 140,
+    device: DEVICE,
+    log: (m) => console.log('    [enc] ' + m),
+  });
 } catch (e) {
   ok(false, 'createEncoder', e.message);
   console.log('\n结论：FAIL（编码器起不来，后面的检查无法进行）');
@@ -97,7 +121,11 @@ try {
 ok(!!encoder, 'createEncoder 成功', `device=${encoder.device} loadMs=${encoder.loadMs}`);
 
 const st = resizeCompatState();
-ok(!!st && st.installed, 'resize_compat 已安装', st ? `kernel=${st.kernel} rawImage=${st.installed_di_name}` : '(none)');
+ok(
+  !!st && st.installed,
+  'resize_compat 已安装',
+  st ? `kernel=${st.kernel} rawImage=${st.installed_di_name}` : '(none)',
+);
 
 // ---------- 2) 索引里挑一张图（优先挑大的：大图才会走降采样，也就是这次修的那条路径） ----------
 console.log();
@@ -109,7 +137,9 @@ if (!fs.existsSync(indexBin)) {
   console.log('\n结论：FAIL');
   process.exit(1);
 }
-const { readIndexBin, readItems } = await import(pathToFileURL(path.join(ROOT, 'packages', 'engine', 'src', 'index.ts')).href);
+const { readIndexBin, readItems } = await import(
+  pathToFileURL(path.join(ROOT, 'packages', 'engine', 'src', 'index.ts')).href
+);
 // 注意：packages/engine/src/index.ts 的读取函数**抛的是错误信封**（fail/corrupt），不是普通 Error ——
 // 所以这里必须接住并自己报清楚，否则会以未捕获异常的方式炸掉。
 let header, vectors, items;
@@ -127,8 +157,14 @@ const byRel = new Map(items.map((i) => [i.relPath || i.rel_path, i]));
 const dim = header.dim;
 const rowOf = (u) => vectors.subarray(u * dim, u * dim + dim);
 const cos = (a, b) => {
-  let d = 0, na = 0, nb = 0;
-  for (let i = 0; i < a.length; i++) { d += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  let d = 0,
+    na = 0,
+    nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    d += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
   return d / (Math.sqrt(na) * Math.sqrt(nb) || 1);
 };
 
@@ -165,8 +201,11 @@ for (const t of targets) {
     continue;
   }
   const c = cos(v, rowOf(t.it.vectorRow));
-  ok(c >= 0.999, `encodeImage ↔ 索引行  ${t.it.relPath}`,
-     `cos=${c.toFixed(6)}  size=${t.it.imageSize}B src=${t.it.vectorSource || 'native'}`);
+  ok(
+    c >= 0.999,
+    `encodeImage ↔ 索引行  ${t.it.relPath}`,
+    `cos=${c.toFixed(6)}  size=${t.it.imageSize}B src=${t.it.vectorSource || 'native'}`,
+  );
 }
 
 // ---------- 2b) BMP 回退回归断言 ----------
@@ -200,7 +239,9 @@ if (!fs.existsSync(BMP_MANIFEST)) {
   } else {
     const bmpRel = bmpCandidates.find((r) => fs.existsSync(path.join(LIB, r)));
     if (!bmpRel) {
-      console.log(`  跳过 BMP 回退断言：清单里 ${bmpCandidates.length} 个候选在库根 ${LIB} 下都不存在`);
+      console.log(
+        `  跳过 BMP 回退断言：清单里 ${bmpCandidates.length} 个候选在库根 ${LIB} 下都不存在`,
+      );
     } else {
       const bmpAbs = path.join(LIB, bmpRel);
       let bv = null;
@@ -210,8 +251,11 @@ if (!fs.existsSync(BMP_MANIFEST)) {
         ok(false, `BMP 回退编码不抛错  ${bmpRel}`, e && e.message ? e.message : String(e));
       }
       if (bv) {
-        ok(bv.__source === 'bmp-fallback', `真的走了 BMP 回退（source=bmp-fallback）  ${bmpRel}`,
-           `source=${bv.__source}`);
+        ok(
+          bv.__source === 'bmp-fallback',
+          `真的走了 BMP 回退（source=bmp-fallback）  ${bmpRel}`,
+          `source=${bv.__source}`,
+        );
         ok(bv.length === dim, `BMP 回退向量维度 == 索引维度  ${bmpRel}`, `${bv.length} vs ${dim}`);
       }
     }
@@ -222,7 +266,8 @@ if (!fs.existsSync(BMP_MANIFEST)) {
 console.log();
 console.log('--- 3) 文本编码 ---');
 const tv = await encoder.encodeText(TEXT);
-let norm = 0; for (let i = 0; i < tv.length; i++) norm += tv[i] * tv[i];
+let norm = 0;
+for (let i = 0; i < tv.length; i++) norm += tv[i] * tv[i];
 ok(Math.abs(Math.sqrt(norm) - 1) < 1e-3, '文本向量已 L2 归一', `‖v‖=${Math.sqrt(norm).toFixed(6)}`);
 ok(tv.length === dim, '文本向量维度 == 索引维度', `${tv.length} vs ${dim}`);
 
@@ -234,8 +279,11 @@ console.log(`  查询「${TEXT}」Top-5：`);
 for (const [s, r] of scores.slice(0, 5)) console.log(`    ${s.toFixed(4)}  ${r}`);
 // 需要至少 11 条才能比"第 11 名"；条目不足时**跳过该断言并打印原因**（不静默、也不判失败）
 if (scores.length > 10) {
-  ok(scores[0][0] > scores[10][0], '分数确实有区分度（Top-1 > 第 11 名）',
-     `${scores[0][0].toFixed(4)} vs ${scores[10][0].toFixed(4)}`);
+  ok(
+    scores[0][0] > scores[10][0],
+    '分数确实有区分度（Top-1 > 第 11 名）',
+    `${scores[0][0].toFixed(4)} vs ${scores[10][0].toFixed(4)}`,
+  );
 } else {
   console.log(`  跳过分数区分度断言：索引只有 ${scores.length} 条（需 > 10 条才能比第 11 名）`);
 }
@@ -260,13 +308,17 @@ if (attempted === 0) {
     }
   }
   console.log('  含义：--lib 指错了库，或索引已失效（素材库被移动过 —— 索引里存的是绝对路径）。');
-  console.log('  说明：跳过一部分属正常；**全部**跳过说明这条检查没有落到任何真实文件上，故不判 PASS。');
+  console.log(
+    '  说明：跳过一部分属正常；**全部**跳过说明这条检查没有落到任何真实文件上，故不判 PASS。',
+  );
   process.exit(1);
 }
 
 console.log('结论：' + (problems.length ? 'FAIL' : 'PASS（产品编码路径在这台机器上自洽）'));
 for (const p of problems) console.log('  ✗ ' + p);
 if (!problems.length) {
-  console.log('  注：这**不**证明 Electron 内可跑（渲染进程 / asar / GPU 设备仍待 P1.5 实机验证）。');
+  console.log(
+    '  注：这**不**证明 Electron 内可跑（渲染进程 / asar / GPU 设备仍待 P1.5 实机验证）。',
+  );
 }
 process.exit(problems.length ? 1 : 0);

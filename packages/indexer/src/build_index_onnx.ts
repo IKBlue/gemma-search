@@ -24,27 +24,61 @@ import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingfac
 import type { Processor } from '@huggingface/transformers';
 import type { Dirent } from 'node:fs';
 import type { ImageProcessorConfigView, ModelDevice, ModelDtype } from './third_party_types.ts';
-import { pickEmbedding } from './embedding.ts';   // 唯一实现（ENC-1 / P1）
+import { pickEmbedding } from './embedding.ts'; // 唯一实现（ENC-1 / P1）
 import { readImageWithFallback, selfTestBmpLayout, isBmp } from './bmp_decode.ts';
-import { installResizeCompat, selfTestResizeCompat, resizeCompatState, assertResizeCompatInstalled } from './resize_compat.ts';
+import {
+  installResizeCompat,
+  selfTestResizeCompat,
+  resizeCompatState,
+  assertResizeCompatInstalled,
+} from './resize_compat.ts';
 
 // ---------------- 类型 ----------------
-interface LibrarySlotFile { name: string; ext: string; full: string }
-interface LibrarySlot { img?: LibrarySlotFile; arc?: LibrarySlotFile }
+interface LibrarySlotFile {
+  name: string;
+  ext: string;
+  full: string;
+}
+interface LibrarySlot {
+  img?: LibrarySlotFile;
+  arc?: LibrarySlotFile;
+}
 
 /** 一条素材。uid 在扫描后按 SPEC-identity §2 计算；vectorSource 只在走了回退解码时有值。 */
 interface LibraryItem {
-  folder: string; stem: string; name: string; relPath: string; absPath: string;
-  imageExt: string; imageSize: number; imageMtime: number;
-  archiveName: string | null; archiveRelPath: string | null; archiveAbsPath: string | null;
-  archiveExt: string | null; archiveSize: number | null; archiveMtime: number | null;
+  folder: string;
+  stem: string;
+  name: string;
+  relPath: string;
+  absPath: string;
+  imageExt: string;
+  imageSize: number;
+  imageMtime: number;
+  archiveName: string | null;
+  archiveRelPath: string | null;
+  archiveAbsPath: string | null;
+  archiveExt: string | null;
+  archiveSize: number | null;
+  archiveMtime: number | null;
   uid?: string;
   vectorSource?: 'native' | 'bmp-fallback' | null;
 }
 
-interface VectorRow { uid: string; vectorRow: number; vectorSource: 'native' | 'bmp-fallback' | null }
-interface FailedItem { uid: string; relPath: string; error: string }
-interface GpuInfo { gpu_model: string | null; gpu_driver: string | null; gpu_source: string }
+interface VectorRow {
+  uid: string;
+  vectorRow: number;
+  vectorSource: 'native' | 'bmp-fallback' | null;
+}
+interface FailedItem {
+  uid: string;
+  relPath: string;
+  error: string;
+}
+interface GpuInfo {
+  gpu_model: string | null;
+  gpu_driver: string | null;
+  gpu_source: string;
+}
 
 /** processor 三处生效参数的回读结果（值直接来自运行时对象，故为 unknown，靠 !== 断言比较） */
 interface EffectivePreprocessing {
@@ -97,7 +131,10 @@ interface IndexHeader {
   compat?: string;
 }
 
-interface IndexBin { header: IndexHeader; vectors: Float32Array }
+interface IndexBin {
+  header: IndexHeader;
+  vectors: Float32Array;
+}
 
 // ---------------- 参数 ----------------
 const argv = process.argv.slice(2);
@@ -121,24 +158,30 @@ const WEIGHTS_DTYPE = arg('weights-dtype', 'fp32');
 const MODEL_REPO = arg('model-repo', 'onnx-community/embeddinggemma-2-ONNX');
 
 if (!MODEL_DIR || !LIB_ROOT || !OUT_DIR) {
-  console.error('用法: node build_index_onnx.mjs --model <目录> --lib <库根> --out <目录>'
-    + ' [--seq 140] [--device webgpu] [--limit N] [--lib-id L1] [--weights-dtype fp32]');
+  console.error(
+    '用法: node build_index_onnx.mjs --model <目录> --lib <库根> --out <目录>' +
+      ' [--seq 140] [--device webgpu] [--limit N] [--lib-id L1] [--weights-dtype fp32]',
+  );
   process.exit(2);
 }
 
 // SPEC-identity §6.2 / §6.3 的版本号与常量
-const FORMAT_VERSION = 1;          // index.bin 布局版本
-const COMPAT_KEY_VERSION = 1;      // 兼容性判定规则版本
+const FORMAT_VERSION = 1; // index.bin 布局版本
+const COMPAT_KEY_VERSION = 1; // 兼容性判定规则版本
 // v2（2026-10-10）：重采样实现改用 `resize_compat`（按 PIL 规则分方向）——
 //   起因：G-B v1 实测 min 余弦 0.9153（135 条 < 硬底线 0.970）。定位到
 //   transformers.js 用 `sharp.affine(bicubic)`（无抗锯齿）而 Python 用 `PIL.resize(BICUBIC)`
 //   （降采样时按 1/scale 展宽核支撑 = 抗锯齿）。换实现后与 PIL 的像素差从 4.93/255 降到 0.18/255。
 //   **改了预处理就必须升版**：否则 v1 的索引会被当成可复用（compat 不含实现细节时会静默混用）。
-const PREPROCESSING_VERSION = 2;   // 我方预处理配置版本（改动即升版）
-const DIM = 768;                   // EmbeddingGemma 2 统一 768 维
-const ONNX_SPIKE_DIR = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+const PREPROCESSING_VERSION = 2; // 我方预处理配置版本（改动即升版）
+const DIM = 768; // EmbeddingGemma 2 统一 768 维
+const ONNX_SPIKE_DIR = path.dirname(
+  new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'),
+);
 
-const log = (...a: unknown[]) => { console.log(`[build]`, ...a); };
+const log = (...a: unknown[]) => {
+  console.log(`[build]`, ...a);
+};
 const now = (): number => Number(process.hrtime.bigint()) / 1e6;
 
 // 只从本地读模型：allowLocalModels + 关掉远程，否则它会把本地路径当成 HF 仓库 ID 去联网找文件
@@ -153,16 +196,19 @@ const META_JSON = path.join(OUT_DIR, 'meta.json');
 //   · 比较永远 false → readIndexBin 永远返回 null → **续跑静默失效**
 //   · 即使比较过了，读端偏移(8/12)与写端(7/11)也不一致
 // 现在：MAGIC 用显式 hex 定义并在启动时断言长度；读写偏移都写成 MAGIC.length 的表达式。
-const MAGIC = Buffer.from('4753494458000001', 'hex');   // 字面量 "GSIDX" + 0x00 0x00 0x01
+const MAGIC = Buffer.from('4753494458000001', 'hex'); // 字面量 "GSIDX" + 0x00 0x00 0x01
 if (MAGIC.length !== 8) throw new Error('MAGIC 必须是 8 字节，实际 ' + MAGIC.length);
-const LEN_OFF = MAGIC.length;                 // u32 headerLen 的位置
-const HEAD_OFF = MAGIC.length + 4;            // headerJSON 的起始位置
+const LEN_OFF = MAGIC.length; // u32 headerLen 的位置
+const HEAD_OFF = MAGIC.length + 4; // headerJSON 的起始位置
 
 // ---------------- 元数据辅助（SPEC-identity §6.2）----------------
 
 /** 从模型路径里取出钉住的 40 位 revision。取不到就返回 null —— 调用方必须报错，不许猜。 */
 function parseRevisionFromPath(p: string): string | null {
-  const seg = path.normalize(p).split(path.sep).find((s) => /^[0-9a-f]{40}$/.test(s));
+  const seg = path
+    .normalize(p)
+    .split(path.sep)
+    .find((s) => /^[0-9a-f]{40}$/.test(s));
   return seg || null;
 }
 
@@ -194,13 +240,19 @@ function gpuInfo(): GpuInfo {
     return { gpu_model: envModel, gpu_driver: envDriver, gpu_source: 'env' };
   }
   try {
-    const out = execFileSync('nvidia-smi',
+    const out = execFileSync(
+      'nvidia-smi',
       ['--query-gpu=name,driver_version', '--format=csv,noheader'],
-      { encoding: 'utf8', timeout: 5000 });
-    const [name, drv] = out.trim().split('\n')[0].split(',').map((s) => s.trim());
+      { encoding: 'utf8', timeout: 5000 },
+    );
+    const [name, drv] = out
+      .trim()
+      .split('\n')[0]
+      .split(',')
+      .map((s) => s.trim());
     return { gpu_model: name || null, gpu_driver: drv || null, gpu_source: 'nvidia-smi' };
   } catch (e) {
-    const code = (typeof e === 'object' && e !== null && 'code' in e) ? String(e.code) : 'error';
+    const code = typeof e === 'object' && e !== null && 'code' in e ? String(e.code) : 'error';
     return { gpu_model: null, gpu_driver: null, gpu_source: `unavailable(${code})` };
   }
 }
@@ -214,14 +266,19 @@ function gpuInfo(): GpuInfo {
  * 那时向量与索引不匹配、检索质量静默下降（本项目最危险的失败模式）。
  * 所以：**三处都设 + 回读断言 + 把两个值都记进元数据**。
  */
-function readEffectivePreprocessing(processor: Processor, seq: number, resampleImpl: string): EffectivePreprocessing {
+function readEffectivePreprocessing(
+  processor: Processor,
+  seq: number,
+  resampleImpl: string,
+): EffectivePreprocessing {
   const ip = processor.image_processor;
   const ipc = ip ? ip.config : {};
-  const read = (obj: object | null | undefined, k: string): unknown => (obj && k in obj ? (obj as Record<string, unknown>)[k] : null);
+  const read = (obj: object | null | undefined, k: string): unknown =>
+    obj && k in obj ? (obj as Record<string, unknown>)[k] : null;
   const meta = {
     image_seq_length: read(processor, 'image_seq_length'),
     max_soft_tokens: read(ip, 'max_soft_tokens'),
-    config_image_seq_length: read(ipc, 'image_seq_length'),   // 诊断用：与上面不一致时能看出来
+    config_image_seq_length: read(ipc, 'image_seq_length'), // 诊断用：与上面不一致时能看出来
     patch_size: read(ip, 'patch_size') ?? read(ipc, 'patch_size'),
     pooling_kernel_size: read(ip, 'pooling_kernel_size') ?? read(ipc, 'pooling_kernel_size'),
     resample: read(ip, 'resample') ?? read(ipc, 'resample'),
@@ -235,10 +292,14 @@ function readEffectivePreprocessing(processor: Processor, seq: number, resampleI
   };
   // 硬断言：生效值必须等于请求值
   if (meta.image_seq_length !== seq) {
-    throw new Error(`预处理 seq 未生效：请求 ${seq}，实际 processor.image_seq_length=${meta.image_seq_length}`);
+    throw new Error(
+      `预处理 seq 未生效：请求 ${seq}，实际 processor.image_seq_length=${meta.image_seq_length}`,
+    );
   }
   if (meta.max_soft_tokens !== seq) {
-    throw new Error(`预处理 seq 未生效：请求 ${seq}，实际 image_processor.max_soft_tokens=${meta.max_soft_tokens}`);
+    throw new Error(
+      `预处理 seq 未生效：请求 ${seq}，实际 image_processor.max_soft_tokens=${meta.max_soft_tokens}`,
+    );
   }
   return meta;
 }
@@ -246,8 +307,14 @@ function readEffectivePreprocessing(processor: Processor, seq: number, resampleI
 /** SPEC-identity §6.3 的兼容性判定键 —— 一个字符串，便于比对与写进索引 */
 function compatKey(h: IndexHeader): string {
   return [
-    h.model_repo, h.model_revision, h.model_weights_dtype,
-    h.preprocessing_version, h.seq_length, h.dim, h.normalization, h.pooling,
+    h.model_repo,
+    h.model_revision,
+    h.model_weights_dtype,
+    h.preprocessing_version,
+    h.seq_length,
+    h.dim,
+    h.normalization,
+    h.pooling,
   ].join('|');
 }
 const IMG_EXT = new Set(['.jpg', '.jpeg', '.png']);
@@ -262,9 +329,10 @@ function scanLibrary(root: string): LibraryItem[] {
   while (stack.length) {
     const dir = stack.pop()!;
     let entries: Dirent[];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
-    catch (e) {
-      const code = (typeof e === 'object' && e !== null && 'code' in e) ? String(e.code) : 'error';
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (e) {
+      const code = typeof e === 'object' && e !== null && 'code' in e ? String(e.code) : 'error';
       log('  跳过不可读目录', dir, code);
       continue;
     }
@@ -272,7 +340,10 @@ function scanLibrary(root: string): LibraryItem[] {
     const byStem = new Map<string, LibrarySlot>();
     for (const ent of entries) {
       const full = path.join(dir, ent.name);
-      if (ent.isDirectory()) { stack.push(full); continue; }
+      if (ent.isDirectory()) {
+        stack.push(full);
+        continue;
+      }
       const ext = path.extname(ent.name).toLowerCase();
       if (!IMG_EXT.has(ext) && !ARC_EXT.has(ext)) continue;
       const stem = ent.name.slice(0, ent.name.length - ext.length);
@@ -284,14 +355,18 @@ function scanLibrary(root: string): LibraryItem[] {
     const relDir = path.relative(root, dir);
     const folder = relDir === '' ? '' : relDir.split(path.sep)[0];
     for (const [stem, slot] of byStem) {
-      if (!slot.img) continue;                       // 只有包、没有图 → 无法编码（健康面板会列）
+      if (!slot.img) continue; // 只有包、没有图 → 无法编码（健康面板会列）
       const st = fs.statSync(slot.img.full);
       const ast = slot.arc ? fs.statSync(slot.arc.full) : null;
       items.push({
-        folder, stem,
-        name: slot.img.name, relPath: path.relative(root, slot.img.full),
-        absPath: slot.img.full, imageExt: slot.img.ext,
-        imageSize: st.size, imageMtime: Math.floor(st.mtimeMs),
+        folder,
+        stem,
+        name: slot.img.name,
+        relPath: path.relative(root, slot.img.full),
+        absPath: slot.img.full,
+        imageExt: slot.img.ext,
+        imageSize: st.size,
+        imageMtime: Math.floor(st.mtimeMs),
         archiveName: slot.arc ? slot.arc.name : null,
         archiveRelPath: slot.arc ? path.relative(root, slot.arc.full) : null,
         archiveAbsPath: slot.arc ? slot.arc.full : null,
@@ -319,17 +394,27 @@ function scanLibrary(root: string): LibraryItem[] {
 // 与完整文件在读取时无法区分 —— 而索引静默损坏是本项目最危险的失败模式。
 
 function buildFooter(count: number, dim: number, body: Buffer): Buffer {
-  const json = Buffer.from(JSON.stringify({
-    count, dim,
-    sha1_of_vector_block: crypto.createHash('sha1').update(body).digest('hex'),
-    complete: true,
-  }), 'utf8');
+  const json = Buffer.from(
+    JSON.stringify({
+      count,
+      dim,
+      sha1_of_vector_block: crypto.createHash('sha1').update(body).digest('hex'),
+      complete: true,
+    }),
+    'utf8',
+  );
   const len = Buffer.alloc(4);
   len.writeUInt32LE(json.length, 0);
   return Buffer.concat([len, json]);
 }
 
-function writeIndexBin(file: string, header: object, vectors: ArrayLike<number>, count: number, dim: number): void {
+function writeIndexBin(
+  file: string,
+  header: object,
+  vectors: ArrayLike<number>,
+  count: number,
+  dim: number,
+): void {
   const headerJson = Buffer.from(JSON.stringify(header), 'utf8');
   const lenBuf = Buffer.alloc(4);
   lenBuf.writeUInt32LE(headerJson.length, 0);
@@ -342,8 +427,9 @@ function writeIndexBin(file: string, header: object, vectors: ArrayLike<number>,
   fs.writeSync(fd, headerJson);
   fs.writeSync(fd, body);
   fs.writeSync(fd, buildFooter(count, dim, body));
-  fs.fsyncSync(fd); fs.closeSync(fd);
-  fs.renameSync(tmp, file);                        // 原子替换
+  fs.fsyncSync(fd);
+  fs.closeSync(fd);
+  fs.renameSync(tmp, file); // 原子替换
 }
 
 /** 读回并**校验**：MAGIC / 长度自洽 / footer 完整标记 / 向量块 sha1。任一不符返回 null。 */
@@ -354,8 +440,11 @@ function readIndexBin(file: string): IndexBin | null {
   const headerLen = buf.readUInt32LE(LEN_OFF);
   if (HEAD_OFF + headerLen > buf.length) return null;
   let header;
-  try { header = JSON.parse(buf.subarray(HEAD_OFF, HEAD_OFF + headerLen).toString('utf8')); }
-  catch { return null; }
+  try {
+    header = JSON.parse(buf.subarray(HEAD_OFF, HEAD_OFF + headerLen).toString('utf8'));
+  } catch {
+    return null;
+  }
 
   const start = HEAD_OFF + headerLen;
   const n = (header.count || 0) * (header.dim || 0);
@@ -369,9 +458,14 @@ function readIndexBin(file: string): IndexBin | null {
     const fLen = buf.readUInt32LE(blockEnd);
     const foot = JSON.parse(buf.subarray(blockEnd + 4, blockEnd + 4 + fLen).toString('utf8'));
     const sha = crypto.createHash('sha1').update(body).digest('hex');
-    footOk = foot.complete === true && foot.count === header.count && foot.dim === header.dim
-             && foot.sha1_of_vector_block === sha;
-  } catch { footOk = false; }
+    footOk =
+      foot.complete === true &&
+      foot.count === header.count &&
+      foot.dim === header.dim &&
+      foot.sha1_of_vector_block === sha;
+  } catch {
+    footOk = false;
+  }
   if (!footOk) return null;
 
   const vectors = new Float32Array(n);
@@ -386,23 +480,38 @@ function selfTestIndexBin(): { ok: boolean; checked: number } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gs-idxselftest-'));
   const f = path.join(dir, 'index.bin');
   try {
-    const dim = 4, count = 3;
+    const dim = 4,
+      count = 3;
     const src = [0.1, 0.2, 0.3, 0.4, -0.5, 0.6, 0.7, 0.8, 0, 0, 0, 1];
-    const header = { version: 1, dim, count, modelId: 'selftest', precision: 'fp32', seq: 140, dtype: 'float32' };
+    const header = {
+      version: 1,
+      dim,
+      count,
+      modelId: 'selftest',
+      precision: 'fp32',
+      seq: 140,
+      dtype: 'float32',
+    };
     writeIndexBin(f, header, src, count, dim);
     const back = readIndexBin(f);
     if (!back) throw new Error('读回返回 null');
     if (back.header.count !== count || back.header.dim !== dim) throw new Error('header 不一致');
     for (let i = 0; i < src.length; i++) {
-      if (Math.abs(back.vectors[i] - src[i]) > 1e-6) throw new Error(`向量第 ${i} 位不一致: ${back.vectors[i]} vs ${src[i]}`);
+      if (Math.abs(back.vectors[i] - src[i]) > 1e-6)
+        throw new Error(`向量第 ${i} 位不一致: ${back.vectors[i]} vs ${src[i]}`);
     }
     // 反例：截断文件（模拟写入未完成）必须被拒绝
     const buf = fs.readFileSync(f);
     fs.writeFileSync(f, buf.subarray(0, buf.length - 10));
-    if (readIndexBin(f) !== null) throw new Error('截断文件竟被当成有效索引 —— footer 校验没起作用');
+    if (readIndexBin(f) !== null)
+      throw new Error('截断文件竟被当成有效索引 —— footer 校验没起作用');
     return { ok: true, checked: src.length };
   } finally {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* 忽略 */ }
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* 忽略 */
+    }
   }
 }
 
@@ -416,7 +525,10 @@ async function main() {
   const withArchive = items.filter((i) => i.archiveAbsPath).length;
   const noArchive = scanned - withArchive;
   log(`  条目 ${scanned}（有包 ${withArchive} · 无包 ${noArchive}）`);
-  if (LIMIT > 0) { items = items.slice(0, LIMIT); log(`  --limit ${LIMIT} → 本次只处理 ${items.length} 条`); }
+  if (LIMIT > 0) {
+    items = items.slice(0, LIMIT);
+    log(`  --limit ${LIMIT} → 本次只处理 ${items.length} 条`);
+  }
 
   // 计算 UID —— **必须**用 SPEC-identity §2 冻结的公式：
   //     uid = sha1( lib_id + "|" + rel_dir + "|" + stem ).slice(0, 12)
@@ -433,9 +545,11 @@ async function main() {
   for (const it of items) {
     const relDir = path.dirname(it.relPath);
     const dir = relDir === '.' ? '' : relDir;
-    it.uid = crypto.createHash('sha1')
+    it.uid = crypto
+      .createHash('sha1')
       .update(`${LIB_ID}|${dir}|${it.stem}`, 'utf8')
-      .digest('hex').slice(0, 12);
+      .digest('hex')
+      .slice(0, 12);
     if (uidSeen.has(it.uid!)) {
       throw new Error(`UID 碰撞：${it.uid} 同时属于 "${uidSeen.get(it.uid!)}" 与 "${it.relPath}"
 （种子是 (lib_id, 目录, 主干)，理论上唯一；出现碰撞说明公式或输入有问题，不能继续）`);
@@ -471,7 +585,7 @@ async function main() {
   log(`载入模型（dtype=${WEIGHTS_DTYPE}, seq=${SEQ}, device=${DEVICE}）…`);
   const tLoad = now();
   const config = await AutoConfig.from_pretrained(MODEL_DIR);
-  config.audio_config = null;                                    // 不需要音频塔
+  config.audio_config = null; // 不需要音频塔
   const processor = await AutoProcessor.from_pretrained(MODEL_DIR, { config });
   // ⚠️ 三个位置都要设：实测它们的默认值都是 280。只设其中一两个，
   //    将来上游改读另一处就会让 effective seq 悄悄变成 280（向量与索引静默不匹配）。
@@ -480,10 +594,14 @@ async function main() {
     processor.image_processor.max_soft_tokens = SEQ;
     processor.image_processor.image_seq_length = SEQ;
     if (processor.image_processor.config) {
-      (processor.image_processor.config as ImageProcessorConfigView).image_seq_length = SEQ;    // 第三处：config 副本
+      (processor.image_processor.config as ImageProcessorConfigView).image_seq_length = SEQ; // 第三处：config 副本
     }
   }
-  const model = await AutoModel.from_pretrained(MODEL_DIR, { config, dtype: 'float32' as ModelDtype, device: DEVICE as ModelDevice });
+  const model = await AutoModel.from_pretrained(MODEL_DIR, {
+    config,
+    dtype: 'float32' as ModelDtype,
+    device: DEVICE as ModelDevice,
+  });
   log(`  载入完成 ${((now() - tLoad) / 1000).toFixed(1)}s`);
 
   // ---------- 元数据（SPEC-identity §6.2）：必须在续跑判定之前建好 ----------
@@ -492,11 +610,17 @@ async function main() {
     throw new Error(`无法从 --model 路径解析出 40 位 model revision：${MODEL_DIR}
 （不要用猜的：revision 进 compat，猜错会让不同权重的索引被误判为可互换）`);
   }
-  const pre = readEffectivePreprocessing(processor, SEQ, `resize_compat(${resizeCompatState()!.kernel})`);
-  log(`  预处理实测：seq=${pre.image_seq_length} · max_soft_tokens=${pre.max_soft_tokens}`
-    + ` · config 副本=${pre.config_image_seq_length} · patch=${pre.patch_size}`
-    + ` · pool=${pre.pooling_kernel_size} · resample=${pre.resample} · normalize=${pre.do_normalize}`
-    + ` · impl=${pre.resample_impl}`);
+  const pre = readEffectivePreprocessing(
+    processor,
+    SEQ,
+    `resize_compat(${resizeCompatState()!.kernel})`,
+  );
+  log(
+    `  预处理实测：seq=${pre.image_seq_length} · max_soft_tokens=${pre.max_soft_tokens}` +
+      ` · config 副本=${pre.config_image_seq_length} · patch=${pre.patch_size}` +
+      ` · pool=${pre.pooling_kernel_size} · resample=${pre.resample} · normalize=${pre.do_normalize}` +
+      ` · impl=${pre.resample_impl}`,
+  );
 
   const header: IndexHeader = {
     format_version: FORMAT_VERSION,
@@ -505,8 +629,12 @@ async function main() {
     model_repo: MODEL_REPO,
     model_revision: revision,
     model_weights_dtype: WEIGHTS_DTYPE,
-    model_files: ['onnx/model.onnx', 'onnx/model.onnx_data',
-                  'onnx/vision_encoder.onnx', 'onnx/vision_encoder.onnx_data'],
+    model_files: [
+      'onnx/model.onnx',
+      'onnx/model.onnx_data',
+      'onnx/vision_encoder.onnx',
+      'onnx/vision_encoder.onnx_data',
+    ],
     audio_disabled: true,
 
     preprocessing_version: PREPROCESSING_VERSION,
@@ -514,7 +642,7 @@ async function main() {
 
     seq_length: SEQ,
     dim: DIM,
-    embedding_dtype: 'float32',          // 向量存储精度（与权重精度是两件事）
+    embedding_dtype: 'float32', // 向量存储精度（与权重精度是两件事）
     normalization: 'l2',
     pooling: 'mean_soft_tokens',
 
@@ -524,7 +652,7 @@ async function main() {
     runtime: {
       'transformers.js': readPkgVersion('@huggingface/transformers'),
       'onnxruntime-node': readPkgVersion('onnxruntime-node'),
-      device: DEVICE,                    // 诊断用，**不参与 compat**
+      device: DEVICE, // 诊断用，**不参与 compat**
       ort_provider: DEVICE,
       ...gpuInfo(),
     },
@@ -546,19 +674,28 @@ async function main() {
   // 已经编码好的行。relPath 是同一次扫描里的稳定键，与 uid 方案无关。
   const old = REBUILD ? null : readIndexBin(INDEX_BIN);
   let oldMeta = null;
-  try { oldMeta = JSON.parse(fs.readFileSync(META_JSON, 'utf8')); } catch { /* 无 */ }
+  try {
+    oldMeta = JSON.parse(fs.readFileSync(META_JSON, 'utf8'));
+  } catch {
+    /* 无 */
+  }
   const reusable = new Map<string, number[]>();
   if (old && oldMeta && oldMeta.compat && oldMeta.compat === header.compat) {
     let oldItems = [];
-    try { oldItems = JSON.parse(fs.readFileSync(ITEMS_JSON, 'utf8')); } catch { /* 无 */ }
+    try {
+      oldItems = JSON.parse(fs.readFileSync(ITEMS_JSON, 'utf8'));
+    } catch {
+      /* 无 */
+    }
     for (const oi of oldItems) {
       const key = oi.relPath || oi.rel_path;
       if (!key) continue;
       if (oi.vectorRow == null || oi.vectorRow >= old.header.count) continue;
       const off = oi.vectorRow * old.header.dim;
       const v = old.vectors.subarray(off, off + old.header.dim);
-      let n = 0; for (let i = 0; i < v.length; i++) n += v[i] * v[i];
-      if (Math.sqrt(n) > 0.5) reusable.set(key, Array.from(v));   // 只复用非零向量
+      let n = 0;
+      for (let i = 0; i < v.length; i++) n += v[i] * v[i];
+      if (Math.sqrt(n) > 0.5) reusable.set(key, Array.from(v)); // 只复用非零向量
     }
     log(`  续跑：已有 ${reusable.size} 条可用向量（跳过重复编码）`);
   } else if (old && oldMeta) {
@@ -566,20 +703,24 @@ async function main() {
   }
 
   // 编码
-  const vectors: number[] = [];          // 扁平数组，行序与 items 一致
-  const rows: VectorRow[] = [];          // {uid, vectorRow}
+  const vectors: number[] = []; // 扁平数组，行序与 items 一致
+  const rows: VectorRow[] = []; // {uid, vectorRow}
   const failed: FailedItem[] = [];
   let dim = 0;
   let reused = 0;
-  let fallbackUsed = 0;   // 走 BMP 回退的条数（应为 20）
+  let fallbackUsed = 0; // 走 BMP 回退的条数（应为 20）
 
   const tEnc = now();
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
-    const hit = reusable.get(it.relPath);   // 复用表按 relPath 作键（与 uid 方案无关）
+    const hit = reusable.get(it.relPath); // 复用表按 relPath 作键（与 uid 方案无关）
     if (hit) {
       dim = dim || hit.length;
-      rows.push({ uid: it.uid!, vectorRow: vectors.length / dim, vectorSource: it.vectorSource || 'native' });
+      rows.push({
+        uid: it.uid!,
+        vectorRow: vectors.length / dim,
+        vectorSource: it.vectorSource || 'native',
+      });
       vectors.push(...hit);
       reused++;
     } else {
@@ -591,15 +732,23 @@ async function main() {
         if (vectorSourceKind !== 'native') fallbackUsed++;
         const inputs = await processor(null, [img]);
         const out = await model.forward(inputs);
-        const emb = pickEmbedding(out);   // 缺键/全零都由唯一实现拒绝（别再内联一份）
+        const emb = pickEmbedding(out); // 缺键/全零都由唯一实现拒绝（别再内联一份）
         dim = emb.dims[emb.dims.length - 1];
         // ⚠️ 这里**必须**带上 vectorSource：漏了的话 persist() 里 srcByUid 取不到值，
         //    全部回落成 'native' —— 实测 meta.bmpFallbackUsed=20 而 items.json 里 3594 条
         //    全是 'native'（字段静默失真，SPEC-acceptance §2.2 的豁免分组就永远不触发）。
-        rows.push({ uid: it.uid!, vectorRow: vectors.length / dim, vectorSource: vectorSourceKind });
+        rows.push({
+          uid: it.uid!,
+          vectorRow: vectors.length / dim,
+          vectorSource: vectorSourceKind,
+        });
         vectors.push(...Array.from(emb.data));
       } catch (e) {
-        failed.push({ uid: it.uid!, relPath: it.relPath, error: e instanceof Error ? e.message : String(e) });
+        failed.push({
+          uid: it.uid!,
+          relPath: it.relPath,
+          error: e instanceof Error ? e.message : String(e),
+        });
       }
     }
     if ((i + 1) % 25 === 0 || i + 1 === items.length) {
@@ -607,15 +756,20 @@ async function main() {
       const secs = (now() - tEnc) / 1000;
       const rate = done / secs;
       const eta = rate > 0 ? (items.length - done) / rate : 0;
-      log(`  ${done}/${items.length}  已编码 ${done - reused} · 复用 ${reused} · 失败 ${failed.length}` +
-          `  ${rate.toFixed(2)} 条/秒  已用 ${(secs / 60).toFixed(1)} 分  预计剩余 ${(eta / 60).toFixed(1)} 分`);
+      log(
+        `  ${done}/${items.length}  已编码 ${done - reused} · 复用 ${reused} · 失败 ${failed.length}` +
+          `  ${rate.toFixed(2)} 条/秒  已用 ${(secs / 60).toFixed(1)} 分  预计剩余 ${(eta / 60).toFixed(1)} 分`,
+      );
     }
     if (SAVE_EVERY > 0 && (i + 1) % SAVE_EVERY === 0) {
       persist(items, rows, vectors, dim, failed, 'midbuild');
     }
   }
 
-  if (!dim) { log('没有编码出任何向量，终止'); process.exit(1); }
+  if (!dim) {
+    log('没有编码出任何向量，终止');
+    process.exit(1);
+  }
   // dim 是 compat 的成员之一：实测值必须等于规格固定的 768，否则 compat 已经算错
   if (dim !== DIM) {
     throw new Error(`实测维度 ${dim} ≠ 规格固定值 ${DIM} —— compat 已按 ${DIM} 计算，不能继续`);
@@ -624,44 +778,83 @@ async function main() {
   header.dim = dim;
   header.count = ok;
   persist(items, rows, vectors, dim, failed, 'final');
-  log(`完成：${ok} 条 · dim=${dim} · 失败 ${failed.length} · 复用 ${reused} · BMP回退 ${fallbackUsed}`);
+  log(
+    `完成：${ok} 条 · dim=${dim} · 失败 ${failed.length} · 复用 ${reused} · BMP回退 ${fallbackUsed}`,
+  );
   log(`  compat = ${header.compat}`);
   log(`  ${INDEX_BIN}`);
   log(`  ${ITEMS_JSON}`);
   log(`  ${META_JSON}`);
-  if (failed.length) log(`  失败清单已写入 meta.json 的 failed[]（前 5：${failed.slice(0, 5).map((f) => f.relPath).join(', ')}）`);
+  if (failed.length)
+    log(
+      `  失败清单已写入 meta.json 的 failed[]（前 5：${failed
+        .slice(0, 5)
+        .map((f) => f.relPath)
+        .join(', ')}）`,
+    );
   return { ok, dim, failed: failed.length, reused, compat: header.compat };
 
-  function persist(allItems: LibraryItem[], allRows: VectorRow[], vecs: number[], d: number, fails: FailedItem[], phase: string): void {
+  function persist(
+    allItems: LibraryItem[],
+    allRows: VectorRow[],
+    vecs: number[],
+    d: number,
+    fails: FailedItem[],
+    phase: string,
+  ): void {
     const rowByUid = new Map(allRows.map((r) => [r.uid, r.vectorRow]));
     const srcByUid = new Map(allRows.map((r) => [r.uid, r.vectorSource || 'native']));
     const outItems = allItems
       .filter((it) => rowByUid.has(it.uid!))
       .map((it) => ({
-        uid: it.uid, libId: LIB_ID, folder: it.folder, stem: it.stem,
-        name: it.name, relPath: it.relPath, absPath: it.absPath,
-        imageExt: it.imageExt, imageSize: it.imageSize, imageMtime: it.imageMtime,
-        archiveName: it.archiveName, archiveRelPath: it.archiveRelPath,
-        archiveAbsPath: it.archiveAbsPath, archiveExt: it.archiveExt,
-        archiveSize: it.archiveSize, archiveMtime: it.archiveMtime,
+        uid: it.uid,
+        libId: LIB_ID,
+        folder: it.folder,
+        stem: it.stem,
+        name: it.name,
+        relPath: it.relPath,
+        absPath: it.absPath,
+        imageExt: it.imageExt,
+        imageSize: it.imageSize,
+        imageMtime: it.imageMtime,
+        archiveName: it.archiveName,
+        archiveRelPath: it.archiveRelPath,
+        archiveAbsPath: it.archiveAbsPath,
+        archiveExt: it.archiveExt,
+        archiveSize: it.archiveSize,
+        archiveMtime: it.archiveMtime,
         vectorRow: rowByUid.get(it.uid!),
-        vectorSource: srcByUid.get(it.uid!) || 'native',   // 'native' | 'bmp-fallback'
+        vectorSource: srcByUid.get(it.uid!) || 'native', // 'native' | 'bmp-fallback'
       }));
     writeIndexBin(INDEX_BIN, { ...header, count: allRows.length }, vecs, allRows.length, d);
     fs.writeFileSync(ITEMS_JSON + '.tmp', JSON.stringify(outItems, null, 1), 'utf8');
     fs.renameSync(ITEMS_JSON + '.tmp', ITEMS_JSON);
-    fs.writeFileSync(META_JSON + '.tmp', JSON.stringify({
-      ...header, count: allRows.length, phase,
-      scanned: scanned, failed: fails, bmpFallbackUsed: fallbackUsed,
-    }, null, 2), 'utf8');
+    fs.writeFileSync(
+      META_JSON + '.tmp',
+      JSON.stringify(
+        {
+          ...header,
+          count: allRows.length,
+          phase,
+          scanned: scanned,
+          failed: fails,
+          bmpFallbackUsed: fallbackUsed,
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
     fs.renameSync(META_JSON + '.tmp', META_JSON);
   }
 }
 
-main().then((r) => {
-  console.log('RESULT ' + JSON.stringify(r));
-  process.exit(r.failed > 0 ? 3 : 0);
-}).catch((e) => {
-  console.error('[build] 致命错误:', e);
-  process.exit(1);
-});
+main()
+  .then((r) => {
+    console.log('RESULT ' + JSON.stringify(r));
+    process.exit(r.failed > 0 ? 3 : 0);
+  })
+  .catch((e) => {
+    console.error('[build] 致命错误:', e);
+    process.exit(1);
+  });

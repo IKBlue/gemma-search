@@ -33,7 +33,9 @@ test('端口把参数**原样**转发给 showItemInFolder，不做路径加工',
 
 test('端口不吞异常：showItemInFolder 抛错必须冒泡出去', () => {
   const port = createRevealPort({
-    showItemInFolder() { throw new Error('explorer 挂了'); },
+    showItemInFolder() {
+      throw new Error('explorer 挂了');
+    },
   });
   // 静默 catch 会把"调用炸了"变成另一种静默假成功 —— 引擎的 envelope() 会把它归成 INTERNAL
   assert.throws(() => port.reveal('G:\\x.rar'), /explorer 挂了/);
@@ -41,7 +43,11 @@ test('端口不吞异常：showItemInFolder 抛错必须冒泡出去', () => {
 
 test('端口每次调用都真的转发（不是只成功一次）', () => {
   let n = 0;
-  const port = createRevealPort({ showItemInFolder() { n += 1; } });
+  const port = createRevealPort({
+    showItemInFolder() {
+      n += 1;
+    },
+  });
   port.reveal('a');
   port.reveal('b');
   port.reveal('c');

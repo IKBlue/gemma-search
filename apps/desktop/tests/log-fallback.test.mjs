@@ -16,15 +16,25 @@ const LOG_TS = fileURLToPath(new URL('../src/main/log.ts', import.meta.url));
 
 test('L1 非打包态默认日志落点 = <ROOT>/data/_app.log，且写得进去（子进程跑，避免与本文件的毒化用例抢模块缓存）', () => {
   const env = Object.assign({}, process.env);
-  delete env.GEMMA_APP_LOG;                       // 显式清掉：父进程/CI 设了它就不测默认分支了
+  delete env.GEMMA_APP_LOG; // 显式清掉：父进程/CI 设了它就不测默认分支了
   // ⚠️ Windows 上动态 import 绝对路径必须给 file:// URL（裸 D:\… 会 ERR_UNSUPPORTED_ESM_URL_SCHEME）
-  const code = 'const m = await import(' + JSON.stringify(pathToFileURL(LOG_TS).href) + ');'
-    + 'console.log("RESULT" + JSON.stringify({ root: m.ROOT, file: m.LOG_FILE, status: m.logStatus() }));';
-  const out = execFileSync(process.execPath, ['--input-type=module', '-e', code], { env, encoding: 'utf8' });
+  const code =
+    'const m = await import(' +
+    JSON.stringify(pathToFileURL(LOG_TS).href) +
+    ');' +
+    'console.log("RESULT" + JSON.stringify({ root: m.ROOT, file: m.LOG_FILE, status: m.logStatus() }));';
+  const out = execFileSync(process.execPath, ['--input-type=module', '-e', code], {
+    env,
+    encoding: 'utf8',
+  });
   const line = out.split(/\r?\n/).find((l) => l.startsWith('RESULT'));
   assert.ok(line, '子进程应当打出 RESULT 行');
   const r = JSON.parse(line.slice('RESULT'.length));
-  assert.equal(r.file, path.join(r.root, 'data', '_app.log'), '非打包态默认落点必须是 <ROOT>/data/_app.log');
+  assert.equal(
+    r.file,
+    path.join(r.root, 'data', '_app.log'),
+    '非打包态默认落点必须是 <ROOT>/data/_app.log',
+  );
   assert.equal(r.status.ok, true, '仓库内是可写的，logStatus().ok 应当是 true');
   assert.equal(r.status.failures, 0);
 });
@@ -40,24 +50,33 @@ test('L2 写不进去 ⇒ **可见**：logStatus() 报错 + stderr/stdout 上有
   fs.writeFileSync(blocker, 'x');
   const poison = path.join(blocker, 'app.log');
 
-  const code = 'const m = await import(' + JSON.stringify(pathToFileURL(LOG_TS).href) + ');'
-    + 'const first = m.logStatus();'
-    + 'const threw = (() => { try { m.log("测试：写不进去也不能抛"); return false; } catch { return true; } })();'
-    + 'console.log("RESULT" + JSON.stringify({ file: m.LOG_FILE, first, threw, second: m.logStatus() }));';
+  const code =
+    'const m = await import(' +
+    JSON.stringify(pathToFileURL(LOG_TS).href) +
+    ');' +
+    'const first = m.logStatus();' +
+    'const threw = (() => { try { m.log("测试：写不进去也不能抛"); return false; } catch { return true; } })();' +
+    'console.log("RESULT" + JSON.stringify({ file: m.LOG_FILE, first, threw, second: m.logStatus() }));';
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     env: Object.assign({}, process.env, { GEMMA_APP_LOG: poison }),
     encoding: 'utf8',
   });
   const all = String(r.stdout || '') + String(r.stderr || '');
 
-  const line = String(r.stdout || '').split(/\r?\n/).find((l) => l.startsWith('RESULT'));
+  const line = String(r.stdout || '')
+    .split(/\r?\n/)
+    .find((l) => l.startsWith('RESULT'));
   assert.ok(line, '子进程应当打出 RESULT 行；实际输出：' + all.slice(0, 500));
   const res = JSON.parse(line.slice('RESULT'.length));
   assert.equal(res.file, poison, 'GEMMA_APP_LOG 覆盖必须优先');
   assert.equal(res.first.ok, false, '写不进去时 ok 必须是 false');
   assert.ok(res.first.failures >= 1, '失败要计数（N7 要显示）');
   assert.ok(res.first.error, '失败要有原样错误文本');
-  assert.match(all, /日志写入失败/, '必须有一行大声的失败提示（绕开 log() 自身直写 stderr/stdout）');
+  assert.match(
+    all,
+    /日志写入失败/,
+    '必须有一行大声的失败提示（绕开 log() 自身直写 stderr/stdout）',
+  );
   assert.match(all, /packed=/, '提示里要有 packed 标志，便于判断是不是打包态');
   assert.equal(res.threw, false, '不能因为日志挂了就让应用挂（log() 仍然不抛）');
   assert.ok(res.second.failures >= 2, '第二次写失败要接着计数');

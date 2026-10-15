@@ -99,7 +99,13 @@ export function createCrashPolicy(deps: CrashPolicyDeps): CrashPolicy {
     // ⚠️ 顺序是契约：先落盘，再退出。log() 同步 ⇒ 这几行返回即已写入 data/_app.log。
     deps.log('!! 未捕获异常：进程处于半初始化/半写状态，继续运行会把异常当成正常 ⇒ 即将退出');
     deps.log('!! 未捕获异常原因：', why);
-    deps.log('!! 即将 exit code=' + String(CRASH_EXIT_CODE), '· 打包态 =', deps.isPackaged, '· 不健康次数 =', state.count);
+    deps.log(
+      '!! 即将 exit code=' + String(CRASH_EXIT_CODE),
+      '· 打包态 =',
+      deps.isPackaged,
+      '· 不健康次数 =',
+      state.count,
+    );
     if (deps.flush !== undefined) deps.flush();
     deps.exit(CRASH_EXIT_CODE);
   }

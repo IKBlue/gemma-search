@@ -88,16 +88,26 @@ export const SCHEMA_VERSION_LEDGER: MigrationLedger = Object.freeze({
   ddl: Object.freeze([CREATE_SCHEMA_VERSION_TABLE]),
 
   seed(db: SqlDatabase, now: () => number): void {
-    db.prepare('INSERT OR IGNORE INTO schema_version (id, version, updated_at) VALUES (1, 0, ?)').run(now());
+    db.prepare(
+      'INSERT OR IGNORE INTO schema_version (id, version, updated_at) VALUES (1, 0, ?)',
+    ).run(now());
   },
 
   readVersion(db: SqlDatabase): number {
-    return readVersionRow(db, SCHEMA_VERSION_TABLE, SCHEMA_VERSION_ROW_ID, 'version',
-      'SELECT version FROM schema_version WHERE id = 1');
+    return readVersionRow(
+      db,
+      SCHEMA_VERSION_TABLE,
+      SCHEMA_VERSION_ROW_ID,
+      'version',
+      'SELECT version FROM schema_version WHERE id = 1',
+    );
   },
 
   writeVersion(db: SqlDatabase, version: number, now: () => number): void {
-    db.prepare('UPDATE schema_version SET version = ?, updated_at = ? WHERE id = 1').run(version, now());
+    db.prepare('UPDATE schema_version SET version = ?, updated_at = ? WHERE id = 1').run(
+      version,
+      now(),
+    );
   },
 });
 
@@ -113,7 +123,10 @@ export function validateMigrations(migrations: readonly Migration[]): void {
   let prev = 0;
   for (const m of migrations) {
     if (!Number.isInteger(m.version) || m.version <= 0) {
-      throw new GsDbError('MIGRATION_LIST_INVALID', `迁移版本号必须是正整数，实际是 ${String(m.version)}`);
+      throw new GsDbError(
+        'MIGRATION_LIST_INVALID',
+        `迁移版本号必须是正整数，实际是 ${String(m.version)}`,
+      );
     }
     if (!m.name) {
       throw new GsDbError('MIGRATION_LIST_INVALID', `迁移 v${m.version} 缺少名字`);
@@ -278,5 +291,11 @@ export function migrateWithLedger(
     current = m.version;
   }
 
-  return { fromVersion, toVersion: current, targetVersion, applied, upToDate: applied.length === 0 };
+  return {
+    fromVersion,
+    toVersion: current,
+    targetVersion,
+    applied,
+    upToDate: applied.length === 0,
+  };
 }

@@ -17,59 +17,85 @@
 // 现在两个操作由 `hooks/useLibraryConfig.js`（Operation 层）通过 props 注入：
 //   `onPickDir()` / `onAddLibrary(root)` 都返回 `{ok, ...}` 且**永不抛**
 // ⇒ 本组件里没有 try/catch，也不需要「调用异常」那套并列文案（文案分叉的根源）。
-import { useState } from 'react'
+import { useState } from 'react';
 
-import Button from '../ui/Button.tsx'
-import type { LibraryConfigData, PickDirResult, AddLibraryResult } from '../hooks/useLibraryConfig.ts'
+import Button from '../ui/Button.tsx';
+import type {
+  LibraryConfigData,
+  PickDirResult,
+  AddLibraryResult,
+} from '../hooks/useLibraryConfig.ts';
 
 export type FirstRunWizardProps = {
-  data?: LibraryConfigData | null
-  onAdded?: () => void
-  onPickDir?: () => Promise<PickDirResult>
-  onAddLibrary?: (root: string) => Promise<AddLibraryResult>
-}
+  data?: LibraryConfigData | null;
+  onAdded?: () => void;
+  onPickDir?: () => Promise<PickDirResult>;
+  onAddLibrary?: (root: string) => Promise<AddLibraryResult>;
+};
 
-export default function FirstRunWizard({ data, onAdded, onPickDir, onAddLibrary }: FirstRunWizardProps) {
-  const [picked, setPicked] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+export default function FirstRunWizard({
+  data,
+  onAdded,
+  onPickDir,
+  onAddLibrary,
+}: FirstRunWizardProps) {
+  const [picked, setPicked] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   // 缺注入时不静默装作没事，也不抛 TypeError —— 如实说「这个界面没接上」
-  const MISSING = '这个界面没接到库操作（Operation 层未注入）。'
+  const MISSING = '这个界面没接到库操作（Operation 层未注入）。';
 
   const pick = async (): Promise<void> => {
-    setError('')
-    if (typeof onPickDir !== 'function') { setError(MISSING); return }
-    const r = await onPickDir()
-    if (!r.ok) { setError(r.error); return }
-    if (r.canceled) return                              // 用户取消：什么都不做，也不报错
-    setPicked(r.path || '')
-  }
+    setError('');
+    if (typeof onPickDir !== 'function') {
+      setError(MISSING);
+      return;
+    }
+    const r = await onPickDir();
+    if (!r.ok) {
+      setError(r.error);
+      return;
+    }
+    if (r.canceled) return; // 用户取消：什么都不做，也不报错
+    setPicked(r.path || '');
+  };
 
   const add = async (): Promise<void> => {
-    if (!picked) return
-    if (typeof onAddLibrary !== 'function') { setError(MISSING); return }
-    setBusy(true); setError('')
-    const r = await onAddLibrary(picked)
-    setBusy(false)
-    if (!r.ok) { setError(r.error); return }
-    onAdded?.()                                         // 让 App 重新解析并放行
-  }
+    if (!picked) return;
+    if (typeof onAddLibrary !== 'function') {
+      setError(MISSING);
+      return;
+    }
+    setBusy(true);
+    setError('');
+    const r = await onAddLibrary(picked);
+    setBusy(false);
+    if (!r.ok) {
+      setError(r.error);
+      return;
+    }
+    onAdded?.(); // 让 App 重新解析并放行
+  };
 
   // 主进程如实报的警告（例如「库根不存在」）要显示出来，不过滤
-  const warnings = (data && data.warnings) || []
+  const warnings = (data && data.warnings) || [];
 
   return (
     <div className="wizard-overlay" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
       <div className="wizard">
-        <h1 id="wizard-title" className="wizard-title">先选一个素材库</h1>
+        <h1 id="wizard-title" className="wizard-title">
+          先选一个素材库
+        </h1>
         <p className="wizard-lede">
           应用会在你选的文件夹里找图片，并把同名的压缩包配成一套。
           <strong>只读取 —— 不会移动、改名或删除任何东西。</strong>
         </p>
 
         <div className="wizard-step">
-          <span className="wizard-step-no" aria-hidden="true">1</span>
+          <span className="wizard-step-no" aria-hidden="true">
+            1
+          </span>
           <div className="wizard-step-body">
             <div className="wizard-step-title">选择素材库根目录</div>
             <div className="wizard-step-hint">就是那个装着素材的文件夹（里面可以再分子目录）。</div>
@@ -77,15 +103,27 @@ export default function FirstRunWizard({ data, onAdded, onPickDir, onAddLibrary 
         </div>
 
         <div className="wizard-pick">
-          <Button variant="primary" onClick={pick} disabled={busy}>选择文件夹…</Button>
-          {picked && <code className="wizard-path mono" title={picked}>{picked}</code>}
+          <Button variant="primary" onClick={pick} disabled={busy}>
+            选择文件夹…
+          </Button>
+          {picked && (
+            <code className="wizard-path mono" title={picked}>
+              {picked}
+            </code>
+          )}
         </div>
 
-        {error && <p className="wizard-error" role="alert">{error}</p>}
+        {error && (
+          <p className="wizard-error" role="alert">
+            {error}
+          </p>
+        )}
 
         {warnings.length > 0 && (
           <ul className="wizard-warn">
-            {warnings.map((w, i) => <li key={i}>{String(w)}</li>)}
+            {warnings.map((w, i) => (
+              <li key={i}>{String(w)}</li>
+            ))}
           </ul>
         )}
 
@@ -102,5 +140,5 @@ export default function FirstRunWizard({ data, onAdded, onPickDir, onAddLibrary 
         )}
       </div>
     </div>
-  )
+  );
 }

@@ -25,7 +25,8 @@ const SRC = fileURLToPath(new URL('../src/', import.meta.url));
 const TXN_DIR = 'transactions';
 
 /** **破坏性**的文件系统调用：会改变/移除已存在的文件。这些才是能弄丢素材的操作。 */
-const DESTRUCTIVE = /fs\s*\.\s*(rename|renameSync|unlink|unlinkSync|rm|rmSync|rmdir|rmdirSync)\s*\(/g;
+const DESTRUCTIVE =
+  /fs\s*\.\s*(rename|renameSync|unlink|unlinkSync|rm|rmSync|rmdir|rmdirSync)\s*\(/g;
 
 /** 递归收集 `src/` 下的 .ts（用 fs.readdirSync，避免引入 glob 依赖） */
 function walk(dir) {
@@ -53,15 +54,20 @@ function scan(re) {
 test('TX-W1 ⭐⭐ 破坏性写操作（rename/unlink/rm）只允许出现在 `src/transactions/`（规格 §9）', () => {
   const hits = scan(DESTRUCTIVE);
   const outside = hits.filter((h) => !h.file.startsWith(TXN_DIR + '/'));
-  assert.deepEqual(outside, [],
-    `引擎里只有 ${TXN_DIR}/ 可以出现破坏性写调用（§9）。越界的：\n    `
-    + outside.map((h) => `${h.file}:${h.line}`).join('\n    '));
+  assert.deepEqual(
+    outside,
+    [],
+    `引擎里只有 ${TXN_DIR}/ 可以出现破坏性写调用（§9）。越界的：\n    ` +
+      outside.map((h) => `${h.file}:${h.line}`).join('\n    '),
+  );
 });
 
 test('TX-W2 断言**不是空的**：transactions/ 里确实用到了这些 API（否则上面那条恒真）', () => {
   const inside = scan(DESTRUCTIVE).filter((h) => h.file.startsWith(TXN_DIR + '/'));
-  assert.ok(inside.length > 0,
-    'transactions/ 里一个破坏性写调用都没有 ⇒ 要么实现被删了，要么正则失效了 —— 两种都得查');
+  assert.ok(
+    inside.length > 0,
+    'transactions/ 里一个破坏性写调用都没有 ⇒ 要么实现被删了，要么正则失效了 —— 两种都得查',
+  );
   // 具体到我们确实依赖的两个：rename staging→最终名、unlink 源文件
   const files = new Set(inside.map((h) => h.file));
   assert.ok(files.has(`${TXN_DIR}/steps.ts`), 'steps.ts 应包含 rename/unlink（共享原语）');
@@ -70,7 +76,8 @@ test('TX-W2 断言**不是空的**：transactions/ 里确实用到了这些 API�
 
 test('TX-W3 ⭐ 判据**能红**：往 `engine.ts` 注入一行 fs.renameSync ⇒ 必须被扫出来', () => {
   // 内存注入，不动磁盘（真·双向验证见 reports/ 里记录的"注入 → npm test 变红"）
-  const injected = "import fs from 'node:fs'\nexport function x(p, q) {\n  fs.renameSync(p, q)\n}\n";
+  const injected =
+    "import fs from 'node:fs'\nexport function x(p, q) {\n  fs.renameSync(p, q)\n}\n";
   const hits = findInCode(injected, DESTRUCTIVE);
   assert.equal(hits.length, 1, '注入的越界写调用必须被扫到，否则 TX-W1 是空断言');
   assert.equal(hits[0].line, 3);
@@ -78,8 +85,11 @@ test('TX-W3 ⭐ 判据**能红**：往 `engine.ts` 注入一行 fs.renameSync �
   // 反向：**注释里**的同样一行不该命中（否则检查会满屏假阳性，最后被人关掉）
   assert.equal(findInCode('// 这里绝不能写 fs.renameSync\n', DESTRUCTIVE).length, 0);
   // 反向：op 名字符串不该命中（`fake.ts:480` 的实测形态）
-  assert.equal(findInCode("const op = req.op || 'rename'\n", DESTRUCTIVE).length, 0,
-    '操作名 `rename` 不是文件系统调用 —— 裸搜会在这里假阳性');
+  assert.equal(
+    findInCode("const op = req.op || 'rename'\n", DESTRUCTIVE).length,
+    0,
+    '操作名 `rename` 不是文件系统调用 —— 裸搜会在这里假阳性',
+  );
   assert.equal(findInCode("const LABEL = { rename: '改 ID' }\n", DESTRUCTIVE).length, 0);
 });
 
@@ -90,10 +100,14 @@ test('TX-W4 如实钉住边界：`collect` 会在**库外**（取件目录）新
   //    它确实写文件，所以不能被说成"引擎从不写文件"；但它不是破坏性操作、也不碰素材库。
   //    下面把当前事实**钉住**：除 transactions/ 外，写文件的只有 engine.ts 这一个（collect）。
   //    将来若在别处新增写文件点，这条会红 —— 那时必须显式判断它属于哪一类。
-  const COPYISH = /fs\s*\.\s*(copyFile|copyFileSync|mkdir|mkdirSync|writeFile|writeFileSync|appendFile|appendFileSync)\s*\(/g;
+  const COPYISH =
+    /fs\s*\.\s*(copyFile|copyFileSync|mkdir|mkdirSync|writeFile|writeFileSync|appendFile|appendFileSync)\s*\(/g;
   const outside = scan(COPYISH).filter((h) => !h.file.startsWith(TXN_DIR + '/'));
   const files = [...new Set(outside.map((h) => h.file))].sort();
-  assert.deepEqual(files, ['engine.ts'],
-    '除 transactions/ 外，引擎里写文件的地方只应有 engine.ts（collect 的取件目录）。'
-    + `实际：${files.join(', ')} —— 若新增了写文件点，请先判断它是否属于 §9 的"写素材文件"`);
+  assert.deepEqual(
+    files,
+    ['engine.ts'],
+    '除 transactions/ 外，引擎里写文件的地方只应有 engine.ts（collect 的取件目录）。' +
+      `实际：${files.join(', ')} —— 若新增了写文件点，请先判断它是否属于 §9 的"写素材文件"`,
+  );
 });

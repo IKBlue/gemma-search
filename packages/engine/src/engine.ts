@@ -36,7 +36,7 @@ import type { FakeKit, FakeModeOptions, SampleIndex } from './fake.ts';
  */
 export const BANDS: Readonly<Record<string, { high: number; mid: number }>> = Object.freeze({
   text: { high: 0.72, mid: 0.65 },
-  image: { high: 0.90, mid: 0.80 },
+  image: { high: 0.9, mid: 0.8 },
 });
 
 /**
@@ -53,8 +53,12 @@ export const BANDS: Readonly<Record<string, { high: number; mid: number }>> = Ob
  * 所以引擎侧只要 `fakeKit[name]`，不需要另维护映射表。
  */
 export const UNIMPLEMENTED_METHODS = Object.freeze([
-  'ingest', 'mutate', 'transactions',
-  'indexStart', 'indexCancel', 'indexResume',
+  'ingest',
+  'mutate',
+  'transactions',
+  'indexStart',
+  'indexCancel',
+  'indexResume',
 ]);
 
 /** 从捕获到的异常里取 `code`（引擎抛的 EngineError 与 node 的 fs 错误都带它） */
@@ -131,15 +135,20 @@ export function resolveCollectDir(
   // `!name` 是 `!dir` 的蕴含条件（name 为空 ⇒ dirs[name] 必为空）—— 写出来只是为了让 TS 收窄，
   // 不改变任何运行期分支：两者都走同一个 throw。
   if (!name || !dir) {
-    throw fail(ERR.COLLECT_DIR_NOT_ALLOWED,
+    throw fail(
+      ERR.COLLECT_DIR_NOT_ALLOWED,
       `取件目标不在允许列表：${targetDirName || '(未指定)'}`,
-      { name: targetDirName || null, allowed: Object.keys(dirs) });
+      { name: targetDirName || null, allowed: Object.keys(dirs) },
+    );
   }
   return { name, dir: path.resolve(dir) };
 }
 
 /** 取件时复制哪一份：有包取包，无包取图（契约 §2.5 的 auto 语义）。 */
-export function pickCollectSource(item: IndexItem, target = 'auto'): { rel: string | null; kind: string } {
+export function pickCollectSource(
+  item: IndexItem,
+  target = 'auto',
+): { rel: string | null; kind: string } {
   const rel = relOf(item);
   const arc = item.archiveRelPath || null;
   if (target === 'archive') {
@@ -205,8 +214,14 @@ export interface JobState {
 }
 
 /** 检索请求（契约 §2.1） */
-export interface ImageRef { libId?: string; uid?: string }
-export interface SearchFilters { folders?: string[]; exts?: string[] }
+export interface ImageRef {
+  libId?: string;
+  uid?: string;
+}
+export interface SearchFilters {
+  folders?: string[];
+  exts?: string[];
+}
 export interface SearchRequest {
   mode?: string;
   topK?: number;
@@ -219,23 +234,37 @@ export interface SearchRequest {
 }
 
 /** 单条 / 两条路径的请求 */
-export interface ItemRequest { libId?: string; uid?: string }
+export interface ItemRequest {
+  libId?: string;
+  uid?: string;
+}
 /** 扫描请求 */
-export interface ScanRequest { libId?: string }
+export interface ScanRequest {
+  libId?: string;
+}
 /** 取件请求 */
-export interface CollectRequest { libId?: string; uids?: string[]; targetDirName?: string; target?: string }
+export interface CollectRequest {
+  libId?: string;
+  uids?: string[];
+  targetDirName?: string;
+  target?: string;
+}
 /** reveal 请求 */
-export interface RevealRequest { libId?: string; uid?: string; target?: string }
+export interface RevealRequest {
+  libId?: string;
+  uid?: string;
+  target?: string;
+}
 
 export function createEngine({
   config = {},
-  encoder = null,                 // { encodeText(text) -> Float32Array, encodeImage(absPath) -> Float32Array }
-  indexDir = null,                // 索引根；缺省 <config.data_dir>/libraries
+  encoder = null, // { encodeText(text) -> Float32Array, encodeImage(absPath) -> Float32Array }
+  indexDir = null, // 索引根；缺省 <config.data_dir>/libraries
   onEvent = () => {},
   now = () => Date.now(),
-  shell = null,                   // { reveal(absPath) } —— P2 注入（Electron shell.showItemInFolder）
-  fake = false,                   // ⭐ 契约 §8 的模拟模式：无模型、无真实库。见 fake.ts 头注释
-  storage = null,                 // 存储端口（T-16a）：不传 ⇒ 旧布局，行为与改造前逐字一致
+  shell = null, // { reveal(absPath) } —— P2 注入（Electron shell.showItemInFolder）
+  fake = false, // ⭐ 契约 §8 的模拟模式：无模型、无真实库。见 fake.ts 头注释
+  storage = null, // 存储端口（T-16a）：不传 ⇒ 旧布局，行为与改造前逐字一致
 }: EngineOptions = {}) {
   // ── 模拟模式（契约 §8）────────────────────────────────────────────────
   // `fake: true` ⇒ 用 fixtures/sample-index.json 造一个**零真实文件系统**的库；
@@ -245,7 +274,9 @@ export function createEngine({
   const fakeKit: FakeKit | null = fake
     ? createFakeKit({
         fixture: (fakeObj?.fixture ?? null) as SampleIndex | null,
-        onEvent, now, bandOf,                       // ⚠️ bandOf 注入 —— 不在这里重算档位阈值（见 fake.ts 头注释 ③）
+        onEvent,
+        now,
+        bandOf, // ⚠️ bandOf 注入 —— 不在这里重算档位阈值（见 fake.ts 头注释 ③）
         intervalMs: fakeObj ? (fakeObj.intervalMs ?? null) : null,
         setTimer: fakeObj?.setTimer,
         clearTimer: fakeObj?.clearTimer,
@@ -263,10 +294,13 @@ export function createEngine({
    */
   const metaFromFile = itemStore === null && indexPort === null;
 
-  const registry: EngineRegistry = fakeKit ? fakeKit.registry : (resolver ?? new LibraryRegistry(config));
-  const idxRoot = indexDir || path.join(config.data_dir || path.join(process.cwd(), 'data'), 'libraries');
-  const cache = new Map<string, EngineEntry>();   // libId -> { header, items, vectors, meta, byUid, rowToRel }
-  const jobs = new Map<string, JobState>();       // jobId -> { kind, libId, cancelled }
+  const registry: EngineRegistry = fakeKit
+    ? fakeKit.registry
+    : (resolver ?? new LibraryRegistry(config));
+  const idxRoot =
+    indexDir || path.join(config.data_dir || path.join(process.cwd(), 'data'), 'libraries');
+  const cache = new Map<string, EngineEntry>(); // libId -> { header, items, vectors, meta, byUid, rowToRel }
+  const jobs = new Map<string, JobState>(); // jobId -> { kind, libId, cancelled }
 
   function dirOf(libId: string): string {
     return path.join(idxRoot, libId);
@@ -279,8 +313,8 @@ export function createEngine({
     const cached = cache.get(libId);
     if (!reload && cached) return cached;
     registry.requireExistingRoot(libId);
-    const legacyDir = dirOf(libId);                                // 旧布局：索引/条目/meta 都在这里
-    const layout = resolver ? resolver.storageOf(libId) : null;    // 新布局：`.gs-*` 在**库根**
+    const legacyDir = dirOf(libId); // 旧布局：索引/条目/meta 都在这里
+    const layout = resolver ? resolver.storageOf(libId) : null; // 新布局：`.gs-*` 在**库根**
     // ② 向量索引：端口优先（`<库根>/.gs-index.bin`，实现里走引擎五道校验）；否则旧布局 index.bin
     // ⚠️ 无端口时**只**走旧布局（T-16a 的「不注入 ⇒ 与改造前逐字一致」）；有端口时落点由端口决定，
     //    而端口的落点判据就是 index-layout.ts 的 resolveIndexLocation（新布局 → 旧布局回退）。
@@ -288,7 +322,9 @@ export function createEngine({
       ? indexPort.readIndex(libId)
       : readIndexBin(path.join(legacyDir, LEGACY_INDEX_FILENAME));
     // ① 条目：端口优先（T-11 的 `.gs.db`）；否则旧布局 items.json
-    const items: IndexItem[] = itemStore ? itemStore.listItems(libId) : readItems(path.join(legacyDir, 'items.json'));
+    const items: IndexItem[] = itemStore
+      ? itemStore.listItems(libId)
+      : readItems(path.join(legacyDir, 'items.json'));
     // meta：旧布局读 meta.json；新布局里元数据在 `.gs.db`（不在这三个端口里）⇒ 空对象、上层报"未知"
     const meta = metaFromFile ? readMeta(path.join(legacyDir, 'meta.json')) : {};
     const { header, vectors, count, dim } = bin;
@@ -302,7 +338,18 @@ export function createEngine({
       if (it.vectorRow != null) rowToRel.set(it.vectorRow, rel);
     }
     // `dir`：新布局下就是**库根**（`.gs-*` 与素材同处）；旧布局下是索引目录（保持原语义）
-    const entry: EngineEntry = { libId, dir: layout ? layout.root : legacyDir, header, vectors, count, dim, items, meta, byUid, rowToRel };
+    const entry: EngineEntry = {
+      libId,
+      dir: layout ? layout.root : legacyDir,
+      header,
+      vectors,
+      count,
+      dim,
+      items,
+      meta,
+      byUid,
+      rowToRel,
+    };
     cache.set(libId, entry);
     return entry;
   }
@@ -334,18 +381,39 @@ export function createEngine({
       try {
         e = load(id);
       } catch (err) {
-        skipped.push({ libId: id, reason: { kind: 'unavailable', code: codeOf(err),
-                                           userMessage: undefined, detail: messageOf(err) } });
+        skipped.push({
+          libId: id,
+          reason: {
+            kind: 'unavailable',
+            code: codeOf(err),
+            userMessage: undefined,
+            detail: messageOf(err),
+          },
+        });
         continue;
       }
       if (!compatComplete(e.header)) {
-        skipped.push({ libId: id, reason: { kind: 'compat-incomplete',
-                                            missing: ['model_repo'], userMessage: '这个库的索引元数据不完整。' } });
+        skipped.push({
+          libId: id,
+          reason: {
+            kind: 'compat-incomplete',
+            missing: ['model_repo'],
+            userMessage: '这个库的索引元数据不完整。',
+          },
+        });
         continue;
       }
-      if (base === null) { base = e; loaded.push(e); continue; }
+      if (base === null) {
+        base = e;
+        loaded.push(e);
+        continue;
+      }
       if (compatEqual(base.header, e.header)) loaded.push(e);
-      else skipped.push({ libId: id, reason: compatReason(base.header, e.header, registry.get(id).label) });
+      else
+        skipped.push({
+          libId: id,
+          reason: compatReason(base.header, e.header, registry.get(id).label),
+        });
     }
     return { loaded, skipped, base };
   }
@@ -459,10 +527,18 @@ export function createEngine({
     const libs = [];
     for (const l of registry.list()) {
       let rootOk = true;
-      try { registry.requireExistingRoot(l.libId); } catch { rootOk = false; }
+      try {
+        registry.requireExistingRoot(l.libId);
+      } catch {
+        rootOk = false;
+      }
       let e: EngineEntry | null = null;
       const problems: Array<{ code: string | undefined; message: string }> = [];
-      try { e = load(l.libId); } catch (err) { problems.push({ code: codeOf(err), message: messageOf(err) }); }
+      try {
+        e = load(l.libId);
+      } catch (err) {
+        problems.push({ code: codeOf(err), message: messageOf(err) });
+      }
       // 新布局：把 `.gs-*` 的**真实落点与存在性**如实报出来（"索引在不在库根下"是排障第一眼要看的东西）。
       // ⚠️ 它**不参与 healthy 判定**：数据可用性以端口为准 —— 端口读得到就是可用，
       //    读不到会在 problems 里给出带 code 的明确理由（不许假绿）。
@@ -476,25 +552,32 @@ export function createEngine({
         encoded: e ? e.count : 0,
         dim: e ? e.dim : null,
         compat: e && compatComplete(e.header) ? compatKey(e.header) : null,
-        builtAt: e ? (e.header.built_at || null) : null,
+        builtAt: e ? e.header.built_at || null : null,
         // ⚠️ 旧布局从 meta.json 读失败项台账；新布局里那份台账**不在这三个端口里** ⇒ 报 null（**未知**），
         //    不用 0 假装"没有失败项" —— 那正是我们要防的假绿。
-        failed: e && e.meta && Array.isArray(e.meta.failed) ? e.meta.failed.length : (metaFromFile ? 0 : null),
-        healthy: rootOk && e !== null && problems.length === 0 && (e.items.length === e.count),
+        failed:
+          e && e.meta && Array.isArray(e.meta.failed)
+            ? e.meta.failed.length
+            : metaFromFile
+              ? 0
+              : null,
+        healthy: rootOk && e !== null && problems.length === 0 && e.items.length === e.count,
         problems,
         // storage 块**只在库解析端口存在时出现** ⇒ 旧布局的返回形状逐字不变（既有 fixtures/e2e 不受影响）
-        ...(layout ? {
-          storage: {
-            // 布局由**唯一判据**决定（index-layout.ts）—— 迁移期可能是旧布局回退，不许一律写死 'library-root'
-            layout: layout.layout ?? 'library-root',
-            root: layout.root,
-            indexPath: layout.indexPath,
-            dbPath: layout.dbPath,
-            journalPath: layout.journalPath ?? null,
-            indexExists: fs.existsSync(layout.indexPath),
-            dbExists: fs.existsSync(layout.dbPath),
-          },
-        } : {}),
+        ...(layout
+          ? {
+              storage: {
+                // 布局由**唯一判据**决定（index-layout.ts）—— 迁移期可能是旧布局回退，不许一律写死 'library-root'
+                layout: layout.layout ?? 'library-root',
+                root: layout.root,
+                indexPath: layout.indexPath,
+                dbPath: layout.dbPath,
+                journalPath: layout.journalPath ?? null,
+                indexExists: fs.existsSync(layout.indexPath),
+                dbExists: fs.existsSync(layout.dbPath),
+              },
+            }
+          : {}),
       });
     }
     return ok({ libs });
@@ -509,7 +592,7 @@ export function createEngine({
     const e = load(id);
     const root = registry.get(id).root;
 
-    const disk = new Map<string, { size: number; mtimeMs: number }>();   // relPath -> { size, mtimeMs }
+    const disk = new Map<string, { size: number; mtimeMs: number }>(); // relPath -> { size, mtimeMs }
     const walk = (dir: string): void => {
       for (const de of fs.readdirSync(dir, { withFileTypes: true })) {
         // ⚠️ 新布局把 `.gs-index.bin` / `.gs.db` / `.gs-staging/` 放在**库根**里 ——
@@ -518,16 +601,21 @@ export function createEngine({
         if (isReservedLibraryName(de.name)) continue;
         if (de.name.startsWith('.')) continue;
         const full = path.join(dir, de.name);
-        if (de.isDirectory()) { walk(full); continue; }
+        if (de.isDirectory()) {
+          walk(full);
+          continue;
+        }
         if (!de.isFile()) continue;
         const st = fs.statSync(full, { bigint: true });
-        disk.set(path.relative(root, full),
-                 { size: Number(st.size), mtimeMs: Number(st.mtimeNs / 1_000_000n) });
+        disk.set(path.relative(root, full), {
+          size: Number(st.size),
+          mtimeMs: Number(st.mtimeNs / 1_000_000n),
+        });
       }
     };
     walk(root);
 
-    const known = new Map<string, IndexItem>();         // relPath -> item
+    const known = new Map<string, IndexItem>(); // relPath -> item
     for (const it of e.items) {
       const rel = relOf(it);
       if (rel) known.set(rel, it);
@@ -537,7 +625,10 @@ export function createEngine({
     const changed: Array<{ relPath: string; uid?: string; what: string[] }> = [];
     for (const [rel, s] of disk) {
       const it = known.get(rel);
-      if (!it) { fresh.push({ relPath: rel, stem: path.basename(rel, path.extname(rel)) }); continue; }
+      if (!it) {
+        fresh.push({ relPath: rel, stem: path.basename(rel, path.extname(rel)) });
+        continue;
+      }
       const what: string[] = [];
       if (it.imageSize != null && Number(it.imageSize) !== s.size) what.push('size');
       if (it.imageMtime != null && Number(it.imageMtime) !== s.mtimeMs) what.push('mtime');
@@ -548,7 +639,9 @@ export function createEngine({
 
     const fp = fingerprintV1(root);
     return ok({
-      new: fresh, missing, changed,
+      new: fresh,
+      missing,
+      changed,
       fingerprintV1: fp.fingerprint,
       counts: fp.counts,
       filesTotal: fp.counts.files,
@@ -570,13 +663,26 @@ export function createEngine({
     fs.mkdirSync(dir, { recursive: true });
 
     // 先算总量并做**空间预检**（不要复制到一半才发现不够）
-    const plan: Array<{ uid: string; abs: string; dest: string; size: number; kind: string; rel: string | null }> = [];
-    const failed: Array<{ uid: string; error: { code: string; message: string; rel?: string | null } }> = [];
+    const plan: Array<{
+      uid: string;
+      abs: string;
+      dest: string;
+      size: number;
+      kind: string;
+      rel: string | null;
+    }> = [];
+    const failed: Array<{
+      uid: string;
+      error: { code: string; message: string; rel?: string | null };
+    }> = [];
     const skipped: Array<{ uid: string; reason: string; path: string }> = [];
     let totalBytes = 0;
     for (const uid of list) {
       const it = itemOf(id, uid);
-      if (!it) { failed.push({ uid, error: { code: ERR.UID_NOT_FOUND, message: 'uid 不在索引中' } }); continue; }
+      if (!it) {
+        failed.push({ uid, error: { code: ERR.UID_NOT_FOUND, message: 'uid 不在索引中' } });
+        continue;
+      }
       let src: { rel: string | null; kind: string };
       try {
         src = pickCollectSource(it, target);
@@ -584,14 +690,20 @@ export function createEngine({
         failed.push({ uid, error: { code: codeOf(err) ?? ERR.INTERNAL, message: messageOf(err) } });
         continue;
       }
-      const abs = resolveInLibrary(root, src.rel);          // 含库根包含 + 链接校验
+      const abs = resolveInLibrary(root, src.rel); // 含库根包含 + 链接校验
       if (!fs.existsSync(abs)) {
-        failed.push({ uid, error: { code: ERR.ITEM_MISSING_ON_DISK, message: '源文件不存在', rel: src.rel } });
+        failed.push({
+          uid,
+          error: { code: ERR.ITEM_MISSING_ON_DISK, message: '源文件不存在', rel: src.rel },
+        });
         continue;
       }
       const size = fs.statSync(abs).size;
       const dest = path.join(dir, path.basename(abs));
-      if (fs.existsSync(dest)) { skipped.push({ uid, reason: 'already-exists', path: dest }); continue; }
+      if (fs.existsSync(dest)) {
+        skipped.push({ uid, reason: 'already-exists', path: dest });
+        continue;
+      }
       plan.push({ uid, abs, dest, size, kind: src.kind, rel: src.rel });
       totalBytes += size;
     }
@@ -601,9 +713,11 @@ export function createEngine({
         const st = fs.statfsSync(dir);
         const free = Number(st.bavail) * Number(st.bsize);
         if (free < totalBytes) {
-          throw fail(ERR.DISK_FULL,
-            `目标盘可用 ${free} 字节，需要 ${totalBytes} 字节`,
-            { free, need: totalBytes, dir });
+          throw fail(ERR.DISK_FULL, `目标盘可用 ${free} 字节，需要 ${totalBytes} 字节`, {
+            free,
+            need: totalBytes,
+            dir,
+          });
         }
       } catch (err) {
         if (codeOf(err) === ERR.DISK_FULL) throw err;
@@ -618,7 +732,7 @@ export function createEngine({
     const succeeded: Array<{ uid: string; kind: string; path: string; bytes: number }> = [];
     for (const p of plan) {
       try {
-        fs.copyFileSync(p.abs, p.dest, fs.constants.COPYFILE_EXCL);   // EXCL：绝不覆盖
+        fs.copyFileSync(p.abs, p.dest, fs.constants.COPYFILE_EXCL); // EXCL：绝不覆盖
         succeeded.push({ uid: p.uid, kind: p.kind, path: p.dest, bytes: p.size });
       } catch (err) {
         const code = codeOf(err) === 'EEXIST' ? ERR.COLLECT_TARGET_EXISTS : ERR.INTERNAL;
@@ -629,15 +743,25 @@ export function createEngine({
         }
       }
     }
-    return ok({ jobId, targetDirName: name, targetDir: dir, bytesTotal: totalBytes,
-                succeeded, failed, skipped });
+    return ok({
+      jobId,
+      targetDirName: name,
+      targetDir: dir,
+      bytesTotal: totalBytes,
+      succeeded,
+      failed,
+      skipped,
+    });
   }
 
   // ---------------- 公开接口（每个都套信封） ----------------
   const api = {
     registry,
     /** 供测试与诊断：强制重新读索引 */
-    reload(libId: string) { cache.delete(libId); return load(libId); },
+    reload(libId: string) {
+      cache.delete(libId);
+      return load(libId);
+    },
     /**
      * 解析某条素材的绝对路径。**仅供主进程内部使用**（`thumb://` 协议处理器），
      * 刻意**不主动交给渲染进程** —— 契约 §0 要求"路径只能由 lib_id+uid 解析"。
@@ -653,30 +777,44 @@ export function createEngine({
       if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
       return resolveInLibrary(registry.get(libId).root, relOf(it));
     },
-    search: (req: SearchRequest) => envelope(async () => (fakeKit ? fakeKit.doSearch(req) : doSearch(req))),
+    search: (req: SearchRequest) =>
+      envelope(async () => (fakeKit ? fakeKit.doSearch(req) : doSearch(req))),
     indexStatus: () => envelope(async () => (fakeKit ? fakeKit.doIndexStatus() : doIndexStatus())),
     scan: (req: ScanRequest) => envelope(async () => (fakeKit ? fakeKit.doScan(req) : doScan(req))),
     collect: (req: CollectRequest) => envelope(async () => doCollect(req)),
-    item: ({ libId, uid }: ItemRequest = {}) => envelope(async () => {
-      // 模拟模式：索引在内存里，**不 requireExistingRoot、不读盘** —— 所以 exists 也走样例数据
-      if (fakeKit) return fakeKit.doItem({ libId, uid });
-      const id = libId ?? '';
-      const it = itemOf(id, uid ?? '');
-      if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
-      const rel = relOf(it);
-      const abs = resolveInLibrary(registry.get(id).root, rel);
-      const arcAbs = it.archiveRelPath
-        ? resolveInLibrary(registry.get(id).root, it.archiveRelPath) : null;
-      return ok({
-        libId, uid, relPath: rel, folder: it.folder, stem: it.stem,
-        imageExt: it.imageExt, imageSize: it.imageSize, imageMtime: it.imageMtime,
-        vectorSource: it.vectorSource || 'native',
-        archive: it.archiveRelPath
-          ? { relPath: it.archiveRelPath, ext: it.archiveExt, size: it.archiveSize, mtime: it.archiveMtime }
-          : null,
-        exists: { image: fs.existsSync(abs), archive: arcAbs ? fs.existsSync(arcAbs) : false },
-      });
-    }),
+    item: ({ libId, uid }: ItemRequest = {}) =>
+      envelope(async () => {
+        // 模拟模式：索引在内存里，**不 requireExistingRoot、不读盘** —— 所以 exists 也走样例数据
+        if (fakeKit) return fakeKit.doItem({ libId, uid });
+        const id = libId ?? '';
+        const it = itemOf(id, uid ?? '');
+        if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
+        const rel = relOf(it);
+        const abs = resolveInLibrary(registry.get(id).root, rel);
+        const arcAbs = it.archiveRelPath
+          ? resolveInLibrary(registry.get(id).root, it.archiveRelPath)
+          : null;
+        return ok({
+          libId,
+          uid,
+          relPath: rel,
+          folder: it.folder,
+          stem: it.stem,
+          imageExt: it.imageExt,
+          imageSize: it.imageSize,
+          imageMtime: it.imageMtime,
+          vectorSource: it.vectorSource || 'native',
+          archive: it.archiveRelPath
+            ? {
+                relPath: it.archiveRelPath,
+                ext: it.archiveExt,
+                size: it.archiveSize,
+                mtime: it.archiveMtime,
+              }
+            : null,
+          exists: { image: fs.existsSync(abs), archive: arcAbs ? fs.existsSync(arcAbs) : false },
+        });
+      }),
     /**
      * 两条绝对路径（契约 §2.2a，2026-10-13 新增）。
      *
@@ -688,23 +826,27 @@ export function createEngine({
      *
      * 仍走完整的**库根包含校验与符号链接校验**（`resolveInLibrary`）—— 不是绕开它们另开一条路。
      */
-    itemPaths: ({ libId, uid }: ItemRequest = {}) => envelope(async () => {
-      // 模拟模式：路径由样例数据拼出，**不读盘**（fake.ts 头注释 ①）
-      if (fakeKit) return fakeKit.doItemPaths({ libId, uid });
-      const id = libId ?? '';
-      const it = itemOf(id, uid ?? '');
-      if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
-      const root = registry.get(id).root;
-      const imagePath = resolveInLibrary(root, relOf(it));
-      const archivePath = it.archiveRelPath ? resolveInLibrary(root, it.archiveRelPath) : null;
-      return ok({
-        libId, uid, imagePath, archivePath,
-        exists: {
-          image: fs.existsSync(imagePath),
-          archive: archivePath ? fs.existsSync(archivePath) : false,
-        },
-      });
-    }),
+    itemPaths: ({ libId, uid }: ItemRequest = {}) =>
+      envelope(async () => {
+        // 模拟模式：路径由样例数据拼出，**不读盘**（fake.ts 头注释 ①）
+        if (fakeKit) return fakeKit.doItemPaths({ libId, uid });
+        const id = libId ?? '';
+        const it = itemOf(id, uid ?? '');
+        if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
+        const root = registry.get(id).root;
+        const imagePath = resolveInLibrary(root, relOf(it));
+        const archivePath = it.archiveRelPath ? resolveInLibrary(root, it.archiveRelPath) : null;
+        return ok({
+          libId,
+          uid,
+          imagePath,
+          archivePath,
+          exists: {
+            image: fs.existsSync(imagePath),
+            archive: archivePath ? fs.existsSync(archivePath) : false,
+          },
+        });
+      }),
     /**
      * 事务台账（契约 §2.11，2026-10-13 新增）。
      *
@@ -729,45 +871,52 @@ export function createEngine({
     //    不另设"方法名→套件名"的映射表（那种表两个方向都会漂移）。
     //    主进程也读这份清单来给出**一致的**用户文案（`main/index.mjs`）——
     //    这样"哪些没做"全仓只有一处定义（P1）。
-    ...Object.fromEntries(UNIMPLEMENTED_METHODS.map((name): [string, (req: unknown) => Promise<unknown>] => [
-      name,
-      (req) => envelope(async () => {
-        if (!fakeKit) throw fail(ERR.INTERNAL, '这个功能还没做好。', { method: name });
-        const fn = fakeKit[name];
-        if (!isFakeMethod(fn)) {
-          // 假套件里少接一个方法 = 契约 §8 的演示能力缺一块，必须显式炸而不是静默 undefined
-          throw fail(ERR.INTERNAL, `模拟套件缺少实现：${name}`, { method: name });
-        }
-        return fn(req);
-      }),
-    ])),
-    reveal: ({ libId, uid, target = 'archive' }: RevealRequest = {}) => envelope(async () => {
-      const id = libId ?? '';
-      const it = itemOf(id, uid ?? '');
-      if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
-      const rel = target === 'archive' ? (it.archiveRelPath || relOf(it)) : relOf(it);
-      const abs = resolveInLibrary(registry.get(id).root, rel);
-      if (!fs.existsSync(abs)) throw fail(ERR.ITEM_MISSING_ON_DISK, `文件不存在：${rel}`, { rel });
+    ...Object.fromEntries(
+      UNIMPLEMENTED_METHODS.map((name): [string, (req: unknown) => Promise<unknown>] => [
+        name,
+        (req) =>
+          envelope(async () => {
+            if (!fakeKit) throw fail(ERR.INTERNAL, '这个功能还没做好。', { method: name });
+            const fn = fakeKit[name];
+            if (!isFakeMethod(fn)) {
+              // 假套件里少接一个方法 = 契约 §8 的演示能力缺一块，必须显式炸而不是静默 undefined
+              throw fail(ERR.INTERNAL, `模拟套件缺少实现：${name}`, { method: name });
+            }
+            return fn(req);
+          }),
+      ]),
+    ),
+    reveal: ({ libId, uid, target = 'archive' }: RevealRequest = {}) =>
+      envelope(async () => {
+        const id = libId ?? '';
+        const it = itemOf(id, uid ?? '');
+        if (!it) throw fail(ERR.UID_NOT_FOUND, `uid 不在索引中：${uid}`, { libId, uid });
+        const rel = target === 'archive' ? it.archiveRelPath || relOf(it) : relOf(it);
+        const abs = resolveInLibrary(registry.get(id).root, rel);
+        if (!fs.existsSync(abs))
+          throw fail(ERR.ITEM_MISSING_ON_DISK, `文件不存在：${rel}`, { rel });
 
-      // ⚠️ **未注入端口必须显式失败，不许返回 ok**（F-01，契约 §2.4 第 2 条）。
-      //
-      // 原来的写法是 `if (shell && …) shell.reveal(abs); return ok({revealed:true})` ——
-      // 端口缺失时**照样**报成功。那不是"降级"，是**谎报**：界面会显示「已在资源管理器中定位」，
-      // 而资源管理器毫无动静，用户与排障者都会往错的方向找。
-      //
-      // 而且这条**没有第二道防线**：`ok({revealed:true})` 的语义就是"已经定位了"，
-      // 调用方无法区分"真定位了"和"什么都没做"。
-      if (!shell || typeof shell.reveal !== 'function') {
-        throw fail(ERR.PORT_MISSING,
-          `未注入 shell 端口（reveal 需要外壳提供 { reveal(absPath) }；当前 ${shell ? '形状不对' : '未提供'}）`,
-          { port: 'shell', got: shell === null || shell === undefined ? 'none' : typeof shell });
-      }
-      // Electron 的 `shell.showItemInFolder` **返回 void、不报告失败**，所以这里**不能**
-      // 断言"资源管理器一定弹出来了"。我们只保证：端口被调用了，且目标文件确实在盘上
-      // （上面那条 existsSync 已证）。这个边界必须如实写在契约里，不得声称更强的保证。
-      shell.reveal(abs);
-      return ok({ revealed: true, path: abs });
-    }),
+        // ⚠️ **未注入端口必须显式失败，不许返回 ok**（F-01，契约 §2.4 第 2 条）。
+        //
+        // 原来的写法是 `if (shell && …) shell.reveal(abs); return ok({revealed:true})` ——
+        // 端口缺失时**照样**报成功。那不是"降级"，是**谎报**：界面会显示「已在资源管理器中定位」，
+        // 而资源管理器毫无动静，用户与排障者都会往错的方向找。
+        //
+        // 而且这条**没有第二道防线**：`ok({revealed:true})` 的语义就是"已经定位了"，
+        // 调用方无法区分"真定位了"和"什么都没做"。
+        if (!shell || typeof shell.reveal !== 'function') {
+          throw fail(
+            ERR.PORT_MISSING,
+            `未注入 shell 端口（reveal 需要外壳提供 { reveal(absPath) }；当前 ${shell ? '形状不对' : '未提供'}）`,
+            { port: 'shell', got: shell === null || shell === undefined ? 'none' : typeof shell },
+          );
+        }
+        // Electron 的 `shell.showItemInFolder` **返回 void、不报告失败**，所以这里**不能**
+        // 断言"资源管理器一定弹出来了"。我们只保证：端口被调用了，且目标文件确实在盘上
+        // （上面那条 existsSync 已证）。这个边界必须如实写在契约里，不得声称更强的保证。
+        shell.reveal(abs);
+        return ok({ revealed: true, path: abs });
+      }),
     /** 长任务的通用取消入口（P1 只登记；实际编码在 indexStart 实现） */
     _jobs: jobs,
     _cache: cache,

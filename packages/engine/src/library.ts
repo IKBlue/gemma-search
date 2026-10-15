@@ -35,8 +35,8 @@ export function isSafeRelPath(rel: unknown): rel is string {
   if (typeof rel !== 'string' || rel.length === 0) return false;
   if (rel.includes('\0')) return false;
   if (path.isAbsolute(rel)) return false;
-  if (/^[A-Za-z]:/.test(rel)) return false;            // C:\... 或 C:foo
-  if (rel.startsWith('\\\\') || rel.startsWith('//')) return false;  // UNC
+  if (/^[A-Za-z]:/.test(rel)) return false; // C:\... 或 C:foo
+  if (rel.startsWith('\\\\') || rel.startsWith('//')) return false; // UNC
   const parts = rel.split(/[\\/]+/).filter((s) => s.length > 0);
   if (parts.length === 0) return false;
   if (parts.some((s) => s === '..')) return false;
@@ -88,29 +88,51 @@ export function checkPathInsideBase(baseAbs: string, targetAbs: string): InsideC
   try {
     realBase = fs.realpathSync.native(base);
   } catch (e) {
-    return { ok: false, kind: 'unresolvable', detail: { base, why: messageOf(e) }, resolved: target };
+    return {
+      ok: false,
+      kind: 'unresolvable',
+      detail: { base, why: messageOf(e) },
+      resolved: target,
+    };
   }
 
   // ③ 自基目录逐段下行
-  const parts = path.relative(base, target).split(/[\\/]+/).filter((s) => s.length > 0 && s !== '.');
+  const parts = path
+    .relative(base, target)
+    .split(/[\\/]+/)
+    .filter((s) => s.length > 0 && s !== '.');
   let cur = base;
   for (const part of parts) {
     cur = path.join(cur, part);
     const st = probe(cur);
-    if (st === undefined) break;      // 这一段（连 lstat 都）不存在 ⇒ 之后的更不存在，词法路径安全
+    if (st === undefined) break; // 这一段（连 lstat 都）不存在 ⇒ 之后的更不存在，词法路径安全
     let realCur: string;
     try {
       realCur = fs.realpathSync.native(cur);
     } catch (e) {
       // 存在但拿不到真实路径（悬挂链接 / 权限拒绝）⇒ 无法证明在里面 ⇒ 拒
-      return { ok: false, kind: 'unresolvable', detail: { component: cur, why: messageOf(e) }, resolved: target };
+      return {
+        ok: false,
+        kind: 'unresolvable',
+        detail: { component: cur, why: messageOf(e) },
+        resolved: target,
+      };
     }
     if (!sameOrUnder(realCur, realBase)) {
-      return { ok: false, kind: 'escapes', detail: { component: cur, realCur, realBase }, resolved: target };
+      return {
+        ok: false,
+        kind: 'escapes',
+        detail: { component: cur, realCur, realBase },
+        resolved: target,
+      };
     }
     let isDir = false;
-    try { isDir = fs.statSync(cur).isDirectory(); } catch { isDir = false; }
-    if (!isDir) break;                // 组件是文件 ⇒ 后面的不可能存在
+    try {
+      isDir = fs.statSync(cur).isDirectory();
+    } catch {
+      isDir = false;
+    }
+    if (!isDir) break; // 组件是文件 ⇒ 后面的不可能存在
   }
 
   // ④ 目标本身存在 ⇒ 返回**真实路径**（与旧实现「目标存在就回真实路径」一致，调用方依赖它）
@@ -118,7 +140,12 @@ export function checkPathInsideBase(baseAbs: string, targetAbs: string): InsideC
     try {
       return { ok: true, kind: null, detail: {}, resolved: fs.realpathSync.native(target) };
     } catch (e) {
-      return { ok: false, kind: 'unresolvable', detail: { component: target, why: messageOf(e) }, resolved: target };
+      return {
+        ok: false,
+        kind: 'unresolvable',
+        detail: { component: target, why: messageOf(e) },
+        resolved: target,
+      };
     }
   }
   return { ok: true, kind: null, detail: {}, resolved: target };
@@ -132,8 +159,9 @@ export function checkPathInsideBase(baseAbs: string, targetAbs: string): InsideC
  */
 export function resolveInLibrary(root: string, rel: unknown): string {
   if (!isSafeRelPath(rel)) {
-    throw fail(ERR.PATH_ESCAPES_LIB, `不安全的相对路径：${String(rel).slice(0, 120)}`,
-      { rel: String(rel).slice(0, 120) });
+    throw fail(ERR.PATH_ESCAPES_LIB, `不安全的相对路径：${String(rel).slice(0, 120)}`, {
+      rel: String(rel).slice(0, 120),
+    });
   }
   const rootAbs = norm(root);
   const target = norm(path.join(rootAbs, rel));
@@ -142,18 +170,21 @@ export function resolveInLibrary(root: string, rel: unknown): string {
   if (!chk.ok) {
     // 错误码与文案按**原语义**分流：词法越界/拿不到结论 ⇒ PATH_ESCAPES_LIB；真实路径在库外 ⇒ SYMLINK_REJECTED
     if (chk.kind === 'escapes') {
-      throw fail(ERR.SYMLINK_REJECTED,
-        `目标的真实路径在库根之外（符号链接/联接点）：${rel}`,
-        { rel, ...chk.detail });
+      throw fail(ERR.SYMLINK_REJECTED, `目标的真实路径在库根之外（符号链接/联接点）：${rel}`, {
+        rel,
+        ...chk.detail,
+      });
     }
-    throw fail(ERR.PATH_ESCAPES_LIB,
+    throw fail(
+      ERR.PATH_ESCAPES_LIB,
       chk.kind === 'lexical'
         ? `解析后越出库根：${rel}`
         : `路径组件存在但无法解析真实路径（链接悬挂或权限不足）：${rel}`,
-      { rel, ...chk.detail });
+      { rel, ...chk.detail },
+    );
   }
   return chk.resolved;
-    return target;
+  return target;
 }
 
 /**
@@ -168,30 +199,41 @@ export function resolveQueryImage(p: unknown): string {
   const ext = path.extname(p).toLowerCase();
   const allowed = new Set(['.jpg', '.jpeg', '.png', '.webp', '.bmp']);
   if (!allowed.has(ext)) {
-    throw fail(ERR.BAD_REQUEST, `不支持的查询图格式：${ext || '(无扩展名)'}`,
-      { ext, allowed: [...allowed] });
+    throw fail(ERR.BAD_REQUEST, `不支持的查询图格式：${ext || '(无扩展名)'}`, {
+      ext,
+      allowed: [...allowed],
+    });
   }
   if (!fs.existsSync(p) || !fs.statSync(p).isFile()) {
     throw fail(ERR.BAD_REQUEST, `查询图不存在或不是文件：${path.basename(p)}`, { ext });
   }
-  return p;   // 原样返回：**只读使用**，不复制、不移动
+  return p; // 原样返回：**只读使用**，不复制、不移动
 }
 
 /** 取件目标目录白名单（不变量 ②）。 */
-export function assertCollectDirAllowed(targetDir: string, allowlist?: readonly string[] | null): string {
+export function assertCollectDirAllowed(
+  targetDir: string,
+  allowlist?: readonly string[] | null,
+): string {
   const t = norm(targetDir);
   const hit = (allowlist || []).map((a) => norm(a)).find((a) => sameOrUnder(t, a));
   if (!hit) {
-    throw fail(ERR.COLLECT_DIR_NOT_ALLOWED, `取件目标不在白名单内：${targetDir}`,
-      { targetDir: t, allowlist });
+    throw fail(ERR.COLLECT_DIR_NOT_ALLOWED, `取件目标不在白名单内：${targetDir}`, {
+      targetDir: t,
+      allowlist,
+    });
   }
   // ⚠️ DF-9：词法命中**不够** —— 白名单目录里塞一个 junction，`E:\取件\link\System32` 词法照样命中，
   //    而写入实际落在白名单外（与 DF-7 B 同根因）。⇒ 复用**同一份**逐段真实路径校验，拿不到结论就拒。
   //    触发条件只**收紧**不放宽：真不在白名单时，上面那条错误码与文案原样不变。
   const chk = checkPathInsideBase(hit, t);
   if (!chk.ok) {
-    throw fail(ERR.COLLECT_DIR_NOT_ALLOWED, `取件目标不在白名单内：${targetDir}`,
-      { targetDir: t, allowlist, why: chk.kind, ...chk.detail });
+    throw fail(ERR.COLLECT_DIR_NOT_ALLOWED, `取件目标不在白名单内：${targetDir}`, {
+      targetDir: t,
+      allowlist,
+      why: chk.kind,
+      ...chk.detail,
+    });
   }
   return t;
 }
@@ -233,11 +275,12 @@ export class LibraryRegistry {
   _libs: Map<string, LibraryEntry>;
 
   constructor(config: RegistryConfig = {}) {
-    const libs = Array.isArray(config.libraries) && config.libraries.length
-      ? config.libraries
-      : (config.library_root
-        ? [{ libId: config.lib_id || 'L1', root: config.library_root, label: '主库' }]
-        : []);
+    const libs =
+      Array.isArray(config.libraries) && config.libraries.length
+        ? config.libraries
+        : config.library_root
+          ? [{ libId: config.lib_id || 'L1', root: config.library_root, label: '主库' }]
+          : [];
     this._libs = new Map();
     for (const l of libs) {
       if (!l || !l.libId || !l.root) continue;
@@ -256,7 +299,8 @@ export class LibraryRegistry {
   /** @throws LIB_NOT_FOUND */
   get(libId: string): LibraryEntry {
     const l = this._libs.get(libId);
-    if (!l) throw fail(ERR.LIB_NOT_FOUND, `库未注册：${libId}`, { libId, known: [...this._libs.keys()] });
+    if (!l)
+      throw fail(ERR.LIB_NOT_FOUND, `库未注册：${libId}`, { libId, known: [...this._libs.keys()] });
     return { ...l };
   }
 

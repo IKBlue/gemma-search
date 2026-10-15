@@ -1,0 +1,52 @@
+# ============================================================
+# gemma-search · .prettierignore
+#
+# 原则：**只格式化「源码与配置」**；派生物、本机数据、历史证据、外部工作流
+# 留下的未跟踪产物一律不碰 —— 与 .gitignore 同一条思路（源码入库、派生物不入库）。
+# 每条都写明「为什么」，避免以后有人把规则删了导致一次格式化改掉 1 万行证据。
+# ============================================================
+
+# ---------- 依赖 / 构建产物 / 缓存（.gitignore 已忽略，这里显式写一遍） ----------
+node_modules/
+out/
+dist/
+release/
+.npm-cache/
+model-cache/
+
+# ---------- 本机数据（AGENTS §3：data/ = 本机临时物、日志、派生数据） ----------
+# 含 data/quality/ 下已入库的**证据**（vector-equiv.json / top10.json …）：
+# 那些是「某次实测的原始输出」，重排 JSON 等于改写证据的字节形态，不属于格式化该管的范围。
+data/
+
+# ---------- 门禁证据归档（AGENTS §4 证据协议） ----------
+# reports/ 下 99 个 .txt / 17 个 .json / 4 个 .mjs 是**历史结论的原始输出**。
+# 重排它们既不能提升可读性，又会让「引用既有证据」的哈希/字节对照失效。
+reports/
+
+# ---------- 旧文档体系（v2 之前）：整个 docs/ 都不属于「源码与配置」 ----------
+# ① electron-builder.yml 已用 '!docs/*' 把它排除打包；
+# ② packages/design-tokens/tokens.css 也注明「不再是依据」（旧文档体系残留）；
+# ③ 里面还有 3 个归档原型 HTML（docs/archive/prototype/prototype/），Prettier 的 HTML 解析器
+#    **解析不了** —— 实测会让 prettier --check . 以 EXIT=2 失败：
+#      SyntaxError: Opening tag "a" not terminated. (1:568)
+# ⇒ 格式化它既无门禁价值，又会改到不属于本轮范围的旧体系文件（Lead 2026-10-15 裁定）。
+docs/
+
+# ---------- 契约夹具（改它 = 改契约样例，不是格式化） ----------
+fixtures/
+
+# ---------- 文档：一律不动 ----------
+# *.md = 四份根文档（AGENTS / PLAN / SPEC / TASKS）与 reports/ 的历史记录。
+# Prettier 会重排 Markdown（换行、表格对齐），那是「改文档」而不是「格式化代码」。
+*.md
+
+# ---------- 设计稿 / 研究页（T-09 裁定：不在本卡 writeScopes） ----------
+# 这 13 个文件是**别的工作流**留下的未跟踪产物（prototypes/ 设计稿 + 4 个根 html 研究页），
+# 时间戳 2026-10-15 10:55–14:09。重排别人的设计稿属于跨范围写入，故排除；
+# 它们仍留在工作区、未被删除也未被入库（归属由所有者另行决定）。
+prototypes/
+review.html
+review-dev.html
+ui-redesign.html
+ui-benchmark-research.html

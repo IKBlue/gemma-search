@@ -139,12 +139,16 @@ export const TARGET_SCHEMA_VERSION: number = targetVersionOf(LIBRARY_MIGRATIONS)
 
 /** 库级 3 张业务表（**从 DDL 派生**，不手写第二份清单） */
 export const LIBRARY_TABLES: readonly string[] = Object.freeze(
-  uniqueSorted(LIBRARY_MIGRATIONS.flatMap((m: Migration): string[] => createdTableNames(m.statements))),
+  uniqueSorted(
+    LIBRARY_MIGRATIONS.flatMap((m: Migration): string[] => createdTableNames(m.statements)),
+  ),
 );
 
 /** 库级虚拟表（本轮没有 FTS；第二批的 asset_name_fts 会在这里出现，影子表按它排除） */
 export const LIBRARY_VIRTUAL_TABLES: readonly string[] = Object.freeze(
-  uniqueSorted(LIBRARY_MIGRATIONS.flatMap((m: Migration): string[] => virtualTableNames(m.statements))),
+  uniqueSorted(
+    LIBRARY_MIGRATIONS.flatMap((m: Migration): string[] => virtualTableNames(m.statements)),
+  ),
 );
 
 /**
@@ -153,10 +157,7 @@ export const LIBRARY_VIRTUAL_TABLES: readonly string[] = Object.freeze(
  * ⚠️ 账本表不计入"本轮 6 张"，但它确实在库里 ⇒ 这份清单必须含它。
  */
 export const EXPECTED_TABLES: readonly string[] = Object.freeze(
-  uniqueSorted([
-    ...createdTableNames(SCHEMA_VERSION_LEDGER.ddl),
-    ...LIBRARY_TABLES,
-  ]),
+  uniqueSorted([...createdTableNames(SCHEMA_VERSION_LEDGER.ddl), ...LIBRARY_TABLES]),
 );
 
 // ---------------------------------------------------------------- 账本读写（库级便捷封装）

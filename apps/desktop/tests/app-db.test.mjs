@@ -9,9 +9,19 @@ import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
-  appDbPath, deleteCollectDir, deleteLibrary, getLibrary, insertCollectDir, insertLibrary,
-  listCollectDirs, listLibraries, openAppDb, readAppMeta, setDefaultCollectDir,
-  updateLibraryEnabled, updateLibrarySortOrder,
+  appDbPath,
+  deleteCollectDir,
+  deleteLibrary,
+  getLibrary,
+  insertCollectDir,
+  insertLibrary,
+  listCollectDirs,
+  listLibraries,
+  openAppDb,
+  readAppMeta,
+  setDefaultCollectDir,
+  updateLibraryEnabled,
+  updateLibrarySortOrder,
 } from '../src/main/app-db.ts';
 import { APP_TABLES, APP_TARGET_SCHEMA_VERSION, openNodeSqlite } from '../src/main/db/index.ts';
 
@@ -34,10 +44,16 @@ function bigintColumnsDriver(columns) {
     return {
       exec: (sql) => db.exec(sql),
       close: () => db.close(),
-      get isOpen() { return db.isOpen; },
+      get isOpen() {
+        return db.isOpen;
+      },
       prepare: (sql) => {
         const st = db.prepare(sql);
-        return { run: (...p) => st.run(...p), get: (...p) => conv(st.get(...p)), all: (...p) => st.all(...p).map(conv) };
+        return {
+          run: (...p) => st.run(...p),
+          get: (...p) => conv(st.get(...p)),
+          all: (...p) => st.all(...p).map(conv),
+        };
       },
     };
   };
@@ -54,16 +70,28 @@ before(() => {
   app = openAppDb({ userDataDir: TMP, now: NOW });
 });
 after(() => {
-  try { if (app) app.close(); } catch { /* 已关 */ }
-  try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* 临时目录 */ }
+  try {
+    if (app) app.close();
+  } catch {
+    /* 已关 */
+  }
+  try {
+    fs.rmSync(TMP, { recursive: true, force: true });
+  } catch {
+    /* 临时目录 */
+  }
 });
 
 test('D1 ⭐ 打开即建库：app.db 在 <userData>/app.db，应用级 3 张表齐全，账本推到目标版本', () => {
   assert.equal(app.dbPath, appDbPath(TMP));
   assert.ok(fs.existsSync(app.dbPath), 'app.db 应当被建出来');
   assert.equal(app.migration.toVersion, APP_TARGET_SCHEMA_VERSION);
-  const names = app.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r) => r['name']);
-  for (const t of APP_TABLES) assert.ok(names.includes(t), '缺表：' + t + '（实得 ' + names.join(',') + '）');
+  const names = app.db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+    .all()
+    .map((r) => r['name']);
+  for (const t of APP_TABLES)
+    assert.ok(names.includes(t), '缺表：' + t + '（实得 ' + names.join(',') + '）');
   assert.deepEqual([...APP_TABLES].sort(), ['app_meta', 'collect_dir', 'library_registry']);
   // app_meta 单行 + 版本
   const meta = readAppMeta(app.db);
@@ -78,23 +106,39 @@ test('D2 ⭐ library_registry：登记 → 规范化 root → 重复 root 被 UN
   assert.equal(row.sortOrder, 0);
 
   // 同一个 root 再登记一次（换个 libId）⇒ UNIQUE 冲突要**如实抛**
-  assert.throws(() => insertLibrary(app.db, { libId: 'L2', root: TMP + path.sep, displayName: '别名', now: NOW }));
+  assert.throws(() =>
+    insertLibrary(app.db, { libId: 'L2', root: TMP + path.sep, displayName: '别名', now: NOW }),
+  );
   // 同一个 libId 再插 ⇒ PRIMARY KEY 冲突
-  assert.throws(() => insertLibrary(app.db, { libId: 'L1', root: path.join(TMP, 'x'), displayName: 'x', now: NOW }));
+  assert.throws(() =>
+    insertLibrary(app.db, { libId: 'L1', root: path.join(TMP, 'x'), displayName: 'x', now: NOW }),
+  );
 
   assert.equal(updateLibraryEnabled(app.db, 'L1', false, NOW).enabled, false);
   assert.equal(getLibrary(app.db, 'L1').enabled, false, '停用要落库');
   assert.equal(updateLibrarySortOrder(app.db, 'L1', 7, NOW).sortOrder, 7);
-  assert.deepEqual(listLibraries(app.db).map((l) => l.libId), ['L1']);
+  assert.deepEqual(
+    listLibraries(app.db).map((l) => l.libId),
+    ['L1'],
+  );
   assert.equal(deleteLibrary(app.db, 'L1'), true);
   assert.equal(deleteLibrary(app.db, 'L1'), false, '删第二次 = 0 行（不撒谎说删到了）');
   assert.equal(listLibraries(app.db).length, 0);
 });
 
 test('D3 ⭐ collect_dir：默认项**只能有一个**（数据库约束，不靠 UI 自觉）', () => {
-  const a = insertCollectDir(app.db, { absPath: path.join(TMP, 'out-a'), label: '待用A', makeDefault: true, now: NOW });
+  const a = insertCollectDir(app.db, {
+    absPath: path.join(TMP, 'out-a'),
+    label: '待用A',
+    makeDefault: true,
+    now: NOW,
+  });
   assert.equal(a.isDefault, true);
-  const b = insertCollectDir(app.db, { absPath: path.join(TMP, 'out-b'), label: '待用B', now: NOW });
+  const b = insertCollectDir(app.db, {
+    absPath: path.join(TMP, 'out-b'),
+    label: '待用B',
+    now: NOW,
+  });
   assert.equal(b.isDefault, false);
   assert.equal(listCollectDirs(app.db).filter((d) => d.isDefault).length, 1);
   assert.equal(listCollectDirs(app.db)[0].dirId, a.dirId, '默认项排在最前');
@@ -108,13 +152,21 @@ test('D3 ⭐ collect_dir：默认项**只能有一个**（数据库约束，不�
 
   // ⚠️ 约束是**数据库级**的：绕过本模块的写入口硬插第二条 default 必须失败
   assert.throws(
-    () => app.db.prepare('INSERT INTO collect_dir (dir_id, label, abs_path, is_default, created_at_ms) VALUES (?, ?, ?, 1, ?)')
-      .run('d-forced', '强行第二条', path.join(TMP, 'out-c'), NOW()),
+    () =>
+      app.db
+        .prepare(
+          'INSERT INTO collect_dir (dir_id, label, abs_path, is_default, created_at_ms) VALUES (?, ?, ?, 1, ?)',
+        )
+        .run('d-forced', '强行第二条', path.join(TMP, 'out-c'), NOW()),
     /UNIQUE|constraint/i,
     'unique index uniq_collect_default 必须真的在库上（不是靠写入方自觉）',
   );
 
-  assert.equal(setDefaultCollectDir(app.db, 'd-不存在'), null, '不存在的 id ⇒ null（不改动任何行）');
+  assert.equal(
+    setDefaultCollectDir(app.db, 'd-不存在'),
+    null,
+    '不存在的 id ⇒ null（不改动任何行）',
+  );
   assert.equal(deleteCollectDir(app.db, b.dirId), true);
   assert.equal(listCollectDirs(app.db).length, 1);
 });
@@ -132,23 +184,45 @@ test('D4 ⭐⭐ 唯一写入口（静态）：应用级 3 张表只被 app-db.ts
   walk(mainDir);
 
   /** 谁在这个文件里**字面**写了某张表（DDL 里的 CREATE 不算写数据） */
-  const writersOf = (table) => files.filter((f) => {
-    const src = fs.readFileSync(f, 'utf8');
-    return new RegExp('(INSERT\\s+(OR\\s+\\w+\\s+)?INTO\\s+' + table + '\\b)|(UPDATE\\s+' + table + '\\b)|(DELETE\\s+FROM\\s+' + table + '\\b)', 'i').test(src);
-  }).map((f) => path.basename(f)).sort();
+  const writersOf = (table) =>
+    files
+      .filter((f) => {
+        const src = fs.readFileSync(f, 'utf8');
+        return new RegExp(
+          '(INSERT\\s+(OR\\s+\\w+\\s+)?INTO\\s+' +
+            table +
+            '\\b)|(UPDATE\\s+' +
+            table +
+            '\\b)|(DELETE\\s+FROM\\s+' +
+            table +
+            '\\b)',
+          'i',
+        ).test(src);
+      })
+      .map((f) => path.basename(f))
+      .sort();
 
-  assert.deepEqual(writersOf('library_registry'), ['app-db.ts'],
-    'library_registry 的写入口只能有 app-db.ts（§2.3：每张表一个写入口）');
-  assert.deepEqual(writersOf('collect_dir'), ['app-db.ts'],
-    'collect_dir 的写入口只能有 app-db.ts');
+  assert.deepEqual(
+    writersOf('library_registry'),
+    ['app-db.ts'],
+    'library_registry 的写入口只能有 app-db.ts（§2.3：每张表一个写入口）',
+  );
+  assert.deepEqual(writersOf('collect_dir'), ['app-db.ts'], 'collect_dir 的写入口只能有 app-db.ts');
   // app_meta 的写入口**只有迁移**（§2.3）—— 迁移账本的读写就在 app-migrations.ts 里，
   // 它是"迁移"这一件事的实现，不算第二个业务写入口（业务侧一律只读：readAppMeta）。
-  assert.deepEqual(writersOf('app_meta'), ['app-migrations.ts'],
-    'app_meta 只许迁移写（业务侧只读）');
+  assert.deepEqual(
+    writersOf('app_meta'),
+    ['app-migrations.ts'],
+    'app_meta 只许迁移写（业务侧只读）',
+  );
 
   // 只读入口也收敛：谁 SELECT 这两张表
-  const readers = files.filter((f) => /SELECT[\s\S]{0,80}FROM\s+(library_registry|collect_dir)/i.test(fs.readFileSync(f, 'utf8')))
-    .map((f) => path.basename(f)).sort();
+  const readers = files
+    .filter((f) =>
+      /SELECT[\s\S]{0,80}FROM\s+(library_registry|collect_dir)/i.test(fs.readFileSync(f, 'utf8')),
+    )
+    .map((f) => path.basename(f))
+    .sort();
   assert.deepEqual(readers, ['app-db.ts'], '读也只该走 app-db.ts（避免第二份列名/形状定义）');
 });
 
@@ -169,10 +243,16 @@ function withColumnTypes(db, map) {
   return {
     exec: (s) => db.exec(s),
     close: () => db.close(),
-    get isOpen() { return db.isOpen; },
+    get isOpen() {
+      return db.isOpen;
+    },
     prepare: (s) => {
       const st = db.prepare(s);
-      return { run: (...p) => st.run(...p), get: (...p) => conv(st.get(...p)), all: (...p) => st.all(...p).map(conv) };
+      return {
+        run: (...p) => st.run(...p),
+        get: (...p) => conv(st.get(...p)),
+        all: (...p) => st.all(...p).map(conv),
+      };
     },
   };
 }
@@ -182,10 +262,24 @@ test('D5 ⭐⭐ readBigInts 模拟：业务列读成 bigint 也**必须正确**�
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   // 真实库 + 真实 SQL，只把「整数列的类型」换成 bigint（模拟 readBigInts）
-  const big = openAppDb({ userDataDir: dir, now: NOW, driver: bigintColumnsDriver(['enabled', 'sort_order', 'registered_at_ms', 'updated_at_ms', 'is_default']) });
+  const big = openAppDb({
+    userDataDir: dir,
+    now: NOW,
+    driver: bigintColumnsDriver([
+      'enabled',
+      'sort_order',
+      'registered_at_ms',
+      'updated_at_ms',
+      'is_default',
+    ]),
+  });
   try {
     insertLibrary(big.db, { libId: 'L1', root: dir, displayName: '主库', now: NOW });
-    assert.equal(getLibrary(big.db, 'L1').enabled, true, 'enabled=1 读成 bigint 时要如实 true（旧写法恒 false）');
+    assert.equal(
+      getLibrary(big.db, 'L1').enabled,
+      true,
+      'enabled=1 读成 bigint 时要如实 true（旧写法恒 false）',
+    );
     assert.equal(getLibrary(big.db, 'L1').sortOrder, 0);
     updateLibraryEnabled(big.db, 'L1', false, NOW);
     assert.equal(getLibrary(big.db, 'L1').enabled, false, 'enabled=0 要如实 false');
@@ -194,7 +288,12 @@ test('D5 ⭐⭐ readBigInts 模拟：业务列读成 bigint 也**必须正确**�
     assert.equal(getLibrary(big.db, 'L1').registeredAtMs, NOW(), '时间戳同理');
 
     // collect_dir 的 is_default 同一类（bigint ⇒ 旧写法静默变 false ⇒ 默认项凭空消失）
-    const d1 = insertCollectDir(big.db, { absPath: path.join(dir, 'out'), label: '待用', makeDefault: true, now: NOW });
+    const d1 = insertCollectDir(big.db, {
+      absPath: path.join(dir, 'out'),
+      label: '待用',
+      makeDefault: true,
+      now: NOW,
+    });
     assert.equal(d1.isDefault, true, 'is_default 读成 bigint 时不许静默变 false');
     assert.equal(setDefaultCollectDir(big.db, d1.dirId).isDefault, true);
     assert.equal(listCollectDirs(big.db).filter((d) => d.isDefault).length, 1);
@@ -215,7 +314,11 @@ test('D5b ⭐⭐ schema_version：业务读**必须正确**；迁移账本遇到
     // (a) 业务读（appMeta IPC 用的就是它）：bigint 下必须读出真版本，**不许变 0**
     const wrapped = withColumnTypes(app1.db, { schema_version: (v) => BigInt(v) });
     const meta = readAppMeta(wrapped);
-    assert.equal(meta.schemaVersion, APP_TARGET_SCHEMA_VERSION, 'schema_version 读成 bigint 时不许静默变 0');
+    assert.equal(
+      meta.schemaVersion,
+      APP_TARGET_SCHEMA_VERSION,
+      'schema_version 读成 bigint 时不许静默变 0',
+    );
     assert.equal(meta.createdAtMs, NOW());
   } finally {
     app1.close();
@@ -227,8 +330,10 @@ test('D5b ⭐⭐ schema_version：业务读**必须正确**；迁移账本遇到
   fs.rmSync(dir2, { recursive: true, force: true });
   fs.mkdirSync(dir2, { recursive: true });
   assert.throws(
-    () => openAppDb({ userDataDir: dir2, now: NOW, driver: bigintColumnsDriver(['schema_version']) }),
-    /META_ROW_MISSING|版本行/, '账本读到 bigint 必须响亮抛，而不是当成 0（否则会误判库版本）',
+    () =>
+      openAppDb({ userDataDir: dir2, now: NOW, driver: bigintColumnsDriver(['schema_version']) }),
+    /META_ROW_MISSING|版本行/,
+    '账本读到 bigint 必须响亮抛，而不是当成 0（否则会误判库版本）',
   );
 });
 
@@ -239,11 +344,23 @@ test('D7 ⭐ 适配层钉住：openNodeSqlite 读出的 INTEGER 是 **number**�
   const a = openAppDb({ userDataDir: dir, now: NOW });
   try {
     insertLibrary(a.db, { libId: 'L1', root: dir, displayName: 'x', now: NOW });
-    const raw = a.db.prepare('SELECT enabled, sort_order FROM library_registry WHERE lib_id = ?').get('L1');
-    assert.equal(typeof raw.enabled, 'number', 'DF-2：适配层显式 readBigInts:false ⇒ INTEGER 必须读成 number（不是 bigint）');
+    const raw = a.db
+      .prepare('SELECT enabled, sort_order FROM library_registry WHERE lib_id = ?')
+      .get('L1');
+    assert.equal(
+      typeof raw.enabled,
+      'number',
+      'DF-2：适配层显式 readBigInts:false ⇒ INTEGER 必须读成 number（不是 bigint）',
+    );
     assert.equal(typeof raw.sort_order, 'number');
-    const run = a.db.prepare('UPDATE library_registry SET sort_order = 1 WHERE lib_id = ?').run('L1');
-    assert.equal(typeof run.changes, 'number', 'changes 也要是 number（SqlRunResult 的 number|bigint 只是照抄上游类型）');
+    const run = a.db
+      .prepare('UPDATE library_registry SET sort_order = 1 WHERE lib_id = ?')
+      .run('L1');
+    assert.equal(
+      typeof run.changes,
+      'number',
+      'changes 也要是 number（SqlRunResult 的 number|bigint 只是照抄上游类型）',
+    );
     assert.equal(raw.enabled, 1, '对照：值本身没被改');
   } finally {
     a.close();
@@ -258,23 +375,29 @@ test('D6 ⭐⭐ 类型不对 / 越界 / flag 越界 ⇒ **抛**（不猜、不�
     insertLibrary(bad.db, { libId: 'L1', root: dir, displayName: 'x', now: NOW });
 
     // ① flag 越界：enabled=7（DDL 有 CHECK，只有外部工具改过才会出现）⇒ 抛，不许静默 false
-    bad.db.exec('PRAGMA ignore_check_constraints = ON');   // 绕过 DDL 的 CHECK，制造脏数据
+    bad.db.exec('PRAGMA ignore_check_constraints = ON'); // 绕过 DDL 的 CHECK，制造脏数据
     bad.db.prepare('UPDATE library_registry SET enabled = 7 WHERE lib_id = ?').run('L1');
-    assert.throws(() => listLibraries(bad.db), /0\/1|UNEXPECTED_SQL_VALUE/, 'enabled=7 必须抛（静默 false = 库被悄悄停用）');
+    assert.throws(
+      () => listLibraries(bad.db),
+      /0\/1|UNEXPECTED_SQL_VALUE/,
+      'enabled=7 必须抛（静默 false = 库被悄悄停用）',
+    );
     bad.db.prepare('UPDATE library_registry SET enabled = 1 WHERE lib_id = ?').run('L1');
     assert.equal(listLibraries(bad.db).length, 1, '修回 0/1 后必须能读（证明上面那条不是恒真）');
 
     // ② TEXT 列读回整数 ⇒ 抛（不许静默变空串）
     assert.throws(
       () => listLibraries(withColumnTypes(bad.db, { display_name: () => 42 })),
-      /string|UNEXPECTED_SQL_VALUE/, 'TEXT 列读出整数必须抛',
+      /string|UNEXPECTED_SQL_VALUE/,
+      'TEXT 列读出整数必须抛',
     );
     assert.equal(listLibraries(bad.db).length, 1, '不换类型时必须正常（对照）');
 
     // ③ 超安全整数的 bigint（例如被写成 2^63）⇒ 抛，不许截断成错的数
     assert.throws(
       () => listLibraries(withColumnTypes(bad.db, { sort_order: () => 2n ** 63n })),
-      /安全整数|UNEXPECTED_SQL_VALUE/, '2^63 的 bigint 必须抛，不许截断',
+      /安全整数|UNEXPECTED_SQL_VALUE/,
+      '2^63 的 bigint 必须抛，不许截断',
     );
   } finally {
     bad.close();

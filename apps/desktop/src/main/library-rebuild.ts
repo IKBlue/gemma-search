@@ -99,7 +99,9 @@ export function materialDigest(root: string, opts: MaterialDigestOptions = {}): 
       const st = fs.statSync(p);
       const rel = path.relative(base, p).split(path.sep).join('/');
       bytes += st.size;
-      const content = withContent ? '|' + crypto.createHash('sha1').update(fs.readFileSync(p)).digest('hex') : '';
+      const content = withContent
+        ? '|' + crypto.createHash('sha1').update(fs.readFileSync(p)).digest('hex')
+        : '';
       rows.push(rel + '|' + String(st.size) + '|' + String(st.mtimeMs) + content);
     }
   };
@@ -213,13 +215,24 @@ export function rebuildLibraryDb(opts: RebuildLibraryOptions): RebuildLibraryRep
   //    （那是为 userData 回退落点准备的），盘没挂载时它会把"库根"凭空建出来。
   //    错误码用引擎的 LIB_ROOT_MISSING：错误码归引擎契约，UI 已有对应文案（SPEC F4）。
   if (!isDirectory(root)) {
-    throw fail(ERR.LIB_ROOT_MISSING, '库根不存在或不是目录：' + root + ' —— 拒绝重建（不静默创建，见 U6）', { root });
+    throw fail(
+      ERR.LIB_ROOT_MISSING,
+      '库根不存在或不是目录：' + root + ' —— 拒绝重建（不静默创建，见 U6）',
+      { root },
+    );
   }
 
   // ① 重建前自检：报告里要说清"为什么要重建"
-  const before = opts.checkBefore === false ? null : checkLibraryHealth({
-    libId, root, dbPath, itemsJsonPath, legacyLibrariesDir: opts.legacyLibrariesDir ?? null,
-  });
+  const before =
+    opts.checkBefore === false
+      ? null
+      : checkLibraryHealth({
+          libId,
+          root,
+          dbPath,
+          itemsJsonPath,
+          legacyLibrariesDir: opts.legacyLibrariesDir ?? null,
+        });
 
   // ② 删库（只删 .gs-* 命名空间里的文件，含 -wal/-shm/-journal）
   const removedDbFiles = removeGsDbFiles(dbPath);
@@ -257,7 +270,10 @@ export function rebuildLibraryDb(opts: RebuildLibraryOptions): RebuildLibraryRep
       index = {
         action: 'kept',
         detail:
-          '索引未改动（本次没有给新索引字节）：count=' + String(kept.count) + ' · dim=' + String(kept.dim),
+          '索引未改动（本次没有给新索引字节）：count=' +
+          String(kept.count) +
+          ' · dim=' +
+          String(kept.dim),
         count: kept.count,
         dim: kept.dim,
       };
@@ -274,18 +290,40 @@ export function rebuildLibraryDb(opts: RebuildLibraryOptions): RebuildLibraryRep
 
   // ⑤ 复检
   const after = checkLibraryHealth({
-    libId, root, dbPath, itemsJsonPath, legacyLibrariesDir: opts.legacyLibrariesDir ?? null,
+    libId,
+    root,
+    dbPath,
+    itemsJsonPath,
+    legacyLibrariesDir: opts.legacyLibrariesDir ?? null,
   });
   const failed = after.checks.filter((c) => !c.ok);
   const dbOk = after.checks.filter((c) => c.id.startsWith('db-')).every((c) => c.ok);
   const indexCheck = after.checks.find((c) => c.id === 'index');
   const indexOk = indexCheck !== undefined && indexCheck.ok;
   const reason =
-    '重建完成：删除 ' + String(removedDbFiles.length) + ' 个 .gs.db 文件 → schema v' + String(opened.migration.fromVersion) +
-    '→v' + String(opened.migration.toVersion) + ' → 导入 ' + String(importReport.dbCount) + ' 条（新增 ' +
-    String(importReport.inserted) + ' / 更新 ' + String(importReport.updated) + ' / 删除幽灵行 ' + String(importReport.deleted) +
-    '）→ 索引 ' + index.action + '；复检 ' +
-    (after.ok ? '通过（' + String(after.checks.length) + ' 项）' : '仍有 ' + String(failed.length) + ' 项问题：' + failed.map((c) => c.id + '(' + c.code + ')').join(' / '));
+    '重建完成：删除 ' +
+    String(removedDbFiles.length) +
+    ' 个 .gs.db 文件 → schema v' +
+    String(opened.migration.fromVersion) +
+    '→v' +
+    String(opened.migration.toVersion) +
+    ' → 导入 ' +
+    String(importReport.dbCount) +
+    ' 条（新增 ' +
+    String(importReport.inserted) +
+    ' / 更新 ' +
+    String(importReport.updated) +
+    ' / 删除幽灵行 ' +
+    String(importReport.deleted) +
+    '）→ 索引 ' +
+    index.action +
+    '；复检 ' +
+    (after.ok
+      ? '通过（' + String(after.checks.length) + ' 项）'
+      : '仍有 ' +
+        String(failed.length) +
+        ' 项问题：' +
+        failed.map((c) => c.id + '(' + c.code + ')').join(' / '));
 
   return {
     libId,

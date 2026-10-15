@@ -21,13 +21,31 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { validateCall, MAX_PAYLOAD_BYTES, METHOD_NAMES } from '../src/shared/ipc.ts';
-import { parseThumbUrl, canonicalLibId, ALLOWED_SIZE, createLibIdResolver, thumbFailureStatus } from '../src/main/thumb-url.ts';
+import {
+  parseThumbUrl,
+  canonicalLibId,
+  ALLOWED_SIZE,
+  createLibIdResolver,
+  thumbFailureStatus,
+} from '../src/main/thumb-url.ts';
 
 // ============================================================ S1 / S2 / S3 / S14
 
 test('S1：未登记的方法一律拒绝（含 `exec` 这种明显的逃逸尝试）', () => {
   // 白名单是 `Object.hasOwnProperty` 判定，所以原型键也进不来 —— 顺手一起钉住
-  for (const m of ['exec', 'eval', '__proto__', 'toString', 'constructor', 'hasOwnProperty', '', null, undefined, 1, {}]) {
+  for (const m of [
+    'exec',
+    'eval',
+    '__proto__',
+    'toString',
+    'constructor',
+    'hasOwnProperty',
+    '',
+    null,
+    undefined,
+    1,
+    {},
+  ]) {
     const r = validateCall(m, {});
     assert.equal(r.ok, false, `方法 ${JSON.stringify(m)} 竟然通过了`);
     assert.equal(r.reason, '未登记的方法');
@@ -50,15 +68,15 @@ test('S2：已知方法传未知字段被拒（zod .strict()，不是"忽略多�
 
 test('S3：libId / uid 形状不合法一律拒绝（路径穿越、大写 uid、超长 id）', () => {
   const bad = [
-    { libId: '../etc', uid: '022a00481875' },        // §8 原文用例
-    { libId: 'L1', uid: '../../../x' },              // §8 原文用例
-    { libId: 'L1', uid: '022A00481875' },            // 大写：形状是 `[0-9a-f]`
-    { libId: 'L1', uid: '022a0048187' },             // 11 位
-    { libId: 'L1', uid: '022a004818755' },           // 13 位
+    { libId: '../etc', uid: '022a00481875' }, // §8 原文用例
+    { libId: 'L1', uid: '../../../x' }, // §8 原文用例
+    { libId: 'L1', uid: '022A00481875' }, // 大写：形状是 `[0-9a-f]`
+    { libId: 'L1', uid: '022a0048187' }, // 11 位
+    { libId: 'L1', uid: '022a004818755' }, // 13 位
     { libId: 'L1', uid: '' },
-    { libId: 'L/1', uid: '022a00481875' },           // 斜杠
-    { libId: 'L1\\..', uid: '022a00481875' },        // 反斜杠
-    { libId: 'a'.repeat(33), uid: '022a00481875' },  // 超长
+    { libId: 'L/1', uid: '022a00481875' }, // 斜杠
+    { libId: 'L1\\..', uid: '022a00481875' }, // 反斜杠
+    { libId: 'a'.repeat(33), uid: '022a00481875' }, // 超长
     { libId: 'L1', uid: '022a00481875\n' },
   ];
   for (const p of bad) {
@@ -90,7 +108,7 @@ test('S14：载荷 > 1 MB 被拒；恰好 1 MB 边界内则放行', () => {
 test('S14b：参数无法序列化（循环引用）时拒绝，而不是抛异常给调用方', () => {
   const cyc = {};
   cyc.self = cyc;
-  const r = validateCall('indexStatus', cyc);   // 不能 throw
+  const r = validateCall('indexStatus', cyc); // 不能 throw
   assert.equal(r.ok, false);
   assert.equal(r.reason, '参数无法序列化');
 });
@@ -98,7 +116,10 @@ test('S14b：参数无法序列化（循环引用）时拒绝，而不是抛异�
 // ============================================================ S4 / S5 / S6（thumb://）
 
 test('S5：size 只认白名单 128/256/512，@999 之类一律 400', () => {
-  assert.deepEqual([...ALLOWED_SIZE].sort((a, b) => a - b), [128, 256, 512]);
+  assert.deepEqual(
+    [...ALLOWED_SIZE].sort((a, b) => a - b),
+    [128, 256, 512],
+  );
   const uid = '022a00481875';
   for (const good of [128, 256, 512]) {
     const r = parseThumbUrl(`thumb://L1/${uid}@${good}`);
@@ -120,14 +141,29 @@ test('S4：thumb:// 路径穿越被拒，且**解析阶段零文件读取**（�
   // 而一旦经过，`reads` 就会非空 ⇒ 断言变红。
   const reads = [];
   const io = {
-    readFileSync: (...a) => { reads.push(['readFileSync', ...a]); throw new Error('不该被调用'); },
-    existsSync: (...a) => { reads.push(['existsSync', ...a]); return false; },
-    openSync: (...a) => { reads.push(['openSync', ...a]); throw new Error('不该被调用'); },
-    statSync: (...a) => { reads.push(['statSync', ...a]); return {}; },
-    readdirSync: (...a) => { reads.push(['readdirSync', ...a]); return []; },
+    readFileSync: (...a) => {
+      reads.push(['readFileSync', ...a]);
+      throw new Error('不该被调用');
+    },
+    existsSync: (...a) => {
+      reads.push(['existsSync', ...a]);
+      return false;
+    },
+    openSync: (...a) => {
+      reads.push(['openSync', ...a]);
+      throw new Error('不该被调用');
+    },
+    statSync: (...a) => {
+      reads.push(['statSync', ...a]);
+      return {};
+    },
+    readdirSync: (...a) => {
+      reads.push(['readdirSync', ...a]);
+      return [];
+    },
   };
   const traversal = [
-    'thumb://../../windows/win.ini',              // §8 原文用例
+    'thumb://../../windows/win.ini', // §8 原文用例
     'thumb://L1/../../windows/win.ini',
     'thumb://../../../../../../etc/passwd',
     'thumb://%2e%2e/win.ini',
@@ -144,7 +180,10 @@ test('S4：thumb:// 路径穿越被拒，且**解析阶段零文件读取**（�
   }
   assert.deepEqual(reads, [], `解析阶段发生了文件访问：${JSON.stringify(reads)}`);
   // 连带的结构证明（比"我这次没调到"更强，但不是替代品 —— 上面那条才是行为证明）
-  const src = fs.readFileSync(path.join(process.cwd(), 'apps/desktop/src/main/thumb-url.ts'), 'utf8');
+  const src = fs.readFileSync(
+    path.join(process.cwd(), 'apps/desktop/src/main/thumb-url.ts'),
+    'utf8',
+  );
   assert.doesNotMatch(src, /from\s+['"]node:fs['"]/, 'thumb-url.ts 不该 import fs');
   assert.doesNotMatch(src, /\brequire\(\s*['"]fs['"]/, 'thumb-url.ts 不该 require fs');
 });
@@ -154,15 +193,31 @@ test('S6：失败状态码映射 —— 形状/尺寸错 ⇒ 400；库无法还�
   // 第一次交付时它留在 handleThumb 里、只在文档里写成"index.mjs 回 404"——
   // 独立复核把产物里的 404 改成 200，**没有任何断言会响**（blocker B2）。
   // 抽成纯函数后，改坏它必然变红；而**调用点**由 `tools/verify_main_wiring.mjs`（**已移除 2026-10-13**） 用真实产物覆盖。
-  assert.equal(thumbFailureStatus({ shapeOk: false, libId: '' }), 400, '形状/尺寸错 ⇒ 400（哪怕库也没还原出来）');
-  assert.equal(thumbFailureStatus({ shapeOk: true, libId: '' }), 404, '形状合法但库无法还原 ⇒ 404（§3）');
-  assert.equal(thumbFailureStatus({ shapeOk: true, libId: 'L1' }), null, '两项都正常 ⇒ 不拦（null）');
-  assert.equal(thumbFailureStatus({ shapeOk: false, libId: 'L1' }), 400, '形状错即便库能还原也 ⇒ 400');
+  assert.equal(
+    thumbFailureStatus({ shapeOk: false, libId: '' }),
+    400,
+    '形状/尺寸错 ⇒ 400（哪怕库也没还原出来）',
+  );
+  assert.equal(
+    thumbFailureStatus({ shapeOk: true, libId: '' }),
+    404,
+    '形状合法但库无法还原 ⇒ 404（§3）',
+  );
+  assert.equal(
+    thumbFailureStatus({ shapeOk: true, libId: 'L1' }),
+    null,
+    '两项都正常 ⇒ 不拦（null）',
+  );
+  assert.equal(
+    thumbFailureStatus({ shapeOk: false, libId: 'L1' }),
+    400,
+    '形状错即便库能还原也 ⇒ 400',
+  );
   assert.equal(thumbFailureStatus({}), 400, '空对象按"形状不合法"处理（fail closed）');
   // 端到端组合：未注册库的完整判定链
   const p = parseThumbUrl('thumb://L9/022a00481875@256');
   assert.equal(p.ok, true, '形状本身合法，问题在"库没注册"');
-  const libId = await canonicalLibId(p.rawHost, async () => ['L1']);   // L9 未注册
+  const libId = await canonicalLibId(p.rawHost, async () => ['L1']); // L9 未注册
   assert.equal(libId, '', 'L9 不该被还原出来');
   assert.equal(thumbFailureStatus({ shapeOk: p.ok, libId }), 404, 'S6 端到端：未注册库 ⇒ 404');
   // 端到端组合②：size 不合法时必须是 400（这条曾经真的做错过 —— 见下）
@@ -171,23 +226,26 @@ test('S6：失败状态码映射 —— 形状/尺寸错 ⇒ 400；库无法还�
   assert.equal(p2.status, 400);
   const lib2 = p2.ok ? await canonicalLibId(p2.rawHost, async () => ['L1']) : '';
   assert.equal(lib2, '', '形状没解析出来 ⇒ 无从还原库（正是旧版把它误判成 404 的原因）');
-  assert.equal(thumbFailureStatus({ shapeOk: p2.ok, libId: lib2 }), 400,
-    '⚠️ 即使 libId 为空，形状错也必须是 400 —— 旧签名在这里会给出 404（实测被 main_wiring 抓到）');
+  assert.equal(
+    thumbFailureStatus({ shapeOk: p2.ok, libId: lib2 }),
+    400,
+    '⚠️ 即使 libId 为空，形状错也必须是 400 —— 旧签名在这里会给出 404（实测被 main_wiring 抓到）',
+  );
 });
 
 test('S4b：形状不合法的一律拒（uid 不是 12 位 hex、缺 @、多段路径、host 为空、非法 URL）', () => {
   const bad = [
-    'thumb://L1/022a00481875',            // 缺 @size
-    'thumb://L1/@256',                    // 缺 uid
-    'thumb://L1/zzzz00481875@256',        // 非 hex
-    'thumb://L1/022A00481875@256',        // 大写 hex（形状是 [0-9a-f]）
-    'thumb://L1/022a0048187@256',         // 11 位
-    'thumb://L1/a/b/022a00481875@256',    // 多段
-    'thumb:///022a00481875@256',          // host 为空
-    'thumb://L1/',                        // 空路径
-    'thumb://L1',                         // 无路径
-    'not a url',                          // 解析不了
-    '',                                   // 空串
+    'thumb://L1/022a00481875', // 缺 @size
+    'thumb://L1/@256', // 缺 uid
+    'thumb://L1/zzzz00481875@256', // 非 hex
+    'thumb://L1/022A00481875@256', // 大写 hex（形状是 [0-9a-f]）
+    'thumb://L1/022a0048187@256', // 11 位
+    'thumb://L1/a/b/022a00481875@256', // 多段
+    'thumb:///022a00481875@256', // host 为空
+    'thumb://L1/', // 空路径
+    'thumb://L1', // 无路径
+    'not a url', // 解析不了
+    '', // 空串
   ];
   for (const u of bad) {
     const r = parseThumbUrl(u);
@@ -205,7 +263,11 @@ test('S4c：路径里的 `?query` 与 `#fragment` 不影响形状判定（不构
 
 test('S6：未注册的库 ⇒ 无法还原 libId ⇒ 空串（调用方给 404）', async () => {
   const registered = ['L1', 'L2'];
-  assert.equal(await canonicalLibId('l1', async () => registered), 'L1', 'URL host 是小写的，必须还原成 L1');
+  assert.equal(
+    await canonicalLibId('l1', async () => registered),
+    'L1',
+    'URL host 是小写的，必须还原成 L1',
+  );
   assert.equal(await canonicalLibId('L2', async () => registered), 'L2');
   assert.equal(await canonicalLibId('l9', async () => registered), '', '未注册库必须还原失败');
   assert.equal(await canonicalLibId('', async () => registered), '');
@@ -215,7 +277,10 @@ test('S6：未注册的库 ⇒ 无法还原 libId ⇒ 空串（调用方给 404�
 test('S6b：libId 还原器缓存映射，但**绝不缓存"索引未就绪"（空列表）**', async () => {
   let calls = 0;
   const resolve = createLibIdResolver({
-    listLibIds: async () => { calls += 1; return ['L1']; },
+    listLibIds: async () => {
+      calls += 1;
+      return ['L1'];
+    },
     log: () => {},
   });
   assert.equal(await resolve('l1'), 'L1');
@@ -235,7 +300,10 @@ test('S6b：libId 还原器缓存映射，但**绝不缓存"索引未就绪"（�
   //   有缺陷：空结果被标记为已完成 ⇒ 第二次**不重查**（调用次数停在 1）
   let seq = 0;
   const flaky = createLibIdResolver({
-    listLibIds: async () => { seq += 1; return seq === 1 ? [] : ['L1']; },  // 第一次未就绪
+    listLibIds: async () => {
+      seq += 1;
+      return seq === 1 ? [] : ['L1'];
+    }, // 第一次未就绪
     log: () => {},
   });
   assert.equal(await flaky('l1'), '', '第一次：库还没就绪 ⇒ 还原失败（正常）');
@@ -261,26 +329,62 @@ test('S15 ⭐⭐ 6 个诚实桩 + libraryConfig 已从契约删除 ⇒ validateC
   //    全部删除（对应的表还没建）；libraryConfig 改名 libraryList（删旧名，不留两套）。
   //    这条**逐条真跑**（不是查数组）：把它们当合法调用发出去，必须被白名单拦成 ok:false。
   //    旧版 S15 断言的是「mutate 的 undo 不要求 uid」—— mutate 已不存在，那条随之退场。
-  const deleted = ['ingest', 'mutate', 'transactions', 'indexStart', 'indexCancel', 'indexResume', 'libraryConfig'];
+  const deleted = [
+    'ingest',
+    'mutate',
+    'transactions',
+    'indexStart',
+    'indexCancel',
+    'indexResume',
+    'libraryConfig',
+  ];
   for (const name of deleted) {
     assert.ok(!METHOD_NAMES.includes(name), `${name} 不该还在白名单里：${METHOD_NAMES.join(',')}`);
     const r = validateCall(name, { libId: 'L1', op: 'undo', jobId: 'j-1', limit: 1 });
     assert.equal(r.ok, false, `${name} 已删除，但 validateCall 放行了`);
-    assert.match(r.reason, /未登记|不认识|不允许|未知/, `${name} 的拒绝理由要说清是「没登记」：${r.reason}`);
+    assert.match(
+      r.reason,
+      /未登记|不认识|不允许|未知/,
+      `${name} 的拒绝理由要说清是「没登记」：${r.reason}`,
+    );
   }
 
   // 反向对照：保留下来的方法不能被误删（否则上面对空集合也成立）
-  for (const name of ['search', 'item', 'itemPaths', 'indexStatus', 'scan', 'reveal', 'collect',
-                      'libraryList', 'libraryPickDir', 'libraryAdd', 'libraryHealth', 'libraryRebuild']) {
-    assert.ok(METHOD_NAMES.includes(name), `${name} 是**保留**方法，不该被删：${METHOD_NAMES.join(',')}`);
+  for (const name of [
+    'search',
+    'item',
+    'itemPaths',
+    'indexStatus',
+    'scan',
+    'reveal',
+    'collect',
+    'libraryList',
+    'libraryPickDir',
+    'libraryAdd',
+    'libraryHealth',
+    'libraryRebuild',
+  ]) {
+    assert.ok(
+      METHOD_NAMES.includes(name),
+      `${name} 是**保留**方法，不该被删：${METHOD_NAMES.join(',')}`,
+    );
   }
 });
 
 test('S16 ⭐ 新增的 8 个方法都登记了，且形状/`.strict()` 都对（2026-10-15 · S6）', () => {
   // 基线 §2.2 的新增方法：libraryList · librarySetEnabled · libraryReorder · libraryRemove ·
   //   collectDirs · collectDirAdd · collectDirRemove · collectDirSetDefault · appMeta（另 libraryRemove 见下）
-  const added = ['libraryList', 'librarySetEnabled', 'libraryReorder', 'libraryRemove',
-                 'collectDirs', 'collectDirAdd', 'collectDirRemove', 'collectDirSetDefault', 'appMeta'];
+  const added = [
+    'libraryList',
+    'librarySetEnabled',
+    'libraryReorder',
+    'libraryRemove',
+    'collectDirs',
+    'collectDirAdd',
+    'collectDirRemove',
+    'collectDirSetDefault',
+    'appMeta',
+  ];
   for (const name of added) {
     assert.ok(METHOD_NAMES.includes(name), `${name} 未登记：${METHOD_NAMES.join(',')}`);
   }
@@ -292,17 +396,45 @@ test('S16 ⭐ 新增的 8 个方法都登记了，且形状/`.strict()` 都对�
 
   // 带参 + 边界 + `.strict()`（多传字段一律拒）
   assert.equal(validateCall('librarySetEnabled', { libId: 'L1', enabled: true }).ok, true);
-  assert.equal(validateCall('librarySetEnabled', { libId: 'L1', enabled: 'yes' }).ok, false, 'enabled 必须是 boolean');
-  assert.equal(validateCall('librarySetEnabled', { libId: 'L1', enabled: true, 多余: 1 }).ok, false, '.strict() 拒多传');
-  assert.equal(validateCall('libraryReorder', { libId: 'L1', sortOrder: -1 }).ok, false, 'sortOrder 下界 0');
+  assert.equal(
+    validateCall('librarySetEnabled', { libId: 'L1', enabled: 'yes' }).ok,
+    false,
+    'enabled 必须是 boolean',
+  );
+  assert.equal(
+    validateCall('librarySetEnabled', { libId: 'L1', enabled: true, 多余: 1 }).ok,
+    false,
+    '.strict() 拒多传',
+  );
+  assert.equal(
+    validateCall('libraryReorder', { libId: 'L1', sortOrder: -1 }).ok,
+    false,
+    'sortOrder 下界 0',
+  );
   assert.equal(validateCall('libraryReorder', { libId: 'L1', sortOrder: 3 }).ok, true);
   assert.equal(validateCall('libraryRemove', { libId: 'L1' }).ok, true, 'deleteDb 是可选的');
   assert.equal(validateCall('libraryRemove', { libId: 'L1', deleteDb: true }).ok, true);
-  assert.equal(validateCall('libraryRemove', { libId: 'L1', 删库: true }).ok, false, '.strict() 拒多传');
+  assert.equal(
+    validateCall('libraryRemove', { libId: 'L1', 删库: true }).ok,
+    false,
+    '.strict() 拒多传',
+  );
   assert.equal(validateCall('collectDirAdd', { absPath: 'E:\\素材', label: '待用' }).ok, true);
-  assert.equal(validateCall('collectDirAdd', { absPath: 'E:\\素材' }).ok, false, 'label 必填（表上有 UNIQUE）');
-  assert.equal(validateCall('collectDirAdd', { absPath: '', label: 'x' }).ok, false, 'absPath 不许为空');
+  assert.equal(
+    validateCall('collectDirAdd', { absPath: 'E:\\素材' }).ok,
+    false,
+    'label 必填（表上有 UNIQUE）',
+  );
+  assert.equal(
+    validateCall('collectDirAdd', { absPath: '', label: 'x' }).ok,
+    false,
+    'absPath 不许为空',
+  );
   assert.equal(validateCall('collectDirRemove', { dirId: 'd-1' }).ok, true);
   assert.equal(validateCall('collectDirRemove', {}).ok, false);
-  assert.equal(validateCall('collectDirSetDefault', { dirId: 'd-1', 多余: 1 }).ok, false, '.strict() 拒多传');
+  assert.equal(
+    validateCall('collectDirSetDefault', { dirId: 'd-1', 多余: 1 }).ok,
+    false,
+    '.strict() 拒多传',
+  );
 });

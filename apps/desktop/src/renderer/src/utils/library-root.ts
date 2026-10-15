@@ -11,24 +11,24 @@
 //   ① `chosen` 指的库（主进程说「这就是当前选的」）；
 //   ② 否则列表里的第一个（只有一个库时就是它）。
 //   两种都没有 ⇒ 返回 null（调用方要显示「还没有可体检的库」，**不猜、不编一个假 libId**）。
-import type { LibraryConfigData, LibraryEntry } from '../hooks/useLibraryConfig.ts'
+import type { LibraryConfigData, LibraryEntry } from '../hooks/useLibraryConfig.ts';
 
 export type ResolvedLibrary = {
-  libId: string
-  root: string
-}
+  libId: string;
+  root: string;
+};
 
 function pickEntry(data: LibraryConfigData | null | undefined): LibraryEntry | null {
   const list = (data && Array.isArray(data.libraries) ? data.libraries : []).filter(
     (e): e is LibraryEntry => Boolean(e) && typeof e === 'object',
-  )
-  if (list.length === 0) return null
-  const chosen = data?.chosen
+  );
+  if (list.length === 0) return null;
+  const chosen = data?.chosen;
   if (typeof chosen === 'string' && chosen) {
-    const hit = list.find((e) => e.libId === chosen || e.root === chosen)
-    if (hit) return hit
+    const hit = list.find((e) => e.libId === chosen || e.root === chosen);
+    if (hit) return hit;
   }
-  return list[0]
+  return list[0];
 }
 
 /**
@@ -36,9 +36,9 @@ function pickEntry(data: LibraryConfigData | null | undefined): LibraryEntry | n
  * @param data `libraryConfig` 的响应载荷（或任何同形状的注入源）
  */
 export function resolveLibrary(data: LibraryConfigData | null | undefined): ResolvedLibrary | null {
-  const entry = pickEntry(data)
-  if (!entry) return null
-  const libId = typeof entry.libId === 'string' ? entry.libId.trim() : ''
-  if (!libId) return null
-  return { libId, root: typeof entry.root === 'string' ? entry.root : '' }
+  const entry = pickEntry(data);
+  if (!entry) return null;
+  const libId = typeof entry.libId === 'string' ? entry.libId.trim() : '';
+  if (!libId) return null;
+  return { libId, root: typeof entry.root === 'string' ? entry.root : '' };
 }

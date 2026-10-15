@@ -102,7 +102,8 @@ export const USER_MESSAGE = Object.freeze({
   // ⚠️ SPEC 原文用 Markdown 加粗标了「索引文件没坏」几个字 —— 那是文档的强调标记，
   //    不是用户可见字符（本仓库 V-40/CP-2：非注释里的加粗标记会按字面显示给用户）
   //    ⇒ 这里去掉标记，文字逐字相同。
-  DB_OPEN_FAILED: '这个库的元数据打不开（文件可能损坏或被占用）。索引文件没坏 —— 先试「重建元数据」，不行再看诊断。',
+  DB_OPEN_FAILED:
+    '这个库的元数据打不开（文件可能损坏或被占用）。索引文件没坏 —— 先试「重建元数据」，不行再看诊断。',
 });
 
 /** 引擎内部的类型化错误。**不直接抛给调用方** —— 由 envelope() 转成 §1.1 的信封。 */
@@ -142,7 +143,11 @@ export interface ErrEnvelope {
 export type Envelope<T = unknown> = OkEnvelope<T> | ErrEnvelope;
 
 /** 成功信封 */
-export const ok = <T>(data: T, warnings: string[] = []): OkEnvelope<T> => ({ ok: true, data, warnings });
+export const ok = <T>(data: T, warnings: string[] = []): OkEnvelope<T> => ({
+  ok: true,
+  data,
+  warnings,
+});
 
 /** 失败信封（§1.1） */
 export function err(code: ErrorCode, message?: string, details: ErrorDetails = {}): ErrEnvelope {

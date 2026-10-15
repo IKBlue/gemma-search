@@ -132,7 +132,11 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
   });
   const indexPath = loc.indexPath ?? loc.preferredPath;
   const dbPath =
-    opts.dbPath === null ? null : opts.dbPath === undefined ? path.join(root, GS_DB_NAME) : path.resolve(opts.dbPath);
+    opts.dbPath === null
+      ? null
+      : opts.dbPath === undefined
+        ? path.join(root, GS_DB_NAME)
+        : path.resolve(opts.dbPath);
   const checks: HealthCheck[] = [];
 
   // ---- 库根：不在的话后面全是空谈 ⇒ 只报这一项，直接返回
@@ -141,12 +145,21 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
       id: 'library-root',
       ok: false,
       code: 'LIB_ROOT_MISSING',
-      reason: '库根不存在或不是目录：' + root + ' —— 盘没挂载 / 库被移走时就是这样；后面几项无从检查（不假装它们通过）',
+      reason:
+        '库根不存在或不是目录：' +
+        root +
+        ' —— 盘没挂载 / 库被移走时就是这样；后面几项无从检查（不假装它们通过）',
       rebuildable: false,
     });
     return summarize(libId, root, dbPath, indexPath, loc.layout, checks);
   }
-  checks.push({ id: 'library-root', ok: true, code: '', reason: '库根是目录：' + root, rebuildable: false });
+  checks.push({
+    id: 'library-root',
+    ok: true,
+    code: '',
+    reason: '库根是目录：' + root,
+    rebuildable: false,
+  });
 
   // ---- items.json（重建的输入；不参与"索引/元数据好不好"的判断，但不检查它就没法说重建能不能跑）
   const itemsJsonPath =
@@ -160,7 +173,12 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
         id: 'items-file',
         ok: false,
         code: 'ITEMS_JSON_MISSING',
-        reason: '条目表不存在或为空：' + itemsJsonPath + '（size=' + String(size) + '）—— 没有它就无法重建元数据',
+        reason:
+          '条目表不存在或为空：' +
+          itemsJsonPath +
+          '（size=' +
+          String(size) +
+          '）—— 没有它就无法重建元数据',
         rebuildable: false,
       });
     } else {
@@ -193,8 +211,17 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
         id: 'index',
         ok: true,
         code: '',
-        reason: '索引通过引擎五道校验（布局=' + loc.layout + '）：count=' + String(idx.count) +
-          ' · dim=' + String(idx.dim) + ' · ' + String(idx.bytes) + ' 字节 —— ' + loc.reason,
+        reason:
+          '索引通过引擎五道校验（布局=' +
+          loc.layout +
+          '）：count=' +
+          String(idx.count) +
+          ' · dim=' +
+          String(idx.dim) +
+          ' · ' +
+          String(idx.bytes) +
+          ' 字节 —— ' +
+          loc.reason,
         rebuildable: false,
       });
     } catch (e) {
@@ -202,7 +229,11 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
         id: 'index',
         ok: false,
         code: codeOf(e),
-        reason: '索引损坏（引擎五道校验未通过，布局=' + loc.layout + '）：' + describeError(e) +
+        reason:
+          '索引损坏（引擎五道校验未通过，布局=' +
+          loc.layout +
+          '）：' +
+          describeError(e) +
           ' —— 需要**重新建索引**，删库重建修不好它',
         rebuildable: false,
       });
@@ -226,12 +257,19 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
       id: 'db-file',
       ok: false,
       code: 'DB_MISSING',
-      reason: '.gs.db 不存在：' + dbPath + ' —— 删库重建会把它建出来（后面的 db 检查跳过，不假装通过）',
+      reason:
+        '.gs.db 不存在：' + dbPath + ' —— 删库重建会把它建出来（后面的 db 检查跳过，不假装通过）',
       rebuildable: true,
     });
     return summarize(libId, root, dbPath, indexPath, loc.layout, checks);
   }
-  checks.push({ id: 'db-file', ok: true, code: '', reason: '.gs.db 存在：' + dbPath + '（' + String(sizeOf(dbPath)) + ' 字节）', rebuildable: false });
+  checks.push({
+    id: 'db-file',
+    ok: true,
+    code: '',
+    reason: '.gs.db 存在：' + dbPath + '（' + String(sizeOf(dbPath)) + ' 字节）',
+    rebuildable: false,
+  });
 
   let db: SqlDatabase | null = null;
   try {
@@ -241,7 +279,8 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
       id: 'db-open',
       ok: true,
       code: '',
-      reason: '只读打开成功（journal_mode=' + opened.journalMode + '）—— 只读打开不会迁移、不会写入',
+      reason:
+        '只读打开成功（journal_mode=' + opened.journalMode + '）—— 只读打开不会迁移、不会写入',
       rebuildable: false,
     });
   } catch (e) {
@@ -249,7 +288,10 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
       id: 'db-open',
       ok: false,
       code: codeOf(e),
-      reason: '只读打开失败：' + describeError(e) + ' —— 删库重建能修好（.gs.db 是可重建的派生数据，SPEC §2.1）',
+      reason:
+        '只读打开失败：' +
+        describeError(e) +
+        ' —— 删库重建能修好（.gs.db 是可重建的派生数据，SPEC §2.1）',
       rebuildable: true,
     });
   }
@@ -264,7 +306,12 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
             id: 'db-schema',
             ok: true,
             code: '',
-            reason: 'schema_version=' + String(version) + '（= 目标 ' + String(TARGET_SCHEMA_VERSION) + '）',
+            reason:
+              'schema_version=' +
+              String(version) +
+              '（= 目标 ' +
+              String(TARGET_SCHEMA_VERSION) +
+              '）',
             rebuildable: false,
           });
         } else {
@@ -273,7 +320,10 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
             ok: false,
             code: version > TARGET_SCHEMA_VERSION ? 'SCHEMA_TOO_NEW' : 'SCHEMA_OUTDATED',
             reason:
-              'schema_version=' + String(version) + '，本程序是 ' + String(TARGET_SCHEMA_VERSION) +
+              'schema_version=' +
+              String(version) +
+              '，本程序是 ' +
+              String(TARGET_SCHEMA_VERSION) +
               (version > TARGET_SCHEMA_VERSION ? '（库比程序新）' : '（库比程序旧）') +
               ' —— 按 SPEC §2.1：版本不符 ⇒ 删除重建',
             rebuildable: true,
@@ -292,17 +342,25 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
       // 结构完整性（SQLite 自己的检查）
       try {
         const rows = db.prepare('PRAGMA integrity_check').all();
-        const bad = rows
-          .map((r) => r['integrity_check'])
-          .filter((v) => v !== 'ok');
+        const bad = rows.map((r) => r['integrity_check']).filter((v) => v !== 'ok');
         if (bad.length === 0) {
-          checks.push({ id: 'db-integrity', ok: true, code: '', reason: 'PRAGMA integrity_check = ok', rebuildable: false });
+          checks.push({
+            id: 'db-integrity',
+            ok: true,
+            code: '',
+            reason: 'PRAGMA integrity_check = ok',
+            rebuildable: false,
+          });
         } else {
           checks.push({
             id: 'db-integrity',
             ok: false,
             code: 'DB_INTEGRITY',
-            reason: 'PRAGMA integrity_check 报告 ' + String(bad.length) + ' 处问题：' + bad.slice(0, 3).join(' / '),
+            reason:
+              'PRAGMA integrity_check 报告 ' +
+              String(bad.length) +
+              ' 处问题：' +
+              bad.slice(0, 3).join(' / '),
             rebuildable: true,
           });
         }
@@ -337,7 +395,12 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
             id: 'db-tables',
             ok: false,
             code: 'DB_TABLE_MISSING',
-            reason: '缺 ' + String(missing.length) + ' 张表：' + missing.join(', ') + ' —— 删库重建会补齐',
+            reason:
+              '缺 ' +
+              String(missing.length) +
+              ' 张表：' +
+              missing.join(', ') +
+              ' —— 删库重建会补齐',
             rebuildable: true,
           });
         }
@@ -362,8 +425,12 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
           id: 'db-read',
           ok: true,
           code: '',
-          reason: '可读：asset=' + String(assets === undefined ? '?' : assets['n']) +
-            ' 行 · asset_file=' + String(files === undefined ? '?' : files['n']) + ' 行',
+          reason:
+            '可读：asset=' +
+            String(assets === undefined ? '?' : assets['n']) +
+            ' 行 · asset_file=' +
+            String(files === undefined ? '?' : files['n']) +
+            ' 行',
           rebuildable: false,
         });
       } catch (e) {
@@ -399,10 +466,25 @@ function summarize(
   const needsDbRebuild = failed.some((c) => c.rebuildable);
   const indexCheck = checks.find((c) => c.id === 'index');
   const needsIndexRebuild = indexCheck !== undefined && !indexCheck.ok;
-  const reason = failed.length === 0
-    ? '自检通过（' + String(checks.length) + ' 项）'
-    : '自检发现 ' + String(failed.length) + ' 项问题：' + failed.map((c) => c.id + '(' + c.code + ')').join(' / ') +
-      (needsDbRebuild ? ' ⇒ 可以删库重建' : '') +
-      (needsIndexRebuild ? ' ⇒ 索引需要重新编码（删库重建修不好）' : '');
-  return { libId, root, dbPath, indexPath, indexLayout, checks, ok: failed.length === 0, needsDbRebuild, needsIndexRebuild, reason };
+  const reason =
+    failed.length === 0
+      ? '自检通过（' + String(checks.length) + ' 项）'
+      : '自检发现 ' +
+        String(failed.length) +
+        ' 项问题：' +
+        failed.map((c) => c.id + '(' + c.code + ')').join(' / ') +
+        (needsDbRebuild ? ' ⇒ 可以删库重建' : '') +
+        (needsIndexRebuild ? ' ⇒ 索引需要重新编码（删库重建修不好）' : '');
+  return {
+    libId,
+    root,
+    dbPath,
+    indexPath,
+    indexLayout,
+    checks,
+    ok: failed.length === 0,
+    needsDbRebuild,
+    needsIndexRebuild,
+    reason,
+  };
 }

@@ -16,14 +16,19 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  decideWindowBounds, parseSavedBounds, readSavedBounds, persistBounds,
-  WINDOW_STATE_FILE, WINDOW_STATE_VERSION,
+  decideWindowBounds,
+  parseSavedBounds,
+  readSavedBounds,
+  persistBounds,
+  WINDOW_STATE_FILE,
+  WINDOW_STATE_VERSION,
 } from '../src/main/window-state.ts';
 
 /** 本机那块屏（2560x1400 工作区）——只是测试里的一个"屏幕"，跟真实机器无关 */
 const WA = { x: 0, y: 0, width: 2560, height: 1400 };
 const MIN = { minWidth: 1040, minHeight: 680, minVisible: 64 };
-const decide = (saved, workAreas) => decideWindowBounds({ saved, workAreas: workAreas || [WA], ...MIN });
+const decide = (saved, workAreas) =>
+  decideWindowBounds({ saved, workAreas: workAreas || [WA], ...MIN });
 const state = (b) => ({ version: WINDOW_STATE_VERSION, ...b });
 const tmpUserData = () => fs.mkdtempSync(path.join(os.tmpdir(), 'gs-wstate-'));
 
@@ -31,11 +36,17 @@ const tmpUserData = () => fs.mkdtempSync(path.join(os.tmpdir(), 'gs-wstate-'));
 
 test('J1 坏 JSON 一律收敛成 null 且**不抛**（null/数字/字符串/数组/空对象/缺字段/类型错/NaN/Infinity）', () => {
   const junk = [
-    null, undefined, 42, 'x', [], {}, true,
-    { version: 2, x: 1, y: 1, width: 1200, height: 800 },     // 版本不同
-    { version: 1, x: 1, y: 1 },                               // 缺字段
-    { version: 1, x: '1', y: 1, width: 1200, height: 800 },   // 类型错
-    { version: 1, x: NaN, y: 1, width: 1200, height: 800 },   // NaN
+    null,
+    undefined,
+    42,
+    'x',
+    [],
+    {},
+    true,
+    { version: 2, x: 1, y: 1, width: 1200, height: 800 }, // 版本不同
+    { version: 1, x: 1, y: 1 }, // 缺字段
+    { version: 1, x: '1', y: 1, width: 1200, height: 800 }, // 类型错
+    { version: 1, x: NaN, y: 1, width: 1200, height: 800 }, // NaN
     { version: 1, x: 0, y: 0, width: Infinity, height: 800 }, // Infinity
     { version: 1, x: 0, y: 0, width: null, height: 800 },
   ];
@@ -102,7 +113,10 @@ test('W7 拿不到屏幕工作区（screen 返回空）⇒ 回落默认，不硬
 });
 
 test('W8 双屏：位置落在第二块屏幕里 ⇒ 保留（不是只看主屏）', () => {
-  const two = [{ x: 0, y: 0, width: 1920, height: 1040 }, { x: 1920, y: 0, width: 2560, height: 1400 }];
+  const two = [
+    { x: 0, y: 0, width: 1920, height: 1040 },
+    { x: 1920, y: 0, width: 2560, height: 1400 },
+  ];
   const d = decide(state({ x: 2500, y: 200, width: 1180, height: 760 }), two);
   assert.deepEqual(d.bounds, { x: 2500, y: 200, width: 1180, height: 760 });
   assert.equal(d.source, 'saved');
@@ -118,8 +132,12 @@ test('C1 存下来的 9000x9000 比屏幕还大 ⇒ 夹到工作区大小（而�
 });
 
 test('C2 只宽超屏 ⇒ 只夹宽，高度原样保留', () => {
-  assert.deepEqual(decide(state({ x: 0, y: 0, width: 9000, height: 800 })).bounds,
-    { x: 0, y: 0, width: WA.width, height: 800 });
+  assert.deepEqual(decide(state({ x: 0, y: 0, width: 9000, height: 800 })).bounds, {
+    x: 0,
+    y: 0,
+    width: WA.width,
+    height: 800,
+  });
 });
 
 test('C3 尺寸小于最小尺寸 ⇒ **回落默认**（不是往上夹成最小尺寸 —— 那是编一个用户没设过的值）', () => {
@@ -156,7 +174,13 @@ test('R2 往返经过整数化 ⇒ 磁盘上的值就是恢复出来的值（不
   try {
     persistBounds(dir, { x: 10.6, y: 20.4, width: 1180.5, height: 760.5 });
     const raw = JSON.parse(fs.readFileSync(path.join(dir, WINDOW_STATE_FILE), 'utf8'));
-    assert.deepEqual(raw, { version: WINDOW_STATE_VERSION, x: 11, y: 20, width: 1181, height: 761 });
+    assert.deepEqual(raw, {
+      version: WINDOW_STATE_VERSION,
+      x: 11,
+      y: 20,
+      width: 1181,
+      height: 761,
+    });
     assert.deepEqual(parseSavedBounds(raw).bounds, { x: 11, y: 20, width: 1181, height: 761 });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

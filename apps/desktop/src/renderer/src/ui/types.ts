@@ -11,10 +11,10 @@ import type {
   InputHTMLAttributes,
   ReactNode,
   SelectHTMLAttributes,
-} from 'react'
+} from 'react';
 
 // 组件名（HTML 属性类型在 @types/react 里是接口，import 后可直接当类型用）
-export type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes }
+export type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, SelectHTMLAttributes };
 
 /**
  * 组件自己的属性 **全部可选**。
@@ -23,21 +23,21 @@ export type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, SelectH
  * 直接写 `Props & ButtonHTMLAttributes<…>` 会让「不传这些属性」变成类型错误 —— 而那正是这些组件最常见的用法。
  * `Partial<>` 保留全部合法属性、只把必填降为可选。
  */
-export type UiAttrs<T> = Partial<T> & { children?: ReactNode }
+export type UiAttrs<T> = Partial<T> & { children?: ReactNode };
 
 /** `<select>` / `<input>` 这类原生控件被 Field 包一层时的属性形状 */
-export type UiFieldAttrs = UiAttrs<SelectHTMLAttributes<HTMLSelectElement>>
-  & Partial<InputHTMLAttributes<HTMLInputElement>>
+export type UiFieldAttrs = UiAttrs<SelectHTMLAttributes<HTMLSelectElement>> &
+  Partial<InputHTMLAttributes<HTMLInputElement>>;
 
 /** 索引状态徽标：`{key,label,tone,hint}`（判定在 utils/index-state.ts，UI 只吃结果） */
-export type UiIndexState = { key: string; label: string; tone: string; hint: string }
+export type UiIndexState = { key: string; label: string; tone: string; hint: string };
 
 /** 侧栏导航项 */
 export type UiNavItem = {
-  key: string
-  icon: string
-  label: string
-  to?: string
+  key: string;
+  icon: string;
+  label: string;
+  to?: string;
   /** 未实现项的阶段说明（`P3d` 这类），有 `to` 时不用 */
-  phase?: string
-}
+  phase?: string;
+};

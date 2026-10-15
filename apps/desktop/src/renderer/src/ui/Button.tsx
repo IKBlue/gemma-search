@@ -23,12 +23,12 @@
 //    `asChild` 用 Radix 的 `Slot` **把 props 与 className 合并到子元素上** ⇒ 最终只渲染一个
 //    `<a href="#/...">`，带着按钮的类名。语义正确、可聚焦元素只有一个、样式不走样。
 //    ⚠️ `Slot` 要求子元素**恰好一个**（且能接受 className/ref）—— 恰好一个，不是零个也不是数组。
-import { cva } from 'class-variance-authority'
-import type { VariantProps } from 'class-variance-authority'
-import { Slot } from 'radix-ui'
+import { cva } from 'class-variance-authority';
+import type { VariantProps } from 'class-variance-authority';
+import { Slot } from 'radix-ui';
 
-import { cn } from './cn.ts'
-import type { ButtonHTMLAttributes } from './types.ts'
+import { cn } from './cn.ts';
+import type { ButtonHTMLAttributes } from './types.ts';
 
 // ⚠️ P4-1（2026-10-15）：变量名与导出改成 shadcn 约定的 `buttonVariants`（其他文件可以用它把
 //    按钮样式套到别的元素上），变体值本身**一个字没改** —— 见文件头：等比照抄 shadcn 的
@@ -36,7 +36,8 @@ import type { ButtonHTMLAttributes } from './types.ts'
 const buttonVariants = cva('inline-flex items-center disabled:opacity-50 disabled:cursor-default', {
   variants: {
     variant: {
-      default: 'gap-2 border rounded-xs font-semibold border-line bg-surface-raised text-ink hover:border-accent',
+      default:
+        'gap-2 border rounded-xs font-semibold border-line bg-surface-raised text-ink hover:border-accent',
       primary: 'gap-2 border rounded-xs font-semibold bg-accent border-accent text-on-accent',
       'outline-accent': 'gap-2 border rounded-xs font-semibold border-accent text-accent',
       // 图标按钮：固定方形，**不参与 size 档**（原 `.icon-btn` 也没有 padding/min-height）
@@ -50,23 +51,21 @@ const buttonVariants = cva('inline-flex items-center disabled:opacity-50 disable
     block: { true: 'w-full', false: '' },
   },
   defaultVariants: { variant: 'default', size: 'md', block: false },
-})
+});
 
-type ButtonVariant = NonNullable<VariantProps<typeof buttonVariants>['variant']>
-type ButtonSize = NonNullable<VariantProps<typeof buttonVariants>['size']>
+type ButtonVariant = NonNullable<VariantProps<typeof buttonVariants>['variant']>;
+type ButtonSize = NonNullable<VariantProps<typeof buttonVariants>['size']>;
 
 /**
  * 组件自己的属性全部可选（HTML 属性类型里有必填成员，见 `ui/types.ts` 的 `UiAttrs` 注释）。
  * `block` 与原生同名属性冲突，故先 Omit 再重声明。
  */
-export type ButtonProps =
-  & Omit<Partial<ButtonHTMLAttributes<HTMLButtonElement>>, 'block'>
-  & {
-    variant?: ButtonVariant
-    size?: ButtonSize
-    block?: boolean
-    asChild?: boolean
-  }
+export type ButtonProps = Omit<Partial<ButtonHTMLAttributes<HTMLButtonElement>>, 'block'> & {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  block?: boolean;
+  asChild?: boolean;
+};
 
 export function Button({
   variant = 'default',
@@ -79,22 +78,26 @@ export function Button({
   ...rest
 }: ButtonProps) {
   // icon 变体自带尺寸，忽略 size（显式表达，别靠「后面的类覆盖前面的」）
-  const resolvedSize: ButtonSize = variant === 'icon' ? 'none' : size
-  const cls = cn(buttonVariants({ variant, size: resolvedSize, block }), className)
+  const resolvedSize: ButtonSize = variant === 'icon' ? 'none' : size;
+  const cls = cn(buttonVariants({ variant, size: resolvedSize, block }), className);
 
   if (asChild) {
     // ⚠️ 统一包 radix-ui 的 Slot 是**命名空间对象**（{ Root, Slot, Slottable, … }），
     //    直接写 <Slot> 会触发 React #130（Element type is invalid … got: object）。
     //    2026-10-14 实测踩到过：a11y E5-b 打开任务页即白屏。
-    return <Slot.Root data-slot="button" className={cls} {...rest}>{children}</Slot.Root>
+    return (
+      <Slot.Root data-slot="button" className={cls} {...rest}>
+        {children}
+      </Slot.Root>
+    );
   }
   return (
     <button type={type} data-slot="button" className={cls} {...rest}>
       {children}
     </button>
-  )
+  );
 }
 
 // shadcn 约定：导出具名的 variants 工厂（其他组件/页面可以拿它把按钮样式套到 <a>/<Link> 上）
-export { buttonVariants }
-export default Button
+export { buttonVariants };
+export default Button;

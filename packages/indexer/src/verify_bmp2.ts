@@ -6,7 +6,11 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { decodeBmpRgb, selfTestBmpLayout } from './bmp_decode.ts';
 
-interface MismatchItem { rel_path: string; abs_path: string; actual: string }
+interface MismatchItem {
+  rel_path: string;
+  abs_path: string;
+  actual: string;
+}
 
 const sha = (b: Buffer | Uint8Array): string => crypto.createHash('sha1').update(b).digest('hex');
 const log = (...a: unknown[]) => console.log('[v2]', ...a);
@@ -22,10 +26,14 @@ try {
 
 log('');
 log('=== B) 20 张真实 BMP vs PIL ===');
-const pil = JSON.parse(fs.readFileSync(path.join('..', 'data', 'quality', 'bmp-pil-sha1.json'), 'utf8'));
-const items = JSON.parse(fs.readFileSync(path.join('..', 'data', 'quality', 'extension-mismatch.json'), 'utf8'))
-  .items.filter((i: MismatchItem) => i.actual === 'bmp');
-let ok = 0, bad = [];
+const pil = JSON.parse(
+  fs.readFileSync(path.join('..', 'data', 'quality', 'bmp-pil-sha1.json'), 'utf8'),
+);
+const items = JSON.parse(
+  fs.readFileSync(path.join('..', 'data', 'quality', 'extension-mismatch.json'), 'utf8'),
+).items.filter((i: MismatchItem) => i.actual === 'bmp');
+let ok = 0,
+  bad = [];
 for (const it of items) {
   try {
     const { rgb, width, height } = await decodeBmpRgb(it.abs_path);
@@ -37,7 +45,10 @@ for (const it of items) {
   }
 }
 log('  与 PIL 逐像素一致: ' + ok + ' / ' + items.length);
-if (bad.length) { log('  不一致明细:'); bad.slice(0, 6).forEach((b) => log('    ' + b)); }
+if (bad.length) {
+  log('  不一致明细:');
+  bad.slice(0, 6).forEach((b) => log('    ' + b));
+}
 
 log('');
 log('=== C) 端到端：能否变成 RawImage ===');

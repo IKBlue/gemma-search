@@ -40,7 +40,7 @@ const now = () => FIXED_NOW;
 
 let seq = 0;
 function freshDir(label) {
-  const dir = path.join(TMP, label + '-' + (++seq));
+  const dir = path.join(TMP, label + '-' + ++seq);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   return dir;
@@ -102,7 +102,9 @@ function readAssets(db, libId = 'L1') {
   return db
     .prepare(ASSET_ITEM_SELECT_ALL_SQL)
     .all(libId)
-    .map((row, i) => joinedRowToItemRecord(row, LIB_ROOT_FOR_READ, 'db-import asset[' + String(i) + ']'));
+    .map((row, i) =>
+      joinedRowToItemRecord(row, LIB_ROOT_FOR_READ, 'db-import asset[' + String(i) + ']'),
+    );
 }
 /** 按 uid 取一条（旧口径是直接查宽表；现在从共享 SELECT 合成出的列表里找） */
 function readAsset(db, uid, libId = 'L1') {
@@ -111,7 +113,9 @@ function readAsset(db, uid, libId = 'L1') {
 /** 旧表**不得**复活（绿地 6 张表里没有它们）—— 正向断言用，替代"旧库行存在"那类断言 */
 function legacyTablesOf(db) {
   return db
-    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('items', 'library') ORDER BY name")
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('items', 'library') ORDER BY name",
+    )
     .all()
     .map((r) => r.name);
 }
@@ -132,7 +136,10 @@ function setup(label, items, extra = {}) {
     itemsJsonPath,
     db: opened.db,
     report: importItemsFromJson(
-      Object.assign({ db: opened.db, library: { libId: 'L1', root: 'X:/lib' }, itemsJsonPath, now }, extra),
+      Object.assign(
+        { db: opened.db, library: { libId: 'L1', root: 'X:/lib' }, itemsJsonPath, now },
+        extra,
+      ),
     ),
   };
 }
@@ -164,9 +171,21 @@ test('I1 ⭐ 首次导入：3 条全部落库、字段往返一致、library 行
     //         （「条目计数存在库行上」这个概念本身已不复存在：计数就是 asset 的行数）
     // 【为何非放宽】旧断言要求"库行存在且字段对"（新 schema 下恒红）；新断言要求"不得有旧表"且
     //         "asset / asset_file 计数正确" —— 从"期待旧行为"变成"禁止旧结构 + 正向计数"。
-    assert.deepEqual(legacyTablesOf(s.db), [], '库级 .gs.db 不得有旧表 items / library（绿地 6 张表）');
-    assert.equal(scalar(s.db, 'SELECT COUNT(*) AS n FROM asset'), 3, 'asset 计数必须与落库行数一致');
-    assert.equal(scalar(s.db, "SELECT COUNT(*) AS n FROM asset_file WHERE role = 'preview'"), 3, '每条一个 preview 行');
+    assert.deepEqual(
+      legacyTablesOf(s.db),
+      [],
+      '库级 .gs.db 不得有旧表 items / library（绿地 6 张表）',
+    );
+    assert.equal(
+      scalar(s.db, 'SELECT COUNT(*) AS n FROM asset'),
+      3,
+      'asset 计数必须与落库行数一致',
+    );
+    assert.equal(
+      scalar(s.db, "SELECT COUNT(*) AS n FROM asset_file WHERE role = 'preview'"),
+      3,
+      '每条一个 preview 行',
+    );
 
     // 【改前】直接查旧宽表 + 按 [字段,列名] 逐列比（完整三行记录见 reports/2026-10-15-wave3/s2.txt）
     // 【改后】readAsset（共享 SELECT + joinedRowToItemRecord 合成）后按**字段名**逐字段比 —— 比旧口径更严：
@@ -178,10 +197,22 @@ test('I1 ⭐ 首次导入：3 条全部落库、字段往返一致、library 行
       // absPath / archiveAbsPath 是**派生**字段（= 库根 + 相对路径，§1.2 只存相对路径）⇒ 下面单独断言；
       // vectorSource 是旧宽表的**源格式诊断列**，新 schema **有意不存** ⇒ 也不参与往返比对（源里的值仍被校验）。
       if (field === 'absPath' || field === 'archiveAbsPath' || field === 'vectorSource') continue;
-      assert.deepEqual(row[field], expect[field], field + ' 必须原样落库（经 asset/asset_file 合成）');
+      assert.deepEqual(
+        row[field],
+        expect[field],
+        field + ' 必须原样落库（经 asset/asset_file 合成）',
+      );
     }
-    assert.equal(row.absPath, path.join('X:/lib', expect.relPath), 'absPath 必须 = 库根 + 相对路径（合成）');
-    assert.equal(row.archiveAbsPath, path.join('X:/lib', expect.archiveRelPath), 'archiveAbsPath 同理（合成）');
+    assert.equal(
+      row.absPath,
+      path.join('X:/lib', expect.relPath),
+      'absPath 必须 = 库根 + 相对路径（合成）',
+    );
+    assert.equal(
+      row.archiveAbsPath,
+      path.join('X:/lib', expect.archiveRelPath),
+      'archiveAbsPath 同理（合成）',
+    );
   } finally {
     s.db.close();
   }
@@ -225,7 +256,12 @@ test('I2 ⭐ 重复导入幂等：不产生重复行，第二次全是 update', 
       now,
     });
     assert.deepEqual(
-      { inserted: third.inserted, updated: third.updated, deleted: third.deleted, dbCount: third.dbCount },
+      {
+        inserted: third.inserted,
+        updated: third.updated,
+        deleted: third.deleted,
+        dbCount: third.dbCount,
+      },
       { inserted: 0, updated: 3, deleted: 0, dbCount: 3 },
       '第三次必须与第二次完全一致（收敛，不是越导越多）',
     );
@@ -247,15 +283,17 @@ test('I2b：源文件里的新值会整行覆盖（不是"保留旧值"）', () 
     //         不该有 archive 行 ⇒ 合成回 null"。旧写法在新 schema 下反而会**误红**（指针还在 ⇒ 仍能合成出名字）。
     fs.writeFileSync(
       s.itemsJsonPath,
-      JSON.stringify([makeItem(U1, {
-        imageSize: 222,
-        archiveName: null,
-        archiveRelPath: null,
-        archiveAbsPath: null,
-        archiveExt: null,
-        archiveSize: null,
-        archiveMtime: null,
-      })]),
+      JSON.stringify([
+        makeItem(U1, {
+          imageSize: 222,
+          archiveName: null,
+          archiveRelPath: null,
+          archiveAbsPath: null,
+          archiveExt: null,
+          archiveSize: null,
+          archiveMtime: null,
+        }),
+      ]),
       'utf8',
     );
     const r = importItemsFromJson({
@@ -268,7 +306,11 @@ test('I2b：源文件里的新值会整行覆盖（不是"保留旧值"）', () 
     const row = readAsset(s.db, U1);
     assert.equal(row.imageSize, 222, '源里的新值必须覆盖（字段名用合成后的驼峰口径）');
     assert.equal(row.archiveName, null, '源里的 null 必须覆盖旧值（否则库与源静默不一致）');
-    assert.equal(row.archiveRelPath, null, '没有包 ⇒ asset_file 里**不该有 archive 行** ⇒ 合成回 null');
+    assert.equal(
+      row.archiveRelPath,
+      null,
+      '没有包 ⇒ asset_file 里**不该有 archive 行** ⇒ 合成回 null',
+    );
   } finally {
     s.db.close();
   }
@@ -290,10 +332,18 @@ test('I3 ⭐ 镜像语义：源里没有的行会被删掉，计数跟着收敛'
     });
     assert.equal(r.deleted, 1, '幽灵行必须被删掉（否则计数永远对不上）');
     assert.equal(r.dbCount, 2);
-    assert.equal(scalar(s.db, 'SELECT COUNT(*) AS n FROM asset WHERE uid = ?', U2), 0, '幽灵行必须真的不在库里');
+    assert.equal(
+      scalar(s.db, 'SELECT COUNT(*) AS n FROM asset WHERE uid = ?', U2),
+      0,
+      '幽灵行必须真的不在库里',
+    );
 
     // 再放回来 ⇒ 重新插入
-    fs.writeFileSync(s.itemsJsonPath, JSON.stringify([makeItem(U1), makeItem(U2), makeItem(U3)]), 'utf8');
+    fs.writeFileSync(
+      s.itemsJsonPath,
+      JSON.stringify([makeItem(U1), makeItem(U2), makeItem(U3)]),
+      'utf8',
+    );
     const back = importItemsFromJson({
       db: s.db,
       library: { libId: 'L1', root: 'X:/lib' },
@@ -318,7 +368,13 @@ test('I4 ⭐ 一条记录缺字段 ⇒ 报错且**一行都没写**（不留导�
   const opened = openDb(dir);
   try {
     assert.throws(
-      () => importItemsFromJson({ db: opened.db, library: { libId: 'L1', root: 'X:/lib' }, itemsJsonPath, now }),
+      () =>
+        importItemsFromJson({
+          db: opened.db,
+          library: { libId: 'L1', root: 'X:/lib' },
+          itemsJsonPath,
+          now,
+        }),
       throwsCode('IMPORT_RECORD_INVALID'),
     );
     assert.equal(scalar(opened.db, 'SELECT COUNT(*) AS n FROM asset'), 0, '坏源文件不许写入任何行');
@@ -342,11 +398,18 @@ test('I5 ⭐ 可空集合与行为一致：nullable 字段收 null，其余字�
       const parsed = parseItemRecord(rec, 'test[' + field + ']');
       assert.equal(parsed.record[field], null, field + ' 允许 null');
     } else {
-      assert.throws(() => parseItemRecord(rec, 'test[' + field + ']'), throwsCode('IMPORT_RECORD_INVALID'),
-        field + ' 不允许 null（ITEM_NULLABLE_FIELDS 里没有它）');
+      assert.throws(
+        () => parseItemRecord(rec, 'test[' + field + ']'),
+        throwsCode('IMPORT_RECORD_INVALID'),
+        field + ' 不允许 null（ITEM_NULLABLE_FIELDS 里没有它）',
+      );
     }
   }
-  assert.equal(ITEM_NULLABLE_FIELDS.size, 8, '可空字段就是 8 个：archive* 6 + vectorRow + vectorSource');
+  assert.equal(
+    ITEM_NULLABLE_FIELDS.size,
+    8,
+    '可空字段就是 8 个：archive* 6 + vectorRow + vectorSource',
+  );
 });
 
 test('I5b：任何一个字段缺失都报错（缺字段 ≠ 值是 null）', () => {
@@ -354,8 +417,11 @@ test('I5b：任何一个字段缺失都报错（缺字段 ≠ 值是 null）', (
   for (const [field] of ITEM_FIELD_COLUMNS) {
     const rec = Object.assign({}, base);
     delete rec[field];
-    assert.throws(() => parseItemRecord(rec, 'test[' + field + ']'), throwsCode('IMPORT_RECORD_INVALID'),
-      field + ' 缺失必须报错（宽进会让源文件截断变成静默少数据）');
+    assert.throws(
+      () => parseItemRecord(rec, 'test[' + field + ']'),
+      throwsCode('IMPORT_RECORD_INVALID'),
+      field + ' 缺失必须报错（宽进会让源文件截断变成静默少数据）',
+    );
   }
 });
 
@@ -370,8 +436,11 @@ test('I5c：类型不对必须报错（字符串/数字搞反）', () => {
     { imageExt: null },
   ];
   for (const over of cases) {
-    assert.throws(() => parseItemRecord(makeItem(U1, over), 'test'), throwsCode('IMPORT_RECORD_INVALID'),
-      JSON.stringify(over) + ' 必须被拒');
+    assert.throws(
+      () => parseItemRecord(makeItem(U1, over), 'test'),
+      throwsCode('IMPORT_RECORD_INVALID'),
+      JSON.stringify(over) + ' 必须被拒',
+    );
   }
   // 反例锚：不覆盖时同一条能过（否则上面的 for 可能因为"永远抛"而假绿）
   assert.equal(parseItemRecord(makeItem(U1), 'test').record.uid, U1);
@@ -389,13 +458,14 @@ test('I7 ⭐ 期望计数不符 ⇒ 报错且不导入（不许静默少导）',
   const opened = openDb(dir);
   try {
     assert.throws(
-      () => importItemsFromJson({
-        db: opened.db,
-        library: { libId: 'L1', root: 'X:/lib' },
-        itemsJsonPath,
-        expectedCount: 3594,
-        now,
-      }),
+      () =>
+        importItemsFromJson({
+          db: opened.db,
+          library: { libId: 'L1', root: 'X:/lib' },
+          itemsJsonPath,
+          expectedCount: 3594,
+          now,
+        }),
       throwsCode('IMPORT_COUNT_MISMATCH'),
     );
     assert.equal(scalar(opened.db, 'SELECT COUNT(*) AS n FROM asset'), 0);
@@ -414,13 +484,14 @@ test('I7b：index.bin 损坏 ⇒ IMPORT_INDEX_UNREADABLE（不拿坏索引当计
   try {
     assert.throws(() => readIndexItemCount(junkIndex), throwsCode('IMPORT_INDEX_UNREADABLE'));
     assert.throws(
-      () => importItemsFromJson({
-        db: opened.db,
-        library: { libId: 'L1', root: 'X:/lib' },
-        itemsJsonPath,
-        indexBinPath: junkIndex,
-        now,
-      }),
+      () =>
+        importItemsFromJson({
+          db: opened.db,
+          library: { libId: 'L1', root: 'X:/lib' },
+          itemsJsonPath,
+          indexBinPath: junkIndex,
+          now,
+        }),
       throwsCode('IMPORT_INDEX_UNREADABLE'),
     );
     assert.equal(scalar(opened.db, 'SELECT COUNT(*) AS n FROM asset'), 0);
@@ -433,11 +504,21 @@ test('I7b：index.bin 损坏 ⇒ IMPORT_INDEX_UNREADABLE（不拿坏索引当计
 
 test('I8 ⭐ 源文件有重复 uid ⇒ 报错（否则"读入 3594 / 入库 3593"没人发现）', () => {
   const dir = freshDir('I8');
-  const itemsJsonPath = writeItemsJson(dir, [makeItem(U1), makeItem(U2), makeItem(U1, { imageSize: 5 })]);
+  const itemsJsonPath = writeItemsJson(dir, [
+    makeItem(U1),
+    makeItem(U2),
+    makeItem(U1, { imageSize: 5 }),
+  ]);
   const opened = openDb(dir);
   try {
     assert.throws(
-      () => importItemsFromJson({ db: opened.db, library: { libId: 'L1', root: 'X:/lib' }, itemsJsonPath, now }),
+      () =>
+        importItemsFromJson({
+          db: opened.db,
+          library: { libId: 'L1', root: 'X:/lib' },
+          itemsJsonPath,
+          now,
+        }),
       throwsCode('IMPORT_DUPLICATE_UID'),
     );
     assert.equal(scalar(opened.db, 'SELECT COUNT(*) AS n FROM asset'), 0);
@@ -452,7 +533,12 @@ test('I9：源文件不存在 / 不是数组 / 是空数组 ⇒ IMPORT_SOURCE_IN
   const dir = freshDir('I9');
   const opened = openDb(dir);
   const call = (itemsJsonPath) =>
-    importItemsFromJson({ db: opened.db, library: { libId: 'L1', root: 'X:/lib' }, itemsJsonPath, now });
+    importItemsFromJson({
+      db: opened.db,
+      library: { libId: 'L1', root: 'X:/lib' },
+      itemsJsonPath,
+      now,
+    });
   try {
     assert.throws(() => call(path.join(dir, 'nope.json')), throwsCode('IMPORT_SOURCE_INVALID'));
     const notArray = path.join(dir, 'not-array.json');
@@ -460,8 +546,11 @@ test('I9：源文件不存在 / 不是数组 / 是空数组 ⇒ IMPORT_SOURCE_IN
     assert.throws(() => call(notArray), throwsCode('IMPORT_SOURCE_INVALID'));
     const empty = path.join(dir, 'empty.json');
     fs.writeFileSync(empty, '[]', 'utf8');
-    assert.throws(() => call(empty), throwsCode('IMPORT_SOURCE_INVALID'),
-      '空数组按"源不可信"处理：导入空文件不等于允许清空一个库');
+    assert.throws(
+      () => call(empty),
+      throwsCode('IMPORT_SOURCE_INVALID'),
+      '空数组按"源不可信"处理：导入空文件不等于允许清空一个库',
+    );
     assert.equal(scalar(opened.db, 'SELECT COUNT(*) AS n FROM asset'), 0);
   } finally {
     opened.db.close();
@@ -474,7 +563,13 @@ test('I10：条目声明的 libId 与目标库不一致 ⇒ 报错（不许把�
   const opened = openDb(dir);
   try {
     assert.throws(
-      () => importItemsFromJson({ db: opened.db, library: { libId: 'L1', root: 'X:/lib' }, itemsJsonPath, now }),
+      () =>
+        importItemsFromJson({
+          db: opened.db,
+          library: { libId: 'L1', root: 'X:/lib' },
+          itemsJsonPath,
+          now,
+        }),
       throwsCode('IMPORT_RECORD_INVALID'),
     );
     assert.equal(scalar(opened.db, 'SELECT COUNT(*) AS n FROM asset'), 0);
@@ -488,18 +583,58 @@ test('I10b：入参不合法（libId 空 / 路径空 / 连接没开）⇒ IMPORT
   const itemsJsonPath = writeItemsJson(dir, [makeItem(U1)]);
   const opened = openDb(dir);
   try {
-    assert.throws(() => importItemsFromJson({ db: opened.db, library: { libId: ' ', root: 'X:/lib' }, itemsJsonPath, now }), throwsCode('IMPORT_INPUT_INVALID'));
-    assert.throws(() => importItemsFromJson({ db: opened.db, library: { libId: 'L1', root: '' }, itemsJsonPath, now }), throwsCode('IMPORT_INPUT_INVALID'));
-    assert.throws(() => importItemsFromJson({ db: opened.db, library: { libId: 'L1', root: 'X:/lib' }, itemsJsonPath: '  ', now }), throwsCode('IMPORT_INPUT_INVALID'));
     assert.throws(
-      () => importItemsFromJson({ db: opened.db, library: { libId: 'L1', root: 'X:/lib' }, itemsJsonPath, expectedCount: 0, now }),
+      () =>
+        importItemsFromJson({
+          db: opened.db,
+          library: { libId: ' ', root: 'X:/lib' },
+          itemsJsonPath,
+          now,
+        }),
+      throwsCode('IMPORT_INPUT_INVALID'),
+    );
+    assert.throws(
+      () =>
+        importItemsFromJson({
+          db: opened.db,
+          library: { libId: 'L1', root: '' },
+          itemsJsonPath,
+          now,
+        }),
+      throwsCode('IMPORT_INPUT_INVALID'),
+    );
+    assert.throws(
+      () =>
+        importItemsFromJson({
+          db: opened.db,
+          library: { libId: 'L1', root: 'X:/lib' },
+          itemsJsonPath: '  ',
+          now,
+        }),
+      throwsCode('IMPORT_INPUT_INVALID'),
+    );
+    assert.throws(
+      () =>
+        importItemsFromJson({
+          db: opened.db,
+          library: { libId: 'L1', root: 'X:/lib' },
+          itemsJsonPath,
+          expectedCount: 0,
+          now,
+        }),
       throwsCode('IMPORT_INPUT_INVALID'),
       'expectedCount 是正整数或省略，0 不是',
     );
     const closed = openDb(freshDir('I10b-closed'));
     closed.db.close();
     assert.throws(
-      () => importItemsFromJson({ db: closed.db, library: { libId: 'L1', root: 'X:/lib' }, itemsJsonPath, now }),
+      () =>
+        importItemsFromJson({
+          db: closed.db,
+          library: { libId: 'L1', root: 'X:/lib' },
+          itemsJsonPath,
+          now,
+        }),
       throwsCode('IMPORT_INPUT_INVALID'),
       '连接已关 ⇒ 报参数错，而不是拿到一堆 SQLite 状态错',
     );
@@ -527,13 +662,30 @@ test('I11 ⭐ 契约与表结构机械一致：新表 NOT NULL 列集 ↔ ItemRe
   const opened = openDb(dir);
   try {
     const info = (table) => opened.db.prepare('PRAGMA table_info(' + table + ')').all();
-    const nullableCols = (table) => info(table).filter((c) => c.notnull === 0).map((c) => c.name).sort();
-    const notNullCols = (table) => info(table).filter((c) => c.notnull === 1).map((c) => c.name).sort();
+    const nullableCols = (table) =>
+      info(table)
+        .filter((c) => c.notnull === 0)
+        .map((c) => c.name)
+        .sort();
+    const notNullCols = (table) =>
+      info(table)
+        .filter((c) => c.notnull === 1)
+        .map((c) => c.name)
+        .sort();
 
-    assert.deepEqual(nullableCols('asset'), [], 'asset 的每一列都必须 NOT NULL（条目身份与路径的载体）');
-    assert.deepEqual(nullableCols('asset_file'), ['height', 'width'], 'asset_file 只允许 width/height 可空');
+    assert.deepEqual(
+      nullableCols('asset'),
+      [],
+      'asset 的每一列都必须 NOT NULL（条目身份与路径的载体）',
+    );
+    assert.deepEqual(
+      nullableCols('asset_file'),
+      ['height', 'width'],
+      'asset_file 只允许 width/height 可空',
+    );
     assert.ok(
-      notNullCols('asset_file').includes('size_bytes') && notNullCols('asset_file').includes('mtime_ms'),
+      notNullCols('asset_file').includes('size_bytes') &&
+        notNullCols('asset_file').includes('mtime_ms'),
       'size_bytes / mtime_ms 必须 NOT NULL（文件事实不能缺）',
     );
     // ⚠️ 两个例外（都是「**恒有值**」的列，不是「允许缺数据」）：
@@ -548,13 +700,41 @@ test('I11 ⭐ 契约与表结构机械一致：新表 NOT NULL 列集 ↔ ItemRe
       'asset_index_state 的业务列必须全部可空（uid 主键 · attempt_count 计数器例外）',
     );
 
-    const REQUIRED = ['uid', 'libId', 'folder', 'stem', 'name', 'relPath', 'imageExt', 'imageSize', 'imageMtime', 'absPath'];
-    const OPTIONAL = ['archiveRelPath', 'archiveExt', 'archiveSize', 'archiveMtime', 'vectorRow', 'archiveName', 'archiveAbsPath', 'vectorSource'];
+    const REQUIRED = [
+      'uid',
+      'libId',
+      'folder',
+      'stem',
+      'name',
+      'relPath',
+      'imageExt',
+      'imageSize',
+      'imageMtime',
+      'absPath',
+    ];
+    const OPTIONAL = [
+      'archiveRelPath',
+      'archiveExt',
+      'archiveSize',
+      'archiveMtime',
+      'vectorRow',
+      'archiveName',
+      'archiveAbsPath',
+      'vectorSource',
+    ];
     for (const f of REQUIRED) {
-      assert.equal(ITEM_NULLABLE_FIELDS.has(f), false, f + ' 必须**不可空**（它由 NOT NULL 列/库根合成承载）');
+      assert.equal(
+        ITEM_NULLABLE_FIELDS.has(f),
+        false,
+        f + ' 必须**不可空**（它由 NOT NULL 列/库根合成承载）',
+      );
     }
     for (const f of OPTIONAL) {
-      assert.equal(ITEM_NULLABLE_FIELDS.has(f), true, f + ' 必须**可空**（列允许 NULL / 行可缺 / 派生）');
+      assert.equal(
+        ITEM_NULLABLE_FIELDS.has(f),
+        true,
+        f + ' 必须**可空**（列允许 NULL / 行可缺 / 派生）',
+      );
     }
   } finally {
     opened.db.close();
@@ -569,7 +749,9 @@ test('I12 ⭐ 真实库：data/libraries/L1 的 3594 条导入 + 重复导入仍
   const indexBinPath = path.join(libDir, 'index.bin');
   const metaPath = path.join(libDir, 'meta.json');
   if (!fs.existsSync(itemsJsonPath) || !fs.existsSync(indexBinPath) || !fs.existsSync(metaPath)) {
-    t.skip('本机没有 ' + libDir + ' 的 items.json/index.bin/meta.json（真实库未就位）—— 该断言无法执行');
+    t.skip(
+      '本机没有 ' + libDir + ' 的 items.json/index.bin/meta.json（真实库未就位）—— 该断言无法执行',
+    );
     return;
   }
   const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
@@ -579,7 +761,14 @@ test('I12 ⭐ 真实库：data/libraries/L1 的 3594 条导入 + 重复导入仍
   try {
     const first = importItemsFromJson({
       db: opened.db,
-      library: { libId: meta.lib_id, root: meta.lib_root, dim: meta.dim, seq: meta.seq_length, compat: meta.compat, metaJson: JSON.stringify(meta) },
+      library: {
+        libId: meta.lib_id,
+        root: meta.lib_root,
+        dim: meta.dim,
+        seq: meta.seq_length,
+        compat: meta.compat,
+        metaJson: JSON.stringify(meta),
+      },
       itemsJsonPath,
       indexBinPath,
       expectedCount: meta.count,
@@ -616,7 +805,11 @@ test('I12 ⭐ 真实库：data/libraries/L1 的 3594 条导入 + 重复导入仍
     // 【为何非放宽】旧断言在新 schema 下无对象（表已退役）；覆盖没少 —— 下面那条**真实 items.json 的逐字段往返**
     //         仍然在核对数据本身，而"库行元数据"这一层已由 app.db 的 library_registry 承载（另有测试）。
     assert.deepEqual(legacyTablesOf(opened.db), [], '库级 .gs.db 不得有旧表 items / library');
-    assert.equal(scalar(opened.db, 'SELECT COUNT(*) AS n FROM asset'), 3594, '重复导入不得膨胀（幂等）');
+    assert.equal(
+      scalar(opened.db, 'SELECT COUNT(*) AS n FROM asset'),
+      3594,
+      '重复导入不得膨胀（幂等）',
+    );
 
     // 抽样核对一条真实记录（uid 取自 items.json 第一条）
     const rawFirst = JSON.parse(fs.readFileSync(itemsJsonPath, 'utf8'))[0];
@@ -624,10 +817,18 @@ test('I12 ⭐ 真实库：data/libraries/L1 的 3594 条导入 + 重复导入仍
     for (const [field] of ITEM_FIELD_COLUMNS) {
       // 同 I1：派生字段（库根 + 相对路径）与"源格式诊断列"（新 schema 有意不存）不参与往返
       if (field === 'absPath' || field === 'archiveAbsPath' || field === 'vectorSource') continue;
-      assert.deepEqual(row[field], rawFirst[field], field + ' 必须与真实 items.json 一致（经 asset/asset_file 合成）');
+      assert.deepEqual(
+        row[field],
+        rawFirst[field],
+        field + ' 必须与真实 items.json 一致（经 asset/asset_file 合成）',
+      );
     }
     // ⚠️ 本用例的导入用的是**夹具库根 'X:/lib'**（不是 meta.lib_root）⇒ 合成出的 absPath 必须跟它一致
-    assert.equal(row.absPath, path.join('X:/lib', rawFirst.relPath), 'absPath = 夹具库根 + 相对路径（合成）');
+    assert.equal(
+      row.absPath,
+      path.join('X:/lib', rawFirst.relPath),
+      'absPath = 夹具库根 + 相对路径（合成）',
+    );
   } finally {
     opened.db.close();
   }

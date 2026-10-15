@@ -74,7 +74,8 @@ export function parseSavedBounds(raw: unknown): { bounds: WindowBounds | null; w
   if (typeof raw !== 'object') return { bounds: null, why: '不是对象' };
   const rec = raw as Record<string, unknown>;
   const ver = toInt(rec.version);
-  if (ver !== WINDOW_STATE_VERSION) return { bounds: null, why: '版本不认识（version=' + String(rec.version) + '）' };
+  if (ver !== WINDOW_STATE_VERSION)
+    return { bounds: null, why: '版本不认识（version=' + String(rec.version) + '）' };
   const x = toInt(rec.x);
   const y = toInt(rec.y);
   const width = toInt(rec.width);
@@ -105,7 +106,11 @@ function overlap(a: WorkArea, b: WindowBounds): { w: number; h: number } {
 export function decideWindowBounds(opts: DecideWindowBoundsOptions): BoundsDecision {
   const parsed = parseSavedBounds(opts.saved);
   if (!parsed.bounds) {
-    return { bounds: null, source: 'default', reason: '不恢复上次位置（' + parsed.why + '）⇒ 用默认尺寸并居中' };
+    return {
+      bounds: null,
+      source: 'default',
+      reason: '不恢复上次位置（' + parsed.why + '）⇒ 用默认尺寸并居中',
+    };
   }
   const b = parsed.bounds;
 
@@ -113,13 +118,25 @@ export function decideWindowBounds(opts: DecideWindowBoundsOptions): BoundsDecis
     return {
       bounds: null,
       source: 'default',
-      reason: '存下来的尺寸 ' + b.width + 'x' + b.height + ' 小于最小尺寸 ' + opts.minWidth + 'x' + opts.minHeight +
+      reason:
+        '存下来的尺寸 ' +
+        b.width +
+        'x' +
+        b.height +
+        ' 小于最小尺寸 ' +
+        opts.minWidth +
+        'x' +
+        opts.minHeight +
         ' ⇒ 用默认尺寸并居中',
     };
   }
 
   if (!opts.workAreas.length) {
-    return { bounds: null, source: 'default', reason: '拿不到屏幕工作区信息（screen API 没返回显示器）⇒ 用默认尺寸并居中' };
+    return {
+      bounds: null,
+      source: 'default',
+      reason: '拿不到屏幕工作区信息（screen API 没返回显示器）⇒ 用默认尺寸并居中',
+    };
   }
 
   // 找出"露得最多"的那块屏幕（可能有多块）
@@ -128,15 +145,30 @@ export function decideWindowBounds(opts: DecideWindowBoundsOptions): BoundsDecis
   for (const a of opts.workAreas) {
     const o = overlap(a, b);
     const visible = Math.min(o.w, o.h);
-    if (visible > bestVisible) { bestVisible = visible; best = a; }
+    if (visible > bestVisible) {
+      bestVisible = visible;
+      best = a;
+    }
   }
 
   if (best === null || bestVisible < opts.minVisible) {
     return {
       bounds: null,
       source: 'default',
-      reason: '上次的位置 ' + b.x + ',' + b.y + '（' + b.width + 'x' + b.height + '）已经露不出 ' +
-        opts.minVisible + 'px（最多 ' + bestVisible + 'px）—— 显示器变了或窗口在屏幕外 ⇒ 用默认尺寸并居中',
+      reason:
+        '上次的位置 ' +
+        b.x +
+        ',' +
+        b.y +
+        '（' +
+        b.width +
+        'x' +
+        b.height +
+        '）已经露不出 ' +
+        opts.minVisible +
+        'px（最多 ' +
+        bestVisible +
+        'px）—— 显示器变了或窗口在屏幕外 ⇒ 用默认尺寸并居中',
     };
   }
 
@@ -148,8 +180,22 @@ export function decideWindowBounds(opts: DecideWindowBoundsOptions): BoundsDecis
   return {
     bounds,
     source: 'saved',
-    reason: '恢复上次位置 ' + bounds.x + ',' + bounds.y + ' ' + bounds.width + 'x' + bounds.height +
-      '（可见 ' + bestVisible + 'px，屏幕 ' + best.width + 'x' + best.height + '）' +
+    reason:
+      '恢复上次位置 ' +
+      bounds.x +
+      ',' +
+      bounds.y +
+      ' ' +
+      bounds.width +
+      'x' +
+      bounds.height +
+      '（可见 ' +
+      bestVisible +
+      'px，屏幕 ' +
+      best.width +
+      'x' +
+      best.height +
+      '）' +
       (clamped ? '；尺寸超过当前屏幕 ⇒ 已夹到屏幕可用区' : ''),
   };
 }
@@ -158,12 +204,20 @@ export function decideWindowBounds(opts: DecideWindowBoundsOptions): BoundsDecis
  * 读 userData 里的窗口状态。
  * **不抛**：文件不存在 = 正常（第一次启动）；读坏 = 当成没有（由 decideWindowBounds 回落）。
  */
-export function readSavedBounds(userDataDir: string): { path: string; raw: unknown; error: string | null } {
+export function readSavedBounds(userDataDir: string): {
+  path: string;
+  raw: unknown;
+  error: string | null;
+} {
   const p = path.join(userDataDir, WINDOW_STATE_FILE);
   if (!userDataDir) return { path: p, raw: null, error: 'userData 不可用' };
   if (!fs.existsSync(p)) return { path: p, raw: null, error: null };
   try {
-    return { path: p, raw: JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, '')), error: null };
+    return {
+      path: p,
+      raw: JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, '')),
+      error: null,
+    };
   } catch (e) {
     return { path: p, raw: null, error: e instanceof Error ? e.message : String(e) };
   }
@@ -173,7 +227,10 @@ export function readSavedBounds(userDataDir: string): { path: string; raw: unkno
  * 写窗口状态（**只在用户动过窗口之后**调用，启动路径不写）。
  * **不抛**：写失败只回一个 error，由调用方记日志 —— 记不住窗口位置不该让应用出问题。
  */
-export function persistBounds(userDataDir: string, bounds: WindowBounds): { ok: boolean; path: string; error: string | null } {
+export function persistBounds(
+  userDataDir: string,
+  bounds: WindowBounds,
+): { ok: boolean; path: string; error: string | null } {
   const p = path.join(userDataDir, WINDOW_STATE_FILE);
   if (!userDataDir) return { ok: false, path: p, error: 'userData 不可用' };
   const payload = {

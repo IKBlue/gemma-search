@@ -29,10 +29,20 @@ const dst = path.join(libRoot, dstRel);
 
 const onCrash = (point) => {
   // ① 证明到达了边界（同步写，挂死之前一定落盘）
-  fs.writeFileSync(boundaryFile, JSON.stringify({
-    point, pid: process.pid, at: new Date().toISOString(),
-    journalFiles: fs.existsSync(journalDir) ? fs.readdirSync(journalDir) : [],
-  }, null, 2), 'utf8');
+  fs.writeFileSync(
+    boundaryFile,
+    JSON.stringify(
+      {
+        point,
+        pid: process.pid,
+        at: new Date().toISOString(),
+        journalFiles: fs.existsSync(journalDir) ? fs.readdirSync(journalDir) : [],
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  );
 
   // ② **永不返回** —— 这才是"进程被杀"而不是"抛异常"。
   //
@@ -52,7 +62,12 @@ const ex = createTxnExecutor({
     update: (call) => {
       // 索引端口被调过就要留痕（父进程据此断言"索引更新了 / 没更新"）
       const prev = fs.existsSync(indexFile) ? JSON.parse(fs.readFileSync(indexFile, 'utf8')) : [];
-      prev.push({ at: new Date().toISOString(), txnId: call.txnId, op: call.op, files: call.files.length });
+      prev.push({
+        at: new Date().toISOString(),
+        txnId: call.txnId,
+        op: call.op,
+        files: call.files.length,
+      });
       fs.writeFileSync(indexFile, JSON.stringify(prev, null, 2), 'utf8');
     },
   },
@@ -61,7 +76,9 @@ const ex = createTxnExecutor({
 });
 
 const r = ex.runMove({
-  libId: 'lib-a', uid: 'a1', op: 'move-folder',
+  libId: 'lib-a',
+  uid: 'a1',
+  op: 'move-folder',
   files: [
     { role: 'image', src, dst },
     { role: 'archive', src: src.replace(/\.[^.]+$/, '.rar'), dst: dst.replace(/\.[^.]+$/, '.rar') },
@@ -69,4 +86,8 @@ const r = ex.runMove({
 });
 
 // 只有**正常跑完**才会写到这 —— 父进程断言它**不存在**，就是"被杀"的最强证据。
-fs.writeFileSync(doneFile, JSON.stringify({ outcome: r.outcome, txnId: r.txnId, detail: r.detail }, null, 2), 'utf8');
+fs.writeFileSync(
+  doneFile,
+  JSON.stringify({ outcome: r.outcome, txnId: r.txnId, detail: r.detail }, null, 2),
+  'utf8',
+);

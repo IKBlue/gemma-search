@@ -20,16 +20,34 @@ import path from 'node:path';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
 import { readImageWithFallback, selfTestBmpLayout } from './bmp_decode.ts';
 import type { ImageProcessorConfigView, ModelDevice, ModelDtype } from './third_party_types.ts';
-import { installResizeCompat, selfTestResizeCompat, assertResizeCompatInstalled } from './resize_compat.ts';
+import {
+  installResizeCompat,
+  selfTestResizeCompat,
+  assertResizeCompatInstalled,
+} from './resize_compat.ts';
 // pickEmbedding 的**唯一实现**（ENC-1 / P1）：以前这里是与 build_index_onnx 各一份的副本
 import { pickEmbedding } from './embedding.ts';
 import type { PickedEmbedding } from './embedding.ts';
 
-interface QueryItem { id: string; kind: string; value: string }
-interface StoredVector { id: string; kind: string; value: string; dim: number; norm: number; vector: number[] }
+interface QueryItem {
+  id: string;
+  kind: string;
+  value: string;
+}
+interface StoredVector {
+  id: string;
+  kind: string;
+  value: string;
+  dim: number;
+  norm: number;
+  vector: number[];
+}
 
 const argv = process.argv.slice(2);
-const arg = (n: string, d?: string): string => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : (d as string); };
+const arg = (n: string, d?: string): string => {
+  const i = argv.indexOf('--' + n);
+  return i >= 0 ? argv[i + 1] : (d as string);
+};
 
 const MODEL_DIR = arg('model') || process.env.GEMMA_ONNX_MODEL;
 const IN_JSON = arg('in');
@@ -39,7 +57,9 @@ const DEVICE = arg('device', 'webgpu');
 const QUERY_PREFIX = 'task: search result | query: ';
 
 if (!MODEL_DIR || !IN_JSON || !OUT_JSON) {
-  console.error('用法: node encode_queries.mjs --model <目录> --in <查询.json> --out <向量.json> [--seq 140] [--device webgpu]');
+  console.error(
+    '用法: node encode_queries.mjs --model <目录> --in <查询.json> --out <向量.json> [--seq 140] [--device webgpu]',
+  );
   process.exit(2);
 }
 
@@ -52,11 +72,17 @@ env.allowRemoteModels = false;
 //   ENC-1 之前这里是与 build_index_onnx 各一份的副本，靠"人工保持同步 + 交叉核对"维持；
 //   副本里的 `Math.sqrt(n) || 1` 在 T===0 时会**静默产出全零向量**。）
 
-const norm = (a: ArrayLike<number>): number => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * a[i]; return Math.sqrt(s); };
+const norm = (a: ArrayLike<number>): number => {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += a[i] * a[i];
+  return Math.sqrt(s);
+};
 
 const queries: QueryItem[] = JSON.parse(fs.readFileSync(IN_JSON, 'utf8'));
-log(`查询 ${queries.length} 条（文本 ${queries.filter((q) => q.kind === 'text').length}`
-  + ` · 图像 ${queries.filter((q) => q.kind === 'image').length}）`);
+log(
+  `查询 ${queries.length} 条（文本 ${queries.filter((q) => q.kind === 'text').length}` +
+    ` · 图像 ${queries.filter((q) => q.kind === 'image').length}）`,
+);
 
 const config = await AutoConfig.from_pretrained(MODEL_DIR);
 config.audio_config = null;
@@ -66,12 +92,17 @@ processor.image_seq_length = SEQ;
 if (processor.image_processor) {
   processor.image_processor.max_soft_tokens = SEQ;
   processor.image_processor.image_seq_length = SEQ;
-  if (processor.image_processor.config) (processor.image_processor.config as ImageProcessorConfigView).image_seq_length = SEQ;
+  if (processor.image_processor.config)
+    (processor.image_processor.config as ImageProcessorConfigView).image_seq_length = SEQ;
 }
 if (processor.image_seq_length !== SEQ) {
   throw new Error(`预处理 seq 未生效：请求 ${SEQ}，实际 ${processor.image_seq_length}`);
 }
-const model = await AutoModel.from_pretrained(MODEL_DIR, { config, dtype: 'float32' as ModelDtype, device: DEVICE as ModelDevice });
+const model = await AutoModel.from_pretrained(MODEL_DIR, {
+  config,
+  dtype: 'float32' as ModelDtype,
+  device: DEVICE as ModelDevice,
+});
 log(`模型载入完成（seq=${SEQ} · device=${DEVICE}）`);
 
 const st = await selfTestBmpLayout();
@@ -99,20 +130,34 @@ for (const q of queries) {
   }
   how = how || emb.how;
   const vec = Array.from(emb.data);
-  out.push({ id: q.id, kind: q.kind, value: q.value, dim: vec.length, norm: +norm(vec).toFixed(6), vector: vec });
+  out.push({
+    id: q.id,
+    kind: q.kind,
+    value: q.value,
+    dim: vec.length,
+    norm: +norm(vec).toFixed(6),
+    vector: vec,
+  });
 }
 
-const revision = (MODEL_DIR.replace(/\\/g, '/').split('/').find((s: string) => /^[0-9a-f]{40}$/.test(s))) || null;
-fs.writeFileSync(OUT_JSON, JSON.stringify({
-  generated_at: new Date().toISOString(),
-  runtime: { 'transformers.js': 'as-installed', device: DEVICE },
-  model_dir: MODEL_DIR,
-  model_revision: revision,
-  seq_length: SEQ,
-  dim: out.length ? out[0].dim : 0,
-  query_prefix: QUERY_PREFIX,
-  embedding_how: how,
-  count: out.length,
-  queries: out,
-}), 'utf8');
+const revision =
+  MODEL_DIR.replace(/\\/g, '/')
+    .split('/')
+    .find((s: string) => /^[0-9a-f]{40}$/.test(s)) || null;
+fs.writeFileSync(
+  OUT_JSON,
+  JSON.stringify({
+    generated_at: new Date().toISOString(),
+    runtime: { 'transformers.js': 'as-installed', device: DEVICE },
+    model_dir: MODEL_DIR,
+    model_revision: revision,
+    seq_length: SEQ,
+    dim: out.length ? out[0].dim : 0,
+    query_prefix: QUERY_PREFIX,
+    embedding_how: how,
+    count: out.length,
+    queries: out,
+  }),
+  'utf8',
+);
 log(`已写 ${OUT_JSON}（dim=${out.length ? out[0].dim : 0} · embedding=${how}）`);

@@ -188,14 +188,14 @@ export function parseCollectDirsEnv(raw: unknown): CollectDirs | null {
     const seg = part.trim();
     if (!seg) continue;
     const eq = seg.indexOf('=');
-    if (eq <= 0) continue;                     // 没有 `=` 或名字为空 ⇒ 跳过这一条
+    if (eq <= 0) continue; // 没有 `=` 或名字为空 ⇒ 跳过这一条
     const name = seg.slice(0, eq).trim();
     const dir = seg.slice(eq + 1).trim();
     if (!name || !dir) continue;
     dirs[name] = dir;
   }
   const names = Object.keys(dirs);
-  if (!names.length) return null;              // **空 ⇒ null**，不是空对象（见上）
+  if (!names.length) return null; // **空 ⇒ null**，不是空对象（见上）
   return { dirs, default: names[0] };
 }
 
@@ -240,16 +240,29 @@ export function saveRegistry(
 }
 
 /** 校验并归一一组库条目；非法条目**丢弃并记录**，不静默改造 */
-export function normalizeLibraries(input: unknown): { kept: NormalizedLibrary[]; dropped: DroppedLibrary[] } {
+export function normalizeLibraries(input: unknown): {
+  kept: NormalizedLibrary[];
+  dropped: DroppedLibrary[];
+} {
   const kept: NormalizedLibrary[] = [];
   const dropped: DroppedLibrary[] = [];
   const items: unknown[] = Array.isArray(input) ? input : [];
   for (const l of items) {
     const libId = isRecord(l) && typeof l.libId === 'string' ? l.libId.trim() : '';
     const root = isRecord(l) && typeof l.root === 'string' ? l.root.trim() : '';
-    if (!LIB_ID_RE.test(libId)) { dropped.push({ item: l, why: `libId 形状不合法：${JSON.stringify(libId)}` }); continue; }
-    if (!root) { dropped.push({ item: l, why: 'root 为空' }); continue; }
-    kept.push({ libId, root: path.resolve(root), label: isRecord(l) && l.label ? String(l.label) : libId });
+    if (!LIB_ID_RE.test(libId)) {
+      dropped.push({ item: l, why: `libId 形状不合法：${JSON.stringify(libId)}` });
+      continue;
+    }
+    if (!root) {
+      dropped.push({ item: l, why: 'root 为空' });
+      continue;
+    }
+    kept.push({
+      libId,
+      root: path.resolve(root),
+      label: isRecord(l) && l.label ? String(l.label) : libId,
+    });
   }
   return { kept, dropped };
 }
@@ -268,19 +281,31 @@ export function discoverLibrariesFromIndex(dataDir: string): DiscoverResult {
   for (const dir of fs.readdirSync(base, { withFileTypes: true })) {
     if (!dir.isDirectory()) continue;
     const metaFile = path.join(base, dir.name, 'meta.json');
-    if (!fs.existsSync(metaFile)) { notes.push(`跳过 ${dir.name}：没有 meta.json`); continue; }
+    if (!fs.existsSync(metaFile)) {
+      notes.push(`跳过 ${dir.name}：没有 meta.json`);
+      continue;
+    }
     let meta: unknown;
     try {
       meta = JSON.parse(fs.readFileSync(metaFile, 'utf8').replace(/^\uFEFF/, ''));
     } catch (e) {
-      notes.push(`跳过 ${dir.name}：meta.json 解析失败（${e instanceof Error ? e.message : String(e)}）`);
+      notes.push(
+        `跳过 ${dir.name}：meta.json 解析失败（${e instanceof Error ? e.message : String(e)}）`,
+      );
       continue;
     }
     const libId = isRecord(meta) && meta.lib_id ? String(meta.lib_id) : dir.name;
-    if (!LIB_ID_RE.test(libId)) { notes.push(`跳过 ${dir.name}：meta.lib_id 形状不合法`); continue; }
-    if (libId !== dir.name) notes.push(`注意 ${dir.name}：目录名与 meta.lib_id（${libId}）不一致，以 meta 为准`);
+    if (!LIB_ID_RE.test(libId)) {
+      notes.push(`跳过 ${dir.name}：meta.lib_id 形状不合法`);
+      continue;
+    }
+    if (libId !== dir.name)
+      notes.push(`注意 ${dir.name}：目录名与 meta.lib_id（${libId}）不一致，以 meta 为准`);
     const root = isRecord(meta) && meta.lib_root ? String(meta.lib_root) : '';
-    if (!root) { notes.push(`跳过 ${dir.name}：meta 里没有 lib_root`); continue; }
+    if (!root) {
+      notes.push(`跳过 ${dir.name}：meta 里没有 lib_root`);
+      continue;
+    }
     out.push({
       libId,
       root: path.resolve(root),
@@ -339,7 +364,8 @@ export function resolveLibraries({
   // 3) config.json 兼容回退
   if (!chosen) {
     const fromCfg: unknown[] = [];
-    if (Array.isArray(config.libraries) && config.libraries.length) fromCfg.push(...config.libraries);
+    if (Array.isArray(config.libraries) && config.libraries.length)
+      fromCfg.push(...config.libraries);
     else if (config.library_root) {
       fromCfg.push({ libId: config.lib_id || 'L1', root: config.library_root, label: '主库' });
     }
@@ -359,7 +385,9 @@ export function resolveLibraries({
     if (disc.libraries.length) {
       libraries = disc.libraries;
       chosen = 'index-meta';
-      diagnostics.push(`库由已有索引自举（${disc.libraries.map((l) => `${l.libId}=${l.root}`).join(', ')}）—— 无需手工配置`);
+      diagnostics.push(
+        `库由已有索引自举（${disc.libraries.map((l) => `${l.libId}=${l.root}`).join(', ')}）—— 无需手工配置`,
+      );
     }
   }
 
@@ -387,7 +415,9 @@ export function resolveLibraries({
       }
     }
     // 走到这里说明三条路都没给 ⇒ 用规格兜底。**必须非空**（F-04 回归防线）。
-    diagnostics.push('取件白名单来自规格兜底值（`docs/spec/SPEC-app.md` §9）；想换目录请设 `GEMMA_COLLECT_DIRS`');
+    diagnostics.push(
+      '取件白名单来自规格兜底值（`docs/spec/SPEC-app.md` §9）；想换目录请设 `GEMMA_COLLECT_DIRS`',
+    );
     return { dirs: { ...DEFAULT_COLLECT.dirs }, default: DEFAULT_COLLECT.default };
   })();
 
@@ -401,5 +431,12 @@ export function resolveLibraries({
   // ⚠️ `as string`：本函数走到这里时调用方必然已给出 userDataDir（启动路径在 `app.whenReady`
   //    之后才解析库）。原 JS 版在这里传 null/undefined 会由 `path.join` 抛 TypeError —— 保留同一行为，
   //    所以不用 `?? ''` 静默改写语义，只是在类型上显式声明这个前置条件。
-  return { libraries, collect, chosen, diagnostics, warnings, registryPath: registryPath(userDataDir as string) };
+  return {
+    libraries,
+    collect,
+    chosen,
+    diagnostics,
+    warnings,
+    registryPath: registryPath(userDataDir as string),
+  };
 }

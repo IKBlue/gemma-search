@@ -22,7 +22,11 @@ contextBridge.exposeInMainWorld('api', {
   /** 订阅主进程推送（索引进度、编码器就绪、恢复报告…）；返回取消订阅函数 */
   onEvent: (cb: EventCallback): (() => void) => {
     const h = (_e: IpcRendererEvent, evt: unknown): void => {
-      try { cb(evt); } catch (err) { console.error('[preload] 事件回调异常', err); }
+      try {
+        cb(evt);
+      } catch (err) {
+        console.error('[preload] 事件回调异常', err);
+      }
     };
     ipcRenderer.on(CH_EVENT, h);
     return () => ipcRenderer.removeListener(CH_EVENT, h);

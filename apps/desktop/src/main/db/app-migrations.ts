@@ -61,12 +61,20 @@ export const APP_META_LEDGER: MigrationLedger = Object.freeze({
   },
 
   readVersion(db: SqlDatabase): number {
-    return readVersionRow(db, APP_META_TABLE, APP_META_ROW_ID, 'schema_version',
-      'SELECT schema_version FROM app_meta WHERE id = 1');
+    return readVersionRow(
+      db,
+      APP_META_TABLE,
+      APP_META_ROW_ID,
+      'schema_version',
+      'SELECT schema_version FROM app_meta WHERE id = 1',
+    );
   },
 
   writeVersion(db: SqlDatabase, version: number, now: () => number): void {
-    db.prepare('UPDATE app_meta SET schema_version = ?, updated_at_ms = ? WHERE id = 1').run(version, now());
+    db.prepare('UPDATE app_meta SET schema_version = ?, updated_at_ms = ? WHERE id = 1').run(
+      version,
+      now(),
+    );
   },
 });
 
@@ -112,10 +120,7 @@ CREATE TABLE IF NOT EXISTS collect_dir (
   'CREATE UNIQUE INDEX IF NOT EXISTS uniq_collect_default ON collect_dir ((1)) WHERE is_default = 1;',
 ];
 
-const APP_V1: readonly string[] = Object.freeze([
-  ...T_LIBRARY_REGISTRY,
-  ...T_COLLECT_DIR,
-]);
+const APP_V1: readonly string[] = Object.freeze([...T_LIBRARY_REGISTRY, ...T_COLLECT_DIR]);
 
 export const APP_MIGRATIONS: readonly Migration[] = Object.freeze([
   Object.freeze({ version: 1, name: 'greenfield-app-3', statements: APP_V1 }),

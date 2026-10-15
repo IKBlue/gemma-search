@@ -63,7 +63,7 @@ function mainScript() {
 
 function electronExe() {
   try {
-    const p = require('electron');          // 普通 Node 里返回 electron.exe 的路径字符串
+    const p = require('electron'); // 普通 Node 里返回 electron.exe 的路径字符串
     return typeof p === 'string' && fs.existsSync(p) ? p : '';
   } catch {
     return '';
@@ -73,7 +73,11 @@ function electronExe() {
 /** 极短探测：跑 `--version` 看能否正常退出（**必须传清理后的 env**，否则测的是 Node） */
 function probe(exe, extraArgs) {
   const r = spawnSync(exe, [...extraArgs, '--version'], {
-    encoding: 'utf8', timeout: 20000, stdio: 'pipe', windowsHide: true, env,
+    encoding: 'utf8',
+    timeout: 20000,
+    stdio: 'pipe',
+    windowsHide: true,
+    env,
   });
   return { ok: r.status === 0, status: r.status, out: String(r.stdout || '').trim() };
 }
@@ -81,24 +85,33 @@ function probe(exe, extraArgs) {
 const restrictedArgs = () => ['--noSandbox', '--entry', mainScript()];
 const askedFlags = args.some((a) => a === '--noSandbox' || a === '--no-sandbox');
 const isRunCmd = ['dev', 'serve', 'preview'].includes(args[0]);
-const GUI_BLOCKED = new Set([3, 0x80000003, 0xc0000005]);   // 沙箱断言 / 访问冲突
+const GUI_BLOCKED = new Set([3, 0x80000003, 0xc0000005]); // 沙箱断言 / 访问冲突
 
 // ---------------------------------------------------------------- 快速路径：探测
 let extra = [];
 if (isRunCmd && !askedFlags) {
   const exe = electronExe();
   if (!exe) {
-    say('[run] 找不到 electron 二进制（npm install 没下平台包？见 README 的 ELECTRON_MIRROR 说明）');
+    say(
+      '[run] 找不到 electron 二进制（npm install 没下平台包？见 README 的 ELECTRON_MIRROR 说明）',
+    );
   } else {
     const plain = probe(exe, []);
     if (!plain.ok) {
       const ns = probe(exe, ['--no-sandbox']);
       if (ns.ok) {
-        say(`[run] 探测：本机 Chromium 的进程沙箱不可用（\`--version\` 退出码 0x${(plain.status >>> 0).toString(16).toUpperCase()}，加 --no-sandbox 正常 → ${ns.out}）`);
-        say(`[run] 探测：本次附加 ${restrictedArgs().join(' ')}（**仅本次**，不写进配置；普通机器不会有这两行）`);
+        say(
+          `[run] 探测：本机 Chromium 的进程沙箱不可用（\`--version\` 退出码 0x${(plain.status >>> 0).toString(16).toUpperCase()}，加 --no-sandbox 正常 → ${ns.out}）`,
+        );
+        say(
+          `[run] 探测：本次附加 ${restrictedArgs().join(' ')}（**仅本次**，不写进配置；普通机器不会有这两行）`,
+        );
         extra = restrictedArgs();
       } else {
-        say('[run] 探测：Electron 连 --no-sandbox 都跑不起来 —— 判定工具 smoke_app.mjs 已于 2026-10-13 移除，' + '现在看 tools/probe_electron_start/ 的判读表');
+        say(
+          '[run] 探测：Electron 连 --no-sandbox 都跑不起来 —— 判定工具 smoke_app.mjs 已于 2026-10-13 移除，' +
+            '现在看 tools/probe_electron_start/ 的判读表',
+        );
       }
     }
   }
@@ -119,8 +132,12 @@ function launch() {
 
     // 兜底：探测没判断出来，但事实就是"浏览器进程起不来" → 带参重试一次
     if (attempt === 1 && isRunCmd && !askedFlags && extra.length === 0 && GUI_BLOCKED.has(u)) {
-      say(`[run] 第一次启动失败：Electron 以 0x${u.toString(16).toUpperCase()} 退出（浏览器进程没能起来）`);
-      say(`[run] 判定：本机 Chromium 的进程沙箱不可用 → 带参重试一次：${restrictedArgs().join(' ')}`);
+      say(
+        `[run] 第一次启动失败：Electron 以 0x${u.toString(16).toUpperCase()} 退出（浏览器进程没能起来）`,
+      );
+      say(
+        `[run] 判定：本机 Chromium 的进程沙箱不可用 → 带参重试一次：${restrictedArgs().join(' ')}`,
+      );
       extra = restrictedArgs();
       launch();
       return;
@@ -128,13 +145,18 @@ function launch() {
 
     if (GUI_BLOCKED.has(u)) {
       say(`[run] Electron 以 0x${u.toString(16).toUpperCase()} 退出 —— 浏览器进程没能起来。`);
-      say('[run] 受限环境直接显式指定：npm run dev:restricted   # dev --noSandbox --entry out/main/index.js');
+      say(
+        '[run] 受限环境直接显式指定：npm run dev:restricted   # dev --noSandbox --entry out/main/index.js',
+      );
       say('[run] 还起不来：判定工具已移除（2026-10-13），看 tools/probe_electron_start/');
     }
     process.exit(code ?? 0);
   });
 
-  child.on('error', (e) => { say('[run] 无法启动 electron-vite：' + e.message); process.exit(1); });
+  child.on('error', (e) => {
+    say('[run] 无法启动 electron-vite：' + e.message);
+    process.exit(1);
+  });
   return child;
 }
 

@@ -16,7 +16,7 @@ export const PATHS = Object.freeze({
   activity: '/activity',
   health: '/health',
   browse: '/browse',
-})
+});
 
 /**
  * 由 `libId + uid` 拼出**详情页的真实路径**。
@@ -28,7 +28,7 @@ export const PATHS = Object.freeze({
  *   本不需要转义；`encodeURIComponent` 只作为**防御**（非法字符不会拼出一个畸形 URL）。
  */
 export function itemPath(libId: string, uid: string): string {
-  return `/item/${encodeURIComponent(libId)}/${encodeURIComponent(uid)}`
+  return `/item/${encodeURIComponent(libId)}/${encodeURIComponent(uid)}`;
 }
 
 /**
@@ -47,16 +47,16 @@ export const LABELS = Object.freeze({
   activity: '操作记录',
   health: '诊断与重建',
   browse: '浏览图库',
-})
+});
 
 /**
  * 路由 key —— 与 `router/index.tsx` 的组件映射**一一对应**。
  * 声明成字面量联合（而不是 `string`）是为了让下面的 `COMPONENTS[r.key]` 在类型上就是安全的。
  */
-export type RouteKey = keyof typeof LABELS
+export type RouteKey = keyof typeof LABELS;
 
 /** 路由表的一行 */
-export type RouteEntry = { key: RouteKey; path: string; label: string }
+export type RouteEntry = { key: RouteKey; path: string; label: string };
 
 /**
  * 路由表。`key` 对应 `router/index.tsx` 里的组件映射 ——
@@ -69,7 +69,7 @@ export const ROUTES: readonly RouteEntry[] = Object.freeze([
   Object.freeze({ key: 'activity', path: PATHS.activity, label: LABELS.activity }),
   Object.freeze({ key: 'health', path: PATHS.health, label: LABELS.health }),
   Object.freeze({ key: 'browse', path: PATHS.browse, label: LABELS.browse }),
-])
+]);
 
 /** 应用名 —— 窗口标题的后缀，与 `index.html` / 主进程建窗时的 title 保持一致 */
-export const APP_NAME = 'gemma-search'
+export const APP_NAME = 'gemma-search';

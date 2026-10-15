@@ -35,8 +35,8 @@ export interface WindowLike {
 /** 判断一个 URL 是否属于应用自身（§2 来源校验 + §5 导航拦截共用同一判据） */
 export function isAppUrl(u: string | null | undefined, devUrl = ''): boolean {
   if (!u) return false;
-  if (u.startsWith('file://')) return true;                       // 打包/预览态
-  if (devUrl && u.startsWith(devUrl)) return true;                // dev 态（electron-vite）
+  if (u.startsWith('file://')) return true; // 打包/预览态
+  if (devUrl && u.startsWith(devUrl)) return true; // dev 态（electron-vite）
   return false;
 }
 
@@ -75,9 +75,9 @@ export function isTrustedSender(
 ): boolean {
   if (!win || !event) return false;
   if (typeof win.isDestroyed === 'function' && win.isDestroyed()) return false;
-  if (event.sender !== win.webContents) return false;             // 只认主窗口
+  if (event.sender !== win.webContents) return false; // 只认主窗口
   const frame = event.senderFrame;
   if (!frame) return false;
-  if (frame.parent !== null) return false;                        // 拒 iframe（顶层 frame 的 parent 为 null）
+  if (frame.parent !== null) return false; // 拒 iframe（顶层 frame 的 parent 为 null）
   return isAppUrl(frame.url || '', devUrl);
 }

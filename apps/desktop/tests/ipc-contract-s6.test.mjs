@@ -11,29 +11,70 @@ import { METHOD_NAMES, Methods, validateCall } from '../src/shared/ipc.ts';
 test('C1 ⭐⭐ 白名单 = 基线 §2.2 的 20 个 + S8 的 items = 21 个（集合相等，多一个少一个都红）', () => {
   const expected = [
     // 保留（/改造）
-    'search', 'item', 'itemPaths', 'indexStatus', 'scan', 'reveal', 'collect',
-    'libraryPickDir', 'libraryAdd',
+    'search',
+    'item',
+    'itemPaths',
+    'indexStatus',
+    'scan',
+    'reveal',
+    'collect',
+    'libraryPickDir',
+    'libraryAdd',
     // 2026-10-15 · S8 新增：只读列表（SPEC §5.1）—— 「新增 = 兼容」
     'items',
     // 2026-10-15 所有者批准保留（体检/重建：只读 .gs-index.bin/.gs.db，不依赖未建的表）
-    'libraryHealth', 'libraryRebuild',
+    'libraryHealth',
+    'libraryRebuild',
     // 新增（基线 §2.2）
-    'libraryList', 'librarySetEnabled', 'libraryReorder', 'libraryRemove',
-    'collectDirs', 'collectDirAdd', 'collectDirRemove', 'collectDirSetDefault', 'appMeta',
+    'libraryList',
+    'librarySetEnabled',
+    'libraryReorder',
+    'libraryRemove',
+    'collectDirs',
+    'collectDirAdd',
+    'collectDirRemove',
+    'collectDirSetDefault',
+    'appMeta',
   ].sort();
-  assert.deepEqual([...METHOD_NAMES].sort(), expected,
-    '白名单与基线 §2.2 不一致（当前：' + [...METHOD_NAMES].sort().join(',') + '）');
+  assert.deepEqual(
+    [...METHOD_NAMES].sort(),
+    expected,
+    '白名单与基线 §2.2 不一致（当前：' + [...METHOD_NAMES].sort().join(',') + '）',
+  );
 });
 
 test('C2 已删除的 7 个名字（6 桩 + libraryConfig）**一个都不在**白名单里', () => {
-  for (const gone of ['ingest', 'mutate', 'transactions', 'indexStart', 'indexCancel', 'indexResume', 'libraryConfig']) {
+  for (const gone of [
+    'ingest',
+    'mutate',
+    'transactions',
+    'indexStart',
+    'indexCancel',
+    'indexResume',
+    'libraryConfig',
+  ]) {
     assert.ok(!METHOD_NAMES.includes(gone), gone + ' 不该还在白名单里');
-    assert.equal(Object.prototype.hasOwnProperty.call(Methods, gone), false, gone + ' 不该还有 schema');
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(Methods, gone),
+      false,
+      gone + ' 不该还有 schema',
+    );
   }
 });
 
 test('C3 白名单是**唯一闸门**：未登记名字（含已删除的）一律拒绝，且理由一致', () => {
-  for (const name of ['ingest', 'mutate', 'transactions', 'indexStart', 'indexCancel', 'indexResume', 'libraryConfig', 'exec', '__proto__', 'constructor']) {
+  for (const name of [
+    'ingest',
+    'mutate',
+    'transactions',
+    'indexStart',
+    'indexCancel',
+    'indexResume',
+    'libraryConfig',
+    'exec',
+    '__proto__',
+    'constructor',
+  ]) {
     const r = validateCall(name, {});
     assert.equal(r.ok, false, name + ' 必须被拒');
     assert.ok(typeof r.reason === 'string' && r.reason.length > 0, name + ' 的拒绝理由不能为空');

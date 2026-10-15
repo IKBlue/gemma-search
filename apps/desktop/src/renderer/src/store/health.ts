@@ -15,11 +15,11 @@
 //   契约只批了这两个方法、**不发事件**（T-15a 明文）。所以进度只能是 UI 忙碌态：
 //   `rebuilding` 一置位，页面就显示「正在重建元数据…」并禁用按钮 —— **不许装作没事**，
 //   也不许自己编一个百分比（编进度 = 谎报，同 `store/tasks.ts` 对未知 total 的处理）。
-import { create } from 'zustand'
+import { create } from 'zustand';
 
-import { invoke as apiInvoke } from '../adapter/api.ts'
-import type { AdapterError } from '../adapter/api.ts'
-import type { ToastFn } from './search.ts'
+import { invoke as apiInvoke } from '../adapter/api.ts';
+import type { AdapterError } from '../adapter/api.ts';
+import type { ToastFn } from './search.ts';
 
 /** 体检项 id（主进程 `HealthCheckId` 的**拷贝**；渲染层不 import 主进程模块） */
 export type HealthCheckId =
@@ -32,91 +32,91 @@ export type HealthCheckId =
   | 'db-integrity'
   | 'db-tables'
   | 'db-read'
-  | (string & {})
+  | (string & {});
 
 /** 一项体检结论（**结构由主进程给**，界面只渲染，不自己判定） */
 export type HealthCheck = {
-  id: HealthCheckId
-  ok: boolean
+  id: HealthCheckId;
+  ok: boolean;
   /** 机器可读失败码；ok 时为空串（主进程契约：**不要**按 reason 分支） */
-  code: string
+  code: string;
   /** 人话理由；ok 时也非空（主进程契约） */
-  reason: string
+  reason: string;
   /** 「删库重建」能不能修好这一项（索引不行 ⇒ false） */
-  rebuildable: boolean
-}
+  rebuildable: boolean;
+};
 
 export type LibraryHealthReport = {
-  libId: string
-  root: string
-  dbPath: string | null
-  indexPath: string
-  checks: HealthCheck[]
-  ok: boolean
-  needsDbRebuild: boolean
-  needsIndexRebuild: boolean
-  reason: string
-}
+  libId: string;
+  root: string;
+  dbPath: string | null;
+  indexPath: string;
+  checks: HealthCheck[];
+  ok: boolean;
+  needsDbRebuild: boolean;
+  needsIndexRebuild: boolean;
+  reason: string;
+};
 
 /** `rebuildLibraryDb` 的导入段（界面要显示的部分） */
 export type RebuildImport = {
-  dbCount?: number
-  inserted?: number
-  updated?: number
-  deleted?: number
-}
+  dbCount?: number;
+  inserted?: number;
+  updated?: number;
+  deleted?: number;
+};
 
 export type RebuildReport = {
-  libId: string
-  root: string
-  dbPath: string
-  indexPath: string
-  before: LibraryHealthReport | null
+  libId: string;
+  root: string;
+  dbPath: string;
+  indexPath: string;
+  before: LibraryHealthReport | null;
   /** 真正删掉的 .gs.db 文件（含边车）—— 报告里要**列出来**，不能只说「删了」 */
-  removedDbFiles: string[]
-  created: boolean
-  schema?: { fromVersion?: number; toVersion?: number; applied?: number[] }
-  import?: RebuildImport
-  index?: { action?: string; detail?: string; count?: number | null; dim?: number | null }
-  after: LibraryHealthReport
-  dbOk: boolean
-  indexOk: boolean
+  removedDbFiles: string[];
+  created: boolean;
+  schema?: { fromVersion?: number; toVersion?: number; applied?: number[] };
+  import?: RebuildImport;
+  index?: { action?: string; detail?: string; count?: number | null; dim?: number | null };
+  after: LibraryHealthReport;
+  dbOk: boolean;
+  indexOk: boolean;
   /** = `after.ok`：**整个库**都好了才 true（索引仍坏 ⇒ false，绝不假装成功） */
-  ok: boolean
-  reason: string
-}
+  ok: boolean;
+  reason: string;
+};
 
-export type HealthPhase = 'idle' | 'checking' | 'ready' | 'error'
-export type RebuildPhase = 'idle' | 'confirm' | 'running' | 'done' | 'error'
+export type HealthPhase = 'idle' | 'checking' | 'ready' | 'error';
+export type RebuildPhase = 'idle' | 'confirm' | 'running' | 'done' | 'error';
 
 /** 待确认的重建请求。**只有 libId** —— 契约是 `.strict()`，多传字段会被主进程拒 */
-export type RebuildRequest = { libId: string }
+export type RebuildRequest = { libId: string };
 
 export type HealthState = {
-  phase: HealthPhase
-  report: LibraryHealthReport | null
-  error: AdapterError | null
-  rebuildPhase: RebuildPhase
+  phase: HealthPhase;
+  report: LibraryHealthReport | null;
+  error: AdapterError | null;
+  rebuildPhase: RebuildPhase;
   /** 待确认的重建请求（null = 没有待确认的东西 ⇒ 不弹确认框、一个 IPC 都不该发） */
-  pendingRebuild: RebuildRequest | null
+  pendingRebuild: RebuildRequest | null;
   /** 上一次重建的报告（完成后显示；复检结果落在 report 里） */
-  reportAfterRebuild: RebuildReport | null
+  reportAfterRebuild: RebuildReport | null;
   /** 重建失败时的信封（人话在 userMessage，不在界面里再编一份） */
-  rebuildError: AdapterError | null
-}
+  rebuildError: AdapterError | null;
+};
 
 export type HealthStore = HealthState & {
   /** 体检（只读）。libId 由调用方给 —— 从哪来是 `utils/library-root.ts` 的事 */
-  run: (libId: string, onToast?: ToastFn) => Promise<void>
+  run: (libId: string, onToast?: ToastFn) => Promise<void>;
   /** 请求重建（**只记下来** → 界面据此弹确认框，不执行任何 IPC） */
-  requestRebuild: (libId: string) => void
+  requestRebuild: (libId: string) => void;
   /** 取消（丢弃请求 —— 这是「用户拒绝」的唯一路径） */
-  cancelRebuild: () => void
+  cancelRebuild: () => void;
   /** 确认执行。**先清 pendingRebuild 再执行**（连点两次只发一次 IPC） */
-  confirmRebuild: (onToast?: ToastFn) => Promise<void>
+  confirmRebuild: (onToast?: ToastFn) => Promise<void>;
   /** 只给测试用：回到初始态（避免测试之间互相污染） */
-  __reset: () => void
-}
+  __reset: () => void;
+};
 
 const initial: HealthState = {
   phase: 'idle',
@@ -126,7 +126,7 @@ const initial: HealthState = {
   pendingRebuild: null,
   reportAfterRebuild: null,
   rebuildError: null,
-}
+};
 
 /**
  * 重建按钮该不该可点、为什么 —— **纯函数**（可断言）。
@@ -140,14 +140,15 @@ const initial: HealthState = {
  *    索引要不要重编码是**另一条路**（`indexStart`，目前是诚实桩），与本按钮无关。
  */
 export function decideRebuildGate(input: {
-  report: LibraryHealthReport | null
-  rebuildPhase: RebuildPhase
+  report: LibraryHealthReport | null;
+  rebuildPhase: RebuildPhase;
 }): { allowed: boolean; reason: string } {
-  if (input.rebuildPhase === 'running') return { allowed: false, reason: '正在重建元数据，请等它跑完' }
-  const report = input.report
-  if (!report) return { allowed: false, reason: '先跑一次体检，确认坏在哪' }
-  if (!report.needsDbRebuild) return { allowed: false, reason: '体检没发现可重建的元数据问题' }
-  return { allowed: true, reason: '' }
+  if (input.rebuildPhase === 'running')
+    return { allowed: false, reason: '正在重建元数据，请等它跑完' };
+  const report = input.report;
+  if (!report) return { allowed: false, reason: '先跑一次体检，确认坏在哪' };
+  if (!report.needsDbRebuild) return { allowed: false, reason: '体检没发现可重建的元数据问题' };
+  return { allowed: true, reason: '' };
 }
 
 const CHECK_LABELS: Record<string, string> = {
@@ -160,69 +161,91 @@ const CHECK_LABELS: Record<string, string> = {
   'db-integrity': '结构完整性',
   'db-tables': '数据表',
   'db-read': '可读性',
-}
+};
 
 /** 体检项的显示名。**认不出来就原样显示那个 id**（不猜、不吞）—— 同 `phaseLabel` 的口径 */
 export function checkLabel(id: string): string {
-  return CHECK_LABELS[id] ?? id
+  return CHECK_LABELS[id] ?? id;
 }
 
 /** 重建报告的一句话摘要（删了什么 / 导入多少 / 索引处置）—— 纯函数，可断言 */
 export function rebuildSummary(report: RebuildReport): string {
-  const imp = report.import ?? {}
-  const removed = report.removedDbFiles.length
-  const index = report.index?.action ?? '—'
+  const imp = report.import ?? {};
+  const removed = report.removedDbFiles.length;
+  const index = report.index?.action ?? '—';
   return (
-    '删除 ' + String(removed) + ' 个 .gs.db 文件 · 导入 ' + String(imp.dbCount ?? 0) + ' 条' +
-    '（新增 ' + String(imp.inserted ?? 0) + ' / 更新 ' + String(imp.updated ?? 0) + ' / 幽灵行 ' + String(imp.deleted ?? 0) + '）' +
-    ' · 索引 ' + index
-  )
+    '删除 ' +
+    String(removed) +
+    ' 个 .gs.db 文件 · 导入 ' +
+    String(imp.dbCount ?? 0) +
+    ' 条' +
+    '（新增 ' +
+    String(imp.inserted ?? 0) +
+    ' / 更新 ' +
+    String(imp.updated ?? 0) +
+    ' / 幽灵行 ' +
+    String(imp.deleted ?? 0) +
+    '）' +
+    ' · 索引 ' +
+    index
+  );
 }
 
 export const useHealthStore = create<HealthStore>()((set, get) => ({
   ...initial,
 
   run: async (libId, onToast) => {
-    if (!libId) { if (onToast) onToast('还没有可体检的库', 'err'); return }
-    set({ phase: 'checking', error: null })
+    if (!libId) {
+      if (onToast) onToast('还没有可体检的库', 'err');
+      return;
+    }
+    set({ phase: 'checking', error: null });
     // Adapter 永不抛 ⇒ 不需要 try/catch（见 adapter/api.ts 的 A5 断言）
-    const r = await apiInvoke<LibraryHealthReport>('libraryHealth', { libId })
+    const r = await apiInvoke<LibraryHealthReport>('libraryHealth', { libId });
     if (!r.ok) {
       // 文案只用 Adapter 归一后的 userMessage —— 界面**不许**再抄一份兜底（L6 会抓）
-      set({ phase: 'error', report: null, error: r.error })
-      if (onToast) onToast(r.error.userMessage, 'err')
-      return
+      set({ phase: 'error', report: null, error: r.error });
+      if (onToast) onToast(r.error.userMessage, 'err');
+      return;
     }
-    set({ phase: 'ready', report: r.data, error: null })
+    set({ phase: 'ready', report: r.data, error: null });
   },
 
   requestRebuild: (libId) => {
-    if (!libId) return
-    set({ pendingRebuild: { libId } })
+    if (!libId) return;
+    set({ pendingRebuild: { libId } });
   },
 
   cancelRebuild: () => set({ pendingRebuild: null }),
 
   confirmRebuild: async (onToast) => {
-    const pending = get().pendingRebuild
-    if (!pending) return                       // 没有待确认项 ⇒ 什么都不做（防误调）
+    const pending = get().pendingRebuild;
+    if (!pending) return; // 没有待确认项 ⇒ 什么都不做（防误调）
     // ⚠️ **先清状态再执行**：否则连点两次确认会发两次 IPC，而第二次重建在语义上是
     //    「刚建好的库再删一次」—— 不是一个安全的操作（同 store/search.ts 的 confirmCollect）。
-    set({ pendingRebuild: null, rebuildPhase: 'running', rebuildError: null, reportAfterRebuild: null })
-    const r = await apiInvoke<RebuildReport>('libraryRebuild', { libId: pending.libId })
+    set({
+      pendingRebuild: null,
+      rebuildPhase: 'running',
+      rebuildError: null,
+      reportAfterRebuild: null,
+    });
+    const r = await apiInvoke<RebuildReport>('libraryRebuild', { libId: pending.libId });
     if (!r.ok) {
-      set({ rebuildPhase: 'error', rebuildError: r.error })
-      if (onToast) onToast(r.error.userMessage, 'err')
-      return
+      set({ rebuildPhase: 'error', rebuildError: r.error });
+      if (onToast) onToast(r.error.userMessage, 'err');
+      return;
     }
-    set({ rebuildPhase: 'done', reportAfterRebuild: r.data, rebuildError: null })
+    set({ rebuildPhase: 'done', reportAfterRebuild: r.data, rebuildError: null });
     if (onToast) {
       // 如实报：ok=false 表示「元数据修好了、但索引还坏着」—— 不许显示成成功
-      onToast(r.data.ok ? '重建完成，复检通过' : '重建完成，但复检仍有问题', r.data.ok ? 'info' : 'err')
+      onToast(
+        r.data.ok ? '重建完成，复检通过' : '重建完成，但复检仍有问题',
+        r.data.ok ? 'info' : 'err',
+      );
     }
     // 自动复检一次（用**同一条**只读方法，不自己把 after 当结论硬塞进 report）
-    await get().run(pending.libId)
+    await get().run(pending.libId);
   },
 
   __reset: () => set({ ...initial }),
-}))
+}));

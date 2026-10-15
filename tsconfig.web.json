@@ -21,5 +21,9 @@
   },
   // shared/ipc.ts 是 IPC 契约的唯一来源，渲染层要 import 它的类型（Adapter 的 method: MethodName）。
   // 不列进来会报 TS6307（composite 工程要求被引用的文件在 file list 里）。
-  "include": ["apps/desktop/src/renderer/src/**/*", "apps/desktop/src/shared/**/*", "apps/desktop/src/preload/*.d.ts"]
+  "include": [
+    "apps/desktop/src/renderer/src/**/*",
+    "apps/desktop/src/shared/**/*",
+    "apps/desktop/src/preload/*.d.ts"
+  ]
 }

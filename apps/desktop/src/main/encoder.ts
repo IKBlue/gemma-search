@@ -14,11 +14,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
 import type { PretrainedModelOptions } from '@huggingface/transformers';
-import { installResizeCompat, selfTestResizeCompat, assertResizeCompatInstalled } from '../../../../packages/indexer/src/resize_compat.ts';
+import {
+  installResizeCompat,
+  selfTestResizeCompat,
+  assertResizeCompatInstalled,
+} from '../../../../packages/indexer/src/resize_compat.ts';
 // pickEmbedding 的**唯一实现**（ENC-1 / P1）：本文件以前自带第 5 份副本
 import { pickEmbedding } from '../../../../packages/indexer/src/embedding.ts';
 // 有界头读 + BMP 魔数（同样只有一份实现）
-import { readFileHead, isBmpHead, HEAD_SNIFF_BYTES } from '../../../../packages/indexer/src/bmp_decode.ts';
+import {
+  readFileHead,
+  isBmpHead,
+  HEAD_SNIFF_BYTES,
+} from '../../../../packages/indexer/src/bmp_decode.ts';
 import { decideDevice, UNPROBED } from './encoder-device.ts';
 import type { DeviceFallbackFact, GpuProbe, RequestedDevice } from './encoder-device.ts';
 
@@ -106,7 +114,10 @@ export type HeadReader = (absPath: string, maxBytes?: number) => Buffer;
  *
  * 导出仅供单测注入 `readHead`（断言读取量有界）；产品路径只用默认参数。
  */
-export async function readImageAny(absPath: string, readHead: HeadReader = readFileHead): Promise<ReadImageResult> {
+export async function readImageAny(
+  absPath: string,
+  readHead: HeadReader = readFileHead,
+): Promise<ReadImageResult> {
   const ext = path.extname(absPath).toLowerCase();
   const head = readHead(absPath, HEAD_SNIFF_BYTES);
   const isBmp = isBmpHead(head);
@@ -125,7 +136,11 @@ export async function readImageAny(absPath: string, readHead: HeadReader = readF
 }
 
 export async function createEncoder({
-  modelDir, seq = 140, device = 'webgpu', gpuProbe = UNPROBED, log = () => {},
+  modelDir,
+  seq = 140,
+  device = 'webgpu',
+  gpuProbe = UNPROBED,
+  log = () => {},
 }: CreateEncoderOptions): Promise<Encoder> {
   if (!modelDir || !fs.existsSync(modelDir)) {
     const e: Error & { code?: string } = new Error(`模型目录不存在：${modelDir || '(未配置)'}`);
@@ -140,8 +155,8 @@ export async function createEncoder({
   // 不报错、不崩溃，只是结果变差（实测像素差 1.93%，全量 min 余弦 0.9153）。
   // ⚠️ `logger` 的断言：indexer 侧的 `installResizeCompat` 目前只从默认值 `null` 推出 `logger?: null`，
   //    而运行时它就是"日志函数或 null"（本文件一直传 log）。这里按**运行时契约**断言，等 W1-B2 补完类型后即可删。
-  installResizeCompat({ kernel: 'pil-like', RawImage, logger: log });   // W1-B2 补完类型后，原先那句 as unknown as 已可删
-  assertResizeCompatInstalled(RawImage);        // ← 两份 transformers.js 的护栏（见 resize_compat.ts）
+  installResizeCompat({ kernel: 'pil-like', RawImage, logger: log }); // W1-B2 补完类型后，原先那句 as unknown as 已可删
+  assertResizeCompatInstalled(RawImage); // ← 两份 transformers.js 的护栏（见 resize_compat.ts）
   const rst = await selfTestResizeCompat();
   log(`重采样兼容层已安装并自检通过（kernel=${rst.kernel}）`);
 
@@ -153,12 +168,20 @@ export async function createEncoder({
   let effectiveProvider: string | null = decision.effectiveProvider;
   let deviceFallback: DeviceFallbackFact | null = decision.fallback;
   // ⚠️ 日志不再写 "device=webgpu" 这种**两义**写法（它会被读成"实际"）：请求与已验证分开写。
-  log('设备决策：请求=' + requestedDevice + ' · 实际=' + device
-      + ' · 已验证 EP=' + (effectiveProvider ?? '未验证') + ' · ' + decision.note);
+  log(
+    '设备决策：请求=' +
+      requestedDevice +
+      ' · 实际=' +
+      device +
+      ' · 已验证 EP=' +
+      (effectiveProvider ?? '未验证') +
+      ' · ' +
+      decision.note,
+  );
   const t0 = Date.now();
   const config = await AutoConfig.from_pretrained(modelDir);
   // transformers 的 .d.ts 没声明 `audio_config`，但运行时它就在 config 上（本应用用不到音频塔）。
-  (config as { audio_config?: unknown }).audio_config = null;   // 音频塔用不到
+  (config as { audio_config?: unknown }).audio_config = null; // 音频塔用不到
   const processor = await AutoProcessor.from_pretrained(modelDir, { config });
 
   // 三处 + config 副本都要设 —— 实测默认都是 280，而索引是 140。
@@ -205,10 +228,19 @@ export async function createEncoder({
     }
   }
   const loadMs = Date.now() - t0;
-  log(`载入完成 ${(loadMs / 1000).toFixed(1)}s · 请求=${deviceRequested} · 实际=${device} · 已验证 EP=${effectiveProvider ?? '未验证'}`);
+  log(
+    `载入完成 ${(loadMs / 1000).toFixed(1)}s · 请求=${deviceRequested} · 实际=${device} · 已验证 EP=${effectiveProvider ?? '未验证'}`,
+  );
 
   return {
-    modelDir, seq, device, deviceRequested, deviceFallback, effectiveProvider, gpuProbe, loadMs,
+    modelDir,
+    seq,
+    device,
+    deviceRequested,
+    deviceFallback,
+    effectiveProvider,
+    gpuProbe,
+    loadMs,
     async encodeText(text: string): Promise<Float32Array> {
       const inputs = await processor(QUERY_PREFIX + text);
       const emb = pickEmbedding(await model.forward(inputs));

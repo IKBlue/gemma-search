@@ -37,21 +37,33 @@ const meta = await base.metadata();
 console.log(`[rs] 源 ${meta.width}x${meta.height} ch=${meta.channels} → 目标 ${W}x${H}`);
 
 // A. affine + bicubic（transformers.js 的路径）
-const a = await base.clone()
+const a = await base
+  .clone()
   .affine([W / meta.width, 0, 0, H / meta.height], { interpolator: 'bicubic' })
-  .raw().toBuffer({ resolveWithObject: true });
+  .raw()
+  .toBuffer({ resolveWithObject: true });
 // B. 标准 resize + cubic（候选）
-const b = await base.clone()
+const b = await base
+  .clone()
   .resize({ width: W, height: H, fit: 'fill', kernel: 'cubic' })
-  .raw().toBuffer({ resolveWithObject: true });
+  .raw()
+  .toBuffer({ resolveWithObject: true });
 
 const outDir = path.join(here, '..', 'data');
 fs.writeFileSync(path.join(outDir, '_resize-affine.raw'), a.data);
 fs.writeFileSync(path.join(outDir, '_resize-cubic.raw'), b.data);
-fs.writeFileSync(path.join(outDir, '_resize-meta.json'), JSON.stringify({
-  src: imgArg === '-' ? '(raw)' : imgArg, srcW: meta.width, srcH: meta.height,
-  targetW: W, targetH: H,
-  affine: { w: a.info.width, h: a.info.height, ch: a.info.channels },
-  cubic: { w: b.info.width, h: b.info.height, ch: b.info.channels },
-}));
-console.log(`[rs] 已写 _resize-affine.raw / _resize-cubic.raw（affine ${a.info.width}x${a.info.height} · cubic ${b.info.width}x${b.info.height}）`);
+fs.writeFileSync(
+  path.join(outDir, '_resize-meta.json'),
+  JSON.stringify({
+    src: imgArg === '-' ? '(raw)' : imgArg,
+    srcW: meta.width,
+    srcH: meta.height,
+    targetW: W,
+    targetH: H,
+    affine: { w: a.info.width, h: a.info.height, ch: a.info.channels },
+    cubic: { w: b.info.width, h: b.info.height, ch: b.info.channels },
+  }),
+);
+console.log(
+  `[rs] 已写 _resize-affine.raw / _resize-cubic.raw（affine ${a.info.width}x${a.info.height} · cubic ${b.info.width}x${b.info.height}）`,
+);
