@@ -24,7 +24,6 @@ import { fileURLToPath } from 'node:url';
 import {
   ASSET_ITEM_SELECT_ALL_SQL,
   GsDbError,
-  ITEM_COLUMNS,
   ITEM_FIELD_COLUMNS,
   ITEM_NULLABLE_FIELDS,
   joinedRowToItemRecord,

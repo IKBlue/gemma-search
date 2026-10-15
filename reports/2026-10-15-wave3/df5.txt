@@ -1,0 +1,43 @@
+================================================================================
+DF-5 证据 · 删掉 row-types.ts 指向已退役表的死 SQL + 修测试引用   task-72   2026-10-15
+================================================================================
+【删了什么 · 删前谁在用 · 删后由谁替代】
+  1) ITEM_INSERT_SQL（row-types）      删前：只有 barrel 转出（index.ts），**无活调用**（import.ts 已直连新表）
+                                       删后：无替代 —— 写路径 = import.ts 的 INSERT_ASSET_SQL
+  2) ITEM_UPSERT_SQL（row-types）      删前：同上；删后：无替代 —— uid 认领 + UPDATE_ASSET_SQL
+  3) itemRecordToSqlValues（row-types）删前：只被上面两条 SQL 的文档提及；删后：无替代
+  4) ITEM_COLUMNS（row-types）         删前：被两条 SQL 生成器 + barrel + db-import 的 import（**未使用**）引用
+                                       删后：字段集合仍由 ITEM_FIELD_COLUMNS / ITEM_FIELDS 承载；
+                                             测试改用产品的新映射（joinedRowToItemRecord 合成结果）——**不在测试里重写列序**（P1）
+  5) sqlRowToItemRecord（row-types）   删前：只被 storage-ports 的一处**注释**提及（非调用）
+                                       删后：由 joinedRowToItemRecord（三表连接行 → ItemRecord）替代；注释同步更新
+  保留：parseItemRecord（源 items.json 的 18 字段解析，导入在用）· joinedRowToItemRecord（新读路径）·
+        ITEM_FIELD_COLUMNS / ITEM_FIELDS / ITEM_NULLABLE_FIELDS（契约唯一来源）
+  墓碑注释：删除处留了「为什么没了 · 别再为兼容加回来」的说明，但**不带旧标识符**（否则污染 0 残留 grep）。
+
+【能红（纯删除的守卫是 tsc）】
+  注入：在 row-types.ts 末尾加一行 `const __df5Probe = ITEM_UPSERT_SQL;`（引用已删符号）
+    ⇒ tsc node **非 0**，原文：
+      TSC_NODE=1
+      apps/desktop/src/main/db/row-types.ts(328,20): error TS2304: Cannot find name 'ITEM_UPSERT_SQL'.
+      apps/desktop/src/main/library-rebuild.ts(35,10): error TS2305: Module '"./gs-names.ts"' has no exported member 'isMaterialEntryName'.
+  还原（撤掉探针行）⇒ 探针残留 grep = 0 ⇒ tsc node = **0**
+
+【门禁原始输出】
+  tsc node                     ⇒ EXIT=0
+  db-import + db-schema        ⇒ EXIT=0 · **tests 29 · pass 29 · fail 0**（原始输出 data/_df5-tests.txt）
+
+【0 残留 grep（先跑命令、贴输出、后结论 —— 纪律 17）】
+  rg "ITEM_INSERT_SQL|ITEM_UPSERT_SQL|sqlRowToItemRecord|INSERT INTO items|UPSERT INTO items" apps   ⇒ 命中 **0**
+  rg "...同上..." packages                                                                        ⇒ 命中 **0**
+================================================================================
+
+【⚠️ 收卡后复跑 tsc 的新观察（如实记，不改结论归属）】
+  还原探针后复跑 tsc 时出现**不属于本卡**的错误：
+    apps/desktop/src/main/library-rebuild.ts(35,10): error TS2305: Module './gs-names.ts' has no exported member 'isMaterialEntryName'
+  · 该文件 = `library-rebuild.ts` / `gs-names.ts` —— **不在我的 writeScopes**（DF-5 边界：row-types.ts · db/index.ts · db-import.test.mjs）。
+  · 我改的文件（row-types.ts · db/index.ts · db-import.test.mjs · storage-ports.ts）**无一条错误**（见下附复跑输出）。
+  · 本卡最初那次 tsc 是 **EXIT=0**（探针注入前），随后别人改的 gs-names/library-rebuild 让全仓 tsc 变红 ⇒
+    这是**并行写入的时序**，不是我删死代码造成的。⇒ 按规矩：**只报不改**，归 S2b/对应卡的 owner。
+  · node:test **不做类型检查**（.ts 由 node 直接剥类型执行）⇒ 本卡两个测试文件仍然全绿（见下）。
+================================================================================

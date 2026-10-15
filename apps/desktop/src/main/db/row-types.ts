@@ -1,12 +1,16 @@
-// apps/desktop/src/main/db/row-types.ts —— items 表与 data/libraries/L1/items.json 的**字段对齐**（T-11a ③ · T-11b）
+// apps/desktop/src/main/db/row-types.ts —— data/libraries/L1/items.json（源格式）与**绿地事实层**的字段对齐
 //
 // 为什么要单独一个文件：
 //   items.json 是**驼峰**（libId / relPath / imageMtime），SQLite 列是**下划线**（lib_id / rel_path / image_mtime）。
 //   这套映射如果写在导入代码里，它就会和 DDL 各自演化 —— 而本项目已经栽过"同一概念两份定义"（AGENTS P1）。
 //   ⇒ 字段↔列的配对**只在这里定义一次**（ITEM_FIELD_COLUMNS），下面所有东西都从它派生：
-//     ITEM_FIELDS / ITEM_COLUMNS / itemRecordToSqlValues / ITEM_INSERT_SQL / ITEM_UPSERT_SQL。
-//   ⇒ db-schema.test.mjs 拿**真的 items.json**（3594 条）核对字段集，并拿 PRAGMA table_info(items)
-//     核对列顺序；db-import.test.mjs 再核对"可空集合 ↔ DDL 的 notnull" —— 任一漂移就红。
+//     ITEM_FIELDS / ITEM_FIELD_COLUMNS / parseItemRecord（源格式解析）· joinedRowToItemRecord（新读路径合成）。
+//   ⇒ db-schema.test.mjs 拿**真的 items.json**（3594 条）核对字段集；db-import.test.mjs 再核对
+//     「新表 NOT NULL 列集 ↔ ItemRecord 必填字段集」—— 任一漂移就红。
+//   ⚠️ DF-5（2026-10-15）：原先这里还有 **指向已退役 items 表的写 SQL 生成器**
+//     （旧宽表的列清单 / 绑定器 / 两条写 SQL）与旧读映射
+//     （旧宽表的行映射）—— 绿地 schema 下那张表不存在 ⇒ 它们是**死代码**，已删除。
+//     写路径现在是 import.ts 直连 asset / asset_file；读路径是 joinedRowToItemRecord。
 //
 // 实测形状（2026-10-14 读 data/libraries/L1/items.json：3594 条 × 18 字段，字段一个不少不多）：
 //   uid · libId · folder · stem · name · relPath · absPath · imageExt · imageSize · imageMtime
@@ -21,13 +25,12 @@
 import path from 'node:path';
 
 import { GsDbError } from './errors.ts';
-import type { SqlValue } from './sqlite-adapter.ts';
 
 /**
  * **唯一来源**：18 组 [JSON 字段名, SQLite 列名]，顺序 = 建表顺序 = 绑定顺序。
  *
- * ⚠️ 顺序是有意义的（itemRecordToSqlValues / ITEM_INSERT_SQL / ITEM_UPSERT_SQL 都按它来），
- *    所以它是**数组**而不是对象 —— 对象的键序在规范上不承载语义。
+ * ⚠️ 顺序是有意义的（parseItemRecord 的取值顺序按它来），所以它是**数组**而不是对象 ——
+ *    对象的键序在规范上不承载语义。
  */
 export const ITEM_FIELD_COLUMNS = Object.freeze([
   ['uid', 'uid'],
@@ -57,9 +60,6 @@ export type ItemColumn = (typeof ITEM_FIELD_COLUMNS)[number][1];
 
 /** items.json 里一条条目的字段名列表（从同一份配对派生，不另写一遍） */
 export const ITEM_FIELDS: readonly ItemField[] = ITEM_FIELD_COLUMNS.map((pair) => pair[0]);
-
-/** items 表的列名列表（从同一份配对派生，不另写一遍） */
-export const ITEM_COLUMNS: readonly ItemColumn[] = ITEM_FIELD_COLUMNS.map((pair) => pair[1]);
 
 /**
  * **可以写 null 的字段**（单一来源）。
@@ -107,41 +107,11 @@ export interface ItemRecord {
   vectorSource: string | null;
 }
 
-/**
- * ItemRecord → 绑定参数（顺序 = ITEM_COLUMNS 的顺序，即 DDL 的列序）。
- * 配合 ITEM_INSERT_SQL / ITEM_UPSERT_SQL 使用；都从 ITEM_FIELD_COLUMNS 派生，不可能错位。
- */
-export function itemRecordToSqlValues(item: ItemRecord): SqlValue[] {
-  return ITEM_FIELD_COLUMNS.map(([field]) => item[field]);
-}
-
-// ---------------------------------------------------------------- SQL（列名从同一份配对生成）
-
-const PLACEHOLDERS: string = ITEM_COLUMNS.map(() => '?').join(', ');
-
-/**
- * 导入一条条目的 INSERT（列名与占位符都从 ITEM_COLUMNS 生成）。
- *
- * 为什么把 SQL 也放这儿：T-11b 的导入只要 `prepare(ITEM_INSERT_SQL)` + `itemRecordToSqlValues`，
- * 就**没有机会**写错列名或漏列 —— 这是防止"18 个字段只导了 17 个"的唯一机械办法。
- */
-export const ITEM_INSERT_SQL: string =
-  'INSERT INTO items (' + ITEM_COLUMNS.join(', ') + ') VALUES (' + PLACEHOLDERS + ')';
-
-/**
- * 幂等 UPSERT：uid 冲突时**整行覆盖**为非 uid 的全部列。
- *
- * 语义（T-11b 明确写死，避免下一个人猜）：
- *   · 同一个 uid 再来一次 ⇒ 更新那一行（不新增行）⇒ 重复导入后行数不变
- *   · 覆盖的是**全部**非 uid 列，包含 NULL —— 也就是说入库结果 = 源文件那一行的忠实拷贝，
- *     不会把上一次导入残留的旧值留在库里（"部分更新"会让库和源文件静默不一致）
- */
-export const ITEM_UPSERT_SQL: string =
-  'INSERT INTO items (' + ITEM_COLUMNS.join(', ') + ') VALUES (' + PLACEHOLDERS + ')' +
-  ' ON CONFLICT(uid) DO UPDATE SET ' +
-  ITEM_COLUMNS.filter((c) => c !== 'uid')
-    .map((c) => c + ' = excluded.' + c)
-    .join(', ');
+// ---------------------------------------------------------------- 写 SQL（DF-5：已删除）
+//
+// 这里原先有指向**已退役宽表**的两条写 SQL 与绑定器。
+// 绿地 schema 拆表后 items 不再存在 ⇒ 它们是死代码（写路径已由 import.ts 直连 asset / asset_file），
+// 已于 DF-5（2026-10-15）删除。**不要**在这里重新加回指向旧表的 SQL 生成器。
 
 // ---------------------------------------------------------------- 严格解析（T-11b）
 
@@ -212,45 +182,12 @@ function optionalInteger(rec: Record<string, unknown>, field: ItemField, where: 
 }
 
 /**
- * **反向**映射：items 表读回来的行 → ItemRecord（T-16b 的 ItemStorePort 用）。
+ * 【DF-5 已删除】旧读映射（已退役宽表的行 → ItemRecord）。
+ * 绿地读路径改用下面的 joinedRowToItemRecord（三表连接行 → ItemRecord）；两者共用同一套取值器。
  *
- * 与 parseItemRecord 用**同一套**取值器 ⇒ 列名/可空性/类型的判据只有一份。
- * 类型不符（列被外部改过、库损坏）时抛 IMPORT_RECORD_INVALID —— 读路径也要**响亮**，
- * 不能把 null/错值悄悄塞进条目，那会让检索结果静默变味。
- *
- * @throws GsDbError(IMPORT_RECORD_INVALID)
+ * 保留此注释是**有意**的：下一个人搜旧映射名时会看到「为什么没了」，
+ * 而不是以为漏写。**不要**为了"兼容"把它加回来 —— 它指向的表已不存在。
  */
-export function sqlRowToItemRecord(row: Record<string, unknown>, where: string): ItemRecord {
-  // ⚠️ SQL 行是**下划线列名**（lib_id / rel_path），取值器吃的是**驼峰字段名** ⇒
-  //    先按 ITEM_FIELD_COLUMNS 把列名翻成字段名（同一份配对，不另写映射）。
-  //    缺列**不补 undefined**：让 pick 报"缺少字段"——外部改过表结构时必须响亮。
-  const byField: Record<string, unknown> = {};
-  for (const [field, column] of ITEM_FIELD_COLUMNS) {
-    if (Object.hasOwn(row, column)) byField[field] = row[column];
-  }
-  const rec = byField;
-  return {
-    uid: requireText(rec, 'uid', where),
-    libId: requireText(rec, 'libId', where),
-    folder: requireText(rec, 'folder', where),
-    stem: requireText(rec, 'stem', where),
-    name: requireText(rec, 'name', where),
-    relPath: requireText(rec, 'relPath', where),
-    absPath: requireText(rec, 'absPath', where),
-    imageExt: requireText(rec, 'imageExt', where),
-    imageSize: requireInteger(rec, 'imageSize', where),
-    imageMtime: requireInteger(rec, 'imageMtime', where),
-    archiveName: optionalText(rec, 'archiveName', where),
-    archiveRelPath: optionalText(rec, 'archiveRelPath', where),
-    archiveAbsPath: optionalText(rec, 'archiveAbsPath', where),
-    archiveExt: optionalText(rec, 'archiveExt', where),
-    archiveSize: optionalInteger(rec, 'archiveSize', where),
-    archiveMtime: optionalInteger(rec, 'archiveMtime', where),
-    vectorRow: optionalInteger(rec, 'vectorRow', where),
-    vectorSource: optionalText(rec, 'vectorSource', where),
-  };
-}
-
 /**
  * 读条目用的**唯一** SELECT（S2；ItemStorePort 与测试**共用同一条**）。
  *
@@ -283,7 +220,7 @@ export const ASSET_ITEM_SELECT_ONE_SQL: string =
  *
  * 为什么需要它：旧 `items` 是一张宽表（18 列正好等于 ItemRecord 的 18 个字段），
  * 新 schema 把它拆成 `asset`（条目）+ `asset_file`（文件角色）+ `asset_index_state`（索引状态）
- * ⇒ 读路径必须**合成**。取值器与 sqlRowToItemRecord **同一套**（类型/可空性判据仍然只有一份）。
+ * ⇒ 读路径必须**合成**。取值器与旧宽表那条映射 **同一套**（类型/可空性判据仍然只有一份）。
  *
  * 三处**新 schema 里没有、只能合成**的字段（写在这里，而不是散到各个调用点）：
  *   · `absPath` / `archiveAbsPath` —— 新 schema 只存**相对路径**（设计基线 §1.2）

@@ -326,7 +326,7 @@ function readItemsFromDb(
  * 条目端口：.gs.db 优先，**没有 .gs.db 才回落 items.json**（并按契约"明说"）。
  *
  * 两条路的读法都复用既有实现，不重写：
- *   · .gs.db → db/open.openGsDb（只读）+ row-types.sqlRowToItemRecord（列↔字段的唯一映射）
+ *   · .gs.db → db/open.openGsDb（只读）+ row-types.joinedRowToItemRecord（三表连接行↔字段的唯一映射）
  *   · items.json → 引擎的 readItems（格式归引擎；它抛的 INDEX_MISSING/INDEX_CORRUPT 直接透传）
  *
  * items.json 回落带 **mtime 守卫缓存**：引擎会对同一库反复调 getItem（取件循环最多 200 次），
