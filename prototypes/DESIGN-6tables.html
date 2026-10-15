@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>绿地设计基线 · 6 张表 + 接口</title>
+<!--
+  绿地设计基线（所有者口径：全新项目，先定数据表、再对接口）
+  来源 = reports/2026-10-15-schema-diff/DESIGN-6tables-and-contract.md（提交 31d2258）
+  状态 = 待所有者批准；批准后写进 SPEC.md §1/§2/§5
+  单文件、无外部依赖、无 CDN、无 JS；file:// 直接打开。
+-->
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+:root {
+  --line: #2c2c2e; --line-strong: #3a3a3c;
+  --surface: #161618; --raised: #1d1d1f; --hover: rgba(255,255,255,.055);
+  --text: #f5f5f7; --text-2: #a1a1a6; --text-3: #86868b;
+  --accent: #0d6fdb; --accent-text: #4da3ff; --accent-soft: rgba(77,163,255,.18);
+  --ok-text: #30d158; --warn-text: #ff9f0a; --crit-text: #ff685f;
+  --ok-soft: rgba(48,209,88,.22); --warn-soft: rgba(255,159,10,.22); --crit-soft: rgba(255,69,58,.22);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --r-panel: 18px; --r-pill: 999px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --line: #e5e5ea; --line-strong: #d2d2d7;
+    --surface: #fff; --raised: #fff; --hover: rgba(0,0,0,.045);
+    --text: #1d1d1f; --text-2: #6e6e73; --text-3: #707078;
+    --accent: #0071e3; --accent-text: #2b6fd4; --accent-soft: rgba(0,113,227,.10);
+    --ok-text: #217f3a; --warn-text: #a06406; --crit-text: #cd0014;
+    --ok-soft: rgba(52,199,89,.14); --warn-soft: rgba(255,159,10,.09); --crit-soft: rgba(255,59,48,.14);
+  }
+}
+body {
+  margin: 0; padding: 44px 32px 120px; font-size: 14px; line-height: 1.45;
+  background: #000; color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Hiragino Sans GB", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+@media (prefers-color-scheme: light) { body { background: #fff; } }
+.wrap { max-width: 1240px; margin: 0 auto; }
+h1 { font-size: 27px; font-weight: 680; letter-spacing: -.022em; margin: 0 0 6px; }
+h2 { font-size: 20px; font-weight: 660; letter-spacing: -.018em; margin: 54px 0 6px;
+     padding-top: 22px; border-top: 1px solid var(--line); }
+h2:first-of-type { border-top: 0; margin-top: 34px; }
+h3 { font-size: 15px; font-weight: 640; margin: 0; }
+h4 { font-size: 13px; font-weight: 640; margin: 0; }
+p { margin: 0; }
+.mono, code { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.lede { color: var(--text-2); font-size: 15px; max-width: 78ch; }
+.sub { color: var(--text-3); font-size: 12.5px; margin-top: 5px; max-width: 84ch; }
+.muted { color: var(--text-2); } .faint { color: var(--text-3); }
+
+/* 分层色带 */
+.band { display: flex; align-items: center; gap: 10px; margin: 26px 0 10px; }
+.band .tag { font-size: 11px; font-weight: 660; letter-spacing: .05em; text-transform: uppercase;
+  padding: 3px 10px; border-radius: var(--r-pill); }
+.b-fact { background: rgba(120,120,255,.16); color: #9b9bff; }
+.b-proc { background: var(--warn-soft); color: var(--warn-text); }
+.b-intent { background: var(--ok-soft); color: var(--ok-text); }
+.b-app { background: var(--accent-soft); color: var(--accent-text); }
+.band .ln { flex: 1; height: 1px; background: var(--line); }
+.band .note { font-size: 12px; color: var(--text-3); }
+
+.tbl { border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface);
+       margin-top: 14px; overflow: hidden; }
+.tbl-h { display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+         padding: 13px 18px; border-bottom: 1px solid var(--line);
+         background: color-mix(in srgb, var(--text) 3%, transparent); }
+.tbl-h h3 { font-family: var(--mono); font-size: 14px; letter-spacing: -.01em; }
+.tbl-h .why { flex-basis: 100%; font-size: 12.5px; color: var(--text-2); line-height: 1.6; }
+.tbl table { width: 100%; border-collapse: collapse; }
+.tbl th, .tbl td { text-align: left; padding: 8px 18px; border-top: 1px solid var(--line); vertical-align: top; }
+.tbl thead th { border-top: 0; font-size: 10.5px; font-weight: 620; letter-spacing: .05em;
+                text-transform: uppercase; color: var(--text-3); padding-top: 10px; padding-bottom: 6px; }
+.tbl td.f { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+.tbl td.t { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); white-space: nowrap; }
+.tbl td.c { white-space: nowrap; }
+.tbl td.d { font-size: 12.5px; color: var(--text-2); }
+
+.pill { display: inline-block; padding: 1px 6px; margin: 1px 3px 1px 0; border-radius: 5px;
+        font-size: 10px; font-weight: 620; letter-spacing: .02em; white-space: nowrap; }
+.p-pk { background: var(--accent-soft); color: var(--accent-text); }
+.p-fk { background: rgba(120,120,255,.16); color: #9b9bff; }
+.p-nn { background: var(--hover); color: var(--text-2); }
+.p-idx { background: var(--ok-soft); color: var(--ok-text); }
+.p-ck { background: var(--warn-soft); color: var(--warn-text); }
+.p-new { background: var(--ok-soft); color: var(--ok-text); }
+.p-now { background: var(--accent-soft); color: var(--accent-text); }
+.p-later { background: var(--hover); color: var(--text-3); }
+
+.note { display: flex; gap: 10px; padding: 12px 15px; border-radius: 11px; margin-top: 14px;
+        background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+        font-size: 12.5px; line-height: 1.6; }
+.note svg { width: 15px; height: 15px; flex: none; margin-top: 2px; color: var(--accent-text); }
+.note.warn { background: var(--warn-soft); border-color: color-mix(in srgb, #ff9f0a 30%, transparent); color: var(--warn-text); }
+.note.warn svg { color: var(--warn-text); }
+.note.crit { background: var(--crit-soft); border-color: color-mix(in srgb, #ff685f 30%, transparent); color: var(--crit-text); }
+.note.crit svg { color: var(--crit-text); }
+.note.ok { background: var(--ok-soft); border-color: color-mix(in srgb, #30d158 30%, transparent); color: var(--ok-text); }
+.note.ok svg { color: var(--ok-text); }
+.note b { font-weight: 660; }
+
+pre { margin: 14px 0 0; padding: 15px 17px; border-radius: 13px; overflow-x: auto;
+      background: #0d0d0f; border: 1px solid var(--line);
+      font-family: var(--mono); font-size: 12px; line-height: 1.75; color: #e8e8ea; }
+@media (prefers-color-scheme: light) { pre { background: #f6f6f8; color: #1d1d1f; } }
+pre .c { color: #86868b; } pre .k { color: #ff9f0a; } pre .s { color: #7fd6a0; }
+
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px;
+         border-radius: var(--r-pill); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.b-ok { background: var(--ok-soft); color: var(--ok-text); }
+.b-warn { background: var(--warn-soft); color: var(--warn-text); }
+.b-crit { background: var(--crit-soft); color: var(--crit-text); }
+.b-neutral { background: var(--hover); color: var(--text-2); }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 14px; }
+.box { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; background: var(--surface); }
+.box .n { font-family: var(--mono); font-size: 13px; font-weight: 620; }
+.box ul { margin: 8px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--text-2); }
+.box li { padding: 2px 0; } .box li b { color: var(--text); font-weight: 580; }
+
+.steps { margin-top: 12px; }
+.steps .st { display: flex; gap: 14px; padding: 11px 0; border-top: 1px solid var(--line); }
+.steps .st:first-child { border-top: 0; }
+.steps .st .no { flex: none; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent-text); font-size: 12px; font-weight: 660;
+  display: grid; place-items: center; }
+.steps .st .bd .t { font-size: 13.5px; font-weight: 620; }
+.steps .st .bd .d { font-size: 12.5px; color: var(--text-2); margin-top: 2px; line-height: 1.55; }
+</style>
+<style>
+  /* 本页新增的三个 pill 变体（颜色全部复用既有变量，不引入新色值） */
+  .pill.p-keep { background: var(--ok-soft); color: var(--ok-text); }
+  .pill.p-add  { background: var(--accent-soft); color: var(--accent-text); }
+  .pill.p-drop { background: var(--crit-soft); color: var(--crit-text); }
+  /* 既有 .note 是 display:flex（为多子元素设计），本页的 note 是纯文本 + <br> ⇒ 必须覆盖回 block，否则被挤成窄列 */
+  .note { display: block; }
+  .note .mono { white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>绿地设计基线 · 6 张表 + 接口</h1>
+<p class="lede">全新项目：<b>先定数据表，再对接口</b>。不受现有代码与旧 schema 约束。</p>
+<p class="band"><span class="badge b-warn">待所有者批准</span> 2026-10-15 · 批准后写进 <span class="mono">SPEC.md</span> §1 / §2 / §5 并据此实施 · 配套文件 <span class="mono">reports/2026-10-15-schema-diff/DESIGN-6tables-and-contract.md</span></p>
+
+<h2>0 · 三条基线原则</h2>
+<div class="grid2">
+  <div class="box"><h3>① 只建现在就要用的表</h3><p>本轮 <b>6 张</b>；其余 14 张<b>随功能上线</b>（各加一条迁移）。所有者裁定 B。</p></div>
+  <div class="box"><h3>② 每列都有出处</h3><p>要么被某个操作用到，要么是<b>扫描就能拿到的事实</b>。口径 = field-map 的 55 个操作。</p></div>
+  <div class="box"><h3>③ 接口只暴露表能支持的操作</h3><p>为不存在的表开的接口<b>一律不开</b> —— 先定表，再对接口。</p></div>
+  <div class="box"><h3>两个数据库</h3><p><span class="mono">userData/app.db</span>（应用级 3 张）· <span class="mono">&lt;库根&gt;/.gs.db</span>（库级 3 张，跟着库走）</p></div>
+</div>
+<p class="warn"><b>跨库外键不存在</b>（SQLite 无此能力）⇒ <span class="mono">asset.lib_id</span> 只是普通 TEXT，<b>不做</b> REFERENCES。这是两个库划分的必然代价，写进注释。</p>
+
+<h2>1 · 数据表（6 张）</h2>
+<p class="sub">库级 <span class="mono">&lt;库根&gt;/.gs.db</span> —— 3 张</p>
+
+<div class="tbl">
+  <div class="tbl-h"><h3>asset</h3><span class="pill p-now">本轮</span>
+    <span class="why">条目。<b>一个条目 = 一张预览图 + 可选同名包</b>。写入口只有一个：<b>扫描</b>。</span></div>
+  <table>
+    <thead><tr><th style="width:190px">字段</th><th style="width:110px">类型</th><th style="width:210px">约束</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td class="f">uid</td><td class="t">TEXT</td><td class="c"><span class="pill p-pk">PK</span></td><td class="d">12 位小写 hex；<b>扫描时匹配认领</b>（先按 (lib_id, rel_path) 命中就保留原 uid）。</td></tr>
+      <tr><td class="f">lib_id</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">普通 TEXT（跨库外键建不出来，见 §0）。</td></tr>
+      <tr><td class="f">folder</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">分类目录 —— 浏览与筛选的主维度。</td></tr>
+      <tr><td class="f">stem</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">文件名主干（配对靠它；唯一来源在扫描器）。</td></tr>
+      <tr><td class="f">display_name</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">界面显示名，可改 —— <b>不改磁盘</b>。</td></tr>
+      <tr><td class="f">rel_dir</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">相对目录的<b>规范形</b>（库根 ⇒ 空串）；进 uid 公式。</td></tr>
+      <tr><td class="f">rel_path</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">相对路径 —— <b>扫描匹配与唯一性的落点</b>。</td></tr>
+      <tr><td class="f">discovered_at_ms</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">首次被发现时刻（「最近入库」要用）。</td></tr>
+    </tbody>
+  </table>
+  <p class="note"><b>唯一约束</b> <span class="mono">UNIQUE (lib_id, rel_path)</span> —— 防止同一文件被登记两次（uid 不再由路径派生，路径唯一性必须显式声明）。<br>
+  <b>索引</b> <span class="mono">(lib_id, folder)</span> · <span class="mono">(stem)</span>。<br>
+  <b>本批刻意不加</b> <span class="mono">deleted_at_ms</span>（回收站）· <span class="mono">dup_group_id</span>（去重）· <span class="mono">content_created_at_ms</span>（按内容时间浏览）—— 都属后续功能。</p>
+</div>
+
+<div class="tbl">
+  <div class="tbl-h"><h3>asset_file</h3><span class="pill p-now">本轮</span>
+    <span class="why">文件角色。<b>缺包 = 少一行</b>，不是一个 NULL 块。写入口同 <span class="mono">asset</span>：只有扫描。</span></div>
+  <table>
+    <thead><tr><th style="width:190px">字段</th><th style="width:110px">类型</th><th style="width:210px">约束</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td class="f">uid</td><td class="t">TEXT</td><td class="c"><span class="pill p-fk">FK → asset.uid</span><span class="pill p-ck">ON DELETE CASCADE</span></td><td class="d"><b>同库</b>外键 —— 表在同一文件里，所以 CASCADE 成立。</td></tr>
+      <tr><td class="f">role</td><td class="t">TEXT</td><td class="c"><span class="pill p-ck">CHECK preview / archive</span></td><td class="d">预览图 / 同名包。</td></tr>
+      <tr><td class="f">rel_path</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">相对路径。</td></tr>
+      <tr><td class="f">ext</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">扩展名。</td></tr>
+      <tr><td class="f">size_bytes</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">大小（扫描事实）。</td></tr>
+      <tr><td class="f">mtime_ms</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d"><b>统一口径</b>：<span class="mono">BigInt mtimeNs / 1e6</span> 截断，全库唯一写入口。</td></tr>
+      <tr><td class="f">width · height</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d">像素尺寸 —— <b>扫描就能拿到</b> ⇒ 现在就存，免得以后重扫。</td></tr>
+    </tbody>
+  </table>
+  <p class="note"><b>主键</b> <span class="mono">(uid, role)</span> · <b>索引</b> <span class="mono">(rel_path)</span>。<br>
+  <b>本批不加</b> <span class="mono">thumb_hash</span>（首屏占位图，UI 增强）· <span class="mono">content_hash_kind/value</span>（去重功能，而且要真算哈希）。</p>
+</div>
+
+<div class="tbl">
+  <div class="tbl-h"><h3>asset_index_state</h3><span class="pill p-now">本轮</span>
+    <span class="why">索引状态。<b>存时刻，不存枚举</b> —— 「待重编码」是算出来的，不是存出来的。</span></div>
+  <table>
+    <thead><tr><th style="width:190px">字段</th><th style="width:110px">类型</th><th style="width:210px">约束</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td class="f">uid</td><td class="t">TEXT</td><td class="c"><span class="pill p-pk">PK</span><span class="pill p-fk">FK → asset.uid</span><span class="pill p-ck">CASCADE</span></td><td class="d">1:1 于条目。</td></tr>
+      <tr><td class="f">encoded_at_ms</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d"><b>成功编码时刻</b>；NULL = 从未成功。</td></tr>
+      <tr><td class="f">encoded_mtime_ms</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d">编码时该文件的 mtime ⇒ 与当前 mtime 不等 = <b>待重编码</b>。</td></tr>
+      <tr><td class="f">compat_key</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d">编码时用的兼容键 ⇒ 与库的 compat_key 不等 = 待重编码（模型换了）。</td></tr>
+      <tr><td class="f">attempt_count</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">DEFAULT 0</span></td><td class="d">尝试次数。</td></tr>
+      <tr><td class="f">last_error · last_error_at_ms</td><td class="t">TEXT · INTEGER</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d"><b>失败原因</b> —— 没有它，「编码失败」这一档无法解释。</td></tr>
+      <tr><td class="f">excluded_at_ms</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d">用户<b>主动排除</b>索引（意图，优先级最高）。</td></tr>
+      <tr><td class="f">checked_at_ms</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d">上次核对时刻 —— 界面要能说「这是上次已知状态，可能过期」。</td></tr>
+    </tbody>
+  </table>
+  <p class="note"><b>偏索引</b> <span class="mono">(encoded_at_ms) WHERE encoded_at_ms IS NULL</span> · <span class="mono">(excluded_at_ms) WHERE excluded_at_ms IS NOT NULL</span>。<br>
+  <b>状态 8 档全部派生</b>（一个字都不存）：已排除 &gt; 编码失败 &gt; 编码中 &gt; 图片丢失 &gt; 已移除 &gt; 待重编码 &gt; 待编码 &gt; 已编码。<br>
+  <b>本批不物化</b> <span class="mono">needs_reencode</span>（跨表比较无法索引；等浏览页要筛再迁移加列 + 对账）。</p>
+</div>
+
+<p class="sub">应用级 <span class="mono">userData/app.db</span> —— 3 张</p>
+
+<div class="tbl">
+  <div class="tbl-h"><h3>app_meta</h3><span class="pill p-now">本轮</span>
+    <span class="why">版本与迁移账本。写入口只有迁移。</span></div>
+  <table>
+    <thead><tr><th style="width:190px">字段</th><th style="width:110px">类型</th><th style="width:210px">约束</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td class="f">id</td><td class="t">INTEGER</td><td class="c"><span class="pill p-pk">PK</span><span class="pill p-ck">CHECK id = 1</span></td><td class="d">单行守卫 —— 不变式由 CHECK 保证，不靠调用方自觉。</td></tr>
+      <tr><td class="f">schema_version</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">CHECK &gt;= 0</span></td><td class="d">应用级迁移版本；<b>只有这一处真相</b>。</td></tr>
+      <tr><td class="f">created_at_ms · updated_at_ms</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">建立 / 上次迁移时刻。</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="tbl">
+  <div class="tbl-h"><h3>library_registry</h3><span class="pill p-now">本轮</span>
+    <span class="why">库注册表。<b>不可再生</b> —— 扫文件系统扫不出「你把哪个目录当库」。写入口只有 library* 那组方法。</span></div>
+  <table>
+    <thead><tr><th style="width:190px">字段</th><th style="width:110px">类型</th><th style="width:210px">约束</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td class="f">lib_id</td><td class="t">TEXT</td><td class="c"><span class="pill p-pk">PK</span><span class="pill p-ck">1–32 字符</span></td><td class="d">库标识；<b>写进 uid 派生公式 ⇒ 一旦分配不可改</b>。</td></tr>
+      <tr><td class="f">root</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-idx">UNIQUE</span></td><td class="d">库根绝对路径。登记前<b>必须规范化</b>（大小写 / 短名 / 尾斜杠）—— 否则 Windows 上 <span class="mono">G:\Model</span> 与 <span class="mono">g:\model</span> 能登两次。</td></tr>
+      <tr><td class="f">display_name</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">界面显示名 —— 名字是你的，路径是事实。</td></tr>
+      <tr><td class="f">enabled</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">CHECK 0/1</span><span class="pill p-ck">DEFAULT 1</span></td><td class="d">是否参与检索 / 入库；<b>停用不动任何文件</b>。</td></tr>
+      <tr><td class="f">compat_key</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d">这个库的索引是用哪套兼容键建的（合并检索的门限）。</td></tr>
+      <tr><td class="f">sort_order</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">DEFAULT 0</span><span class="pill p-idx">INDEX</span></td><td class="d">侧栏顺序。<b>顺序是你的</b>，不该由路径字母序决定；同值按 lib_id 兜底，保证稳定。</td></tr>
+      <tr><td class="f">registered_at_ms · updated_at_ms</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">登记 / 修改时刻。</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="tbl">
+  <div class="tbl-h"><h3>collect_dir</h3><span class="pill p-now">本轮</span>
+    <span class="why">取件白名单 —— <b>安全边界</b>。写入口只有 collectDir* 那组方法。</span></div>
+  <table>
+    <thead><tr><th style="width:190px">字段</th><th style="width:110px">类型</th><th style="width:210px">约束</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td class="f">dir_id</td><td class="t">TEXT</td><td class="c"><span class="pill p-pk">PK</span></td><td class="d">nanoid。</td></tr>
+      <tr><td class="f">label</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-idx">UNIQUE</span></td><td class="d">目录名（界面显示）。</td></tr>
+      <tr><td class="f">abs_path</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d"><b>取件只允许写进这些目录</b>，其余一律拒绝。</td></tr>
+      <tr><td class="f">is_default</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">CHECK 0/1</span><span class="pill p-ck">DEFAULT 0</span></td><td class="d">默认目标。</td></tr>
+      <tr><td class="f">created_at_ms</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">加入时刻。</td></tr>
+    </tbody>
+  </table>
+  <p class="note"><b>只允许一个默认</b>（偏唯一索引，机械保证，不靠界面自觉）：<br><span class="mono">CREATE UNIQUE INDEX uniq_collect_default ON collect_dir ((1)) WHERE is_default = 1</span></p>
+</div>
+
+<h2>2 · 接口（对接口）</h2>
+
+<h3>2.1 引擎端口 ↔ 表</h3>
+<div class="tbl"><table>
+  <thead><tr><th style="width:220px">端口</th><th style="width:340px">读哪些表</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td class="f">LibraryResolverPort</td><td class="d">library_registry</td><td class="d">已存在（T-16a/b）—— <b>落点换成 app.db</b>。</td></tr>
+    <tr><td class="f">ItemStorePort</td><td class="d">asset + asset_file + asset_index_state</td><td class="d">合成引擎的 Item 形状；列映射按 §1 改。</td></tr>
+    <tr><td class="f">VectorIndexPort</td><td class="d"><span class="mono">.gs-index.bin</span>（<b>不是表</b>）</td><td class="d">不动。</td></tr>
+  </tbody>
+</table></div>
+
+<h3>2.2 IPC 契约（<span class="mono">shared/ipc.ts</span> = 唯一来源）</h3>
+<p class="sub"><span class="pill p-keep">保留 / 改造</span> <span class="pill p-add">新增</span> <span class="pill p-drop">删除</span> —— 只保留这 6 张表支持得了的方法。</p>
+<div class="tbl"><table>
+  <thead><tr><th style="width:250px">方法</th><th style="width:70px">状态</th><th style="width:250px">读</th><th style="width:210px">写</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td class="f">libraryList</td><td class="c"><span class="pill p-add">新增</span></td><td class="d">library_registry</td><td class="d">—</td><td class="d">取代旧的 libraryConfig。</td></tr>
+    <tr><td class="f">libraryPickDir</td><td class="c"><span class="pill p-keep">保留</span></td><td class="d">—</td><td class="d">—</td><td class="d">原生目录选择。</td></tr>
+    <tr><td class="f">libraryAdd</td><td class="c"><span class="pill p-keep">保留</span></td><td class="d">library_registry</td><td class="d">library_registry</td><td class="d">root 入库前<b>规范化</b>。</td></tr>
+    <tr><td class="f">librarySetEnabled · libraryReorder</td><td class="c"><span class="pill p-add">新增</span></td><td class="d">—</td><td class="d">library_registry</td><td class="d">启停 · 侧栏顺序。</td></tr>
+    <tr><td class="f">libraryRemove</td><td class="c"><span class="pill p-keep">保留</span></td><td class="d">—</td><td class="d">library_registry</td><td class="d"><b>默认只取消登记</b>；删库要两段式并写清丢什么。</td></tr>
+    <tr><td class="f">scan</td><td class="c"><span class="pill p-keep">保留</span></td><td class="d">asset · asset_file</td><td class="d">asset · asset_file</td><td class="d"><b>唯一的文件事实写入口</b>。</td></tr>
+    <tr><td class="f">indexStatus</td><td class="c"><span class="pill p-keep">改造</span></td><td class="d">asset_index_state · .gs-index.bin</td><td class="d">—</td><td class="d">各档计数 + layout。</td></tr>
+    <tr><td class="f">search</td><td class="c"><span class="pill p-keep">保留</span></td><td class="d">asset · asset_file · .gs-index.bin</td><td class="d">—</td><td class="d">文本 / 以图；分数与档位由引擎给。</td></tr>
+    <tr><td class="f">item · itemPaths</td><td class="c"><span class="pill p-keep">改造</span></td><td class="d">asset · asset_file · asset_index_state</td><td class="d">—</td><td class="d">详情 · 两条路径。</td></tr>
+    <tr><td class="f">collect</td><td class="c"><span class="pill p-keep">保留</span></td><td class="d">collect_dir · asset_file</td><td class="d">只写目标目录</td><td class="d"><b>白名单校验唯一入口</b>。</td></tr>
+    <tr><td class="f">collectDirs · collectDirAdd · collectDirRemove · collectDirSetDefault</td><td class="c"><span class="pill p-add">新增</span></td><td class="d">collect_dir</td><td class="d">collect_dir</td><td class="d">白名单的读与改。</td></tr>
+    <tr><td class="f">appMeta</td><td class="c"><span class="pill p-add">新增</span></td><td class="d">app_meta</td><td class="d">—</td><td class="d">诊断页显示版本。</td></tr>
+    <tr><td class="f">reveal</td><td class="c"><span class="pill p-keep">保留</span></td><td class="d">—（用 itemPaths）</td><td class="d">—</td><td class="d">在文件管理器里定位。</td></tr>
+    <tr><td class="f">ingest · mutate · transactions</td><td class="c"><span class="pill p-drop">删除</span></td><td class="d">—</td><td class="d">—</td><td class="d">要「意图层」标注表，<b>表还没建</b>。</td></tr>
+    <tr><td class="f">indexStart · indexCancel · indexResume</td><td class="c"><span class="pill p-drop">删除</span></td><td class="d">—</td><td class="d">—</td><td class="d">要 job 表，<b>表还没建</b>。</td></tr>
+    <tr><td class="f">libraryHealth</td><td class="c"><span class="pill p-drop">不开</span></td><td class="d">—</td><td class="d">—</td><td class="d">体检台账 = health_run / health_finding，属第二批。</td></tr>
+  </tbody>
+</table></div>
+<p class="note">绿地口径下那 6 个<b>诚实桩</b>（<span class="mono">ingest / mutate / transactions / indexStart / indexCancel / indexResume</span>）<b>应当删除</b>，而不是继续挂着 —— 它们对应的表还没建。</p>
+
+<h3>2.3 每张表的<b>唯一写入口</b>（防漂移）</h3>
+<div class="tbl"><table>
+  <thead><tr><th style="width:300px">表</th><th>谁能写</th></tr></thead>
+  <tbody>
+    <tr><td class="f">library_registry</td><td class="d">只有 library* 那组方法</td></tr>
+    <tr><td class="f">collect_dir</td><td class="d">只有 collectDir* 那组方法</td></tr>
+    <tr><td class="f">asset · asset_file</td><td class="d"><b>只有扫描</b>；索引任务只写 asset_index_state</td></tr>
+    <tr><td class="f">asset_index_state</td><td class="d"><b>只有索引任务</b>；excluded_at_ms 另由用户的排除操作写</td></tr>
+    <tr><td class="f">app_meta</td><td class="d">只有迁移</td></tr>
+  </tbody>
+</table></div>
+
+<h2>3 · 迁移与重建（绿地）</h2>
+<div class="tbl"><table>
+  <thead><tr><th style="width:200px">项</th><th>定稿</th></tr></thead>
+  <tbody>
+    <tr><td class="f">迁移机制</td><td class="d"><b>一套实现</b>参数化出两套账本：应用级用 <span class="mono">app_meta.schema_version</span>、库级用 <span class="mono">schema_version</span>。</td></tr>
+    <tr><td class="f">新旧关系</td><td class="d"><b>不支持旧库升级</b>：发现旧版 <span class="mono">.gs.db</span> ⇒ 丢弃重建，并<b>如实告知用户</b>。</td></tr>
+    <tr><td class="f">重建规则</td><td class="d"><b>丢事实层、留过程层与意图层</b> —— 本批：事实 = asset / asset_file（可重建）· 过程 = asset_index_state（尽量留）· 意图 = 无。</td></tr>
+    <tr><td class="f">保留命名空间</td><td class="d"><span class="mono">.gs-*</span> ∪ <span class="mono">.gs.db</span> 家族 ∪ <span class="mono">.gs-staging/</span>（唯一实现 <span class="mono">gs-names.ts</span>）；<span class="mono">app.db</span> 在 userData，<b>不属于</b>库内保留名。</td></tr>
+  </tbody>
+</table></div>
+
+<h2>4 · 与提案的差异（本基线的裁剪）</h2>
+<div class="tbl"><table>
+  <thead><tr><th style="width:330px">提案 <span class="mono">PROPOSAL-schema-v1.html</span></th><th style="width:250px">本基线</th><th>为什么</th></tr></thead>
+  <tbody>
+    <tr><td class="f">20 张表</td><td class="d"><b>6 张</b></td><td class="d">所有者裁定 B。</td></tr>
+    <tr><td class="f">asset 11 列</td><td class="d"><b>8 列</b></td><td class="d">砍 deleted_at_ms / dup_group_id / content_created_at_ms（回收站 / 去重 / 按内容时间浏览）。</td></tr>
+    <tr><td class="f">asset_file 10 列</td><td class="d"><b>7 列</b></td><td class="d">砍 thumb_hash（UI 占位）与 content_hash_*（去重要真算哈希）。</td></tr>
+    <tr><td class="f">index_state 物化 needs_reencode</td><td class="d"><b>不物化</b></td><td class="d">跨表比较无法索引；等要筛再加列并对账。</td></tr>
+    <tr><td class="f">recent_view（跨库 FK）</td><td class="d"><b>删掉该表</b></td><td class="d">进第二批；顺带回避跨库外键这个死结。</td></tr>
+    <tr><td class="f">体检 / 任务 / 标签 / 集合 / 导出 / 设置 / 历史</td><td class="d"><b>全部推迟</b></td><td class="d">对应的表随功能上线。</td></tr>
+  </tbody>
+</table></div>
+
+<h2>5 · 批准后要做的四件事</h2>
+<div class="grid2">
+  <div class="box"><h3>① 写进 SPEC</h3><p><span class="mono">SPEC.md</span> §1 数据模型 · §2 存储布局 · §5 契约。</p></div>
+  <div class="box"><h3>② DDL 与契约对齐</h3><p>DDL 收到 6 张（S1b 在跑）；契约按 §2.2 重列。</p></div>
+  <div class="box"><h3>③ S2 100 条建库</h3><p>asset / asset_file 拆分 + library_registry / collect_dir / app_meta。</p></div>
+  <div class="box"><h3>④ S3 索引 · S4 验收</h3><p>100×768 索引 + asset_index_state 时刻；验收含 field-map ↔ DDL 双向覆盖。</p></div>
+</div>
+
+<h2>6 · 这份设计证明不了什么</h2>
+<ul>
+  <li>字段取舍是<b>按 field-map 的操作引用数</b>做的判断，不是实测（没跑过 100 条之外的数据量）。</li>
+  <li>「6 张够用」的边界是 <b>S1–S4 这条链路</b>（扫描 → 索引 → 检索 → 详情 → 取件）。</li>
+  <li>状态 8 档的<b>派生规则</b>写全了，但<b>实不实际</b>要等 S3 / S4 用真数据验。</li>
+</ul>
+
+<p class="faint">本页与 <span class="mono">reports/2026-10-15-schema-diff/DESIGN-6tables-and-contract.md</span> 同源；两者不一致时以 .md 为准（它是归档件）。</p>
+</div>
+</body>
+</html>
