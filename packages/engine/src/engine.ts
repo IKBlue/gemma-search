@@ -8,6 +8,7 @@
 //   · 所有方法返回契约 §1.1 的信封，**永不抛异常给调用方**。
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { ERR, fail, ok, envelope, messageOf } from './errors.ts';
 import { readIndexBin, readItems, readMeta, relOf } from './index.ts';
 import { compatComplete, compatEqual, compatKey, compatReason } from './compat.ts';
@@ -610,7 +611,10 @@ export function createEngine({
       }
     }
 
-    const jobId = `j-${Math.random().toString(16).slice(2, 6)}`;
+    // ⚠️ jobId 必须**加密随机**（AGENTS：ID 新增处不自己拼随机）。旧写法 `j-` + 4 位 hex（Math.random）
+    //    只有 65536 种且非加密随机 —— jobs 是 Map，撞了就把两次取件记成同一个 job。
+    //    保留 `j-` 前缀（与 fake 引擎的 `j-fake-*` 同族，界面/日志口径不变），随机段用 v4 UUID。
+    const jobId = `j-${crypto.randomUUID()}`;
     const succeeded: Array<{ uid: string; kind: string; path: string; bytes: number }> = [];
     for (const p of plan) {
       try {

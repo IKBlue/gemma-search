@@ -15,6 +15,8 @@ export {
   isGsNamespaceName,
   isGsDbName,
   isReservedLibraryName,
+  // DF-3：'什么算素材'的判据（= 非保留名 **且** 非隐藏项）；扫描器/指纹/素材摘要共用同一份
+  isMaterialEntryName,
   GS_INDEX_NAME,
   GS_DB_NAME,
   GS_JOURNAL_NAME,

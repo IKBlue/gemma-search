@@ -1,0 +1,136 @@
+===============================================================================
+DF-3 证据 · jobId 加密随机 + 指纹与扫描器「素材定义」对齐（隐藏项）
+worker: indexer-migrator · 任务板 task-70 · 2026-10-15
+===============================================================================
+
+【A. jobId 加密随机】
+
+--- A1 改前 → 改后 ---
+改前（packages/engine/src/engine.ts:613）：
+    const jobId = `j-${Math.random().toString(16).slice(2, 6)}`;
+  ⇒ 4 位 hex（取值空间 16^4 = **65536**）且是 Math.random（非加密随机）。engine.ts 的 `jobs` 是 Map，
+    撞了就把两次取件记成同一个 job；AGENTS 明写「ID 新增处一律用现成实现，不自己拼随机」。
+改后：
+    + import crypto from 'node:crypto';   （文件头）
+    const jobId = `j-${crypto.randomUUID()}`;
+为什么不是放宽：
+  · 随机源由 Math.random（可预测、65536 空间）换成 **CSPRNG 的 UUIDv4**（122 位随机）；
+  · 断言是**新增**的（256 次互不相同 + `j-`+v4 形状），不是把旧断言改松；
+  · **保留 `j-` 前缀**是为了与 fake 引擎的 `j-fake-*` 同族（界面/日志/契约口径不变），
+    与"保留弱随机"无关 —— 前缀后的随机段才是被替换的东西。
+
+--- A2 能红（退回旧写法 ⇒ 断言必红；已还原复绿）---
+手法：把 engine.ts 那行临时改回 `j-${Math.random().toString(16).slice(2, 6)}`，跑新单测。
+原始输出：
+  ✖ DF-3A ⭐⭐ 取件 jobId：连续 256 次互不相同，且是 j- + v4 UUID（加密随机） (194.1434ms)
+    AssertionError: N 次取件的 jobId 必须互不相同（旧写法 4 位 hex 只有 65536 种）
+  ℹ tests 2 / pass 1 / fail 1        REDA_EXIT=1
+  （同一条用例里的**形状**断言是确定性的：任何 4 位 hex 都不匹配 UUID 正则；本次互不相同那条先红，
+    说明 256 次里已经撞了 —— 两条都指向同一个缺陷。）
+红锚（固定在测试文件里，不需要靠运气）：用**固定种子的 mulberry32** 复现旧写法的取值方式 ⇒
+  「旧写法在固定种子下必然撞（实得第 N 次）」+「j-1a2b 不满足 UUID 形状」。
+还原后：✔✔ 两条全绿 · GREEN_EXIT=0；`grep RED-PROOF packages/engine/src` = 0 命中。
+
+===============================================================================
+【B. 指纹 vs 扫描器：「什么算素材」收敛成一份实现】
+===============================================================================
+
+--- B1 改前 → 改后 ---
+改前：
+  · packages/engine/src/fingerprint.ts：只跳 `isReservedLibraryName` ⇒ `.DS_Store` / `.picked.json` 之类
+    **隐藏项被算进库指纹**（一个编辑器 churn 就能让 doScan 报「库被改过」，而扫描 diff 什么都不显示）；
+  · packages/engine/src/scanner.ts：自己写两分支（保留名 / `startsWith('.')`）⇒ 与指纹**两套口径**（P1）；
+  · main/library-rebuild.ts 的 materialDigest：也只跳保留名 ⇒ 与扫描器又不一致。
+改后（**唯一判据** = packages/engine/src/gs-names.ts 新增的两个导出）：
+    export type EntryClass = 'reserved' | 'hidden' | 'material';
+    export function classifyEntryName(name): EntryClass    // 先保留名、再隐藏项、否则 material
+    export function isMaterialEntryName(name): boolean     // === classifyEntryName(name) === 'material'
+  调用方（同一份实现，三处复用）：
+  · scanner.ts：`const cls = classifyEntryName(ent.name)`，reserved/hidden 各自计数后 continue
+    （**skippedReserved / skippedHidden 两个计数仍然分开如实**，只是"分类"归一份实现）；
+  · fingerprint.ts：`if (!isMaterialEntryName(e.name)) continue;`（保留名 + 隐藏项都不算素材）；
+  · main/library-rebuild.ts 的 materialDigest：`if (!isMaterialEntryName(ent.name)) continue;`（卡片允许的唯一改动）；
+  · apps/desktop/src/main/gs-names.ts（**纯 re-export 入口**，U11 的既定结构）：把新判据一并镜像过去，
+    这样 main 侧仍只从这一个入口取判据（gs-names-single-source 的 S1/S3 继续绿，见 §3）。
+为什么不是放宽：
+  · 不是把断言改松 —— 是把"素材"的定义**收敛成一份**，并让三方**一致**；
+  · 指纹/摘要的口径**变严**：隐藏项以前被计入、现在被排除（`.DS_Store` churn 不再制造假"库被改过"）；
+  · `.gs-*` / `.gs.db` 家族 / staging 的排除一行都没松（DF-1 的机械断言原样保留）；
+  · 扫描器的两个跳过计数仍然分别如实，隐藏项并没有被"合并进保留项"糊过去。
+
+--- B2 能红（退回「只跳保留名」⇒ 断言必红；已还原复绿）---
+手法：临时把 fingerprint.ts 改回 `isReservedLibraryName` + `if (isReservedLibraryName(...)) continue;`。
+原始输出：
+  ✖ DF-1/DF-3 ⭐⭐ 指纹的文件数 == 扫描器的素材文件数（保留名与隐藏项一律不算）
+    AssertionError: 指纹只该数 4 个素材文件（**实得 6**）—— 多出来的就是保留名/隐藏项
+  ✖ DF-3 ⭐⭐ 语义：保留名/隐藏项出现或消失 ⇒ 指纹不变；改素材 ⇒ 指纹必须变
+    AssertionError: 索引/元数据/隐藏项变化**不许**改动库指纹（否则 doScan 会把它报成「库被改过」而 diff 又空）
+  ℹ tests 2 / pass 0 / fail 2        REDB_EXIT=1
+还原后：✔✔ 两条全绿 · GREEN_EXIT=0；`grep RED-PROOF` = 0 命中。
+
+===============================================================================
+【1 断言（新增/改写，全部在 packages/engine/tests/**）】
+===============================================================================
+新 packages/engine/tests/collect-jobid.test.mjs：
+  · DF-3A ⭐⭐：连续 **256** 次 `collect()` 的 jobId **互不相同**，且每个都匹配 `j-` + **v4 UUID**；
+  · DF-3A 红锚：固定种子的 mulberry32 复现旧写法 ⇒ 必然碰撞 + 不满足 UUID 形状（证明断言不是空话）。
+改写 packages/engine/tests/fingerprint.test.mjs（DF-1 的用例扩展为 DF-1/DF-3）：
+  · 机械断言：`fingerprint.counts.files === 4`（素材文件）且 `=== scan.counts.images + scan.counts.paired`；
+    `scan.counts.skippedReserved === 7` · `scan.counts.skippedHidden === 2`（分类一份实现、计数不合并）；
+  · 语义断言：改写 `.gs-index.bin` / `.gs.db-wal` / 新增 `.gs-*` / 写 `.DS_Store` / 隐藏目录 churn
+    ⇒ 指纹**逐字节不变**；删除/新增隐藏项（双向）⇒ 仍不变；改一个**素材** ⇒ 指纹**必须变**。
+命令与原始输出：
+  node --test packages/engine/tests/fingerprint.test.mjs packages/engine/tests/collect-jobid.test.mjs
+    ✔ DF-3A ⭐⭐ 取件 jobId：连续 256 次互不相同，且是 j- + v4 UUID（加密随机） (195.6771ms)
+    ✔ DF-3A 红锚：旧写法（j- + Math.random 4 位 hex）在固定种子下必然碰撞、且不满足 UUID 形状 (0.4395ms)
+    ✔ DF-1/DF-3 ⭐⭐ 指纹的文件数 == 扫描器的素材文件数（保留名与隐藏项一律不算） (15.3205ms)
+    ✔ DF-3 ⭐⭐ 语义：保留名/隐藏项出现或消失 ⇒ 指纹不变；改素材 ⇒ 指纹必须变 (19.2873ms)
+    ℹ tests 4 / pass 4 / fail 0        DF3_EXIT=0
+
+===============================================================================
+【2 ⚠️ 基线安全（卡片硬要求）】
+===============================================================================
+命令: node reports/2026-10-15-wave3/df1-consistency.mjs "G:\model" "data/_schema100/lib" "data/libraries/L1"
+原始输出（节选，CONSISTENCY_EXIT=0）：
+  [OK  ] G:\model               指纹 7188 · 摘要 7188 · 指纹多算 0 · fingerprint_v1 = **3c62f15c5944…（未变）**
+  [OK  ] data/_schema100/lib    指纹 **202**（图 100 · 包 100 · 其他 2 = items.json/meta.json）· 摘要 202 · 指纹多算 0
+                                磁盘全部 207 ⇒ 保留命名空间 5 个（4 个 .gs-*/.gs.db 家族 + `.picked.json`）
+                                fingerprint_v1 = 6ecf0664eecc…
+  [OK  ] data/libraries/L1      指纹 4 · 摘要 4 · 指纹多算 0 · fingerprint_v1 = 19ff8943e0b8…（未变）
+· **`G:\model` 的指纹逐字节未变**（`3c62f15c5944…`）—— 该库根下**保留项与隐藏项都为 0**：
+  证据（本轮实测）：Get-ChildItem -Recurse -Force G:\model 过滤 `.gs*` / `.gs.db*` / `.gs-staging` ⇒ 0；过滤点开头 ⇒ 0。
+· 跨语言一致性断言实测通过（见 §3 的引擎全量输出）：`指纹 v1：与 baseline-v1.json 记录的值一致` ✔。
+· `data/_schema100/lib` 203 → **202** 是本卡**预期**的变化：`.picked.json`（S2 的隐藏 stamp 文件）按新口径不算素材，
+  指纹与 materialDigest **同时**降到 202（两边仍逐位相等）—— 不是单边漂移。
+
+===============================================================================
+【3 门禁】
+===============================================================================
+· 引擎全量单测: node --test --test-isolation=none packages/engine/tests/*.test.mjs
+    ✔ 指纹 v1：与 baseline-v1.json 记录的值一致（跨语言一致性） (278.7566ms)
+    ℹ tests 174 / suites 0 / pass 173 / fail 0 / cancelled 0 / skipped 1 / todo 0 / duration_ms 10659.0223
+    ENGINE_EXIT=0
+· 主进程 re-export 入口的防复发断言（我改了 main/gs-names.ts，必须跑）:
+    node --test apps/desktop/tests/gs-names-single-source.test.mjs
+    ✔ S1 主进程入口与引擎实现行为完全一致 · ✔ S2 U11 的洞被钉住 · ✔ S3 主进程不许再自建判据 · ✔ S4 定义只在引擎侧
+    ℹ tests 4 / pass 4 / fail 0        SHIM_EXIT=0
+· 类型门禁: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "data/_esbuild-tmp/tsbi_df3_node2.tsbuildinfo"
+    ⇒ **TSC_NODE_EXIT=0 · lines=0**
+· 期间的一次噪声（如实记录，**不是本卡**）：第一次 tsc 读到 2 条语法错误，全在
+    apps/desktop/src/main/thumb-cache.ts（TS1472 / TS1005）—— 那是**别的并发卡**正在写该文件时的瞬态；
+  我没有碰过该文件，重跑即 EXIT=0 / 0 行。
+
+===============================================================================
+【4 改动文件 / 回滚】
+===============================================================================
+packages/engine/src/gs-names.ts       + classifyEntryName / isMaterialEntryName（「什么算素材」的唯一判据）
+packages/engine/src/scanner.ts        改用 classifyEntryName（两个跳过计数保持分开）
+packages/engine/src/fingerprint.ts    `!isMaterialEntryName(e.name)` ⇒ 跳过保留名**与隐藏项**
+packages/engine/src/engine.ts         + import crypto；jobId = `j-` + crypto.randomUUID()
+apps/desktop/src/main/library-rebuild.ts  materialDigest 改用 isMaterialEntryName（引用共享判据，卡片允许的唯一改动）
+apps/desktop/src/main/gs-names.ts     纯 re-export 入口补镜像 isMaterialEntryName（U11 结构：main 只从这一个入口取判据）
+packages/engine/tests/fingerprint.test.mjs      （DF-1 → DF-1/DF-3：加隐藏项夹具 + 双层断言）
+packages/engine/tests/collect-jobid.test.mjs    （新增：jobId 形状/唯一性 + 红锚）
+回滚：以上逐条反向即可（engine.ts 回 Math.random、fingerprint 回只跳保留名、gs-names 去掉两个导出、
+      library-rebuild/main-gs-names 回 isReservedLibraryName）。无数据/落点副作用。
+未跑 git（AGENTS P7）；未跑 build/e2e（并发纪律 6/12；本卡不涉及）。

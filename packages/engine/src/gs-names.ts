@@ -65,3 +65,34 @@ export function isReservedLibraryName(name: unknown): boolean {
   if (name === STAGING_DIRNAME) return true;
   return false;
 }
+
+// ── 「什么算素材」的唯一判据（DF-3）──────────────────────────────────────────
+//
+// 为什么要有它：`isReservedLibraryName` 只回答"是不是我们自己的东西"，而"素材"还要**排除隐藏项**
+// （SPEC §1：`.gs-*` 与隐藏项都必须跳过）。三处调用方各写一遍判断就是 P1 —— 2026-10-15 实测出现过
+// 指纹与扫描器**两套口径**（`fingerprint.ts` 只跳保留名 ⇒ 一个 `.DS_Store` 就能让"库指纹"变，
+// 而扫描 diff 什么都不显示：用户被告知"库被改过"却查不出改了什么）。
+// ⇒ 分类只在这里做一次：`reserved`（我们的派生数据）· `hidden`（隐藏项）· `material`（素材候选）。
+
+/** 条目名字的三种归属（**目录与文件同判**：`.gs-staging` / `.git` 这类目录也必须跳过） */
+export type EntryClass = 'reserved' | 'hidden' | 'material';
+
+/**
+ * 名字分类。`reserved` 与 `hidden` 都不是素材；空串 / 非字符串一律不算素材（按 hidden 处置）。
+ * ⚠️ 顺序有意义：先保留命名空间、再隐藏项 —— `.gs.db` 既是点开头又是保留名，必须归 `reserved`
+ *    （否则扫描器的 skippedReserved / skippedHidden 两个计数会与事实不符）。
+ */
+export function classifyEntryName(name: unknown): EntryClass {
+  if (typeof name !== 'string' || name === '') return 'hidden';
+  if (isReservedLibraryName(name)) return 'reserved';
+  if (name.startsWith('.')) return 'hidden';
+  return 'material';
+}
+
+/**
+ * 「这个名字是素材候选吗」——**唯一判据**。
+ * 调用方：scanner.ts（扫描器）· fingerprint.ts（库指纹）· main/library-rebuild.ts（素材摘要）。
+ */
+export function isMaterialEntryName(name: unknown): boolean {
+  return classifyEntryName(name) === 'material';
+}

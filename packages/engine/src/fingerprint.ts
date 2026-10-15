@@ -11,9 +11,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-// ⚠️ 「库内产物」的判据**只有一份**（engine/src/gs-names.ts）：`.gs-*` / `.gs.db`(+边车) / staging。
-//    `.gs.db` 的第 4 个字符是 `.` 不是 `-` ⇒ 自己写 `.gs-` 前缀判断会漏（U11）。
-import { isReservedLibraryName } from './gs-names.ts';
+// ⚠️ 「什么算素材」的判据**只有一份**：engine/src/gs-names.ts 的 isMaterialEntryName。
+//    它排除保留命名空间（`.gs-*` / `.gs.db`(+边车) / staging）**与隐藏项**（SPEC §1）——
+//    与扫描器、main/library-rebuild 的 materialDigest 同一口径（DF-3；此前本文件只跳保留名，
+//    于是一个 `.DS_Store` 就能让"库指纹"变，而扫描 diff 什么都不显示）。
+//    另：`.gs.db` 的第 4 个字符是 `.` 不是 `-` ⇒ 自己写 `.gs-` 前缀判断还会漏（U11）。
+import { isMaterialEntryName } from './gs-names.ts';
 
 export const IMG_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.bmp']);
 export const ARCHIVE_EXT = new Set(['.rar', '.zip', '.7z']);
@@ -72,7 +75,7 @@ export function fingerprintLines(root: string): FingerprintLines {
       //    （P1）。必须放在 `isDirectory()` **之前** —— `.gs-journal` / `.gs-staging` 是目录，漏判会走进去。
       //    不改的后果（实测）：索引一重建，`doScan()` 的库指纹就跟着变 ⇒ 被算成「库被改过」；
       //    而同一件事在 main/library-rebuild.ts 的 materialDigest 里有跳过 ⇒ 两套口径。
-      if (isReservedLibraryName(e.name)) continue;
+      if (!isMaterialEntryName(e.name)) continue;   // 保留命名空间 + 隐藏项都**不是素材**（唯一判据）
       const full = path.join(dir, e.name);
       if (e.isDirectory()) { walk(full); continue; }
       if (!e.isFile()) continue;                       // 跳过符号链接等（不跟随）

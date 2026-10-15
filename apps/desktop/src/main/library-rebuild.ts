@@ -32,7 +32,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { ERR, fail } from '../../../../packages/engine/src/errors.ts';
-import { isReservedLibraryName } from './gs-names.ts';
+import { isMaterialEntryName } from './gs-names.ts';
 import { GS_DB_NAME } from './storage-roots.ts';
 import { GsDbError, describeError } from './db/errors.ts';
 import { importItemsFromJson } from './db/import.ts';
@@ -89,7 +89,8 @@ export function materialDigest(root: string, opts: MaterialDigestOptions = {}): 
 
   const walk = (dir: string): void => {
     for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (isReservedLibraryName(ent.name)) continue; // .gs-* / .gs.db(+边车) / staging 都不是素材
+      // 「什么算素材」的唯一判据（gs-names.ts）：排除保留命名空间**与隐藏项** —— 与指纹/扫描器同口径（DF-3）
+      if (!isMaterialEntryName(ent.name)) continue;
       const p = path.join(dir, ent.name);
       if (ent.isDirectory()) {
         walk(p);
