@@ -514,6 +514,7 @@
 | 打包态行为 | **部分已测**（2026-10-15：asar 3.43 GiB → 176.1 MB · 打包后日志落 userData · `thumb://` 可用 · preload 三键 · `pageerror` 0，证据 `22b.txt`）；**仍未测**：NSIS 安装器/卸载/签名/图标/干净机器/首次向导/自动更新/**默认 %APPDATA% userData** |
 | 文档抽取质量与分块参数 | **待实测校准** |
 | `node:sqlite` 在真 Electron 主进程内的行为 | 已在 `ELECTRON_RUN_AS_NODE` 下验过可用（Node 24.21.0）；**主进程内仍需复验** |
+| **库级 `compat_key` 的写入方** | **未接线**：`library_registry.compat_key` 目前仍 NULL（应用级表由 `library*` 方法写），索引侧「库 compat ≠ 本行」的派生暂以**索引 header 的 compat** 作库口径（S3 实测漂移 0）。索引任务（第二批 `job`）落地时**换回那一列** |
 | 旧索引质量结论（v2 PASS） | **旧证据已随旧文档体系清除**，重新建索引后需重测 |
 
 

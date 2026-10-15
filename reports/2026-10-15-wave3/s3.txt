@@ -1,0 +1,136 @@
+===============================================================================
+S3 证据 · 100×768 索引 + asset_index_state 编码态（含 vector_row）
+worker: indexer-migrator · 任务板 task-54 · 2026-10-15
+===============================================================================
+
+【0 做了什么 / 范围纪律】
+· 索引：**真模型**（model-cache/.../fp32 · device=**cpu**）跑产品构建器 packages/indexer/src/build_index_onnx.ts
+  ⇒ 100 条 × 768 维，失败 0；落库根用**产品唯一写入口** main/index-file.writeIndexAtomically（临时名→fsync→
+  引擎五道校验→rename），不是自己 copy。
+· 编码态：asset_index_state 的 encoded_at_ms / encoded_mtime_ms / compat_key / **vector_row** 由本卡写（100 行，单事务）。
+· 对所有资产行先置 NULL 再逐条按索引行号写 ⇒「未参与本次索引 = NULL」，**没有写 0 的兜底**。
+· 未改任何生产逻辑：packages/indexer/** 与 main/encoder.* 一行未动（只**调用**）⇒ 不需要 T-00 护栏重跑；
+  但仍附了"真查询 + 逐行重编"作为数值侧凭据（§4：cos=1.000000）。
+· 新增文件（都在允许范围）：data/_schema100/s3.mjs（夹具/复核脚本）。未改 build.mjs / verify.mjs。
+· 未新增测试文件：验收要的是原始输出且本卡不要求进 npm test；理由与可选做法见 §6。
+
+===============================================================================
+【1 索引构建（build_index_onnx.ts · cpu · 真模型）】
+===============================================================================
+命令:
+  node packages/indexer/src/build_index_onnx.ts --model "<model-cache/.../fp32>" --lib "data/_schema100/lib" --out "data/_schema100/out" --device cpu --seq 140 --lib-id L1
+原始输出（尾）:
+  [build] 载入模型（dtype=fp32, seq=140, device=cpu）…
+  [build]   载入完成 2.1s
+  [build]   预处理实测：seq=140 · max_soft_tokens=140 · config 副本=140 · patch=16 · pool=3 · resample=3 · normalize=false · impl=resize_compat(pil-like)
+  [build]   compat = onnx-community/embeddinggemma-2-ONNX|daa72c51243991dfcaf9f9137d2c573d8f7790c0|fp32|2|140|768|l2|mean_soft_tokens
+  [build]   25/100  已编码 25 · 复用 0 · 失败 0  0.65 条/秒
+  [build]   50/100  已编码 50 · 复用 0 · 失败 0  0.65 条/秒
+  [build]   75/100  已编码 75 · 复用 0 · 失败 0  0.64 条/秒
+  [build]   100/100  已编码 100 · 复用 0 · 失败 0  0.64 条/秒
+  [build] 完成：100 条 · dim=768 · 失败 0 · 复用 0 · BMP回退 0
+  RESULT {"ok":100,"dim":768,"failed":0,"reused":0,"compat":"...|fp32|2|140|768|l2|mean_soft_tokens"}
+  BUILD_EXIT=0
+产物: out/index.bin 308,539 字节 · out/items.json · out/meta.json
+
+===============================================================================
+【2 写编码态 + 落索引 + 对账（node data/_schema100/s3.mjs state）】
+===============================================================================
+原始输出:
+  [1] 索引落盘（产品原子写入口）：索引已原子写入 ...\data\_schema100\lib\.gs-index.bin：308539 字节
+      （五道校验通过：count=100 dim=768）；临时文件 .gs-index.bin.tmp-22352-1 已 rename 过去（目标名上不会出现半截文件）
+  [2] 编码态已写入 100 行（encoded_at_ms=1792042643446 · compat=onnx-community/embeddinggemma-2-ONNX|daa72c...|fp32|2|140|768|l2|mean_soft_tokens）
+    索引行数 = 100 · dim = 768 · compat = ...|mean_soft_tokens
+    state 行数 = 100 · vector_row 非空 = 100 · NULL = 0
+    vector_row 范围 = 0..99 · 重复行 = 0
+    needs_reencode(派生，跨表比较) = 0 · 与磁盘 stat 漂移 = 0
+      row 0  ←  8a70380a9575  CR+VR\ID-10083808.jpg
+      row 1  ←  124b359135ed  CR+VR\ID-101207034.jpg
+      row 2  ←  0362307021ef  CR+VR\ID-103307120.jpg
+      row 3  ←  c7229e05e22a  CR+VR\ID-1039048.jpg
+      row 4  ←  8b5a1903fbfe  CR+VR\ID-1050534.jpeg
+      row 99  ←  a4230ea73751  CR\ID-1049002.jpeg（末行）
+    ✓ 对账漂移 = 0
+  STATE_EXIT=0
+
+===============================================================================
+【3 独立复核：五道校验逐道破坏 + 对账（node data/_schema100/s3.mjs verify）】
+===============================================================================
+原始输出:
+  [1] 产品路径读回（引擎五道校验）：count=100 dim=768 bytes=308539
+  [2] 五道校验逐道破坏（副本；判定全部由产品 readIndexFile 做）
+    [OK  ] magic：破坏前 count=100/768 · 破坏后 code=INDEX_CORRUPT · MAGIC 不符：实际 b853494458000001，期望 4753494458000001
+    [OK  ] footer-json：破坏前 count=100/768 · 破坏后 code=INDEX_CORRUPT · footer 解析失败：...
+    [OK  ] not-complete：破坏前 count=100/768 · 破坏后 code=INDEX_CORRUPT · footer.complete 不是 true → 视为写入未完成
+    [OK  ] footer-count：破坏前 count=100/768 · 破坏后 code=INDEX_CORRUPT · footer 与 header 不一致：101/768 vs 100/768
+    [OK  ] footer-dim：破坏前 count=100/768 · 破坏后 code=INDEX_CORRUPT · footer 与 header 不一致：100/769 vs 100/768
+    [OK  ] vector-byte：破坏前 count=100/768 · 破坏后 code=INDEX_CORRUPT · 向量块 sha1 不符：footer=b788cca6... 实际=99d30b34...
+  [3] 对账（索引 ↔ asset_index_state）：state 行数 100 · 非空 100 · NULL 0 · 范围 0..99 · 重复 0
+      needs_reencode = 0 · 与磁盘 stat 漂移 = 0（抽样见 §2 同形输出）
+  结论：PASS（五道校验可生效 · 对账漂移 0）    VERIFY_EXIT=0
+
+===============================================================================
+【4 真查询 + 行→条目的**向量级**核验（node data/_schema100/s3.mjs query --model <fp32>）】
+===============================================================================
+原始输出（节选）:
+  [enc] 载入完成 1.9s · 请求=cpu · 实际=cpu · 已验证 EP=cpu
+  [1] 真查询（文本「北欧吊灯」）：ok=true · results=5 · libsUsed=["L1"]
+      0.7671  5b4dc74ab358  CR+VR\ID-670226102.jpg
+      0.7661  a170cc4524f7  CR+VR\ID-15999296.png
+      0.7638  5a0716823dd6  CR+VR\ID-244335894.png
+      0.7610  a74d73fc38eb  CR\ID-1019977.jpeg
+      0.7605  9de65d7691c3  CR+VR\ID-766155.jpg
+  [2] 抽样 uid↔row 的向量级核验（重编该条 vs 索引第 vector_row 行）
+      [OK  ] row 0  · uid=8a70380a9575 · cos=1.000000  CR+VR\ID-10083808.jpg
+      [OK  ] row 50 · uid=d1ec6331d13a · cos=1.000000  CR+VR\ID-15507965.jpg
+      [OK  ] row 99 · uid=a4230ea73751 · cos=1.000000  CR\ID-1049002.jpeg
+  QUERY_EXIT=0
+⇒ 检索能出结果（不是"表填对了但检不出来"），且**行号→条目**这件事被真编码器逐条证实（cos=1.000000）。
+
+===============================================================================
+【5 能红（3 条，均已还原复绿）】
+===============================================================================
+RED-A · vector_row 改成错值（uid=8a70380a9575 的行 0 → 999）:
+  vector_row 范围 = 1..999 · 重复行 = 0
+  ✗ 对账问题：["vector_row 范围 1..999 != 0..99"]        REDA_EXIT=1
+  还原后：vector_row 范围 = 0..99 · ✓ 对账漂移 = 0 · 结论：PASS    EXIT=0
+RED-B · 改掉一条 image_mtime（asset_file.mtime_ms +1h，跨表轴）:
+  needs_reencode(派生，跨表比较) = 1 · 与磁盘 stat 漂移 = 0
+  ✗ 对账问题：["needs_reencode(派生) = 1（应 0）"]        REDB_EXIT=1
+  还原后：needs_reencode = 0 · 结论：PASS    EXIT=0
+RED-C · 改掉**磁盘**上一条预览的 mtime（stat 轴；不动 DB）:
+  needs_reencode(派生，跨表比较) = 0 · 与磁盘 stat 漂移 = 1
+  ✗ 对账问题：["与磁盘 stat 漂移 = 1（应 0）"]            REDC_EXIT=1
+  还原后：与磁盘 stat 漂移 = 0 · 结论：PASS    EXIT=0
+（RED-B 与 RED-C 分别打两条轴 ⇒ 0 不是"空转的 0"：跨表比较看 DB，stat 对账看磁盘，各自都会响。）
+
+===============================================================================
+【6 说明 / 未决 / 交代】
+===============================================================================
+· **五道校验不是"能过"，而是"逐道都能拦住"**：§3 每条都先证明同一份副本**破坏前读得通**（count=100/768），
+  再证明破坏后 code=INDEX_CORRUPT 且 message 指向**那一道**（不是碰巧被别的一道拦下）。
+  破坏只发生在 data/_schema100/_tmp 的副本上；判定 100% 由产品路径 readIndexFile（→ 引擎 readIndexBin）做，
+  脚本里没有第二份 GSIDX 解析（AGENTS P1）。
+· **needs_reencode 不物化**：它由 SQL JOIN asset_index_state × asset_file 现算（mtime 或 compat 不同），
+  本卡没有给任何表加列；DDL 保持 migrations.ts 原样（该文件属 S2，未动）。
+· **vector_row 未参与 = NULL**：写入前先整表置 NULL 再逐条写真值；本次 100 条全参与，故 NULL=0；
+  脚本对"只有部分是索引行"的场景天然正确（未写到的行保持 NULL，不会出现 0）。
+· **未决（不属本卡）**：
+  ① library_registry.compat_key 仍是 NULL（app 级表归 S8/主进程）⇒「库 compat_key ≠ 本行 compat_key」这条
+     派生目前只能拿**索引 header 的 compat** 当库口径（本卡就是这么算的，结果 0 漂移）。等 S8 写入库级 compat 后，
+     改成那一列即可（同一处 SQL）。
+  ② main/index.ts 的 indexStart 接线（真任务入口）归 S8：本卡只跑产品构建器 + 产品写入口，没有接主进程入口。
+     需要时先报 Lead（本卡未触及）。
+  ③ 未新增测试文件：data/_schema100 是本机夹具，写进 apps/desktop/tests 会让 npm test 依赖它（别的机器 ⇒ 只能 skip）。
+     若 Lead 要"进 npm test"，建议做法 = 新增 apps/desktop/tests/s3-index-state.test.mjs，夹具缺失时显式 skip，
+     并在夹具存在时复用 s3.mjs 的 reconcile（抽成共享模块）。等你一句话我就做。
+· 未跑 git（AGENTS P7）；未跑 build/e2e（并发纪律 §12；本卡不涉及）。
+
+===============================================================================
+【7 改动 / 回滚】
+===============================================================================
+新增: data/_schema100/s3.mjs（夹具/复核脚本：state | verify | query | sabotage | restore）
+产物: data/_schema100/out/{index.bin,items.json,meta.json} · data/_schema100/lib/.gs-index.bin（308,539 字节）
+写库: data/_schema100/lib/.gs.db 的 asset_index_state 100 行（encoded_at_ms/encoded_mtime_ms/compat_key/vector_row）
+回滚: 删 data/_schema100/lib/.gs-index.bin 与 s3.mjs；asset_index_state 置 NULL（一条 UPDATE）即可回到 S2 交付态。
+未改: packages/indexer/** · main/** · renderer/** · shared/ipc.ts · data/_schema100/build.mjs · verify.mjs。

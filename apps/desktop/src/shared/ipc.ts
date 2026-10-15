@@ -53,6 +53,29 @@ export const Methods = {
    */
   itemPaths: z.object({ libId: LibId, uid: Uid }).strict(),
 
+  /**
+   * `items` —— **只读列表**（F2「逛整库」的读路径；2026-10-15 · S8 · SPEC §5.1，属兼容新增）。
+   *
+   * 为什么需要它：`scan` 只给**差异**（new/missing/changed）、`search` 空查询直接 BAD_REQUEST、
+   *   `item` 只读一条 ⇒ 现有方法里**没有**一条能把整库列出来。
+   *
+   * · **只读**：不触发扫描、不进向量、**不写任何表**（实现见 main/items-ipc.ts）；
+   * · `total` = **筛选后**总数，**越界也如实给**（不是 rows.length —— 越界时 rows 为空、total 照旧）；
+   * · 返回里还带 `facets`（按**全库**统计的分类/扩展名，**不受筛选影响**），界面下拉据此生成，
+   *   不许从当前页样本推导（会漏值、且随分页跳动）。
+   * · **路径不进契约**：行里只有相对路径；要绝对路径走 `itemPaths`（那条方法的语义就是要路径）。
+   */
+  items: z.object({
+    libId: LibId,
+    folder: z.string().max(64).optional(),
+    ext: z.string().max(16).optional(),
+    hasArchive: z.boolean().optional(),
+    /** 'relPath'(默认) | 'folder' | 'stem' | 'imageMtime'；前缀 - 表示倒序（如 -imageMtime） */
+    sort: z.enum(['relPath', 'folder', 'stem', 'imageMtime', '-relPath', '-folder', '-stem', '-imageMtime']).optional(),
+    offset: z.number().int().min(0).max(1_000_000).optional(),
+    limit: z.number().int().min(1).max(500).optional(),
+  }).strict(),
+
   indexStatus: z.object({}).strict(),
 
   scan: z.object({ libId: LibId }).strict(),

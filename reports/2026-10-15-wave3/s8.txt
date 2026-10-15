@@ -1,0 +1,120 @@
+================================================================================
+S8 证据 · 只读列表 items + facets（SPEC §5.1）
+任务板 id: task-62   执行: db-worker   日期: 2026-10-15
+写入范围（task-62 + Lead 追加）：shared/ipc.ts · main/**（新增 items-ipc.ts）· packages/engine/src · apps/desktop/tests
+===============================================================================
+
+【结论】
+· 契约新增 `items`（**只读列表**，属兼容新增）；白名单 21 个方法。
+· 实现：**新增 main/items-ipc.ts**（不 import electron ⇒ node:test 直接覆盖），index.ts 一线分派。
+· 语义：分页/筛选/排序 + **facets 按全库统计**（不受筛选影响）；`total` = 筛选后总数（越界也如实给）。
+· 只读：打开 .gs.db 一律 readOnly、只 SELECT、probeWrites=false、返回值**不含绝对路径**。
+· 门禁：tsc web **0** · tsc node **0**（两条都按纪律 16 干净跑，见 §6）· build **0** · 单测 565/540/24
+  （24 条全部是 S2 的读路径红窗口，逐条见 §8；**items 的 8 条全绿**）· e2e 冒烟 7 passed + out/ 指纹一致。
+· **两条"能红"都真跑了**（变异注入 → 断言失败 → 回滚），原始输出见 §5。
+
+【1. 契约（shared/ipc.ts）】
+  items: z.object({
+    libId: LibId,
+    folder: z.string().max(64).optional(),
+    ext: z.string().max(16).optional(),
+    hasArchive: z.boolean().optional(),
+    sort: z.enum(['relPath','folder','stem','imageMtime','-relPath','-folder','-stem','-imageMtime']).optional(),
+    offset: z.number().int().min(0).max(1_000_000).optional(),
+    limit:  z.number().int().min(1).max(500).optional(),
+  }).strict(),
+  → { rows, total, facets, page }
+  · 一律 `.strict()`；**不接受绝对路径**（I1 断言多传 `root` 被拒）；
+  · `sort` 默认 relPath，前缀 `-` 表示倒序；`limit` 默认 100、上限 500；`offset` 上限 1e6；
+  · 行里的**绝对路径一律不给**（absPath/archiveAbsPath 被摘掉）—— 要路径走 `itemPaths`，那条方法的语义就是要路径。
+
+【2. 实现（main/items-ipc.ts · 新增）】
+· **只读**：`openGsDb({ dbPath, readOnly: true })`；只跑 SELECT；`createLibraryResolverPort(...)` 用默认
+  `probeWrites=false`（浏览是只读动作，**不能在库根写探针文件**）；
+· **读映射只有一份（P1）**：行 → 条目复用 S2 的 `db/row-types.ts#joinedRowToItemRecord()`，我不重写类型判据；
+  本文件只写**筛选/排序/分页/facets** 的 SQL。列别名写在**一张配对表** `ALIAS_PAIRS`（表.列 → 别名）里，
+  并由 I8 逐字钉住 14 个别名 + 把造出的行喂给那个映射器（**别名一改就红**，不会静默错位）；
+· `total` = 一条 `COUNT(*)`（**不是 rows.length**）—— 越界时 rows=[] 而 total 照旧；
+· `facets` = 两条 `GROUP BY`（folder / preview ext）+ 两条 `COUNT(DISTINCT ...)` 作 foldersTotal/extsTotal，
+  同一 `WHERE lib_id = ?` —— **不带筛选条件**（下拉永远看到全库）；count 降序 + value 升序，各取前 200（`FACET_LIMIT`）；
+· 排序带 `a.uid` 兜底 ⇒ 分页确定、同一行不会出现在两页（I2 断言页间无重复）；
+· 缺 `.gs.db` ⇒ **`DB_MISSING` + 人话文案**（用文件在不在判定，不靠 SQLite 报错文案；只读打开本就不会建库）；
+  本模块自有码**不被引擎映射表改写**（否则 DB_MISSING 会被改写成 DB_OPEN_FAILED，界面就拿不到"先扫一次"）；
+· **永不抛**：解析库/打开库/查询全包在 try 里，失败给带码信封 + `userMessage` 非空（I7）。
+· index.ts：`if (v.method === 'items') → runItemsQuery({ libId, libraries: 已解析库清单, userDataDir, legacyLibrariesDir }, p)`
+  —— 只递**已解析**的库清单，库从哪来仍由 library-config 决定（与 library-ipc.ts 同形）。引擎**未改**：
+  这是一条外壳读路径（读 .gs.db 的 6 张表），引擎不 import 存储实现，加进引擎反而要新开一个端口。
+
+【3. 测试（apps/desktop/tests/items-ipc.test.mjs · 8 条全绿）】
+夹具**自建库级 3 张表**（asset / asset_file / asset_index_state，7 条 × 4 分类 × 3 扩展名），
+**不依赖 S2 正在改的 import 路径** ⇒ 红窗口里也能跑。分组刻意让 **ZZ 落在最后一页**（fn 用得到）。
+ I1 契约：items 已登记 · 多传字段（含 root 路径）被拒 · libId 必填 · limit 0/501 被拒 · sort 白名单 · 未登记方法仍被拒
+ I2 分页：total 与 offset 无关（两页都 7）· 页间无重复 · 排序默认/倒序/按分类
+ I3 筛选：folder / ext / hasArchive 各自生效（2/2/3/4）· 组合筛选（1 条）
+ I4 ⭐⭐ 越界：rows=[] 但 total=7
+ I5 ⭐⭐ facets：含**不在第一页**的 CC/DD/ZZ · count 降序（.jpg 4 条）· foldersTotal=5/extsTotal=3 ·
+       **筛选后 facets 不变**（下拉不随筛选缩水）
+ I6 只读性：跑 5 种查询后 **.gs.db 摘要一字不变**、库根**不多出非 .gs-* 文件**
+ I7 未知库 ⇒ LIB_NOT_FOUND；缺 .gs.db ⇒ **DB_MISSING**；两种都**不抛**且 userMessage 非空
+ I8 耦合：14 个别名逐字钉住 + 造行喂 S2 的 joinedRowToItemRecord（含 vector_row）不许抛
+
+【4. 为什么"能红"不是空话（断言设计）】
+· 越界那条断的是 `total === 7`，而 `rows.length === 0` ⇒ 把 total 写成 rows.length 必红；
+  判据来自 `limit < total`（满页 3≠7）与越界（0≠7）两个场景，**不是**靠"两者恒不等"（整库取完时 7==7，I4 里显式断言了这一点）。
+· facets 那条断的是"**不在第一页**的 ZZ 必须出现"，而"从 rows 推导"看不到 ZZ（I5 里两条断言成对出现）。
+
+【5. ⭐ 能红实测（变异注入 → 失败 → 回滚；不是纸上推理）】
+变异① 把 total 写成 rows.length（改 `data: { rows, total, ... }` → `total: rows.length`）：
+  $ node --test apps/desktop/tests/items-ipc.test.mjs
+  ✖ I2 分页语义 · ✖ I4 越界 · ✖ I6 只读性   ⇒ tests 8 / pass 5 / fail 3
+  断言原文：`AssertionError: 越界也必须如实给筛选后总数 / actual: 0, expected: 7`
+  ⇒ 回滚（改回 `total`）后 8/8 绿。
+变异② 把 facets 改成从当前页 rows 推导（`folders: [...new Set(rows.map(...))]`）：
+  $ node --test apps/desktop/tests/items-ipc.test.mjs
+  ✖ I5 facets 按全库统计   ⇒ tests 8 / pass 7 / fail 1
+  断言原文：`AssertionError: facets 必须含全部分类（含不在本页的 CC/DD/ZZ）/ actual: [ 'AA', 'BB' ] / expected: [ 'AA','BB','CC','DD','ZZ' ]`
+  ⇒ 回滚后 8/8 绿。
+
+【6. 门禁原始输出（纪律 16：干净跑，tsBuildInfo 落到 data/_verify/）】
+$ npx tsc --noEmit -p tsconfig.web.json --tsBuildInfoFile data/_verify/web.tsbuildinfo   ⇒ WEB_TSC=0
+$ npx tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile data/_verify/node.tsbuildinfo ⇒ NODE_TSC=0
+$ npm run build                                                                          ⇒ BUILD=0（三端产物齐）
+$ npm test   ⇒ 565 tests · pass 540 · fail 24 · skipped 1（24 条全是 S2 窗口，见 §8）
+$ npx playwright test smoke.spec.mjs fake-mode.spec.mjs ⇒ 7 passed（15.3s）· OUT_UNCHANGED=True
+  （跑前跑后 out/ 全量 SHA256 指纹一致 —— items 那三行分派没破坏启动与白名单行为）
+
+【7. 只读性证据（SPEC §5.1 的硬要求）】
+· I6：同一库连续跑 5 种查询（分页/筛选/有包/越界/倒序）后 `.gs.db` 的 SHA1 **一字不变**；
+  库根目录里新增文件只允许 `.gs*` 家族（测试里对每个新增文件断言 `/\.gs(-|\.)/`，非保留命名空间即红）；
+· 代码面：只出现 SELECT；打开方式是 readOnly；端口 probeWrites 保持 false（不写探针文件）；
+· `items` **不触发扫描、不进向量**（没有任何写路径、也不调索引）。
+
+【8. 边界 / 交接（S2 的红窗口，与本任务无关但我如实列出）】
+本轮 `npm test` 的 24 条失败：db-import（I1–I4/I7/I7b/I8–I12）· db-rebuild（R1/R4/R5）· health-rebuild（H3/H6/H7/H8/H9/H12）·
+library-methods（IM1）· storage-ports-main（**M5/M8**，M7 已随 S2 的进展转绿）。
+原因同 S6 已报的那条：**运行时读路径正在从旧 items 口径搬到 asset/asset_file**，这些用例的夹具仍是旧口径。
+⇒ 我按边界**没动** storage-ports.ts / row-types.ts / import.ts / library-health.ts 与那 6 个旧测试文件；
+   本任务全程 **import 复用**它们的导出（joinedRowToItemRecord / openGsDb / createLibraryResolverPort）。
+
+【9. 未做 / 未测（如实写）】
+· **没有**给 `items` 加真窗口 e2e：语义（分页/筛选/排序/facets/只读）已由 8 条单测针对**真 .gs.db** 覆盖，
+  而 IPC 管线是与另外 20 个方法完全相同的三行分派（启动冒烟已证管线通）。若所有者要一条端到端，
+  用真库夹具跑 `window.api.invoke('items', …)` 即可 —— 但当前 M0 夹具本身还在 S2 的红窗口里，此时加会引入噪声。
+· `renderer/**` **一行没动**（归 ui-migrator）。P4-2 第 2 段可直接按下面的形状接：
+    invoke('items', { libId, folder?, ext?, hasArchive?, sort?, offset?, limit? })
+      → data.rows[i] = { uid, libId, folder, stem, name, relPath, imageExt, imageSize, imageMtime,
+                         archiveRelPath, archiveExt, archiveSize, archiveMtime, vectorRow }   // **无绝对路径**
+      → data.total（筛选后总数，越界也如实）
+      → data.facets = { folders:[{value,count}], exts:[{value,count}], foldersTotal, extsTotal }  // 全库、不受筛选影响
+      → data.page = { offset, limit, sort }  // 回显，界面可如实显示"第几页/按什么排"
+  注意：`facets` 是**全库**的 —— 下拉不要去 filter 之后再算，直接用返回值；`count` 是精确计数。
+· 大库性能未测：limit 上限 500、facets 前 200；3594 条的库上跑单测级查询是毫秒级（I2 实测 ~20ms 含建库），
+  但**十万条级未实测**（没有那种规模的夹具）⇒ 不做性能声称。
+
+【10. 回滚】
+· `shared/ipc.ts` 去掉 `items` 那一段（并把我加进 ipc-contract-s6 的 C1 的 'items' 一项删掉）；
+· 删 `apps/desktop/src/main/items-ipc.ts` + `apps/desktop/tests/items-ipc.test.mjs`；
+· `main/index.ts` 去掉 `runItemsQuery` 的 import、`v.method === 'items'` 与那个分派分支；
+· 引擎未被改动 ⇒ 无需回滚引擎。未跑 git（AGENTS P7）。
+· 临时物：data/_t62（单测夹具，after() 自清）· data/_verify/*.tsbuildinfo（TypeScript 缓存，可删）。
+===============================================================================

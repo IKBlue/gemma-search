@@ -40,6 +40,8 @@ import type { BoundsDecision } from './window-state.ts';
 import { createRevealPort } from './ports.ts';
 import { createLibraryResolverPort, createStoragePorts } from './storage-ports.ts';
 import { runLibraryHealth, runLibraryRebuild } from './library-ipc.ts';
+import { runItemsQuery } from './items-ipc.ts';
+import type { ItemsQueryParams } from './items-ipc.ts';
 import {
   appDbPath, deleteCollectDir, deleteLibrary, getLibrary, insertCollectDir, insertLibrary,
   listCollectDirs, listLibraries, normalizeRootPath, openAppDb, readAppMeta, setDefaultCollectDir,
@@ -613,7 +615,8 @@ function registerIpc(): void {
     //    并新增 librarySetEnabled / libraryReorder / libraryRemove / collectDirs / collectDir* / appMeta。
     //    这些方法读写的**只有 6 张表**（应用级 app.db 3 张 + 库级 .gs.db 3 张），实现分别在
     //    main/app-db.ts（应用级唯一写入口）与 main/library-ipc.ts（体检/重建）。
-    if (v.method === 'libraryList' || v.method === 'libraryAdd' || v.method === 'libraryPickDir'
+    if (v.method === 'items'
+        || v.method === 'libraryList' || v.method === 'libraryAdd' || v.method === 'libraryPickDir'
         || v.method === 'librarySetEnabled' || v.method === 'libraryReorder' || v.method === 'libraryRemove'
         || v.method === 'collectDirs' || v.method === 'collectDirAdd'
         || v.method === 'collectDirRemove' || v.method === 'collectDirSetDefault'
@@ -660,6 +663,20 @@ function registerIpc(): void {
 // 让用户**主动**选目录的入口，且它只把结果交给主进程自己处理，**不把路径能力授予渲染层**
 // —— 渲染层本来就拿不到 `dialog`，这个方法是它唯一的、需用户亲自点击的间接通道。
 async function handleLibraryMethod(method: MethodName, params: unknown): Promise<Envelope> {
+  // ---- items：只读列表（S8 · SPEC §5.1）----
+  // 实现体在 main/items-ipc.ts（不 import electron ⇒ 可被 node:test 直接覆盖）。
+  // 这里只负责把**已解析**的库清单与 userData 递进去 —— 库从哪来是 library-config 的事。
+  if (method === 'items') {
+    const p = (params && typeof params === 'object' ? params : {}) as ItemsQueryParams;
+    const r = librariesResolved();
+    return runItemsQuery({
+      libId: String(p.libId),
+      libraries: r.libraries.map((l) => ({ libId: l.libId, root: l.root })),
+      userDataDir: USER_DATA_DIR,
+      legacyLibrariesDir: path.join(DATA_DIR, 'libraries'),
+    }, p);
+  }
+
   // ---- 体检 / 重建（T-15a · 2026-10-15 批准新增）----
   // 实现体在 main/library-ipc.ts（那边**不 import electron** ⇒ 可被 node:test 直接覆盖）。
   // 这里只负责"把**已解析**的库清单与 userData 递进去" —— 库从哪来是 library-config 的事。
