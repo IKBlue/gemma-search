@@ -249,3 +249,48 @@ test('④ 语义钉住：库内 → 库内 的目录链接**允许**（不变式
   assert.ok(q.toLowerCase().startsWith(root.toLowerCase()), '目标不存在 ⇒ 返回词法路径，仍在词法库根内：' + q);
   try { fs.rmdirSync(link); } catch { /* 清理失败不影响结论 */ }
 });
+
+// ---------------- ② DF-9：白名单判定不得只看词法 ----------------
+
+test('②⭐ 白名单目录里塞 junction（悬挂）⇒ **拒绝**：不得靠词法命中白名单就放行（DF-9 回归）', (t) => {
+  const allow = tmp();
+  const outside = tmp();
+  const link = path.join(allow, 'link');
+  try {
+    fs.symlinkSync(outside, link, 'junction');
+  } catch (e) {
+    return t.skip('本环境无法创建 junction：' + e.message);
+  }
+  fs.rmSync(outside, { recursive: true, force: true });   // 目标没了 ⇒ 悬挂
+  assert.equal(fs.existsSync(link), false, '前置：悬挂链接下 existsSync=false —— 词法判定看不出问题');
+  assert.equal(codeOf(() => assertCollectDirAllowed(path.join(link, 'System32'), [allow])),
+    ERR.COLLECT_DIR_NOT_ALLOWED,
+    '白名单里的链接指向库外/悬挂 ⇒ 必须 fail-closed（旧实现词法命中就放行）');
+  try { fs.rmdirSync(link); } catch { /* 清理失败不影响结论 */ }
+});
+
+test('② 合法白名单仍放行（防空转）+ 白名单内→白名单内链接允许（与 resolveInLibrary 同口径）', (t) => {
+  const allow = tmp();
+  fs.mkdirSync(path.join(allow, '子', '目录'), { recursive: true });
+  assert.equal(codeOf(() => assertCollectDirAllowed(path.join(allow, '子', '目录'), [allow])), null,
+    '合法子目录必须放行（防空转：新校验不许把它一起拒了）');
+  // 同前缀的兄弟目录仍拒（带分隔符比较）
+  const sibling = allow + '-evil';
+  fs.mkdirSync(sibling, { recursive: true });
+  assert.equal(codeOf(() => assertCollectDirAllowed(sibling, [allow])), ERR.COLLECT_DIR_NOT_ALLOWED);
+  // 白名单内 → 白名单内 的链接：**允许**（与 resolveInLibrary 库里→库里 同一口径）
+  const inner = path.join(allow, 'real-2024');
+  fs.mkdirSync(inner);
+  const link = path.join(allow, 'alias');
+  try {
+    fs.symlinkSync(inner, link, 'junction');
+  } catch (e) {
+    t.diagnostic('跳过白名单内链接用例：' + e.message);
+    fs.rmSync(sibling, { recursive: true, force: true });
+    return;
+  }
+  assert.equal(codeOf(() => assertCollectDirAllowed(path.join(link, 'x'), [allow])), null,
+    '白名单内→白名单内的链接应放行（不变式是「真实路径仍在白名单内」）');
+  try { fs.rmdirSync(link); } catch { /* 清理失败不影响结论 */ }
+  fs.rmSync(sibling, { recursive: true, force: true });
+});

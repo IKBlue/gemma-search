@@ -1,0 +1,71 @@
+gemma-search · DF-9 取件白名单的 junction 绕过（与 DF-7 B 同根因）· 证据（task-76）
+日期：2026-10-15 · 执行者：core-migrator · 来源：DF-7 同类扫描（Lead 亲验 library.ts:154-155 只有 norm + sameOrUnder、无 realpath）
+边界：只改 packages/engine/src/library.ts + 其单测；**未动** packages/indexer/** 与 main/encoder.*。
+
+改动文件（2 个）：
+  ~ packages/engine/src/library.ts            抽出一份共享实现 checkPathInsideBase()，resolveInLibrary 与 assertCollectDirAllowed 共用
+  ~ packages/engine/tests/security.test.mjs   新增 2 条（1 条能红 + 1 条防空转/语义一致）
+
+===== 0. 做法：把「逐段下行 + 真实路径包含校验」抽成唯一一份（P1） =====
+新增 checkPathInsideBase(baseAbs, targetAbs): InsideCheck（library.ts:74）。两个消费方：
+  · resolveInLibrary（库根边界，DF-7 B）—— library.ts:133，调用点 :141
+  · assertCollectDirAllowed（取件白名单，DF-9）—— library.ts:181，调用点 :191
+返回 { ok, kind: lexical|unresolvable|escapes|null, resolved, detail }：**由调用方映射成自己的错误码**，
+所以 B 仍抛 PATH_ESCAPES_LIB / SYMLINK_REJECTED，DF-9 仍抛 COLLECT_DIR_NOT_ALLOWED（码与文案不变）。
+
+共享实现的三条纪律（与 B 完全同口径）：① lstat（不跟随，**看得见悬挂链接**）；② 每段 realpath + sameOrUnder 校验；③ **拿不到结论就拒**（fail-closed）。
+共享的一条规则（写进函数头注释）：基目录**连 lstat 都不存在** ⇒ 它下面不可能有链接可穿越 ⇒ 词法结论就是全部（返回 ok）。
+   —— 这条是 B 与 DF-9 都需要的：库根还没建、或白名单配了本机没有的盘符时，不许误拒（既有用例 ② 依赖它）。
+
+语义（与 B 同一口径）：**白名单内 → 白名单内 的链接允许**（不变式是「真实路径仍在白名单内」，不是「不许有链接」）。已写成测试。
+
+
+===== 1. 能红（修复前先跑）+ 修复后（原始输出） =====
+能红：
+✖ ②⭐ 白名单目录里塞 junction（悬挂）⇒ **拒绝**：不得靠词法命中白名单就放行（DF-9 回归） (1.6916ms)
+  AssertionError [ERR_ASSERTION]: 白名单里的链接指向库外/悬挂 ⇒ 必须 fail-closed（旧实现词法命中就放行）
+ℹ tests 20 · pass 18 · fail 1
+（同一次运行里「合法白名单仍放行」那条是绿的 ⇒ 不是靠把所有情况都拒掉来「通过」。）
+
+修复后：
+ℹ tests 20 · pass 19 · fail 0 · skipped 1
+✔ ②⭐ 白名单目录里塞 junction（悬挂）⇒ 拒绝
+✔ ② 合法白名单仍放行（防空转）+ 白名单内→白名单内链接允许（与 resolveInLibrary 同口径）
+✔ ② 取件目标在白名单外 → COLLECT_DIR_NOT_ALLOWED（触发条件未放宽）
+✔ ② 白名单要求整段匹配（E:\素材待用-x 不算命中）
+✔ ④⭐ 悬挂 junction ⇒ 拒绝（DF-7 B 的回归仍然绿）
+✔ ④ 语义钉住：库内 → 库内 允许 · ✔ ④ 库内指向库外的目录联接 → SYMLINK_REJECTED
+
+
+===== 2. 回归面：COLLECT_DIR_NOT_ALLOWED 的触发条件只收紧、不放宽 =====
+真不在白名单 ⇒ 仍走**原来那条**分支（hit 为空）→ 错误码 COLLECT_DIR_NOT_ALLOWED、文案 取件目标不在白名单内：<dir> 一字未改。
+新增的第二道只可能**多拒**（词法命中但真实路径越界/拿不到结论）⇒ 不放宽任何输入。
+机械证据：既有两条 ② 用例（白名单外 E:\素材待用-x / C:\Windows）仍绿；模块里 COLLECT_DIR_NOT_ALLOWED 的两个抛出点共用同一文案（library.ts:185 与 :193）。
+
+
+===== 3. 同类 grep（先跑后结论，原始输出） =====
+--- sameOrUnder 的定义与调用点 ---
+library.ts:21  function sameOrUnder(child, parent)         ← 定义（唯一）
+library.ts:80  if (!sameOrUnder(target, base))              ← 共享实现里的**词法**前置检查
+library.ts:108 if (!sameOrUnder(realCur, realBase))         ← 共享实现里的**真实路径**检查
+library.ts:183 (allowlist||[]).map(norm).find((a) => sameOrUnder(t, a))  ← 白名单词法预筛（保留）
+⇒ 结论：sameOrUnder 的消费方只剩这两处边界，且两处的「真实路径」部分都走同一个 checkPathInsideBase（不再有第二份逐段校验）。
+
+--- 其它 startsWith / norm / path.resolve（逐条判过，见 df7.txt §6 表）---
+engine.ts:519 · gs-names.ts:46,51,88 · journal.ts:168 · library.ts:39   名字判定（不碰盘、不做包含判定）⇒ 不适用
+engine.ts:138 · index-layout.ts:67,69 · library.ts:244                 路径归一化（path.resolve）⇒ 不适用
+executor.ts:183 · steps.ts:178                                         同一事务计划内「源≠目标」自检 ⇒ 不适用
+main/app-db.ts:172                                                     realpath 归一化（登记前的规范形）⇒ 不适用
+main/index-file.ts assertWritableGsPath                                父目录**字符串等于**库根 + 保留命名空间 ⇒ 不可逃（df7.txt §6 第 3 行）
+
+
+===== 4. 门禁 =====
+· tsc --noEmit -p tsconfig.node.json ⇒ **tsc error TS = 0**
+· 定向跑（本次改动的直接面）：security + engine + scanner ⇒ **tests 63 · pass 62 · fail 0 · skipped 1**
+· **引擎全量**（Lead 批准后跑；纪律 6 先扫进程：无 electron/playwright，只有用户浏览器的 chrome）：
+  PS> node --test --test-isolation=none "packages/engine/tests/*.test.mjs"
+  exit=0
+  ℹ tests 179 · suites 0 · pass 178 · fail 0 · cancelled 0 · skipped 1 · todo 0 · duration_ms 15793
+  ✖ 列表：**(none)**
+  （skipped 1 = 环境没有文件符号链接权限的那条既有用例；其余全绿。）
+· **未跑** npm test 全量 / build / e2e（Lead 指定由其在冻结窗口跑权威门禁；ENC-1 也在跑，避免互相污染）。

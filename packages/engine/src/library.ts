@@ -44,6 +44,86 @@ export function isSafeRelPath(rel: unknown): rel is string {
 }
 
 /**
+ * 「路径必须在基目录内」的逐段校验结果。**B 与 DF-9 共用同一份实现**（P1：不许复制第二份）。
+ */
+export interface InsideCheck {
+  ok: boolean;
+  /** 失败类别：'lexical' 词法就越界 · 'unresolvable' 存在但拿不到真实路径（悬挂链接/权限） · 'escapes' 真实路径在基目录外 */
+  kind: 'lexical' | 'unresolvable' | 'escapes' | null;
+  /** 通过时：目标最终路径（目标存在 ⇒ **真实路径**；不存在 ⇒ 词法路径） */
+  resolved: string;
+  /** 失败上下文（放进错误 details，便于排障） */
+  detail: Record<string, unknown>;
+}
+
+/**
+ * **唯一一份**「逐段下行 + 真实路径包含校验」。消费方：`resolveInLibrary`（库根边界，DF-7 B）
+ * 与 `assertCollectDirAllowed`（取件白名单，DF-9）—— 两者语义同口径，**不许各写一份**。
+ *
+ * 为什么必须逐段 lstat（DF-7/DF-9 都栽在这）：`existsSync` **跟随链接**，悬挂/不可 stat 的链接返回 false，
+ * 于是「找最深已存在祖先」会**静默跳过那个链接组件**，去校验更上层目录，最后放行一条带链接组件的词法路径
+ * —— 实测能真的写到基目录外。逐段 `lstat` 才能**看见**悬挂链接。
+ *
+ * 三条纪律：① `lstat` 不跟随 → 看得见悬挂链接；② 每段 `realpath` 并校验包含；
+ * ③ **拿不到结论就拒**（fail-closed，由调用方映射成自己的错误码）。
+ *
+ * ⚠️ 基目录本身**连 lstat 都不存在**时（例如白名单只在某台机器上有的盘符、或库根还没建）：
+ *    它下面**不可能有链接可穿越** ⇒ 词法结论就是全部，返回 ok —— 这条规则 B 与 DF-9 共享，
+ *    否则「配置了但当前不存在的白名单目录」会被误拒（既有用例 ② 会红）。
+ */
+export function checkPathInsideBase(baseAbs: string, targetAbs: string): InsideCheck {
+  const base = path.resolve(baseAbs);
+  const target = path.resolve(targetAbs);
+  const probe = (p: string): fs.Stats | undefined => fs.lstatSync(p, { throwIfNoEntry: false });
+
+  // ① 词法包含（便宜，且能拦住绝大多数越界；比较带分隔符，防同前缀兄弟目录）
+  if (!sameOrUnder(target, base)) {
+    return { ok: false, kind: 'lexical', detail: { target, base }, resolved: target };
+  }
+
+  // ② 基目录不存在 ⇒ 无链接可穿越（见函数头注释）
+  if (probe(base) === undefined) return { ok: true, kind: null, detail: {}, resolved: target };
+
+  let realBase: string;
+  try {
+    realBase = fs.realpathSync.native(base);
+  } catch (e) {
+    return { ok: false, kind: 'unresolvable', detail: { base, why: messageOf(e) }, resolved: target };
+  }
+
+  // ③ 自基目录逐段下行
+  const parts = path.relative(base, target).split(/[\\/]+/).filter((s) => s.length > 0 && s !== '.');
+  let cur = base;
+  for (const part of parts) {
+    cur = path.join(cur, part);
+    const st = probe(cur);
+    if (st === undefined) break;      // 这一段（连 lstat 都）不存在 ⇒ 之后的更不存在，词法路径安全
+    let realCur: string;
+    try {
+      realCur = fs.realpathSync.native(cur);
+    } catch (e) {
+      // 存在但拿不到真实路径（悬挂链接 / 权限拒绝）⇒ 无法证明在里面 ⇒ 拒
+      return { ok: false, kind: 'unresolvable', detail: { component: cur, why: messageOf(e) }, resolved: target };
+    }
+    if (!sameOrUnder(realCur, realBase)) {
+      return { ok: false, kind: 'escapes', detail: { component: cur, realCur, realBase }, resolved: target };
+    }
+    let isDir = false;
+    try { isDir = fs.statSync(cur).isDirectory(); } catch { isDir = false; }
+    if (!isDir) break;                // 组件是文件 ⇒ 后面的不可能存在
+  }
+
+  // ④ 目标本身存在 ⇒ 返回**真实路径**（与旧实现「目标存在就回真实路径」一致，调用方依赖它）
+  if (probe(target) !== undefined) {
+    try {
+      return { ok: true, kind: null, detail: {}, resolved: fs.realpathSync.native(target) };
+    } catch (e) {
+      return { ok: false, kind: 'unresolvable', detail: { component: target, why: messageOf(e) }, resolved: target };
+    }
+  }
+  return { ok: true, kind: null, detail: {}, resolved: target };
+}
+/**
  * 把一个库内相对路径解析成绝对路径，并做**包含校验 + 链接校验**。
  *
  * @param root 库根（**来自注册表，不是客户端**）
@@ -58,74 +138,22 @@ export function resolveInLibrary(root: string, rel: unknown): string {
   const rootAbs = norm(root);
   const target = norm(path.join(rootAbs, rel));
 
-  // ③ 词法包含校验（先做：便宜且能拦住绝大多数越界）
-  if (!sameOrUnder(target, rootAbs)) {
-    throw fail(ERR.PATH_ESCAPES_LIB, `解析后越出库根：${rel}`, { rel, target, root: rootAbs });
-  }
-
-  // ④ 真实路径包含校验（拦住符号链接 / 联接点 / 8.3 短名等）
-  if (fs.existsSync(target)) {
-    let realRoot: string;
-    let realTarget: string;
-    try {
-      realRoot = fs.realpathSync.native(rootAbs);
-      realTarget = fs.realpathSync.native(target);
-    } catch (e) {
-      throw fail(ERR.PATH_ESCAPES_LIB, `路径无法解析真实路径：${rel}`, { rel, why: messageOf(e) });
-    }
-    if (!sameOrUnder(realTarget, realRoot)) {
+  const chk = checkPathInsideBase(rootAbs, target);
+  if (!chk.ok) {
+    // 错误码与文案按**原语义**分流：词法越界/拿不到结论 ⇒ PATH_ESCAPES_LIB；真实路径在库外 ⇒ SYMLINK_REJECTED
+    if (chk.kind === 'escapes') {
       throw fail(ERR.SYMLINK_REJECTED,
-        `目标真实路径在库根之外（符号链接/联接点）：${rel}`,
-        { rel, realTarget, realRoot });
+        `目标的真实路径在库根之外（符号链接/联接点）：${rel}`,
+        { rel, ...chk.detail });
     }
-    return realTarget;
+    throw fail(ERR.PATH_ESCAPES_LIB,
+      chk.kind === 'lexical'
+        ? `解析后越出库根：${rel}`
+        : `路径组件存在但无法解析真实路径（链接悬挂或权限不足）：${rel}`,
+      { rel, ...chk.detail });
   }
-
-  // ④'（目标不存在）自库根**逐段下行**校验每一个已存在的组件。
-  //
-  // ⚠️ 2026-10-15（DF-7 B · 实测可逃逸）：原实现是「找最深的已存在祖先」，用 `existsSync` 判断存在性 ——
-  //    而 existsSync **跟随链接**，悬挂/不可 stat 的链接返回 false ⇒ 探测**静默跳过那个链接组件**，
-  //    校验了更上层目录之后放行一条**带链接组件的词法路径**。最小复现（junction 无需管理员）：
-  //      root/sub → 库外目录；建好后删掉目标 ⇒ 悬挂；resolveInLibrary(root, 'sub\x.jpg')
-  //      旧实现返回 root\sub\x.jpg，恢复目标目录后写入**真的落在库外**（违反 P4 库内写入不变式）。
-  //    ⇒ 三条纪律：① 用 lstat（能看见悬挂链接，不跟随）；② 每段 realpath 并校验包含；
-  //      ③ **拿不到结论就拒**（fail-closed）—— 不再有任何静默放行。
-  //
-  // 语义钉住（有测试）：库内 → 库内 的链接**允许**。不变式是「解析后的真实路径仍在库内」，
-  // 而不是「不许有链接」；真实库里 VR → VR-2024 这类目录链接是合法的，一律拒掉会误伤。
-  if (!fs.existsSync(rootAbs)) return target;   // 库根都不存在：纯词法路径，没有链接可穿越（调用方另有 LIB_ROOT_MISSING 判定）
-  let realRoot: string;
-  try {
-    realRoot = fs.realpathSync.native(rootAbs);
-  } catch (e) {
-    throw fail(ERR.PATH_ESCAPES_LIB, `库根无法解析真实路径：${rootAbs}`, { root: rootAbs, why: messageOf(e) });
-  }
-  const parts = rel.split(/[\\/]+/).filter((s) => s.length > 0 && s !== '.');
-  let cur = rootAbs;
-  for (const part of parts) {
-    cur = path.join(cur, part);
-    const st = fs.lstatSync(cur, { throwIfNoEntry: false });
-    if (st === undefined) break;   // 这一段（连 lstat 都）不存在 ⇒ 之后的更不存在，词法路径安全
-    let realCur: string;
-    try {
-      realCur = fs.realpathSync.native(cur);
-    } catch (e) {
-      // 存在、但拿不到真实路径（悬挂链接 / 权限拒绝）⇒ **无法证明在库内** ⇒ 拒绝，绝不 return target
-      throw fail(ERR.PATH_ESCAPES_LIB,
-        `路径组件存在但无法解析真实路径（链接悬挂或权限不足）：${rel}`,
-        { rel, component: cur, why: messageOf(e) });
-    }
-    if (!sameOrUnder(realCur, realRoot)) {
-      throw fail(ERR.SYMLINK_REJECTED,
-        `路径组件的真实路径在库根之外（符号链接/联接点）：${rel}`,
-        { rel, component: cur, realCur, realRoot });
-    }
-    // 用 stat（跟随链接）判断这一段到底是不是目录：不是 ⇒ 后续组件不可能存在，到此为止
-    let isDir = false;
-    try { isDir = fs.statSync(cur).isDirectory(); } catch { isDir = false; }
-    if (!isDir) break;
-  }
-  return target;
+  return chk.resolved;
+    return target;
 }
 
 /**
@@ -152,10 +180,18 @@ export function resolveQueryImage(p: unknown): string {
 /** 取件目标目录白名单（不变量 ②）。 */
 export function assertCollectDirAllowed(targetDir: string, allowlist?: readonly string[] | null): string {
   const t = norm(targetDir);
-  const hit = (allowlist || []).some((a) => sameOrUnder(t, norm(a)));
+  const hit = (allowlist || []).map((a) => norm(a)).find((a) => sameOrUnder(t, a));
   if (!hit) {
     throw fail(ERR.COLLECT_DIR_NOT_ALLOWED, `取件目标不在白名单内：${targetDir}`,
       { targetDir: t, allowlist });
+  }
+  // ⚠️ DF-9：词法命中**不够** —— 白名单目录里塞一个 junction，`E:\取件\link\System32` 词法照样命中，
+  //    而写入实际落在白名单外（与 DF-7 B 同根因）。⇒ 复用**同一份**逐段真实路径校验，拿不到结论就拒。
+  //    触发条件只**收紧**不放宽：真不在白名单时，上面那条错误码与文案原样不变。
+  const chk = checkPathInsideBase(hit, t);
+  if (!chk.ok) {
+    throw fail(ERR.COLLECT_DIR_NOT_ALLOWED, `取件目标不在白名单内：${targetDir}`,
+      { targetDir: t, allowlist, why: chk.kind, ...chk.detail });
   }
   return t;
 }
