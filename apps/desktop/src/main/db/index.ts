@@ -23,7 +23,10 @@ export type {
 
 export {
   EXPECTED_TABLES,
-  MIGRATIONS,
+  LIBRARY_MIGRATIONS,
+  LIBRARY_TABLES,
+  LIBRARY_VIRTUAL_TABLES,
+  SCHEMA_VERSION_LEDGER,
   SCHEMA_VERSION_ROW_ID,
   SCHEMA_VERSION_TABLE,
   TARGET_SCHEMA_VERSION,
@@ -37,8 +40,36 @@ export type {
   AppliedMigration,
   MigrateOptions,
   Migration,
+  MigrationLedger,
   MigrationResult,
 } from './migrations.ts';
+
+// 应用级 schema（独立账本：app_meta.schema_version）—— S1 绿地
+export {
+  APP_META_LEDGER,
+  APP_META_ROW_ID,
+  APP_META_TABLE,
+  APP_MIGRATIONS,
+  APP_TABLES,
+  APP_TARGET_SCHEMA_VERSION,
+  migrateApp,
+} from './app-migrations.ts';
+export type { MigrateAppOptions } from './app-migrations.ts';
+
+// 20 张表的四层分类（唯一来源）
+export {
+  SCHEMA_LAYER_ORDER,
+  SCHEMA_LAYERS,
+  appLayerTables,
+  libraryLayerTables,
+  schemaTables,
+  tablesInLayer,
+} from './schema-layers.ts';
+export type { SchemaLayer } from './schema-layers.ts';
+
+// 迁移机制（库级/应用级共用）—— 表清单派生也在这里
+export { createdTableNames, migrateWithLedger, virtualTableNames } from './migration-engine.ts';
+export type { MigrateWithLedgerOptions } from './migration-engine.ts';
 
 export {
   ITEM_COLUMNS,

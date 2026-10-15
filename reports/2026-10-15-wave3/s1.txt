@@ -1,0 +1,118 @@
+==============================================================================
+S1 / task-52 · 绿地 schema 定稿与实现（20 张表 = 库级 14 + 应用级 6）
+日期：2026-10-15 · 执行：main-migrator · 环境：Windows / Node v24.14.0 / TS 7.0.2 / node:sqlite
+写入范围：apps/desktop/src/main/db/** + apps/desktop/tests/**（未碰 indexer / encoder / renderer / shared / main 其它文件）
+==============================================================================
+
+## 0. 交付物
+  [重写] apps/desktop/src/main/db/migrations.ts        —— 库级 14 张（绿地，旧 v1/v2 丢弃）
+  [新增] apps/desktop/src/main/db/migration-engine.ts  —— 迁移机制唯一实现 + 表清单从 DDL 派生
+  [新增] apps/desktop/src/main/db/app-migrations.ts    —— 应用级 6 张 + app_meta 账本
+  [新增] apps/desktop/src/main/db/schema-layers.ts     —— 四层分类唯一来源（事实/过程/意图/应用）
+  [改]   apps/desktop/src/main/db/index.ts             —— barrel 增补应用级/分类/引擎导出
+  [改]   apps/desktop/src/main/db/open.ts              —— MIGRATIONS → LIBRARY_MIGRATIONS（2 处名字）
+  [重写] apps/desktop/tests/db-schema.test.mjs         —— S1 验收（12 条）
+
+## 1. 20 张表与四层分类（schema-layers.ts 是唯一来源；DDL 派生的清单必须逐张对上）
+  事实层 ① asset · ② asset_file · ③ asset_name_fts（FTS5 虚表）              [3]
+  过程层 ① asset_index_state · ② job · ③ health_run · ④ health_finding       [4]
+  意图层 ① asset_user_meta · ② tag · ③ asset_tag · ④ collection
+         ⑤ collection_item · ⑥ asset_export · ⑦ collect_dir                  [7]
+  应用层 ① app_meta · ② library_registry · ③ app_setting · ④ activity
+         ⑤ recent_query · ⑥ recent_view                                     [6]
+  合计 20；物理落点与层一一对应：库级 .gs.db = 事实∪过程∪意图 = 14；应用级 app.db = 应用层 = 6。
+  （schema_version 是库级迁移账本、app_meta 是应用级账本；账本不计入 20，但都在 sqlite_master 里。）
+
+## 2. README §3 五条修正的落点
+  #1 表数 20（应用级 6 + 库级 14）      ：schema-layers.ts:42-66 + G1 用例；DDL 派生 == 四层点名
+  #2 activity/recent_query/recent_view 归应用级：app-migrations.ts:112-166（三张表都在 APP_TABLES 里）
+  #3 UNIQUE(lib_id, rel_path) 落在真实列：migrations.ts:51（asset.rel_path，扫描器写）+ :57 约束
+     + :60-68 认账（asset_file 不冗余 lib_id；代价：asset.rel_path 与 asset_file(image).rel_path 须同事务更新）
+  #4 recent_query 哨兵 scope_lib_id    ：app-migrations.ts:137  TEXT NOT NULL DEFAULT ''（空串 = 全部库）；
+     另给两条偏唯一索引（text 用 text 键、image 用 image_ref 键，:151-152）—— 图片查询 text 为 NULL，
+     单靠 (kind,text,scope) 的 UNIQUE 去不了重（SQLite 多个 NULL 互不冲突）。
+  #5 job 全局单任务（产品决定，写明）   ：migrations.ts:232-236 uniq_job_single_active ON job((1)) WHERE state IN (queued,running)
+
+## 3. 命令与原始输出
+
+### 3.1 类型门禁
+命令：node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "$env:TEMP\tsbi_s1.tsbuildinfo"
+结果：EXIT=0，输出 0 行（全工程 0 错误）。
+原始输出：
+  (空 —— 无任何诊断)
+
+### 3.2 S1 验收测试
+命令：node --test --test-isolation=none apps/desktop/tests/db-schema.test.mjs
+EXIT=0
+  ✔ A1：db 层只有 sqlite-adapter.ts 碰 node:sqlite，且不 import electron (13.0941ms)
+  ✔ A2：db 层源码里没有 any / @ts-ignore / @ts-expect-error (7.2107ms)
+  ✔ G1 ⭐ 表数 = 20；每张建出的表都在四组里被点名，且只被点名一次 (0.368ms)
+  ✔ G2 ⭐ 打开两个库：DDL 建出全部表（sqlite_master 对照）与全部索引 (1050.9233ms)
+  ✔ G6 ⭐ 修正 #3：UNIQUE(lib_id, rel_path) 落在**真实列**上（asset.rel_path），重复登记被拒 (425.4384ms)
+  ✔ G7 ⭐ 修正 #4：recent_query 用哨兵 scope_lib_id；"全部库"与图片查询都能去重 (963.665ms)
+  ✔ G8 ⭐ 修正 #5：job 是**全局单任务**（活跃行只能有一行）；历史行不受限 (515.741ms)
+  ✔ G3 ⭐ 两套账本各自独立：推进一个不动另一个 (1105.1111ms)
+  ✔ G4 ⭐ 幂等重跑：不执行 DDL、不清数据、不报错（两套账本都是） (916.8816ms)
+  ✔ G5 ⭐ 迁移失败 ⇒ 整条回滚（不留半张表）；未来版本 ⇒ SCHEMA_TOO_NEW (357.6683ms)
+  ✔ G6b：只读打开不迁移；账本单行守卫/版本非负 由库级约束保证 (428.8988ms)
+  ✔ G0 ⭐ 应有表清单从 DDL 派生（不是手写清单），且清单合法 (0.2126ms)
+  ℹ tests 12
+  ℹ pass 12
+  ℹ fail 0
+  ℹ cancelled 0
+  ℹ skipped 0
+
+### 3.3 能红证明（注入违例：从意图层点名里删掉 tag）
+步骤（AGENTS §3.7：先复制到 data/_*，再写回，**不用 git checkout**）：
+  ① cp schema-layers.ts data/_s1/schema-layers.ts.bak
+  ② 删掉意图层里 'tag' 那一行点名
+  ③ 跑同一条命令 → 红；④ 从内存里的原文写回 → restored identical = true；⑤ 复跑 → 绿
+原始输出（红）：
+EXIT=1
+  ℹ tests 12
+  ℹ pass 11
+  ℹ fail 1
+  ℹ cancelled 0
+  ℹ skipped 0
+  ✖ G1 ⭐ 表数 = 20；每张建出的表都在四组里被点名，且只被点名一次 (0.8325ms)
+  ✖ failing tests:
+  ✖ G1 ⭐ 表数 = 20；每张建出的表都在四组里被点名，且只被点名一次 (0.8325ms)
+    AssertionError [ERR_ASSERTION]: 四组点名去重后必须是 20 张（应用级 6 + 库级 14）
+      actual: 19,
+      expected: 20,
+
+恢复后复跑（同一命令）：EXIT=0 · tests 12 / pass 12 / fail 0 —— 见 §3.2。
+
+## 4. 影响面：仍然依赖**旧 schema**（items / library / 文档三表）的测试 —— 归 S2，不是 S1 的回归
+说明：绿地重写按所有者裁定**丢弃**旧表 ⇒ 走 importItemsFromJson / items 的既有测试在 S2 重写导入前必红。
+逐文件单跑（node --test --test-isolation=none apps/desktop/tests/<name>.test.mjs）：
+  db-schema                ℹ tests 12 | ℹ pass 12 | ℹ fail 0 | ℹ skipped 0
+  db-import                ℹ tests 17 | ℹ pass 4 | ℹ fail 13 | ℹ skipped 0
+  db-rebuild               ℹ tests 5 | ℹ pass 0 | ℹ fail 5 | ℹ skipped 0
+  health-rebuild           ℹ tests 13 | ℹ pass 3 | ℹ fail 10 | ℹ skipped 0
+  library-methods          ℹ tests 8 | ℹ pass 0 | ℹ fail 8 | ℹ skipped 0
+  storage-ports-main       ℹ tests 8 | ℹ pass 2 | ℹ fail 6 | ℹ skipped 0
+  sqlite-tmp-dir           ℹ tests 3 | ℹ pass 2 | ℹ fail 1 | ℹ skipped 0
+  gs-names-single-source   ℹ tests 4 | ℹ pass 4 | ℹ fail 0 | ℹ skipped 0
+  index-location           ℹ tests 10 | ℹ pass 10 | ℹ fail 0 | ℹ skipped 0
+  归属：db-import / db-rebuild / health-rebuild / library-methods / storage-ports-main / sqlite-tmp-dir
+        这 6 个文件全部经 importItemsFromJson → items 表；S2「100 条素材建库 + 导入（asset/asset_file 拆分）」重写它们。
+  未受影响（本轮复跑仍绿）：gs-names-single-source 4/4 · index-location 10/10。
+
+## 5. 未决 / 需要 Lead 看一眼的三点
+  (a) 落点取舍：你的「五条已定的修正」#1（20 = 应用级 6 + 库级 14）与 #2（activity/recent_query/recent_view
+      归应用级）联立后**唯一解**是「recent_view 移到应用级、collect_dir 补回库级」——本实现采用该划分。
+      而卡片正文的两张清单（库级 14 含 recent_view / 应用级 6 含 collect_dir）是提案「分组节」原文，与 #1+#2 冲突
+      （board 描述自己也把 recent_view 加进了应用级清单）。若你要改回字面清单：
+      collect_dir 的 DDL 搬到 migrations.ts、recent_view 的 DDL 搬到 app-migrations.ts、schema-layers.ts 两处点名对调 —— 共 3 处。
+  (b) 跨库外键的代价（如实记）：#2 把 recent_view 放到应用级后，提案写的 recent_view.uid FK asset.uid CASCADE
+      **建不出来**（SQLite 不支持跨库外键）。现在 uid 是普通 TEXT，删除素材时须由应用层清理本表；
+      同理 activity.lib_id / recent_query.scope_lib_id 不做引用完整性。若要保住 CASCADE，只能把 recent_view 放回库级。
+  (c) app.db 不需要登记 gs-names：gs-names 管的是**库根**保留名（packages/engine/src/gs-names.ts:32-66），
+      而 app.db 落在 userData（应用级），永远不是库内条目 ⇒ 无需改 isReservedLibraryName，也**没有**靠前缀推断。
+
+## 6. 回滚方式
+  · 本卡是绿地重写：旧 v1/v2 已被所有者裁定丢弃，**不做就地回滚**（工作树里没有可"还原"的旧语义）。
+  · 要整卡撤销：撤销 Lead 的这次提交（git revert <commit>）；涉及路径只有 §0 的 7 个文件。
+  · 注入实验的备份留在 data/_s1/schema-layers.ts.bak（已与工作树逐字节一致，复跑绿）；data/_* 可随时删。
+==============================================================================

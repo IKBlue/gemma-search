@@ -1,397 +1,376 @@
-// apps/desktop/src/main/db/migrations.ts —— .gs.db 的建表与迁移机制（T-11a 要求 ②③）
+// apps/desktop/src/main/db/migrations.ts —— **库级** `.gs.db` 的绿地 schema（14 张表）
 //
-// 机制（为什么长这样）：
-//   · 版本记在**元表 schema_version**（单行，id=1），不用 PRAGMA user_version。
-//     理由：元表是普通表，能被 SQL 查询/断言，还能顺带记 updated_at；PRAGMA 只能走 C API。
-//     **版本只有这一处真相来源** —— 不额外同步 user_version，两个来源迟早对不上（P1）。
-//   · 迁移是**只追加**的有序清单。历史条目不许改、不许挖洞；版本号必须从 current+1 连续推进，
-//     否则抛 SCHEMA_GAP（而不是"跳到最大版本"糊过去 —— 那会跳过没人跑过的中间态）。
-//   · 每条迁移跑在**一个事务**里（BEGIN IMMEDIATE … COMMIT）。DDL 在 SQLite 里是事务性的，
-//     所以中途失败整条回滚、schema_version 停在上一条 —— 不会留下"半张表 + 已记账"的中间态。
-//   · **幂等**：没有任何 version > current 的迁移时，不执行任何 DDL、不报错；DDL 本身也全带
-//     IF NOT EXISTS（双保险，应付"元表被手删但表还在"这种手工状态）。
-//   · 库里的版本**高于**本程序知道的版本 ⇒ 抛 SCHEMA_TOO_NEW，不降级瞎改；
-//     处置照 SPEC §2.1：.gs.db 是派生数据，删掉重建。
+// 2026-10-15 · S1：**绿地重写**。旧 v1/v2（library / items / doc_dirs / documents / doc_chunks /
+//   health_runs / health_ledger 共 8 张）**整体丢弃**，不写兼容迁移 ——
+//   所有者已裁定「全新项目，允许改/调，旧 schema 不迁移」。
 //
-// 表覆盖（要求 ③）：
-//   v1 core        : library（库元信息）· items（条目，18 字段对齐 items.json）
-//   v2 docs+health : doc_dirs · documents · doc_chunks（P7 才用，**先建表**）· health_runs · health_ledger（体检台账）
+// 表数口径（唯一来源 = 四层分类，见 schema-layers.ts）：
+//   **20 张 = 库级 14 + 应用级 6**。本文件 = 库级 14 张（事实 3 + 过程 4 + 意图 7）。
+//   `schema_version` 是**迁移账本**（机制表），不计入 20。
+//   机械断言在 apps/desktop/tests/db-schema.test.mjs：DDL 派生清单 == 四层点名清单。
 //
-// 为什么 doc_chunks 现在就建：P7 文档检索是**门控**项（进入条件 = 先拿到 10–30 份真实文档），
-//   但表结构在 SPEC §1.2 已经定死。先把表建好，P7 开工时不必再改 schema（也就不必写一条新迁移）。
+// 提案自身的 5 处问题按 reports/2026-10-15-schema-diff/README.md §3 修正（逐条落到 DDL 注释）：
+//   3.1 表数统一为 20（以逐表分类节为唯一来源）；
+//   3.2 activity / recent_query / recent_view 归**应用级**（见 app-migrations.ts）；
+//   3.3 `UNIQUE (lib_id, rel_path)` 必须落在**真实列**上 ⇒ 给 `asset` 加 `rel_path`（扫描器写），
+//       `asset_file` **不**冗余 `lib_id`（认账见 asset 表注释）；
+//   3.4 recent_query 的哨兵列（在应用级库，见 app-migrations.ts）；
+//   3.5 job 的"全局单任务"约束写明并落地（见 job 表的 uniq_job_single_active）。
 //
-// 为什么拆成 v1/v2 而不是一条：拆分让"按序推进"这件事**可被测试**(先只跑 v1、再跑全量)，
-//   也给了未来"只改了文档表"的改动一个不碰核心表的落点。
+// 存储纪律：**不存绝对路径**（索引/定位一律以库根相对路径为准，库整体搬盘后仍可用）。
+// 迁移机制在 migration-engine.ts（库级/应用级共用一份实现）。
 
-import { GsDbError } from './errors.ts';
+import {
+  SCHEMA_VERSION_LEDGER,
+  bootstrapLedger,
+  createdTableNames,
+  migrateWithLedger,
+  targetVersionOf,
+  uniqueSorted,
+  validateMigrations,
+  virtualTableNames,
+  type Migration,
+  type MigrationResult,
+  type MigrateWithLedgerOptions,
+} from './migration-engine.ts';
 import type { SqlDatabase } from './sqlite-adapter.ts';
 
-/** 一条迁移：版本号 + 名字 + 一组幂等 SQL 语句 */
-export interface Migration {
-  version: number;
-  name: string;
-  statements: readonly string[];
-}
+// ================================================================ 库级 DDL（14 张）
 
-/** 元表名（唯一来源；测试与调用方都用它，不各自写字符串） */
-export const SCHEMA_VERSION_TABLE: string = 'schema_version';
-
-/** 元表只有一行，主键固定为 1（CHECK 一起把这条不变式钉在库里） */
-export const SCHEMA_VERSION_ROW_ID: number = 1;
-
-/**
- * 元表本身**不参与迁移**：它是迁移机制的账本，先于任何迁移存在。
- * CHECK (id = 1) 让"只允许一行"成为**库级**约束，而不是靠调用方自觉。
- */
-const CREATE_SCHEMA_VERSION_TABLE: string = `
-CREATE TABLE IF NOT EXISTS schema_version (
-  id         INTEGER PRIMARY KEY NOT NULL CHECK (id = 1),
-  version    INTEGER NOT NULL CHECK (version >= 0),
-  updated_at INTEGER NOT NULL
-);`;
-
-const INSERT_SCHEMA_VERSION_ROW: string =
-  'INSERT OR IGNORE INTO schema_version (id, version, updated_at) VALUES (1, 0, ?)';
-const READ_SCHEMA_VERSION: string = 'SELECT version FROM schema_version WHERE id = 1';
-const UPDATE_SCHEMA_VERSION: string = 'UPDATE schema_version SET version = ?, updated_at = ? WHERE id = 1';
-
-// ---------------------------------------------------------------- v1：核心表
-
-/**
- * v1 · core：库元信息 + 条目。
- *
- * items 的 18 个字段与 data/libraries/L1/items.json 逐字对齐（字段↔列的配对在 row-types.ts，
- * 那里是唯一来源；本文件的列顺序必须与 ITEM_COLUMNS 一致，测试会核对）。
- */
-const V1_CORE: readonly string[] = [
+/** 事实层 ① `asset` —— 条目（一张预览图 = 一个条目；允许缺包） */
+const T_ASSET: readonly string[] = [
   `
-CREATE TABLE IF NOT EXISTS library (
-  lib_id             TEXT    PRIMARY KEY NOT NULL,
-  root               TEXT    NOT NULL,
-  fallback           INTEGER NOT NULL DEFAULT 0 CHECK (fallback IN (0, 1)),
-  compat             TEXT,
-  compat_key_version INTEGER,
-  model_repo         TEXT,
-  model_revision     TEXT,
-  dim                INTEGER,
-  seq                INTEGER,
-  item_count         INTEGER NOT NULL DEFAULT 0,
-  meta_json          TEXT,
-  registered_at      INTEGER NOT NULL,
-  updated_at         INTEGER NOT NULL
+CREATE TABLE IF NOT EXISTS asset (
+  uid                   TEXT    PRIMARY KEY NOT NULL
+                        CHECK (length(uid) = 12 AND uid NOT GLOB '*[^0-9a-f]*'),
+  lib_id                TEXT    NOT NULL,
+  folder                TEXT    NOT NULL,
+  stem                  TEXT    NOT NULL,
+  display_name          TEXT    NOT NULL,
+  rel_dir               TEXT    NOT NULL,
+  rel_path              TEXT    NOT NULL,
+  content_created_at_ms INTEGER,
+  deleted_at_ms         INTEGER,
+  dup_group_id          TEXT,
+  discovered_at_ms      INTEGER NOT NULL,
+  updated_at_ms         INTEGER NOT NULL,
+  UNIQUE (lib_id, rel_path)
 );`,
 
-  `
-CREATE TABLE IF NOT EXISTS items (
-  uid              TEXT    PRIMARY KEY NOT NULL,
-  lib_id           TEXT    NOT NULL REFERENCES library (lib_id) ON DELETE CASCADE,
-  folder           TEXT    NOT NULL,
-  stem             TEXT    NOT NULL,
-  name             TEXT    NOT NULL,
-  rel_path         TEXT    NOT NULL,
-  abs_path         TEXT    NOT NULL,
-  image_ext        TEXT    NOT NULL,
-  image_size       INTEGER NOT NULL,
-  image_mtime      INTEGER NOT NULL,
-  archive_name     TEXT,
-  archive_rel_path TEXT,
-  archive_abs_path TEXT,
-  archive_ext      TEXT,
-  archive_size     INTEGER,
-  archive_mtime    INTEGER,
-  vector_row       INTEGER,
-  vector_source    TEXT
-);`,
-
-  'CREATE INDEX IF NOT EXISTS idx_items_lib_folder ON items (lib_id, folder);',
-  'CREATE INDEX IF NOT EXISTS idx_items_lib_vector_row ON items (lib_id, vector_row);',
-  'CREATE INDEX IF NOT EXISTS idx_items_stem ON items (stem);',
-  'CREATE INDEX IF NOT EXISTS idx_items_archive_name ON items (lib_id, archive_name);',
+  // ⚠️ README §3.3：提案把 `UNIQUE (lib_id, rel_path)` 写在 asset 卡，但 asset **没有 rel_path**
+  //    （只有 rel_dir），而 rel_path 在 asset_file、asset_file 又没有 lib_id ⇒ 建不出来。
+  //    选法 ①（README 推荐）：`asset` 增加 `rel_path`（**由扫描器写**，与 asset_file 的
+  //    role='image' 行同值）。认账：这确实让"图片的库根相对路径"在两处出现（asset.rel_path 与
+  //    asset_file(image).rel_path）；接受这份冗余，因为 `asset` 是"这条素材在库里是谁"的身份表，
+  //    「同一路径不许登记两次」这条唯一性必须落在**条目级**（跨 role 也成立），
+  //    而 asset_file 没有 lib_id、单独无法表达"同库同路径唯一"。
+  //    ⚠️ 副作用：`asset.rel_path` 与 `asset_file(role='image').rel_path` 改名/移动时必须同事务更新
+  //      （S2 的扫描/改名路径负责；不一致就是"条目指向旧路径"的静默错误）。
+  'CREATE INDEX IF NOT EXISTS idx_asset_content_created_at ON asset (content_created_at_ms);',
+  'CREATE INDEX IF NOT EXISTS idx_asset_dup_group ON asset (dup_group_id) WHERE dup_group_id IS NOT NULL;',
+  // 常规查询默认 WHERE deleted_at_ms IS NULL（软删除）⇒ 给"在用条目"一条偏索引
+  'CREATE INDEX IF NOT EXISTS idx_asset_active ON asset (lib_id, discovered_at_ms DESC) WHERE deleted_at_ms IS NULL;',
+  // 不再单独建 idx_asset_lib：UNIQUE (lib_id, rel_path) 的前缀就是 lib_id，重复索引只是写放大
 ];
 
-// ---------------------------------------------------------------- v2：文档分块 + 体检台账
-
-/**
- * v2 · docs-and-health：SPEC §1.2 的文档/分块三张表 + F5 体检台账两张表。
- * 全部先建表，P7 只写数据不改 schema。
- *
- * 规范化取舍：doc_chunks **不**冗余 lib_id（documents 里已有），健康台账条目也**不**冗余 lib_id
- * （health_runs 里已有）—— 冗余列就是第二个真相来源，迟早和主表对不上（P1）。
- * 要按库筛就 join，SQLite 有索引，代价可忽略。
- */
-const V2_DOCS_HEALTH: readonly string[] = [
-  // ---- SPEC §1.2「文档目录登记」
+/** 事实层 ② `asset_file` —— 两个文件角色（缺包 = 没有 role='archive' 的行） */
+const T_ASSET_FILE: readonly string[] = [
   `
-CREATE TABLE IF NOT EXISTS doc_dirs (
-  dir_id       TEXT    PRIMARY KEY NOT NULL,
-  lib_id       TEXT    NOT NULL REFERENCES library (lib_id) ON DELETE CASCADE,
-  abs_path     TEXT    NOT NULL,
-  added_at     INTEGER NOT NULL,
-  enabled      INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
-  last_scan_at INTEGER
+CREATE TABLE IF NOT EXISTS asset_file (
+  uid                TEXT    NOT NULL REFERENCES asset (uid) ON DELETE CASCADE,
+  role               TEXT    NOT NULL CHECK (role IN ('image', 'archive')),
+  rel_path           TEXT    NOT NULL,
+  ext                TEXT    NOT NULL,
+  size_bytes         INTEGER NOT NULL,
+  mtime_ms           INTEGER NOT NULL,
+  width              INTEGER,
+  height             INTEGER,
+  thumb_hash         BLOB,
+  content_hash_kind  TEXT    CHECK (content_hash_kind IN ('sha1', 'sha256')),
+  content_hash_value TEXT,
+  PRIMARY KEY (uid, role)
 );`,
-  'CREATE INDEX IF NOT EXISTS idx_doc_dirs_lib ON doc_dirs (lib_id);',
-
-  // ---- SPEC §1.2「文档」
-  `
-CREATE TABLE IF NOT EXISTS documents (
-  doc_id     TEXT PRIMARY KEY NOT NULL,
-  lib_id     TEXT NOT NULL REFERENCES library (lib_id) ON DELETE CASCADE,
-  dir_id     TEXT REFERENCES doc_dirs (dir_id) ON DELETE SET NULL,
-  abs_path   TEXT NOT NULL,
-  rel_path   TEXT,
-  ext        TEXT NOT NULL,
-  size       INTEGER,
-  mtime      INTEGER,
-  sha1       TEXT,
-  pages      INTEGER,
-  status     TEXT NOT NULL DEFAULT 'ok',
-  error      TEXT,
-  indexed_at INTEGER
-);`,
-  'CREATE INDEX IF NOT EXISTS idx_documents_lib ON documents (lib_id);',
-  'CREATE INDEX IF NOT EXISTS idx_documents_dir ON documents (dir_id);',
-  'CREATE INDEX IF NOT EXISTS idx_documents_sha1 ON documents (sha1);',
-
-  // ---- SPEC §1.2「分块」：chunkId · docId · seq · text · vectorRow · page
-  //      + char_start/char_end（分块重叠需要知道原文区间）+ embed_state（P7 的编码进度）
-  //      char_start/char_end/vector_row/page 可空：能取到就写，取不到不发明 0（0 是合法页号）
-  `
-CREATE TABLE IF NOT EXISTS doc_chunks (
-  chunk_id    TEXT    PRIMARY KEY NOT NULL,
-  doc_id      TEXT    NOT NULL REFERENCES documents (doc_id) ON DELETE CASCADE,
-  seq         INTEGER NOT NULL,
-  text        TEXT    NOT NULL,
-  char_start  INTEGER,
-  char_end    INTEGER,
-  page        INTEGER,
-  vector_row  INTEGER,
-  embed_state TEXT    NOT NULL DEFAULT 'pending',
-  created_at  INTEGER NOT NULL,
-  UNIQUE (doc_id, seq)
-);`,
-  // UNIQUE (doc_id, seq) 自带索引，不再单独建 (doc_id, …)
-  'CREATE INDEX IF NOT EXISTS idx_doc_chunks_vector_row ON doc_chunks (vector_row);',
-
-  // ---- SPEC §F5 体检：一次运行 = 一组检查结果
-  `
-CREATE TABLE IF NOT EXISTS health_runs (
-  run_id       TEXT    PRIMARY KEY NOT NULL,
-  lib_id       TEXT    NOT NULL REFERENCES library (lib_id) ON DELETE CASCADE,
-  started_at   INTEGER NOT NULL,
-  finished_at  INTEGER,
-  status       TEXT    NOT NULL DEFAULT 'running',
-  item_count   INTEGER,
-  summary_json TEXT
-);`,
-  'CREATE INDEX IF NOT EXISTS idx_health_runs_lib ON health_runs (lib_id, started_at);',
-
-  // ---- 体检台账：每条发现一行（缺包 / 有包无图 / 零字节 / 扩展名不符 / 精确重复 / 疑似重复 / 索引健康）
-  //      不用 AUTOINCREMENT：台账按 run_id 分组，rowid 删除后复用对语义无影响，
-  //      而 AUTOINCREMENT 会多出一张 sqlite_sequence 内部表，污染"表清单"这类断言。
-  `
-CREATE TABLE IF NOT EXISTS health_ledger (
-  entry_id    INTEGER PRIMARY KEY,
-  run_id      TEXT    NOT NULL REFERENCES health_runs (run_id) ON DELETE CASCADE,
-  check_id    TEXT    NOT NULL,
-  severity    TEXT    NOT NULL,
-  target_uid  TEXT,
-  target_path TEXT,
-  detail      TEXT    NOT NULL,
-  detail_json TEXT,
-  created_at  INTEGER NOT NULL
-);`,
-  'CREATE INDEX IF NOT EXISTS idx_health_ledger_run ON health_ledger (run_id, check_id);',
-  'CREATE INDEX IF NOT EXISTS idx_health_ledger_uid ON health_ledger (target_uid);',
+  // mtime_ms 的口径唯一：BigInt mtimeNs / 1_000_000n（截断）。判"文件被外部改过"就比它。
+  // 与 asset.content_created_at_ms 是两件事：前者判过期，后者是内容时间（可空，很多素材没有 EXIF）。
+  'CREATE INDEX IF NOT EXISTS idx_asset_file_rel_path ON asset_file (rel_path);',
+  'CREATE INDEX IF NOT EXISTS idx_asset_file_width ON asset_file (width) WHERE width IS NOT NULL;',
+  'CREATE INDEX IF NOT EXISTS idx_asset_file_content_hash ON asset_file (content_hash_value) WHERE content_hash_value IS NOT NULL;',
 ];
 
-/** 迁移清单（**只追加**；顺序即执行顺序） */
-export const MIGRATIONS: readonly Migration[] = Object.freeze([
-  Object.freeze({ version: 1, name: 'core', statements: V1_CORE }),
-  Object.freeze({ version: 2, name: 'docs-and-health', statements: V2_DOCS_HEALTH }),
+/** 事实层 ③ `asset_name_fts` —— 文件名全文索引（FTS5 实测可用，见 README §5.1） */
+const T_ASSET_NAME_FTS: readonly string[] = [
+  // 提案卡没有字段行（"此卡不是数据表"），这里按用途给最小面：
+  //   · uid UNINDEXED：只做回表连接用，不参与分词（uid 是 hex，不该进倒排）
+  //   · stem / display_name：用户真正会搜的两列
+  //   · 独立 FTS5（非 external-content）：由应用在改名/删除时同步维护；S2 接线。
+  //   ⚠️ FTS5 会自建 5 张影子表（asset_name_fts_data/_idx/_content/_docsize/_config），
+  //      它们**不是我们建的表** —— db-schema 测试按 virtualTableNames() 机械排除。
+  `
+CREATE VIRTUAL TABLE IF NOT EXISTS asset_name_fts USING fts5(
+  uid UNINDEXED,
+  stem,
+  display_name,
+  tokenize = 'unicode61'
+);`,
+];
+
+/** 过程层 ① `asset_index_state` —— 编码状态（1:1，主键即外键） */
+const T_ASSET_INDEX_STATE: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS asset_index_state (
+  uid              TEXT    PRIMARY KEY NOT NULL REFERENCES asset (uid) ON DELETE CASCADE,
+  encoded_at_ms    INTEGER,
+  encoded_mtime_ms INTEGER,
+  compat_key       TEXT,
+  needs_reencode   INTEGER NOT NULL DEFAULT 0 CHECK (needs_reencode IN (0, 1)),
+  attempt_count    INTEGER NOT NULL DEFAULT 0,
+  last_error       TEXT,
+  last_error_at_ms INTEGER,
+  excluded_at_ms   INTEGER,
+  checked_at_ms    INTEGER
+);`,
+  // 编码成功时刻存"快照"而不是布尔：快照还能回答"何时改的"
+  'CREATE INDEX IF NOT EXISTS idx_asset_index_state_pending ON asset_index_state (uid) WHERE encoded_at_ms IS NULL;',
+  'CREATE INDEX IF NOT EXISTS idx_asset_index_state_reencode ON asset_index_state (uid) WHERE needs_reencode = 1;',
+  'CREATE INDEX IF NOT EXISTS idx_asset_index_state_excluded ON asset_index_state (uid) WHERE excluded_at_ms IS NOT NULL;',
+];
+
+/** 意图层 ① `asset_user_meta` —— 评分 / 备注 / 收藏（没有行 = 还没被标注过，合法状态） */
+const T_ASSET_USER_META: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS asset_user_meta (
+  uid           TEXT    PRIMARY KEY NOT NULL REFERENCES asset (uid) ON DELETE CASCADE,
+  rating        INTEGER CHECK (rating BETWEEN 1 AND 5),
+  note          TEXT,
+  updated_at_ms INTEGER NOT NULL,
+  is_favorite   INTEGER NOT NULL DEFAULT 0 CHECK (is_favorite IN (0, 1))
+);`,
+  // 用 NULL 表示未评分（0 会分不清"没评"和"评了零分"，后者语义上不存在）
+  'CREATE INDEX IF NOT EXISTS idx_asset_user_meta_favorite ON asset_user_meta (uid) WHERE is_favorite = 1;',
+];
+
+/** 意图层 ②③ `tag` / `asset_tag` */
+const T_TAG: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS tag (
+  tag_id        TEXT    PRIMARY KEY NOT NULL,
+  name          TEXT    NOT NULL UNIQUE,
+  created_at_ms INTEGER NOT NULL
+);`,
+  `
+CREATE TABLE IF NOT EXISTS asset_tag (
+  uid         TEXT    NOT NULL REFERENCES asset (uid) ON DELETE CASCADE,
+  tag_id      TEXT    NOT NULL REFERENCES tag (tag_id) ON DELETE CASCADE,
+  added_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (uid, tag_id)
+);`,
+  // 复合主键已给 (uid, …) 前缀；反过来"这个标签下有哪些条目"要单独一条
+  'CREATE INDEX IF NOT EXISTS idx_asset_tag_tag ON asset_tag (tag_id);',
+];
+
+/** 意图层 ④⑤ `collection` / `collection_item` */
+const T_COLLECTION: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS collection (
+  collection_id TEXT    PRIMARY KEY NOT NULL,
+  name          TEXT    NOT NULL,
+  note          TEXT,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);`,
+  // name 故意不加 UNIQUE：同名集合合理（去年与今年的提案可以同名）
+  `
+CREATE TABLE IF NOT EXISTS collection_item (
+  collection_id TEXT    NOT NULL REFERENCES collection (collection_id) ON DELETE CASCADE,
+  uid           TEXT    NOT NULL REFERENCES asset (uid) ON DELETE CASCADE,
+  added_at_ms   INTEGER NOT NULL,
+  PRIMARY KEY (collection_id, uid)
+);`,
+  'CREATE INDEX IF NOT EXISTS idx_collection_item_uid ON collection_item (uid);',
+];
+
+/** 意图层 ⑥ `asset_export` —— 取件 / 交付的历史（历史表存名字**快照**） */
+const T_ASSET_EXPORT: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS asset_export (
+  export_id  TEXT    PRIMARY KEY NOT NULL,
+  kind       TEXT    NOT NULL CHECK (kind IN ('collect', 'deliver')),
+  uid        TEXT    REFERENCES asset (uid) ON DELETE SET NULL,
+  asset_name TEXT    NOT NULL,
+  batch_id   TEXT,
+  target_dir TEXT    NOT NULL,
+  result     TEXT    CHECK (result IN ('copied', 'skipped', 'failed')),
+  reason     TEXT,
+  at_ms      INTEGER NOT NULL
+);`,
+  // uid 可空 + SET NULL（不是 CASCADE）：条目被彻底删除后"我导出过它"这件事仍然成立
+  // batch_id **不能建外键**：activity 在应用级库，跨库无外键（README §2.2 #14）
+  'CREATE INDEX IF NOT EXISTS idx_asset_export_uid ON asset_export (uid, at_ms DESC);',
+  'CREATE INDEX IF NOT EXISTS idx_asset_export_batch ON asset_export (batch_id) WHERE batch_id IS NOT NULL;',
+];
+
+/** 过程层 ② `job` —— 任务台账（崩溃检测靠 heartbeat） */
+const T_JOB: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS job (
+  job_id          TEXT    PRIMARY KEY NOT NULL,
+  kind            TEXT    NOT NULL CHECK (kind IN ('scan', 'index', 'health', 'rebuild', 'ingest')),
+  state           TEXT    NOT NULL CHECK (state IN ('queued', 'running', 'done', 'failed', 'cancelled')),
+  progress_done   INTEGER NOT NULL DEFAULT 0,
+  progress_total  INTEGER,
+  phase           TEXT,
+  cursor_json     TEXT,
+  heartbeat_at_ms INTEGER,
+  summary_json    TEXT,
+  error           TEXT,
+  queued_at_ms    INTEGER,
+  started_at_ms   INTEGER,
+  finished_at_ms  INTEGER
+);`,
+  'CREATE INDEX IF NOT EXISTS idx_job_state ON job (state);',
+  'CREATE INDEX IF NOT EXISTS idx_job_heartbeat ON job (heartbeat_at_ms) WHERE state = \'running\';',
+  // ⚠️ README §3.5 / Lead 修正 #5：这是**产品决定**，不是疏忽 ——
+  //    「同时只能有一个在跑的任务」⇒ 索引 / 扫描 / 体检 / 重建 / 入库**全部串行**。
+  //    想改成"索引与体检可并行"就必须改这条约束（按 kind 分组），那是改行为，要先报所有者。
+  //    常量表达式索引 ((1)) 让所有活跃行落在同一个键上 ⇒ 第二行必然冲突。
+  'CREATE UNIQUE INDEX IF NOT EXISTS uniq_job_single_active ON job ((1)) WHERE state IN (\'queued\', \'running\');',
+];
+
+/** 过程层 ③④ `health_run` / `health_finding` */
+const T_HEALTH: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS health_run (
+  run_id        TEXT    PRIMARY KEY NOT NULL,
+  job_id        TEXT    REFERENCES job (job_id) ON DELETE SET NULL,
+  state         TEXT    CHECK (state IN ('running', 'done', 'failed', 'cancelled')),
+  started_at_ms INTEGER,
+  finished_at_ms INTEGER,
+  summary_json  TEXT
+);`,
+  // 体检复用同一套任务机制（job），不另写一份进度/取消（P1）
+  'CREATE INDEX IF NOT EXISTS idx_health_run_job ON health_run (job_id) WHERE job_id IS NOT NULL;',
+  'CREATE INDEX IF NOT EXISTS idx_health_run_started ON health_run (started_at_ms);',
+  `
+CREATE TABLE IF NOT EXISTS health_finding (
+  finding_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id          TEXT    NOT NULL REFERENCES health_run (run_id) ON DELETE CASCADE,
+  check_id        TEXT    NOT NULL,
+  severity        TEXT    CHECK (severity IN ('info', 'warn', 'error')),
+  target_uid      TEXT,
+  target_rel_path TEXT,
+  detail          TEXT    NOT NULL,
+  detail_json     TEXT,
+  created_at_ms   INTEGER NOT NULL
+);`,
+  // 提案明确要 AUTOINCREMENT（流水不需要跨库唯一，整数最省）。
+  // 认账：AUTOINCREMENT 会带来一张 SQLite 内部表 sqlite_sequence —— 表清单断言必须排除它。
+  'CREATE INDEX IF NOT EXISTS idx_health_finding_run ON health_finding (run_id, check_id);',
+  'CREATE INDEX IF NOT EXISTS idx_health_finding_uid ON health_finding (target_uid) WHERE target_uid IS NOT NULL;',
+  'CREATE INDEX IF NOT EXISTS idx_health_finding_path ON health_finding (target_rel_path) WHERE target_rel_path IS NOT NULL;',
+];
+
+/** 意图层 ⑦ `collect_dir` —— 取件白名单（**安全边界**，落库才能审计与展示） */
+const T_COLLECT_DIR: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS collect_dir (
+  dir_id     TEXT    PRIMARY KEY NOT NULL,
+  label      TEXT    NOT NULL UNIQUE,
+  abs_path   TEXT    NOT NULL,
+  is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1))
+);`,
+  // 界面只应允许一个默认项 ⇒ 落成库级约束（常量表达式索引），而不是靠 UI 自觉
+  'CREATE UNIQUE INDEX IF NOT EXISTS uniq_collect_dir_default ON collect_dir ((1)) WHERE is_default = 1;',
+];
+
+/**
+ * 库级迁移清单（绿地：只有一条 v1）。
+ *
+ * 为什么只有一条：绿地模型不背历史 —— 旧 v1/v2 已整体丢弃，把 14 张表拆成多条只会在
+ * 「版本推进」上制造没有意义的台阶。测试用**注入的自定义清单**覆盖"多条按序推进"。
+ */
+const LIBRARY_V1: readonly string[] = Object.freeze([
+  ...T_ASSET,
+  ...T_ASSET_FILE,
+  ...T_ASSET_NAME_FTS,
+  ...T_ASSET_INDEX_STATE,
+  ...T_ASSET_USER_META,
+  ...T_TAG,
+  ...T_COLLECTION,
+  ...T_ASSET_EXPORT,
+  ...T_JOB,
+  ...T_HEALTH,
+  ...T_COLLECT_DIR,
 ]);
 
-/**
- * 一份清单里的最高版本（空清单 = 0）。
- * 单独导出：open.ts 的只读路径也要报 targetVersion，不能各写一遍 reduce（P2）。
- */
-export function targetVersionOf(migrations: readonly Migration[]): number {
-  return migrations.reduce((max: number, m: Migration) => Math.max(max, m.version), 0);
-}
+export const LIBRARY_MIGRATIONS: readonly Migration[] = Object.freeze([
+  Object.freeze({ version: 1, name: 'greenfield-library-14', statements: LIBRARY_V1 }),
+]);
 
-/** 本程序知道的最高版本（MIGRATIONS 派生，不另写一个数字） */
-export const TARGET_SCHEMA_VERSION: number = targetVersionOf(MIGRATIONS);
+/** 本程序知道的**库级**最高版本（从清单派生，不另写数字） */
+export const TARGET_SCHEMA_VERSION: number = targetVersionOf(LIBRARY_MIGRATIONS);
 
-/**
- * 库应有的**全部表名**（含元表 schema_version）。
- *
- * ⚠️ **从 DDL 文本派生**，不另写一份表名清单 —— 清单与 DDL 是同一个概念的两份写法，
- *    分开写迟早对不上（AGENTS P1）。加了新迁移，这里自动跟着变。
- * 用途：T-15a 的完整性自检「表是否在」（apps/desktop/src/main/library-health.ts）。
- * 机械核对：health-rebuild.test.mjs 断言本清单 == sqlite_master 里的表集合。
- */
-const CREATE_TABLE_RE: RegExp = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)/gi;
+// ---------------------------------------------------------------- 应有表清单（从 DDL 派生）
 
-function tableNamesIn(statements: readonly string[]): string[] {
-  const names: string[] = [];
-  for (const sql of statements) {
-    for (const match of sql.matchAll(CREATE_TABLE_RE)) names.push(match[1]);
-  }
-  return names;
-}
-
-export const EXPECTED_TABLES: readonly string[] = Object.freeze(
-  [
-    ...new Set([
-      ...tableNamesIn([CREATE_SCHEMA_VERSION_TABLE]),
-      ...MIGRATIONS.flatMap((m: Migration): string[] => tableNamesIn(m.statements)),
-    ]),
-  ].sort(),
+/** 库级 14 张业务表（**从 DDL 派生**，不手写第二份） */
+export const LIBRARY_TABLES: readonly string[] = Object.freeze(
+  uniqueSorted(LIBRARY_MIGRATIONS.flatMap((m: Migration): string[] => createdTableNames(m.statements))),
 );
 
-// ---------------------------------------------------------------- 结果类型
+/** 库级虚拟表（FTS5）—— 影子表要按它排除，测试用 */
+export const LIBRARY_VIRTUAL_TABLES: readonly string[] = Object.freeze(
+  uniqueSorted(LIBRARY_MIGRATIONS.flatMap((m: Migration): string[] => virtualTableNames(m.statements))),
+);
 
-export interface AppliedMigration {
-  version: number;
-  name: string;
+/**
+ * 库级 `.gs.db` 里**应当存在**的全部表（含迁移账本 `schema_version`）。
+ * 用途：T-15a 的完整性自检（apps/desktop/src/main/library-health.ts）。
+ * ⚠️ 账本表不计入"20 张业务表"，但它确实在库里 ⇒ 这份清单必须含它。
+ */
+export const EXPECTED_TABLES: readonly string[] = Object.freeze(
+  uniqueSorted([
+    ...createdTableNames(SCHEMA_VERSION_LEDGER.ddl),
+    ...LIBRARY_TABLES,
+  ]),
+);
+
+// ---------------------------------------------------------------- 账本读写（库级便捷封装）
+
+/** 建账本表并保证 id=1 那一行存在；每次 migrate 都调，代价是两条 no-op 语句 */
+export function ensureSchemaVersionTable(db: SqlDatabase, now: () => number): void {
+  bootstrapLedger(db, SCHEMA_VERSION_LEDGER, now);
 }
 
-export interface MigrationResult {
-  /** 迁移前库里的版本 */
-  fromVersion: number;
-  /** 迁移后库里的版本 */
-  toVersion: number;
-  /** 本次清单里的最高版本 */
-  targetVersion: number;
-  /** 本次**实际执行**的迁移（按序）；幂等重跑时为空数组 */
-  applied: AppliedMigration[];
-  /** applied 为空 ⇒ 库已经是目标版本，什么都没做 */
-  upToDate: boolean;
+/** 读库级当前版本；账本没有 id=1 的行 = 建表逻辑被绕过，抛错而不是"当成 0" */
+export function readSchemaVersion(db: SqlDatabase): number {
+  return SCHEMA_VERSION_LEDGER.readVersion(db);
 }
 
+/** `migrate` 的选项（与迁移引擎同形，只是 `migrations` 可缺省为库级清单） */
 export interface MigrateOptions {
-  /** 覆盖迁移清单（测试用它做"先 v1 再 v2"和"注入一条坏迁移"） */
+  /** 覆盖迁移清单（测试用它做"先跑一条、再跑全量"与"注入一条坏迁移"） */
   migrations?: readonly Migration[];
-  /** 时钟注入（applied_at 可复现） */
+  /** 时钟注入（版本行时间可复现） */
   now?: () => number;
 }
 
-// ---------------------------------------------------------------- 元表读写
-
-/** 建元表（IF NOT EXISTS）并保证 id=1 那一行存在；每次 migrate 都调，代价是两条 no-op 语句 */
-export function ensureSchemaVersionTable(db: SqlDatabase, now: () => number): void {
-  db.exec(CREATE_SCHEMA_VERSION_TABLE);
-  db.prepare(INSERT_SCHEMA_VERSION_ROW).run(now());
-}
-
-/** 读当前版本；元表没有 id=1 的行 = 建表逻辑被绕过，抛错而不是"当成 0" */
-export function readSchemaVersion(db: SqlDatabase): number {
-  const row = db.prepare(READ_SCHEMA_VERSION).get();
-  const value = row === undefined ? undefined : row['version'];
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-    throw new GsDbError(
-      'META_ROW_MISSING',
-      `${SCHEMA_VERSION_TABLE} 里没有可用的 id=${SCHEMA_VERSION_ROW_ID} 版本行（读到 ${String(value)}）—— ` +
-        '建表逻辑被绕过或文件被外部改过；删掉 .gs.db 会按 SPEC §2.1 重建。',
-    );
-  }
-  return value;
-}
-
-/** 迁移清单自身的合法性：正整数版本、严格递增、名字非空 */
-export function validateMigrations(migrations: readonly Migration[]): void {
-  let prev = 0;
-  for (const m of migrations) {
-    if (!Number.isInteger(m.version) || m.version <= 0) {
-      throw new GsDbError('MIGRATION_LIST_INVALID', `迁移版本号必须是正整数，实际是 ${String(m.version)}`);
-    }
-    if (!m.name) {
-      throw new GsDbError('MIGRATION_LIST_INVALID', `迁移 v${m.version} 缺少名字`);
-    }
-    if (m.version <= prev) {
-      throw new GsDbError(
-        'MIGRATION_LIST_INVALID',
-        `迁移版本必须严格递增：v${prev} 之后出现 v${m.version}`,
-      );
-    }
-    prev = m.version;
-  }
-}
-
-/** 执行一条迁移（自带事务与回滚；失败时版本号保持在上一条） */
-function applyOne(db: SqlDatabase, m: Migration, now: () => number): void {
-  let began = false;
-  try {
-    db.exec('BEGIN IMMEDIATE');
-    began = true;
-    for (const statement of m.statements) db.exec(statement);
-    db.prepare(UPDATE_SCHEMA_VERSION).run(m.version, now());
-    db.exec('COMMIT');
-    began = false;
-  } catch (e) {
-    let rollbackNote = '';
-    if (began) {
-      try {
-        db.exec('ROLLBACK');
-      } catch (re) {
-        // 回滚失败也必须留痕 —— 否则下一次打开会看到一个没人解释得了的中间态
-        rollbackNote = `；且回滚也失败了（${describe(e)}）`;
-      }
-    }
-    throw new GsDbError(
-      'MIGRATION_FAILED',
-      `迁移 v${m.version}（${m.name}）失败，已回滚，库仍停在 v${m.version - 1}${rollbackNote}：${describe(e)}`,
-      { cause: e },
-    );
-  }
-}
-
-function describe(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
-
-// ---------------------------------------------------------------- 总入口
-
 /**
- * 把库推进到清单里的最高版本。**幂等**：已是最新就什么都不做、也不报错。
- *
- * 不负责：建父目录、开库（那是 open.ts）、删库重建（removeGsDbFiles）。
+ * 把库级 `.gs.db` 推进到清单里的最高版本。**幂等**：已是最新就什么都不做、也不报错。
+ * 不负责：建父目录、开库（open.ts）、删库重建（removeGsDbFiles）。
  */
 export function migrate(db: SqlDatabase, opts: MigrateOptions = {}): MigrationResult {
-  const migrations = opts.migrations ?? MIGRATIONS;
-  const now = opts.now ?? Date.now;
-  validateMigrations(migrations);
-  ensureSchemaVersionTable(db, now);
-
-  const fromVersion = readSchemaVersion(db);
-  const targetVersion = targetVersionOf(migrations);
-
-  if (fromVersion > targetVersion) {
-    throw new GsDbError(
-      'SCHEMA_TOO_NEW',
-      `库里的 schema 版本 v${fromVersion} 高于本程序知道的 v${targetVersion} —— ` +
-        '不降级瞎改（那会把新版本的列当成不存在）。.gs.db 是派生数据：删掉它（连 -wal/-shm）会按 SPEC §2.1 重建。',
-    );
-  }
-
-  const pending = migrations
-    .filter((m) => m.version > fromVersion)
-    .slice()
-    .sort((a, b) => a.version - b.version);
-
-  const applied: AppliedMigration[] = [];
-  let current = fromVersion;
-  for (const m of pending) {
-    if (m.version !== current + 1) {
-      throw new GsDbError(
-        'SCHEMA_GAP',
-        `迁移清单断代：库在 v${current}，下一条却是 v${m.version}（必须是 v${current + 1}）—— 迁移历史只许追加`,
-      );
-    }
-    applyOne(db, m, now);
-    applied.push({ version: m.version, name: m.name });
-    current = m.version;
-  }
-
-  return { fromVersion, toVersion: current, targetVersion, applied, upToDate: applied.length === 0 };
+  const options: MigrateWithLedgerOptions = {
+    migrations: opts.migrations ?? LIBRARY_MIGRATIONS,
+    now: opts.now,
+  };
+  return migrateWithLedger(db, SCHEMA_VERSION_LEDGER, options);
 }
+
+// 既有调用方（open.ts / library-health.ts）从本文件取引擎件；统一在这里转出（不各自 import 引擎）
+export { SCHEMA_VERSION_LEDGER, targetVersionOf, validateMigrations };
+export { SCHEMA_VERSION_ROW_ID, SCHEMA_VERSION_TABLE } from './migration-engine.ts';
+export type {
+  AppliedMigration,
+  Migration,
+  MigrationLedger,
+  MigrationResult,
+} from './migration-engine.ts';

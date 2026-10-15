@@ -20,7 +20,7 @@ import path from 'node:path';
 
 import { GsDbError, describeError } from './errors.ts';
 import {
-  MIGRATIONS,
+  LIBRARY_MIGRATIONS,
   migrate,
   readSchemaVersion,
   targetVersionOf,
@@ -34,7 +34,7 @@ export interface OpenGsDbOptions {
   dbPath: string;
   /** 驱动；默认 node:sqlite。测试可注入假驱动 */
   driver?: SqlOpenFn;
-  /** 覆盖迁移清单（默认 MIGRATIONS） */
+  /** 覆盖迁移清单（默认 LIBRARY_MIGRATIONS） */
   migrations?: readonly Migration[];
   /** 时钟注入 */
   now?: () => number;
@@ -97,7 +97,7 @@ export function openGsDb(options: OpenGsDbOptions): OpenGsDbResult {
   const driver = options.driver ?? openNodeSqlite;
   const readOnly = options.readOnly === true;
   const now = options.now ?? Date.now;
-  const migrations = options.migrations ?? MIGRATIONS;
+  const migrations = options.migrations ?? LIBRARY_MIGRATIONS;
   const created = !fs.existsSync(dbPath);
 
   if (!readOnly) {
