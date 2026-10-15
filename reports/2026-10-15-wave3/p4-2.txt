@@ -1,7 +1,10 @@
 T-06b? / P4-2 · F2 浏览页（虚拟滚动 + 筛选 + 排序）· 2026-10-15
 任务板 id: task-46 · 执行: ui-migrator · 类型: **本轮实测**（单测 + 真窗口 e2e + tsc + build）
 写入范围: apps/desktop/src/renderer · apps/desktop/tests · apps/desktop/e2e
-⚠️ 分段状态：**第 1 段（不依赖 S8 的部分）已完成**；第 2 段（真数据 + 筛选生效/空态区分的真窗口 e2e）等 S8（task-62）。
+⚠️ 分段状态：
+  · 第 1 段（不依赖 S8）：**已完成并提交**（Lead 复核后提交，含纪律 16）。
+  · 第 1.5 段（facets 接口面）：**已完成**（Lead 2026-10-15 当场裁定 facets 形状后我立刻接上，见 §10）。
+  · 第 2 段（真数据 + E14-d/e/f）：等 S8（task-62）落地通知。
 
 =================================================================================
 0. 结论速览
@@ -144,6 +147,16 @@ $ npm run e2e                                         → **59 passed / 1 failed
   现在 `thumbSrc()` 在 libId/uid 缺失时返回 null，由调用点显示「无预览」（B-系列之外的单测点已覆盖）。
   证据：改前 ✖（search/BrowseGrid.tsx  "undefined" ×2）→ 改后 ✔（copy 5/5）。
 
+5.5 ✅ 纪律 16 的「干净跑」写法：本机实测通过（并复现了它的反例）
+  Lead 给的写法（换一个独立的 tsBuildInfoFile ⇒ 强制全量、又不打扰别人共用的那份）：
+    $ npx tsc --noEmit -p tsconfig.web.json  --tsBuildInfoFile data/_verify/web.tsbuildinfo   → EXIT=0
+    $ npx tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile data/_verify/node.tsbuildinfo  → EXIT=0
+  反例（我原本提的写法**不可用**，实测复现）：
+    $ npx tsc --noEmit -p tsconfig.web.json --incremental false
+      tsconfig.web.json(4,3): error TS6379: Composite projects may not disable incremental compilation.   → EXIT=1
+      ⇒ 本仓两个工程都是 composite，禁用 incremental 不被允许。
+  ⇒ 以后本卡后续段（第 2 段 / E14-d/e/f）的门禁一律用**上面那条**，并在报告里贴命令原文 + 跑的时刻。
+
 5.4 ⚠️ 我漏报的 2 条类型红（Lead 独立复跑抓到）+ 时间线证据
   症状：`pages/BrowsePage.tsx(150,16)` 与 `(156,11)`：Type 'string' is not assignable to type 'number' ——
         都是我给 `<Field size="sm">` 传的 size（Field 透传给原生 select，而 HTML select 的 size 是**可见行数**）。
@@ -216,3 +229,52 @@ $ npm run e2e                                         → **59 passed / 1 failed
 回滚：删 4 个新文件 + 还原 6 个测试/路由/侧栏文件的改动（`git checkout --`）。无依赖变更，回滚干净。
 
 —— 第 1 段到此；等 Lead 通知 S8 收口后接第 2 段。
+
+=================================================================================
+10. 第 1.5 段：facets 由**后端**给（Lead 当场裁定，我按定稿形状接上）
+=================================================================================
+裁定（SPEC §5.1 已定稿）：
+  items { libId, folder?, ext?, hasArchive?, sort?, offset?, limit? }
+    → { rows, total, facets }
+  facets = { folders: [{value,count}], exts: [{value,count}], foldersTotal, extsTotal }
+  · **按库统计、不受筛选影响**（下拉里永远能看到全库有哪些分类/扩展名）；
+  · count 降序前 200 + 总数 ⇒ 界面可如实说「还有 N 个」；
+  · total 仍是**筛选后**总数，越界也如实给。
+
+为什么必须这么改（不是「更优雅」，是**会说谎**）：
+  我第一版从**当前页样本**推导下拉项 ⇒ ① 漏值（不在本页的分类永远看不到）；
+  ② **随分页跳动**（翻到第 2 页下拉项就变了 ⇒ 用户以为库变了）。
+  现在 `facetsOf()` 的定位被写死为「测试/注入路径专用」，真数据路径只用后端的整库统计。
+
+改了什么：
+  utils/browse.ts    + FacetEntry / BrowseFacets / NO_FACETS / facetOptions() / facetHidden()；
+                     facetsOf() 的注释改成「测试/注入路径专用，真数据路径不许用」
+  store/browse.ts    BrowsePageData 加 `facets?`；BrowseState 加 `facets`；
+                     load()/loadLibraryTotal() 收下它（**后端没给就保留上一次** —— 免得翻页时下拉项忽然清空）
+  pages/BrowsePage.tsx  分类 Chip 与扩展名下拉都改读 `facetOptions(...)`，并显示计数；
+                     截断时显示「还有 N 个分类未列出」/「还有 N 个」（data-testid: facet-*-hidden）
+  tests/browse-utils.test.mjs  + B16–B20（共 22 条）
+
+新增单测（B16–B20）：
+  B16 ⭐ 下拉项来自**后端整库统计**：本页只有 VR，仍能看到 CR / CR+VR（并对照：样本推导只有 VR）
+  B17 没有 facets（注入路径没给）⇒ 下拉项为空，**不拿样本冒充权威值**
+  B18 ⭐ 截断了如实说「还有 N 个」（foldersTotal − 已给条数）；总数异常时不出现负数/「还有 0 个」
+  B19 facetOptions 过滤空 value（后端偶发空串不该在下拉里出现一个空选项）
+  B20 ⭐ facets 是整库口径：loadLibraryTotal 收下它；load 没给时**保留**（不清空，清空看起来像「库变了」）
+
+第 1.5 段的门禁（命令原文 + 跑的时刻 = **2026-10-15T05:25:55Z**，纪律 16 的干净跑写法）：
+  $ npx tsc --noEmit -p tsconfig.web.json  --tsBuildInfoFile data/_verify/web.tsbuildinfo   → EXIT=0
+  $ npx tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile data/_verify/node.tsbuildinfo  → EXIT=0
+  $ node --test apps/desktop/tests/browse-utils.test.mjs        → ℹ tests 22 · pass 22 · fail 0 · EXIT=0
+  $ node --test --test-isolation=none "apps/desktop/tests/*.test.mjs"
+      → ℹ tests 387 · pass 361 · fail 26（26 条全在 S 系列：db-import ×12 · db-rebuild ×6 ·
+        health-rebuild ×6 · library-methods ×1 · storage-ports-main ×2）
+  $ npm run build                                              → EXIT=0（三端齐备；CSS 48.12 kB）
+  $ npx playwright … browse.spec.mjs                           → 3 passed (21.2s) EXIT=0
+  原始输出：data/_w2ui/p4-2-facets-{tsc-web,tsc-node,test,all,build,e2e}.txt
+
+等 S8 落地后（第 2 段）要补的 e2e：
+  E14-d 筛选真的生效（点「缺包」⇒ 结果集变化，且与 `total` 一致）
+  E14-e 空态区分（空库 vs 筛没了 —— 需要空库夹具 + 一个「有素材但筛不中」的唯一条件）
+  E14-f 虚拟滚动只渲染视口内的行（DOM 里的 [data-browse-cell] 数 << total）
+  E14-g（新增）facets 真窗口断言：下拉项**跨分页稳定**（翻页后仍能看到全库分类），截断时显示「还有 N 个」

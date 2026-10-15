@@ -12,10 +12,19 @@
 import { create } from 'zustand'
 
 import type { AdapterError } from '../adapter/api.ts'
-import { buildQuery, deriveBrowseView, NO_FILTERS } from '../utils/browse.ts'
-import type { BrowseFilters, BrowseQuery, BrowseRow, BrowseView, SortDir, SortKey } from '../utils/browse.ts'
+import { buildQuery, deriveBrowseView, NO_FILTERS, NO_FACETS } from '../utils/browse.ts'
+import type { BrowseFacets, BrowseFilters, BrowseQuery, BrowseRow, BrowseView, SortDir, SortKey } from '../utils/browse.ts'
 
-export type BrowsePageData = { rows: BrowseRow[]; total: number }
+export type BrowsePageData = {
+  rows: BrowseRow[]
+  /** **筛选后**的总数（越界也如实给） */
+  total: number
+  /**
+   * 下拉项：**按整库统计、不受筛选影响**（2026-10-15 Lead 裁定 · SPEC §5.1）。
+   * ⚠️ 可选：注入的假数据可以不给 ⇒ 那时页面**不显示**下拉项，而不是拿当前页样本冒充权威值。
+   */
+  facets?: BrowseFacets
+}
 
 /** 取一页数据。真实现是 Adapter 包装的 `items`；单测/注入路径给假实现。 */
 export type BrowseFetcher = (q: BrowseQuery) => Promise<
@@ -30,6 +39,8 @@ export type BrowseState = {
   total: number
   /** **未筛选**时的库内总数（用来区分「空库」与「筛没了」）；null = 还不知道 */
   libraryTotal: number | null
+  /** 下拉项（由 `items` 的 `facets` 给；没给就是空 —— 界面不拿样本推导冒充） */
+  facets: BrowseFacets
   filters: BrowseFilters
   sort: SortKey
   direction: SortDir
@@ -54,6 +65,7 @@ const initial: BrowseState = {
   rows: [],
   total: 0,
   libraryTotal: null,
+  facets: { ...NO_FACETS },
   filters: { ...NO_FILTERS },
   sort: 'name',
   direction: 'asc',
@@ -89,15 +101,22 @@ export const useBrowseStore = create<BrowseStore>()((set, get) => ({
       set({ loading: false, error: r.error, rows: [], total: 0 })
       return
     }
-    set({ loading: false, error: null, rows: r.data.rows, total: r.data.total })
+    // facets 是**整库统计**（不受筛选影响）⇒ 后端给了就更新；没给（注入路径）保留原值，
+    // 免得翻页时下拉项忽然清空（那会看起来像「库变了」）。
+    const next: Partial<BrowseState> = { loading: false, error: null, rows: r.data.rows, total: r.data.total }
+    if (r.data.facets) next.facets = r.data.facets
+    set(next)
   },
 
   loadLibraryTotal: async (fetcher, libId) => {
     if (!libId) return
-    // 只取 1 行：我们只要 total（越界/截断都由主进程如实给 total，见 SPEC §5.1）
+    // 只取 1 行：我们只要 total 与 facets（越界/截断都由主进程如实给，见 SPEC §5.1）。
+    // ⚠️ 这一次**不带筛选** ⇒ total 就是「库里有几条」，与 facets 的量纲一致（都是整库口径）。
     const r = await fetcher(buildQuery({ libId, filters: NO_FILTERS, limit: 1 }))
-    if (r.ok) set({ libraryTotal: r.data.total })
-    else set({ libraryTotal: null })
+    if (!r.ok) { set({ libraryTotal: null }); return }
+    const next: Partial<BrowseState> = { libraryTotal: r.data.total }
+    if (r.data.facets) next.facets = r.data.facets
+    set(next)
   },
 
   view: () => {
@@ -111,5 +130,5 @@ export const useBrowseStore = create<BrowseStore>()((set, get) => ({
     })
   },
 
-  __reset: () => set({ ...initial, filters: { ...NO_FILTERS } }),
+  __reset: () => set({ ...initial, filters: { ...NO_FILTERS }, facets: { ...NO_FACETS } }),
 }))

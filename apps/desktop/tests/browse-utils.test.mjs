@@ -12,7 +12,7 @@ import assert from 'node:assert/strict'
 
 import {
   buildQuery, matchesFilters, sortRows, applyLocal, facetsOf, deriveBrowseView,
-  NO_FILTERS, SORTS,
+  facetOptions, facetHidden, NO_FILTERS, NO_FACETS, SORTS,
 } from '../src/renderer/src/utils/browse.ts'
 import { useBrowseStore } from '../src/renderer/src/store/browse.ts'
 
@@ -206,4 +206,67 @@ test('B15：没有真 IPC 也没有注入（Adapter 的 NO_BRIDGE）⇒ 如实�
   assert.equal(S().error.code, 'NO_BRIDGE')
   assert.equal(S().rows.length, 0)
   assert.equal(S().view(), 'error')
+})
+
+// ============================================================ facets（后端给的整库统计）
+
+test('B16 ⭐ 下拉项来自**后端整库统计**，不从当前页样本推导（样本推导会漏值 + 随分页跳动）', () => {
+  // 真实处境：本页只有 1 条（VR），但库里还有 CR / CR+VR —— 样本推导会**漏掉**后两个
+  const pageRows = [row({ uid: 'e'.repeat(12), stem: 'in-page', folder: 'VR', ext: '.jpg' })]
+  assert.deepEqual(facetsOf(pageRows).folders, ['VR'], '（对照）样本推导只看得到本页那一个')
+  const fromBackend = {
+    folders: [{ value: 'CR', count: 900 }, { value: 'VR', count: 42 }, { value: 'CR+VR', count: 7 }],
+    exts: [{ value: '.jpg', count: 1000 }, { value: '.png', count: 12 }],
+    foldersTotal: 3,
+    extsTotal: 2,
+  }
+  assert.deepEqual(facetOptions(fromBackend, 'folders').map((f) => f.value), ['CR', 'VR', 'CR+VR'],
+    '后端给的就是权威值：即使本页只有 VR，也要能看到 CR / CR+VR')
+  assert.deepEqual(facetOptions(fromBackend, 'exts').map((x) => x.value), ['.jpg', '.png'])
+})
+
+test('B17：没有 facets（注入的假数据没给）⇒ 下拉项为空，**不拿样本冒充权威值**', () => {
+  assert.deepEqual(facetOptions(null, 'folders'), [])
+  assert.deepEqual(facetOptions(undefined, 'exts'), [])
+  assert.deepEqual(facetOptions(NO_FACETS, 'folders'), [])
+  assert.equal(facetHidden(null, 'folders'), 0)
+  assert.equal(facetHidden(NO_FACETS, 'exts'), 0)
+})
+
+test('B18 ⭐ 后端截断了就如实说「还有 N 个」（foldersTotal - 已给条数），不假装列全了', () => {
+  const truncated = {
+    folders: [{ value: 'VR', count: 10 }, { value: 'CR', count: 9 }],
+    exts: [{ value: '.jpg', count: 19 }],
+    foldersTotal: 5,
+    extsTotal: 1,
+  }
+  assert.equal(facetHidden(truncated, 'folders'), 3, '列了 2 个、库里共 5 个 ⇒ 还有 3 个没列')
+  assert.equal(facetHidden(truncated, 'exts'), 0, '扩展名全列了 ⇒ 不许显示「还有 0 个」')
+  // 总数比显示数还小（后端数据异常）⇒ 也不能算出负数
+  assert.equal(facetHidden({ ...truncated, foldersTotal: 1 }, 'folders'), 0)
+})
+
+test('B19：facetOptions 过滤掉空 value（后端偶发空串不该在下拉里出现一个空选项）', () => {
+  const messy = {
+    folders: [{ value: '', count: 3 }, { value: 'VR', count: 2 }, { value: null, count: 1 }],
+    exts: [{ value: '.jpg', count: 5 }],
+    foldersTotal: 3,
+    extsTotal: 1,
+  }
+  assert.deepEqual(facetOptions(messy, 'folders').map((f) => f.value), ['VR'])
+})
+
+test('B20 ⭐ facets 是整库口径：loadLibraryTotal（不带筛选）收下它；load 没给 facets 时**保留**上一次', async () => {
+  const facets = {
+    folders: [{ value: 'VR', count: 2 }], exts: [{ value: '.jpg', count: 2 }], foldersTotal: 1, extsTotal: 1,
+  }
+  await S().loadLibraryTotal(async () => ({ ok: true, data: { rows: [], total: 2, facets } }), 'L1')
+  assert.deepEqual(S().facets.folders, [{ value: 'VR', count: 2 }], '整库统计要收进 store')
+  // 翻页那次（注入路径）没给 facets ⇒ 不该把下拉项清空（清空看起来像「库变了」）
+  await S().load(async () => ({ ok: true, data: { rows: ROWS, total: 3 } }), 'L1')
+  assert.deepEqual(S().facets.folders, [{ value: 'VR', count: 2 }], '没给 facets 时保留上一次，不清空')
+  // 给了新 facets ⇒ 覆盖
+  const next = { folders: [{ value: 'CR', count: 9 }], exts: [], foldersTotal: 1, extsTotal: 0 }
+  await S().load(async () => ({ ok: true, data: { rows: [], total: 0, facets: next } }), 'L1')
+  assert.deepEqual(S().facets.folders, [{ value: 'CR', count: 9 }])
 })

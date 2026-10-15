@@ -176,7 +176,52 @@ export function thumbSrc(libId: string | null | undefined, uid: string | null | 
   return `thumb://${encodeURIComponent(lib)}/${id}@${size}`
 }
 
-/** 计算当前行集里出现过的分类目录 / 扩展名（给筛选下拉用；**只从数据来，不写死清单**） */
+/**
+ * 下拉项（**由后端给**，2026-10-15 Lead 裁定 · SPEC §5.1 的 `facets`）。
+ *
+ * ⚠️ 为什么不能像第一版那样「从当前页样本推导」（那是**错的**，不是不优雅）：
+ *   · **漏值**：不在本页的分类永远看不到；
+ *   · **随分页跳动**：同一份数据翻到第 2 页，下拉项就变了 ⇒ 用户会以为库变了。
+ *   ⇒ 后端按**整库**统计（不受筛选影响）：一条 GROUP BY，count 降序前 200 + 总数。
+ */
+export type FacetEntry = { value: string; count: number }
+
+export type BrowseFacets = {
+  folders: FacetEntry[]
+  exts: FacetEntry[]
+  /** 整库的分类总数（可能 > folders.length ⇒ 界面要如实说「还有 N 个」） */
+  foldersTotal: number
+  /** 整库的扩展名总数（同上） */
+  extsTotal: number
+}
+
+/** 空 facets（后端还没给 / 注入路径没提供时用它，**不要**用样本推导去冒充权威值） */
+export const NO_FACETS: BrowseFacets = Object.freeze({ folders: [], exts: [], foldersTotal: 0, extsTotal: 0 })
+
+/**
+ * 取要显示的项。真数据路径用这个（值来自 `items` 的 `facets`）。
+ * ⚠️ 与下面 `facetsOf()` 的区别：那个只看**给它的那批行**（测试/注入路径），这个来自**整库统计**。
+ */
+export function facetOptions(facets: BrowseFacets | null | undefined, key: 'folders' | 'exts'): FacetEntry[] {
+  if (!facets) return []
+  const list = key === 'folders' ? facets.folders : facets.exts
+  return Array.isArray(list) ? list.filter((e) => e && typeof e.value === 'string' && e.value) : []
+}
+
+/** 后端截断了多少项没给（0 = 全给了）—— 界面据此**如实说「还有 N 个」**，不假装列全了 */
+export function facetHidden(facets: BrowseFacets | null | undefined, key: 'folders' | 'exts'): number {
+  if (!facets) return 0
+  const total = Number(key === 'folders' ? facets.foldersTotal : facets.extsTotal)
+  const shown = facetOptions(facets, key).length
+  if (!Number.isFinite(total) || total <= shown) return 0
+  return total - shown
+}
+
+/**
+ * 计算**给定这批行**里出现过的分类 / 扩展名。
+ * ⚠️ 只在**测试 / 注入数据**路径上用（假数据没有 facets）。
+ *    真数据路径**必须**用后端给的整库统计 —— 从样本推导会说谎（漏值 + 随分页跳动）。
+ */
 export function facetsOf(rows: readonly BrowseRow[]): { folders: string[]; exts: string[] } {
   const folders = new Set<string>()
   const exts = new Set<string>()

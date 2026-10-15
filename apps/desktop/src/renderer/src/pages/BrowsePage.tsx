@@ -38,7 +38,7 @@ import useLibraryConfig from '../hooks/useLibraryConfig.ts'
 import useToast from '../hooks/useToast.ts'
 import { useBrowseStore } from '../store/browse.ts'
 import type { BrowseFetcher, BrowsePageData } from '../store/browse.ts'
-import { SORTS, facetsOf } from '../utils/browse.ts'
+import { SORTS, facetOptions, facetHidden } from '../utils/browse.ts'
 import type { BrowseRow, SortDir, SortKey } from '../utils/browse.ts'
 
 /** 一次取多少条（S8 支持 offset/limit；滚动到底再取下一页 = 后续卡片） */
@@ -56,7 +56,7 @@ export default function BrowsePage() {
   const { message, tone, show } = useToast()
   const { data: configData, loading: configLoading } = useLibraryConfig()
   const {
-    loading, error, rows, total, libraryTotal, filters, sort, direction,
+    loading, error, rows, total, libraryTotal, facets, filters, sort, direction,
     setFilter, resetFilters, setSort, load, loadLibraryTotal, view,
   } = useBrowseStore()
 
@@ -116,8 +116,12 @@ export default function BrowsePage() {
   }, [libId])
 
   const v = view()
-  // 筛选下拉的可选项**只从数据来**（不写死清单）；当前页是样本 ⇒ 注释里如实说明这个边界
-  const facets = useMemo(() => facetsOf(rows), [rows])
+  // 下拉项由**后端按整库统计**给（SPEC §5.1 的 facets · Lead 2026-10-15 裁定）。
+  // ⚠️ **不再**从当前页样本推导 —— 那会漏值，而且会随分页跳动（用户会以为库变了）。
+  const folderOpts = useMemo(() => facetOptions(facets, 'folders'), [facets])
+  const extOpts = useMemo(() => facetOptions(facets, 'exts'), [facets])
+  const folderHidden = useMemo(() => facetHidden(facets, 'folders'), [facets])
+  const extHidden = useMemo(() => facetHidden(facets, 'exts'), [facets])
 
   const notImplemented = useCallback((what: string) => show(`「${what}」还没实现`, 'info'), [show])
 
@@ -135,9 +139,15 @@ export default function BrowsePage() {
       <div className="flex flex-wrap items-center gap-2">
         <span className="muted small">分类目录</span>
         <Chip active={filters.folder === null} onClick={() => setFilter({ folder: null })}>全部</Chip>
-        {facets.folders.map((f) => (
-          <Chip key={f} active={filters.folder === f} onClick={() => setFilter({ folder: f })}>{f}</Chip>
+        {/* 下拉项来自**整库统计**（foldersTotal/folders 都是后端给的）；截断了就如实说「还有 N 个」 */}
+        {folderOpts.map((f) => (
+          <Chip key={f.value} active={filters.folder === f.value} onClick={() => setFilter({ folder: f.value })}>
+            {f.value}（{f.count}）
+          </Chip>
         ))}
+        {folderHidden > 0 ? (
+          <span className="muted small" data-testid="facet-folders-hidden">还有 {folderHidden} 个分类未列出</span>
+        ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2 mt-2">
         <span className="muted small">有无包</span>
@@ -147,9 +157,10 @@ export default function BrowsePage() {
           </Chip>
         ))}
         <span className="muted small ml-2">扩展名</span>
+        {extHidden > 0 ? <span className="muted small" data-testid="facet-exts-hidden">还有 {extHidden} 个</span> : null}
         <Field className="auto" value={filters.ext ?? ''} onChange={(e) => setFilter({ ext: e.target.value ? e.target.value : null })} aria-label="扩展名">
           <option value="">全部</option>
-          {facets.exts.map((x) => <option key={x} value={x}>{x}</option>)}
+          {extOpts.map((x) => <option key={x.value} value={x.value}>{x.value}（{x.count}）</option>)}
         </Field>
         <span className="muted small ml-2">排序</span>
         {/* ⚠️ 别给 Field 传 `size`：它会被透传给原生 <select>，而 HTML 里 select 的 size 是
