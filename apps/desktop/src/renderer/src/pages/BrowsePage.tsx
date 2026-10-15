@@ -141,7 +141,7 @@ export default function BrowsePage() {
 
   const toolbar: ReactNode = (
     <div className="panel mb-4" data-testid="browse-toolbar">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2" data-testid="browse-folders">
         <span className="muted small">分类目录</span>
         <Chip active={filters.folder === null} onClick={() => setFilter({ folder: null })}>全部</Chip>
         {/* 下拉项来自**整库统计**（foldersTotal/folders 都是后端给的）；截断了就如实说「还有 N 个」 */}
@@ -154,7 +154,7 @@ export default function BrowsePage() {
           <span className="muted small" data-testid="facet-folders-hidden">还有 {folderHidden} 个分类未列出</span>
         ) : null}
       </div>
-      <div className="flex flex-wrap items-center gap-2 mt-2">
+      <div className="flex flex-wrap items-center gap-2 mt-2" data-testid="browse-archive">
         <span className="muted small">有无包</span>
         {ARCHIVE_CHOICES.map((c) => (
           <Chip key={c.key} active={filters.hasArchive === c.value} onClick={() => setFilter({ hasArchive: c.value })}>

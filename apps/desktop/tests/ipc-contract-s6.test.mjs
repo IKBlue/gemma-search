@@ -8,11 +8,13 @@ import { test } from 'node:test';
 
 import { METHOD_NAMES, Methods, validateCall } from '../src/shared/ipc.ts';
 
-test('C1 ⭐⭐ 白名单 = 基线 §2.2 的 20 个方法（集合相等，多一个少一个都红）', () => {
+test('C1 ⭐⭐ 白名单 = 基线 §2.2 的 20 个 + S8 的 items = 21 个（集合相等，多一个少一个都红）', () => {
   const expected = [
     // 保留（/改造）
     'search', 'item', 'itemPaths', 'indexStatus', 'scan', 'reveal', 'collect',
     'libraryPickDir', 'libraryAdd',
+    // 2026-10-15 · S8 新增：只读列表（SPEC §5.1）—— 「新增 = 兼容」
+    'items',
     // 2026-10-15 所有者批准保留（体检/重建：只读 .gs-index.bin/.gs.db，不依赖未建的表）
     'libraryHealth', 'libraryRebuild',
     // 新增（基线 §2.2）

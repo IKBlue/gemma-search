@@ -86,7 +86,7 @@ test('V4 窗口标题有单一来源：应用名与页面名都来自 `router/pa
   assert.match(paths, /export const APP_NAME/, 'paths.js 必须导出 APP_NAME')
 
   // 每个页面都要设置标题，且**不许**各自硬编码中文字面量（那会变成第二份来源）
-  for (const [file, key] of [['SearchPage.tsx', 'search'], ['ItemPage.tsx', 'item'], ['TasksPage.tsx', 'tasks'], ['DiagnosticsPage.tsx', 'health']]) {
+  for (const [file, key] of [['SearchPage.tsx', 'search'], ['ItemPage.tsx', 'item'], ['TasksPage.tsx', 'tasks'], ['DiagnosticsPage.tsx', 'health'], ['BrowsePage.tsx', 'browse']]) {
     const src = fs.readFileSync(path.join(RENDERER, 'pages', file), 'utf8')
     assert.match(src, /useDocumentTitle\(LABELS\.\w+\)/, `${file} 必须调用 useDocumentTitle(LABELS.xxx)`)
     assert.ok(src.includes(key) || true)

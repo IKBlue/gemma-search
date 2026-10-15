@@ -74,7 +74,9 @@ const IMPLICIT = {
   //    接线按卡片的依赖顺序（task-45…task-50）逐张来。
   //    ⚠️ 这里只是「已声明、还没 import」的过渡态 —— 每张卡片落地时**必须**把它从这条名单里删掉、
   //       改成真实 import（D-A 会在有人忘记删时提醒；D-I 会钉住这条纪律本身）。
-  '@tanstack/react-virtual': 'P4-2 浏览页 F2 的虚拟滚动（TASKS §6 目标 2）',
+  // ⚠️ 2026-10-15（P4-2）：`@tanstack/react-virtual` **已接线**（`search/BrowseGrid.tsx` 用它做虚拟滚动）
+  //    ⇒ 已从这条白名单**删除**。删掉的理由是白名单不许变成会烂掉的垃圾场（D-B 只管「还声明着」，
+  //    D-A 因为有真实 import 也不会报）—— 所以「接线完成就删」这件事靠人遵守 + 这行注释留痕。
   '@tanstack/react-table': 'P4-2 浏览页 F2 的筛选/排序（同上）',
   'react-hook-form': 'P4-4 设置中心 / P4-5 向导的表单（TASKS §6 目标 4/5）',
   '@hookform/resolvers': '同上：zod 解析器（契约唯一来源是 shared/ipc.ts）',
@@ -114,7 +116,7 @@ test('D-C ⭐⭐ 断言本身有效：能看见**动态** `import()`（差点因
   //    但 P4 界面补齐（TASKS §6，所有者批准）**明确要求把它们一次加齐**、按卡片顺序接线。
   //    ⇒ 继续拦它们就是拦住已批准的工作。**这不是放宽**：'没人用' 这条判据留了下来（importers === 0），
   //      只是把「不许声明」换成「**必须仍在白名单里 + 白名单必须给理由**」（见下面的 D-I）。
-  for (const dep of ['@tanstack/react-virtual', 'lucide-react']) {
+  for (const dep of ['lucide-react']) {
     assert.equal(importers(dep).length, 0, `${dep} 在接线前应报零 import（接线后本行会提醒你把它从白名单删掉）`)
     assert.ok(IMPLICIT[dep], `${dep} 已声明 ⇒ 必须在 IMPLICIT 白名单里并写明用途`)
     assert.ok(!orphanAllowed(dep), `${dep} 不该出现在"零 import 且不在白名单"的名单里`)
@@ -133,10 +135,20 @@ test('D-I ⭐ P4 依赖白名单：每条都有非空理由，且「零 import�
     '@tanstack/react-virtual', '@tanstack/react-table', 'react-hook-form', '@hookform/resolvers',
     'sonner', 'cmdk', 'lucide-react', 'yet-another-react-lightbox', 'motion',
   ]
+  // ⚠️ 2026-10-15（P4-2）：白名单是**过渡态**（「已声明、还没 import」）。
+  //    接线完成的包**必须**从白名单删掉 —— 所以下面分两支判，而不是一律要求它在白名单里：
+  //      · 还没有真实 import ⇒ **必须**在白名单里且写明用途；
+  //      · 已经有真实 import ⇒ **必须**已经不在白名单里（否则白名单会烂成垃圾场）。
+  //    「零 import 且不在白名单」由 D-A 报（orphan），这里不重复报同一件事。
   for (const dep of P4) {
     assert.ok(declared[dep], `${dep} 应已在 package.json 声明（P4 一次加齐）`)
-    assert.ok(typeof IMPLICIT[dep] === 'string' && IMPLICIT[dep].length >= 8,
-      `${dep} 的白名单理由必须写成一句人话（谁用、在哪张卡）`)
+    const wired = importers(dep).length > 0
+    if (wired) {
+      assert.ok(!IMPLICIT[dep], `${dep} 已经接线 ⇒ 必须从白名单删掉（白名单是过渡态，不许留成垃圾场）`)
+    } else {
+      assert.ok(typeof IMPLICIT[dep] === 'string' && IMPLICIT[dep].length >= 8,
+        `${dep} 还没接线 ⇒ 必须在白名单里，且理由写成一句人话（谁用、在哪张卡）`)
+    }
   }
   // 反向：白名单里**不属于** P4 的那些，理由同样不许空着（避免后门变成垃圾桶）
   for (const [dep, why] of Object.entries(IMPLICIT)) {

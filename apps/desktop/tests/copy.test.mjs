@@ -81,6 +81,16 @@ const EXEMPT_FILES = new Map([
   ['hooks/useToast.ts',
     '`normalizeMessage` 里那两个字符串**就是守卫本身**：它要判断输入是不是 "undefined"/"NaN" 才好挡掉。'
     + '这是"合法用途"而不是"用户可见文案"，且同文件 CP-0 已断言 show() 必经该归一化。'],
+  // ⚠️ 2026-10-15（P4-2）：这两处是**环境探测**，不是给用户看的文案：
+  //    `typeof document === 'undefined'` / `typeof ResizeObserver === 'undefined'`
+  //    是唯一**不抛 ReferenceError** 的存在性探测写法（`document === undefined` 在没声明该全局的
+  //    环境里会直接抛）。它们出现在 `readToken()`（读 CSS 令牌）与虚拟滚动容器测量里 ——
+  //    两种情况都不会把字符串显示给用户：前者只是提前 return 兜底值，后者只是不装 ResizeObserver。
+  //    豁免**逐条带理由**，且 CP-3 的自检会在文件改名后自动报「豁免不再命中」。
+  ['search/BrowseGrid.tsx',
+    // 注释里刻意不写出那两个字符串本身（否则这行本身又会被 CP-3 扫到，豁免就变成自指）
+    '那两处是环境探测（document / ResizeObserver 的存在性判断），不是用户可见文案；'
+    + '换成 `X === undefined` 会在缺该全局的环境里直接抛 ReferenceError。'],
 ]);
 
 test('CP-3 界面可见字符串里不得出现字面 `undefined` / `NaN`（V-42 的另一半）', () => {
