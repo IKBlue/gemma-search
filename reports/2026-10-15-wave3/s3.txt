@@ -134,3 +134,86 @@ RED-C · 改掉**磁盘**上一条预览的 mtime（stat 轴；不动 DB）:
 写库: data/_schema100/lib/.gs.db 的 asset_index_state 100 行（encoded_at_ms/encoded_mtime_ms/compat_key/vector_row）
 回滚: 删 data/_schema100/lib/.gs-index.bin 与 s3.mjs；asset_index_state 置 NULL（一条 UPDATE）即可回到 S2 交付态。
 未改: packages/indexer/** · main/** · renderer/** · shared/ipc.ts · data/_schema100/build.mjs · verify.mjs。
+===============================================================================
+【8 S3b（task-63）：把复核能力入库】
+===============================================================================
+问题：§1–§7 的复核脚本原在 data/_schema100/s3.mjs —— 那是 **gitignore 的 `data/_*`** ⇒「对账漂移 = 0」
+在别的机器/以后**不可复跑**。本节记录迁移与新增门禁。
+
+--- 8.1 迁移（受版本管理）---
+· 复核脚本 → **reports/2026-10-15-wave3/s3-verify.mjs**（子命令不变：state | verify | query | sabotage | restore；
+  仓库根改为从 import.meta.url 向上找，不再依赖 cwd）。
+· 对账判定 → **reports/2026-10-15-wave3/s3-reconcile.mjs**（`reconcile()` / `summarize()` **唯一实现**：
+  脚本与单测共用一份 SQL，AGENTS P1）。
+· 新增单测 → **apps/desktop/tests/s3-index-state.test.mjs**（进 npm test 的 glob）。
+· 旧的 data/_schema100/s3.mjs 已删除（内容全部迁走；本文件 §1–§7 里出现的该路径是**迁移前**的命令，
+  等价命令现在是 `node reports/2026-10-15-wave3/s3-verify.mjs <cmd>`）。
+
+--- 8.2 受版本管理的脚本：verify 复跑（原始输出）---
+命令: node reports/2026-10-15-wave3/s3-verify.mjs verify
+原始输出:
+  [1] 产品路径读回（引擎五道校验）：count=100 dim=768 bytes=308539
+  [2] 五道校验逐道破坏（副本；判定全部由产品 readIndexFile 做）
+    [OK  ] magic / footer-json / not-complete / footer-count / footer-dim / vector-byte 六条全 OK（含各自 message）
+  [3] 对账（索引 ↔ asset_index_state；判定 = ./s3-reconcile.mjs）
+    索引行数 = 100 · dim = 768 · compat = onnx-community/embeddinggemma-2-ONNX|daa72c...|fp32|2|140|768|l2|mean_soft_tokens
+    state 行数 = 100 · vector_row 非空 = 100 · NULL = 0
+    vector_row 范围 = 0..99 · 重复行 = 0
+    needs_reencode(派生，跨表比较) = 0 · 与磁盘 stat 漂移 = 0
+      row 0  <-  8a70380a9575  CR+VR\ID-10083808.jpg （… row 1..4 与 row 99 同 §2）
+    ✓ 对账漂移 = 0
+  结论：PASS（五道校验可生效 · 对账漂移 0）        VERIFY_EXIT=0
+
+--- 8.3 新单测：本机（有夹具）跑绿 ---
+命令: node --test apps/desktop/tests/s3-index-state.test.mjs
+原始输出:
+  ✔ S3b ⭐ 索引 ↔ asset_index_state 对账漂移 = 0（夹具缺失则显式 skip） (14.4265ms)
+      ℹ 索引行数 = 100 · dim = 768 · compat = …|mean_soft_tokens
+      ℹ vector_row 范围 = 0..99 · 重复行 = 0
+  ✔ S3b ⭐⭐ 能红：在**副本**里注入 vector_row 越界 ⇒ 对账必须报错（产品夹具只读） (131.6885ms)
+      ℹ 注入 uid=8a70380a9575 的 vector_row 0 -> 999 后 problems = ["vector_row 范围 1..999 != 0..99"]
+  ℹ tests 2 / pass 2 / fail 0 / skipped 0        TEST_EXIT=0
+（第一条先走产品路径 readIndexFile（五道校验）读回 count=100/dim=768，再用**共用**的 reconcile 断言漂移 0；
+ 第二条在 .gs.db 的**副本**上注入越界（连 -wal/-shm 一起拷），断言对账必须报错 —— 产品夹具只读。）
+
+--- 8.4 模拟「无夹具」⇒ 显式 skip（不是静默通过）---
+命令: $env:GEMMA_S3_LIB="data/_schema100/__missing__"; node --test apps/desktop/tests/s3-index-state.test.mjs
+原始输出:
+  SKIP: S3 夹具不存在：缺 ["…\data\_schema100\__missing__\.gs.db","…\__missing__\.gs-index.bin"]
+        —— data/_schema100 是本机夹具（gitignore 的 data/_*），先跑 node reports/2026-10-15-wave3/s3-verify.mjs state
+        生成索引与编码态再来。本用例**显式跳过**，不代表通过。
+  （两条用例各打印一次，共 2 行）
+  ℹ tests 2 / pass 0 / fail 0 / skipped 2        SKIP_EXIT=0
+（夹具落点可用 GEMMA_S3_LIB / GEMMA_S3_META 覆盖 —— 与 perf 那套 GEMMA_PERF 先例同形。）
+
+--- 8.5 能红：证明第二条用例**真的有鉴别力**（关掉范围判定 ⇒ 必红）---
+手法: 临时把 s3-reconcile.mjs 里那条 `vector_row 范围 != 0..count-1` 判定注释掉，再跑第二条。
+原始输出:
+  ✖ S3b ⭐⭐ 能红：在**副本**里注入 vector_row 越界 ⇒ 对账必须报错（产品夹具只读） (222.4141ms)
+    AssertionError: vector_row 越界必须被对账抓到（否则这条单测没有鉴别力）
+  ℹ tests 1 / pass 0 / fail 1        RED_EXIT=1
+还原后复跑: ✔✔ 两条全绿 · tests 2 / pass 2 / fail 0 · GREEN_EXIT=0；`grep RED-PROOF` = 0 命中。
+
+--- 8.6 类型门禁（纪律 16）---
+  node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "data/_esbuild-tmp/tsbi_s3b_node.tsbuildinfo"
+    ⇒ TSC_NODE_EXIT=0 · node error lines = 0
+  node node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json --tsBuildInfoFile "data/_esbuild-tmp/tsbi_s3b_web.tsbuildinfo"
+    ⇒ TSC_WEB_EXIT=1 · web error lines = 7（**不是本卡**：全部在 renderer 浏览页那一组）
+    原始错误（逐行）:
+        apps/desktop/src/renderer/src/pages/BrowsePage.tsx(42,35): error TS2305: Module '"../utils/browse.ts"' has no exported member 'SortKey'.
+    apps/desktop/src/renderer/src/pages/BrowsePage.tsx(173,60): error TS2339: Property 'dir' does not exist on type 'SortOption'.
+    apps/desktop/src/renderer/src/search/BrowseGrid.tsx(54,28): error TS2339: Property 'hasArchive' does not exist on type 'BrowseRow'.
+    apps/desktop/src/renderer/src/search/BrowseGrid.tsx(73,30): error TS2339: Property 'size' does not exist on type 'BrowseRow'.
+    apps/desktop/src/renderer/src/search/BrowseGrid.tsx(75,20): error TS2339: Property 'hasArchive' does not exist on type 'BrowseRow'.
+    apps/desktop/src/renderer/src/store/browse.ts(16,89): error TS2305: Module '"../utils/browse.ts"' has no exported member 'SortKey'.
+    apps/desktop/src/renderer/src/store/browse.ts(93,7): error TS2353: Object literal may only specify known properties, and 'sort' does not exist in type '{ libId: string; filters?: BrowseFilters | null | undefined; sortKey?: string | undefined; offset?: number | undefined; limit?: number | undefined; }'.
+  说明：本卡只新增 .mjs（reports/ 与 tests/）与删除一个被 gitignore 的脚本 —— **零 .ts/.tsx 改动**，
+  故 node 工程干净；web 那 7 条与本卡无交集（全部落在 renderer 浏览页 P4-2/task-46 的在飞改动：BrowsePage.tsx /
+  BrowseGrid.tsx / store/browse.ts，本卡未碰 renderer/**、shared/ipc.ts、main/**）。
+
+--- 8.7 本卡改动 / 回滚 ---
+新增: reports/2026-10-15-wave3/s3-verify.mjs（可复跑 CLI）· reports/2026-10-15-wave3/s3-reconcile.mjs（判定唯一实现）
+      apps/desktop/tests/s3-index-state.test.mjs（门禁用例：对账 0 + 副本注入能红 + 缺夹具显式 skip）
+删除: data/_schema100/s3.mjs（被 gitignore 的旧副本，已全部迁走）
+回滚: 删上面三个新文件即可；夹具侧（.gs-index.bin / asset_index_state）保持 S3 交付态不变。
+
