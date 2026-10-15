@@ -1,0 +1,123 @@
+================================================================================
+DF-2 证据 · P0 静默数据损坏（bigint 被静默读成 0）+ 全仓同类兜底扫描
+任务板 id: task-69   执行: db-worker   日期: 2026-10-15
+边界：main/app-db.ts · main/db/sqlite-adapter.ts（对齐）· main/items-ipc.ts（扫描时发现同类，我的文件）· 相关单测
+===============================================================================
+
+【结论】
+· Lead 报的那处**核实为真**：app-db.ts 的 `num = (v) => (typeof v === 'number' ? v : 0)` 会把 bigint 静默读成 0。
+· 修复：取值统一到**适配层同一套收窄**（bigint ⇒ Number() + SafeInteger 校验；类型不对/越界 ⇒ **抛**），
+  并把隐患的源头关上 —— 适配层**显式** `readBigInts: false`（不再靠默认值），且有可观测断言（D7）。
+· 全仓扫了 31 处 `?? 0 / || 0 / typeof === 'number' ? x : 0`：**逐条判定见 §3**。
+  其中 **6 处是 DB 行读取的同类缺陷**（app-db 5 处 + items-ipc 的聚合/总数 4 处，实为两文件的取值器），已全部改成抛；
+  其余是「请求参数默认值」「UI 数值显示」「JSON 外部数据」——**不是同一类**，逐条写了理由。
+· **能红实测三组**（变异注入 → 失败原文 → 回滚，见 §5）。
+· 门禁：tsc web **0** · tsc node **0**（干净跑）· build **0** · npm test **583 / pass 582 / fail 0 / skipped 1**。
+
+【1. 缺陷与机理（含证据行号）】
+· apps/desktop/src/main/app-db.ts:91-92（旧）：
+    const text = (v: unknown): string => (typeof v === 'string' ? v : '');
+    const num  = (v: unknown): number => (typeof v === 'number' ? v : 0);
+· apps/desktop/src/main/db/sqlite-adapter.ts:24 `SqlValue = null | number | bigint | string | Uint8Array`
+  —— **bigint 是合法透出类型**；:31 的注释明说「它们可能是 bigint（readBigInts 打开时）」；
+  :77 的 narrowValue 对不认识的值**抛**（本层不静默）—— 但**上一层**的取值器在静默兜底，两边口径不一致。
+· 后果链（全部无报错）：`enabled` bigint(1) → 0 → `false` ⇒ **库被悄悄停用**；
+  `sort_order`/时间戳 → 0；`schema_version`（appMeta）→ 0 ⇒ 诊断页把账本报成 0；
+  items 的 `COUNT(*)`/facets count → 0 ⇒「整库 0 条」。
+
+【2. 修复】
+· **sqlite-adapter.ts（单一实现，新增导出）**：`numberOf / numberOrNullOf / textOf / textOrNullOf / flagOf / changesOf`
+  —— bigint ⇒ Number()，且 `Number.isSafeInteger` 校验；类型不对/越界 ⇒ `GsDbError('UNEXPECTED_SQL_VALUE')`；
+  `flagOf` 额外要求 0/1（DDL 有 CHECK，读到 7 也必须抛 —— 7→false 同样是「静默停用」）。
+  经 db/index.ts 统一再导出（不许各模块自己写第二份收窄，P1）。
+· **app-db.ts**：`toLibrary`/`toCollectDir`/`readAppMeta`/`nextSortOrder`/两处 DELETE 的 `changes` 全部改走上面那套。
+· **适配层显式关掉 readBigInts**（`new DatabaseSync` 的选项块，注释写明 DF-2 来龙去脉）：
+  ⇒ 本层对外**保证整数是 number**；将来 node:sqlite 改默认值，这一行仍然关着。真要开，必须同时把上层取值器全改成 bigint 感知。
+· **items-ipc.ts**（扫描时发现的同类，我的文件）：`total`（COUNT(*)）、facets 的 count/foldersTotal/extsTotal、
+  行字段的 size/mtime/vectorRow 全部走同一套。⇒ 不改的话，bigint 下 items 会报「整库 0 条」，与 app-db 那个 P0 完全同类。
+
+【3. 纪律 17：全仓扫描（先跑命令、贴输出、后结论）】
+$ grep -nE "typeof [a-zA-Z_.\[\]']+ === 'number' \? [^:]+ : 0|\?\? 0|\|\| 0" apps/desktop/src
+  → **31 处命中**（原始输出见本文件生成时的命令记录；按文件分组）
+  main/items-ipc.ts:216,277,278,279,280 · main/library-config.ts:288 · main/index.ts:770 · main/app-db.ts:92 ·
+  main/db/import.ts:343 · renderer/src/utils/browse.ts:193 · renderer/src/store/tasks.ts:145,172,179,180,181,182,215,217,233 ·
+  renderer/src/search/MetricsRow.tsx:7,27,28 · renderer/src/store/health.ts:176,177 · renderer/src/search/PhotoCard.tsx:73 ·
+  renderer/src/store/browse.ts:99 · renderer/src/search/SearchSidebar.tsx:39,40 · renderer/src/pages/SearchPage.tsx:86,116 ·
+  renderer/src/ui/Progress.tsx:8
+
+逐条判定（**只有读取路径的同类缺陷要改**，其余不该动）：
+ 1) app-db.ts:91-92（text/num）                        → **缺陷，已修**（DB 行；bigint 静默 0 / 非串静默空串）
+ 2) items-ipc.ts:212 区域的 total（旧 typeof===number）→ **缺陷，已修**（DB 行 COUNT(*)）
+ 3) items-ipc.ts:277,278（facets count）                → **缺陷，已修**（DB 行 GROUP BY 计数）
+ 4) items-ipc.ts:279,280（foldersTotal/extsTotal）      → **缺陷，已修**（DB 行 COUNT(DISTINCT)）
+ 5) items-ipc.ts:158-160（行字段 num/str/strOrNull）    → **缺陷，已修**（DB 行；bigint 静默 null/空串）
+ 6) items-ipc.ts:216（offset/limit 默认）               → **不是缺陷，不改**：**请求参数**（zod 已校验），不是 DB 行
+ 7) index.ts:770（sortOrder 默认）                      → **不是缺陷，不改**：请求参数默认值
+ 8) library-config.ts:288 Number(meta.count) || 0        → **真兜底，本卡不改**：读的是 **items.json**（外部 JSON，字段可缺）
+    ⇒ 0 合法；但 `|| 0` 会把 NaN 一起吞 —— 已在 §8 点名，建议后续小卡（不在本卡边界）
+ 9) db/import.ts:343 record.archiveSize ?? 0             → **不是本卡**：**写入**路径的绑定值，且属 S2 文件，不是读取兜底
+10) renderer/** 共 20 处                                 → **不是同一类，且不在边界**：UI 数值显示（Number(x) || 0）；
+    renderer/** 归 ui-migrator，本卡禁改
+⇒ 结论（先跑后判）：**读取路径的同类缺陷只在 main/app-db.ts 与 main/items-ipc.ts**，两处已全部改成「同源收窄 + 抛」。
+
+【4. 探针：S2 的映射器对 bigint 是什么态度（原始输出）】
+$ node data/_df2probe/row-types-bigint.mjs
+  (1) 全 number            → OK {"imageSize":11,"imageMtime":1,"archiveSize":null,"vectorRow":0}
+  (2) vector_row=bigint    → THROW IMPORT_RECORD_INVALID … 字段 vectorRow 类型不对：期望有限的 number 或 null，实际 bigint(0)
+  (3) image_size=bigint    → THROW … 字段 imageSize 类型不对：期望有限的 number，实际 bigint(11)
+  (4) image_mtime=bigint   → THROW … 字段 imageMtime 类型不对：期望有限的 number，实际 bigint(1)
+  (5) archive_size=bigint  → THROW … 字段 archiveSize 类型不对：期望有限的 number 或 null，实际 bigint(110)
+⇒ 行这条路在 bigint 下**响亮拒绝**（不是静默 0）—— 这是 S2 的文件，我不改；已用 I13b 钉成断言。
+
+【5. 能红实测（变异注入 → 失败原文 → 回滚）】
+变异① 把 app-db 的取值退回**旧写法**（flagOf → typeof===number ? … : 0；numberOf 同）：
+  ✖ D5 · ✖ D6   ⇒ tests 8 / pass 6 / fail 2
+  断言原文：`enabled=1 读成 bigint 时要如实 true（旧写法恒 false） / actual: false, expected: true`
+  ⇒ 回滚后 8/8 绿。
+变异② 把 items-ipc 的 total 退回旧写法（typeof totalRow['n'] === 'number' ? … : 0）：
+  ✖ I13   ⇒ tests 15 / pass 14 / fail 1
+  断言原文：`COUNT(*) 读成 bigint 时不许静默变 0（旧写法就是 0） / actual: 0, expected: 7`
+  ⇒ 回滚后 15/15 绿。
+变异③ 把适配层的 readBigInts: false 改成 true：
+  ✖ D1 D2 D3 D4 D5 D5b D6 D7（**8/8 全红**），首个失败码 `META_ROW_MISSING`
+  ⇒ 两件事：① 这个开关一开，**迁移账本立刻响亮报错**（不是悄悄把版本读成 0）；
+     ② D7（INTEGER 必须是 number）确实在看着它。回滚后 8/8 绿。
+  （注入点不是我凭空造的：node:sqlite 的 DatabaseSync 真支持 readBigInts，见适配层选项块。）
+
+【6. 测试清单（新增/改动；当前全绿）】
+· apps/desktop/tests/app-db.test.mjs（8 条，新增 4）：
+  D5  readBigInts 模拟（业务列 bigint）：enabled 真/假 · sort_order=7 · 时间戳 · is_default · DELETE 的 changes
+  D5b (a) readAppMeta 在 schema_version=bigint 下**读出真版本**（DF-2 修的正是这条）；
+      (b) 迁移账本遇 bigint **抛 META_ROW_MISSING**（响亮；两条都不是静默 0）
+  D6  flag=7 ⇒ 抛；TEXT 列读回整数 ⇒ 抛；2^63 的 bigint ⇒ 抛（每条都带「修回正常值后能读」的对照）
+  D7  适配层 pin：openNodeSqlite 读出的 INTEGER 必须是 **number**（含 changes）
+· apps/desktop/tests/items-ipc.test.mjs（15 条，新增 3）：
+  I13  聚合列 bigint（COUNT(*)/COUNT(DISTINCT)/GROUP BY count）⇒ total/facets 全对
+  I13b 行字段 bigint（用**本模块 SELECT 的别名** image_size 注入）⇒ **失败信封**（钉住 S2 映射器的响亮拒绝）
+  I14  COUNT 被换成不认识的类型 ⇒ 失败信封 + userMessage 非空（不是静默 0，也不抛穿到调用方）
+· ⚠️ 一条反假绿教训（写进 I13b 注释）：我第一版注入用底层列名 size_bytes，而本模块 SELECT 的别名是
+  image_size ⇒ **什么都没换**，测试假绿。改成别名后才真红。**注入测试必须用被测 SQL 实际返回的列名。**
+
+【7. 门禁原始输出（纪律 16：干净跑）】
+$ npx tsc --noEmit -p tsconfig.web.json --tsBuildInfoFile data/_verify/web.tsbuildinfo   ⇒ WEB_TSC=0
+$ npx tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile data/_verify/node.tsbuildinfo ⇒ NODE_TSC=0
+$ npm run build                                                                          ⇒ BUILD=0
+$ npm test ⇒ tests 583 · pass 582 · fail 0 · skipped 1  （NPM=0）
+  ⚠️ 与 S6/S8 那两轮的 24 条红不同：**本轮全绿** —— S2 的读路径迁移已落地，那 24 条随它转绿。
+
+【8. 残留 / 交叉边界（如实写）】
+· main/db/migration-engine.ts#readVersionRow 与 main/db/row-types.ts#joinedRowToItemRecord（**S2 的文件**）
+  对 bigint 都是**响亮拒绝**（一个抛 META_ROW_MISSING，一个抛 IMPORT_RECORD_INVALID）⇒ **不静默**，
+  故本轮不视为缺陷；但将来要打开 readBigInts，必须同时把这两处也改成 bigint 感知（否则 app 打不开库）。
+  我已把开关显式钉成 false，避免「某天默认值变了」这条路径。
+· library-config.ts:288 的 Number(x) || 0（JSON 外部数据）见 §3 第 8 行：建议单独一张小卡。
+· 未做/未测：没有在**真 readBigInts** 下跑整个 e2e（开关是 false，产品路径开不了）；只做了驱动注入 + 变异实验。
+  这一点如实写在这里，**不声称 bigint 全栈可用**。
+
+【9. 回滚】
+· sqlite-adapter.ts：删掉 §2 那六个取值器与 readBigInts: false 一行、db/index.ts 的再导出；
+· app-db.ts：取值退回 text/num（**不建议** —— 那就是把 P0 装回去）；
+· items-ipc.ts：total/facets/行字段退回 typeof===number ? … : 0/null；
+· 测试：删 app-db 的 D5/D5b/D6/D7 与 items-ipc 的 I13/I13b/I14。
+· 未跑 git（AGENTS P7）。临时物：data/_df2probe/（探针脚本，可删）· data/_verify/*.tsbuildinfo · data/_t58（自清）。
+===============================================================================

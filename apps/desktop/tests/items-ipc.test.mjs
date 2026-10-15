@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { runItemsQuery, ITEMS_ALIASES, FACET_LIMIT, SORT_KEYS } from '../src/main/items-ipc.ts';
 import { joinedRowToItemRecord } from '../src/main/db/row-types.ts';
 import { openGsDb } from '../src/main/db/open.ts';
+import { openNodeSqlite } from '../src/main/db/sqlite-adapter.ts';
 import { validateCall, METHOD_NAMES } from '../src/shared/ipc.ts';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -286,4 +287,85 @@ test('I12 ⭐⭐ 白名单 ↔ 实现**双向对齐**（12 项逐字；少一个
   for (const bogus of ['size', 'imageSizes', '-archiveSizeBytes', 'bytes']) {
     assert.equal(validateCall('items', { libId: 'L1', sort: bogus }).ok, false, '契约不该放行：' + bogus);
   }
+});
+
+// ============================================================ DF-2：bigint 不许静默变 0
+
+/**
+ * 模拟 readBigInts：真实库 + 真实 SQL，只把**查询用到的**整数列换成 bigint（值不变、类型变）。
+ *
+ * ⚠️ 为什么只换这几列：`openGsDb` 会**先跑迁移**，而迁移账本的 `readVersionRow` 只接受 number
+ * （遇到 bigint **响亮抛 META_ROW_MISSING** —— 那是它自己的正确行为，见 app-db.test.mjs 的 D5b）。
+ * 全都换掉的话，测的就不是"列表读 bigint"而是"迁移读 bigint"了。这几列正是本模块 SELECT 的整数列。
+ */
+function bigintDriver(columns = ['n', 'count', 'size_bytes', 'mtime_ms', 'vector_row']) {
+  return (file, options) => {
+    const db = openNodeSqlite(file, options);
+    const conv = (row) => {
+      if (!row) return row;
+      const out = { ...row };
+      for (const k of columns) if (typeof out[k] === 'number') out[k] = BigInt(out[k]);
+      return out;
+    };
+    return {
+      exec: (s) => db.exec(s),
+      close: () => db.close(),
+      get isOpen() { return db.isOpen; },
+      prepare: (s) => {
+        const st = db.prepare(s);
+        return { run: (...p) => st.run(...p), get: (...p) => conv(st.get(...p)), all: (...p) => st.all(...p).map(conv) };
+      },
+    };
+  };
+}
+
+test('I13 ⭐⭐ COUNT/GROUP BY 的整数读成 bigint 也必须正确（total / facets 计数 不许静默变 0）', () => {
+  // 只把**聚合列**换成 bigint（行字段由 S2 的映射器把关，见 I13b：它对 bigint 是**响亮拒绝**）
+  const r = runItemsQuery({ ...input(), driver: bigintDriver(['n', 'count']) }, { libId: LIB_ID, limit: 3 });
+  assert.equal(r.ok, true, 'bigint 路径不许把查询搞崩：' + (r.ok ? '' : r.error.code + ' ' + r.error.message));
+  assert.equal(r.data.total, 7, 'COUNT(*) 读成 bigint 时不许静默变 0（旧写法就是 0）');
+  assert.equal(r.data.facets.foldersTotal, 5, 'COUNT(DISTINCT folder) 同理');
+  assert.equal(r.data.facets.extsTotal, 3);
+  assert.equal(r.data.facets.exts[0].value, '.jpg');
+  assert.equal(r.data.facets.exts[0].count, 4, 'GROUP BY 的 count 读成 bigint 时不许变 0');
+  assert.equal(r.data.facets.folders.find((f) => f.value === 'ZZ').count, 1);
+  assert.equal(r.data.rows.length, 3);
+  assert.equal(r.data.rows[0].imageSize, 11, '行字段这条路（聚合关了 bigint）仍要正确');
+  assert.equal(r.data.rows.find((x) => x.stem === 'a2' && x.folder === 'AA').archiveSize, null, '可空列仍是 null，不是 0');
+  // 排序/分页在聚合 bigint 路径下也必须成立
+  const sorted = runItemsQuery({ ...input(), driver: bigintDriver(['n', 'count']) }, { libId: LIB_ID, sort: '-imageSize', limit: 2 });
+  assert.deepEqual(sorted.data.rows.map((x) => x.stem), ['zz1', 'd1']);
+  assert.equal(sorted.data.total, 7);
+});
+
+
+test('I13b ⭐ 行字段读成 bigint ⇒ **响亮失败**（不是静默 0）—— 边界归 S2 的映射器，如实钉住', () => {
+  // 实测：joinedRowToItemRecord（S2 的，我不改）对 bigint 是**显式拒绝**：
+  //   IMPORT_RECORD_INVALID … 字段 vectorRow 类型不对：期望有限的 number 或 null，实际 bigint(0)
+  // 即：行这条路在 bigint 下**不会**静默变 0/ null，而是给失败信封（userMessage 非空）。
+  // 若将来映射器改成接受 bigint，我这边 numberOrNullOf 会接手收窄 —— 那时这条要跟着改成"成功且值正确"。
+  // ⚠️ 注入的列名要用**本模块 SELECT 的别名**（image_size / image_mtime / archive_size / vector_row），
+  //    不是底层列名（size_bytes）—— 我第一次写成 size_bytes，等于什么都没换，测试假绿。
+  const r = runItemsQuery({ ...input(), driver: bigintDriver(['image_size']) }, { libId: LIB_ID, limit: 1 });
+  assert.equal(r.ok, false, 'bigint 行字段必须落成失败信封（不许静默 0）');
+  assert.ok(r.error.userMessage.length > 0, '信封契约：userMessage 恒非空');
+  assert.match(r.error.message, /bigint|类型不对|IMPORT_RECORD_INVALID/i, '要说清是类型问题：' + r.error.message);
+  // 对照：同样的查询、不换类型 ⇒ 成功（证明上面不是恒失败）
+  assert.equal(runItemsQuery(input(), { libId: LIB_ID, limit: 1 }).ok, true);
+});
+
+test('I14 ⭐ 取值类型不对 ⇒ 给**带码信封**（不是静默 0/空串，也不是抛穿到调用方）', () => {
+  // 把 COUNT 换成不认识的类型（模拟列类型漂移）⇒ 必须变成失败信封 + 人话，而不是 0
+  const bogus = (file, options) => {
+    const db = openNodeSqlite(file, options);
+    const conv = (row) => (row && Object.hasOwn(row, 'n') ? { ...row, n: {} } : row);
+    return {
+      exec: (s) => db.exec(s), close: () => db.close(), get isOpen() { return db.isOpen; },
+      prepare: (s) => { const st = db.prepare(s); return { run: (...p) => st.run(...p), get: (...p) => conv(st.get(...p)), all: (...p) => st.all(...p).map(conv) }; },
+    };
+  };
+  const r = runItemsQuery({ ...input(), driver: bogus }, { libId: LIB_ID });
+  assert.equal(r.ok, false, '类型不认识时必须失败（不许静默变 0 条）');
+  assert.ok(r.error.userMessage.length > 0, '失败也要给人话（信封契约：userMessage 恒非空）');
+  assert.match(r.error.message, /UNEXPECTED_SQL_VALUE|number|bigint/i, '报错要说清是不认识的类型：' + r.error.message);
 });

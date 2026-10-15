@@ -13,7 +13,35 @@ import {
   listCollectDirs, listLibraries, openAppDb, readAppMeta, setDefaultCollectDir,
   updateLibraryEnabled, updateLibrarySortOrder,
 } from '../src/main/app-db.ts';
-import { APP_TABLES, APP_TARGET_SCHEMA_VERSION } from '../src/main/db/index.ts';
+import { APP_TABLES, APP_TARGET_SCHEMA_VERSION, openNodeSqlite } from '../src/main/db/index.ts';
+
+/**
+ * **模拟 `readBigInts`**：在**真实驱动**的结果上把指定列转成 bigint（值不变、类型变）。
+ *
+ * 为什么不直接 monkey-patch node:sqlite：那会污染同进程其它测试；而驱动注入本来就是
+ * openAppDb / items-ipc 的既有接缝（生产不传）。这样测的是**真实 SQL、真实 DDL、真实行**，
+ * 只有"类型"这一项被换掉 —— 正是 DF-2 要覆盖的那个变量。
+ */
+function bigintColumnsDriver(columns) {
+  return (filename, options) => {
+    const db = openNodeSqlite(filename, options);
+    const conv = (row) => {
+      if (!row) return row;
+      const out = { ...row };
+      for (const c of columns) if (typeof out[c] === 'number') out[c] = BigInt(out[c]);
+      return out;
+    };
+    return {
+      exec: (sql) => db.exec(sql),
+      close: () => db.close(),
+      get isOpen() { return db.isOpen; },
+      prepare: (sql) => {
+        const st = db.prepare(sql);
+        return { run: (...p) => st.run(...p), get: (...p) => conv(st.get(...p)), all: (...p) => st.all(...p).map(conv) };
+      },
+    };
+  };
+}
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const TMP = path.join(ROOT, 'data', '_t58', 'app-db-test-' + process.pid);
@@ -122,4 +150,133 @@ test('D4 ⭐⭐ 唯一写入口（静态）：应用级 3 张表只被 app-db.ts
   const readers = files.filter((f) => /SELECT[\s\S]{0,80}FROM\s+(library_registry|collect_dir)/i.test(fs.readFileSync(f, 'utf8')))
     .map((f) => path.basename(f)).sort();
   assert.deepEqual(readers, ['app-db.ts'], '读也只该走 app-db.ts（避免第二份列名/形状定义）');
+});
+
+// ============================================================ DF-2：bigint 不许静默变 0
+
+/**
+ * 把一个**已打开的连接**包一层：命中的列在 get/all 结果里被换成另一种类型。
+ * 用来模拟两件真实可能发生的事：① node:sqlite 开 readBigInts（整数变 bigint）；
+ * ② 列类型与 schema 漂移（TEXT 列读回数字）。下层 SQL 与数据都是真的。
+ */
+function withColumnTypes(db, map) {
+  const conv = (row) => {
+    if (!row) return row;
+    const out = { ...row };
+    for (const [col, f] of Object.entries(map)) if (Object.hasOwn(out, col)) out[col] = f(out[col]);
+    return out;
+  };
+  return {
+    exec: (s) => db.exec(s),
+    close: () => db.close(),
+    get isOpen() { return db.isOpen; },
+    prepare: (s) => {
+      const st = db.prepare(s);
+      return { run: (...p) => st.run(...p), get: (...p) => conv(st.get(...p)), all: (...p) => st.all(...p).map(conv) };
+    },
+  };
+}
+
+test('D5 ⭐⭐ readBigInts 模拟：业务列读成 bigint 也**必须正确**（不许变 0）', () => {
+  const dir = path.join(TMP, 'bigint');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  // 真实库 + 真实 SQL，只把「整数列的类型」换成 bigint（模拟 readBigInts）
+  const big = openAppDb({ userDataDir: dir, now: NOW, driver: bigintColumnsDriver(['enabled', 'sort_order', 'registered_at_ms', 'updated_at_ms', 'is_default']) });
+  try {
+    insertLibrary(big.db, { libId: 'L1', root: dir, displayName: '主库', now: NOW });
+    assert.equal(getLibrary(big.db, 'L1').enabled, true, 'enabled=1 读成 bigint 时要如实 true（旧写法恒 false）');
+    assert.equal(getLibrary(big.db, 'L1').sortOrder, 0);
+    updateLibraryEnabled(big.db, 'L1', false, NOW);
+    assert.equal(getLibrary(big.db, 'L1').enabled, false, 'enabled=0 要如实 false');
+    updateLibrarySortOrder(big.db, 'L1', 7, NOW);
+    assert.equal(getLibrary(big.db, 'L1').sortOrder, 7, 'sort_order=7 读成 bigint 时不许静默变 0');
+    assert.equal(getLibrary(big.db, 'L1').registeredAtMs, NOW(), '时间戳同理');
+
+    // collect_dir 的 is_default 同一类（bigint ⇒ 旧写法静默变 false ⇒ 默认项凭空消失）
+    const d1 = insertCollectDir(big.db, { absPath: path.join(dir, 'out'), label: '待用', makeDefault: true, now: NOW });
+    assert.equal(d1.isDefault, true, 'is_default 读成 bigint 时不许静默变 false');
+    assert.equal(setDefaultCollectDir(big.db, d1.dirId).isDefault, true);
+    assert.equal(listCollectDirs(big.db).filter((d) => d.isDefault).length, 1);
+    // 删除路径：changes 在适配层声明的类型就是 number|bigint ⇒ 必须真的判成「删到了」
+    assert.equal(deleteCollectDir(big.db, d1.dirId), true);
+    assert.equal(deleteLibrary(big.db, 'L1'), true);
+  } finally {
+    big.close();
+  }
+});
+
+test('D5b ⭐⭐ schema_version：业务读**必须正确**；迁移账本遇到 bigint **响亮抛**（两条都不是静默变 0）', () => {
+  const dir = path.join(TMP, 'meta');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  const app1 = openAppDb({ userDataDir: dir, now: NOW });
+  try {
+    // (a) 业务读（appMeta IPC 用的就是它）：bigint 下必须读出真版本，**不许变 0**
+    const wrapped = withColumnTypes(app1.db, { schema_version: (v) => BigInt(v) });
+    const meta = readAppMeta(wrapped);
+    assert.equal(meta.schemaVersion, APP_TARGET_SCHEMA_VERSION, 'schema_version 读成 bigint 时不许静默变 0');
+    assert.equal(meta.createdAtMs, NOW());
+  } finally {
+    app1.close();
+  }
+
+  // (b) 迁移账本（readVersionRow）本来就不接受 bigint ⇒ **抛 META_ROW_MISSING**（响亮，不当成 0）；
+  //     这条与 (a) 一起说明：两条路都不会静默把版本读成 0，只是处理方式一个收窄、一个报错。
+  const dir2 = path.join(TMP, 'meta2');
+  fs.rmSync(dir2, { recursive: true, force: true });
+  fs.mkdirSync(dir2, { recursive: true });
+  assert.throws(
+    () => openAppDb({ userDataDir: dir2, now: NOW, driver: bigintColumnsDriver(['schema_version']) }),
+    /META_ROW_MISSING|版本行/, '账本读到 bigint 必须响亮抛，而不是当成 0（否则会误判库版本）',
+  );
+});
+
+test('D7 ⭐ 适配层钉住：openNodeSqlite 读出的 INTEGER 是 **number**（DF-2：readBigInts 显式关闭）', () => {
+  const dir = path.join(TMP, 'types');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  const a = openAppDb({ userDataDir: dir, now: NOW });
+  try {
+    insertLibrary(a.db, { libId: 'L1', root: dir, displayName: 'x', now: NOW });
+    const raw = a.db.prepare('SELECT enabled, sort_order FROM library_registry WHERE lib_id = ?').get('L1');
+    assert.equal(typeof raw.enabled, 'number', 'DF-2：适配层显式 readBigInts:false ⇒ INTEGER 必须读成 number（不是 bigint）');
+    assert.equal(typeof raw.sort_order, 'number');
+    const run = a.db.prepare('UPDATE library_registry SET sort_order = 1 WHERE lib_id = ?').run('L1');
+    assert.equal(typeof run.changes, 'number', 'changes 也要是 number（SqlRunResult 的 number|bigint 只是照抄上游类型）');
+    assert.equal(raw.enabled, 1, '对照：值本身没被改');
+  } finally {
+    a.close();
+  }
+});
+test('D6 ⭐⭐ 类型不对 / 越界 / flag 越界 ⇒ **抛**（不猜、不静默给 0）', () => {
+  const dir = path.join(TMP, 'bad');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  const bad = openAppDb({ userDataDir: dir, now: NOW });
+  try {
+    insertLibrary(bad.db, { libId: 'L1', root: dir, displayName: 'x', now: NOW });
+
+    // ① flag 越界：enabled=7（DDL 有 CHECK，只有外部工具改过才会出现）⇒ 抛，不许静默 false
+    bad.db.exec('PRAGMA ignore_check_constraints = ON');   // 绕过 DDL 的 CHECK，制造脏数据
+    bad.db.prepare('UPDATE library_registry SET enabled = 7 WHERE lib_id = ?').run('L1');
+    assert.throws(() => listLibraries(bad.db), /0\/1|UNEXPECTED_SQL_VALUE/, 'enabled=7 必须抛（静默 false = 库被悄悄停用）');
+    bad.db.prepare('UPDATE library_registry SET enabled = 1 WHERE lib_id = ?').run('L1');
+    assert.equal(listLibraries(bad.db).length, 1, '修回 0/1 后必须能读（证明上面那条不是恒真）');
+
+    // ② TEXT 列读回整数 ⇒ 抛（不许静默变空串）
+    assert.throws(
+      () => listLibraries(withColumnTypes(bad.db, { display_name: () => 42 })),
+      /string|UNEXPECTED_SQL_VALUE/, 'TEXT 列读出整数必须抛',
+    );
+    assert.equal(listLibraries(bad.db).length, 1, '不换类型时必须正常（对照）');
+
+    // ③ 超安全整数的 bigint（例如被写成 2^63）⇒ 抛，不许截断成错的数
+    assert.throws(
+      () => listLibraries(withColumnTypes(bad.db, { sort_order: () => 2n ** 63n })),
+      /安全整数|UNEXPECTED_SQL_VALUE/, '2^63 的 bigint 必须抛，不许截断',
+    );
+  } finally {
+    bad.close();
+  }
 });

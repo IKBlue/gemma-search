@@ -90,6 +90,81 @@ function narrowValue(value: unknown): SqlValue {
   );
 }
 
+
+// ---------------------------------------------------------------- 行的取值器（**单一实现**）
+//
+// ⚠️ 为什么必须放在适配层（而不是各模块自己写）：node:sqlite 的 `SqlValue` **明确允许 bigint**
+//    （`readBigInts` 选项 / 将来的版本可能默认开）⇒ 任何 `typeof v === 'number' ? v : 0` 这类收窄
+//    都会把 bigint **静默读成 0**：`enabled` 变 0（库被悄悄停用）、`sort_order` 变 0、
+//    `schema_version` 变 0 —— **一句报错都没有**。这正是本项目最怕的失败模式。
+//    本层的 `narrowValue` 已经是「判不出来就抛」；下面这几个取值器是它**上面一层**的同口径实现：
+//    bigint ⇒ Number() + SafeInteger 校验；超出安全整数或类型不对 ⇒ **抛**，绝不猜。
+//    （库级版本账本的 readVersionRow 早就这么做了 —— 这里只是把同一口径给所有调用方。）
+
+/** 把一行里的某个值读成 **安全整数**；bigint 走 Number() + 安全整数校验；其余一律抛 */
+export function numberOf(value: unknown, where: string): number {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || !Number.isInteger(value)) {
+      throw new GsDbError('UNEXPECTED_SQL_VALUE', where + ' 期望整数，实得 ' + String(value));
+    }
+    if (!Number.isSafeInteger(value)) {
+      throw new GsDbError('UNEXPECTED_SQL_VALUE', where + ' 超出安全整数范围：' + String(value));
+    }
+    return value;
+  }
+  if (typeof value === 'bigint') {
+    const n = Number(value);
+    if (!Number.isSafeInteger(n)) {
+      throw new GsDbError('UNEXPECTED_SQL_VALUE', where + ' 的 bigint 超出安全整数范围：' + value.toString());
+    }
+    return n;
+  }
+  throw new GsDbError('UNEXPECTED_SQL_VALUE', where + ' 期望 number/bigint，实得 ' + typeNameOf(value));
+}
+
+/** 同上，但 **null 合法**（可空列：archiveSize / vector_row 这类） */
+export function numberOrNullOf(value: unknown, where: string): number | null {
+  if (value === null || value === undefined) return null;
+  return numberOf(value, where);
+}
+
+/** 读成字符串；非字符串一律抛（TEXT 列读回 bigint/number 就是 schema 漂移，不许当成 ''） */
+export function textOf(value: unknown, where: string): string {
+  if (typeof value === 'string') return value;
+  throw new GsDbError('UNEXPECTED_SQL_VALUE', where + ' 期望 string，实得 ' + typeNameOf(value));
+}
+
+/** 同上，但 **null 合法**（可空 TEXT 列） */
+export function textOrNullOf(value: unknown, where: string): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return value;
+  throw new GsDbError('UNEXPECTED_SQL_VALUE', where + ' 期望 string/null，实得 ' + typeNameOf(value));
+}
+
+/**
+ * 读成 0/1 布尔（DDL 上有 CHECK (col IN (0,1))）。
+ * 越界值（例如被外部工具改成 7）⇒ **抛**：静默变 false 等于"库被悄悄停用"。
+ */
+export function flagOf(value: unknown, where: string): boolean {
+  const n = numberOf(value, where);
+  if (n !== 0 && n !== 1) {
+    throw new GsDbError('UNEXPECTED_SQL_VALUE', where + ' 只允许 0/1（DDL 的 CHECK），实得 ' + String(n));
+  }
+  return n === 1;
+}
+
+/** `run().changes` / `lastInsertRowid` 的收窄（适配层声明的类型本来就是 number | bigint） */
+export function changesOf(result: { changes: number | bigint }, where: string): number {
+  return numberOf(result.changes, where);
+}
+
+function typeNameOf(value: unknown): string {
+  if (value === null) return 'null';
+  if (value instanceof Uint8Array) return 'Uint8Array';
+  if (Array.isArray(value)) return 'array';
+  return typeof value;
+}
+
 function narrowRow(row: Record<string, unknown>): SqlRow {
   const out: SqlRow = {};
   for (const key of Object.keys(row)) out[key] = narrowValue(row[key]);
@@ -105,8 +180,15 @@ export const openNodeSqlite: SqlOpenFn = (filename, options = {}) => {
   const db = new DatabaseSync(filename, {
     readOnly: options.readOnly === true,
     timeout: options.timeoutMs ?? DEFAULT_BUSY_TIMEOUT_MS,
-    // 默认 true：本层的表之间有真实外键（items → library 等），关掉会出现孤儿行
+    // 默认 true：本层的表之间有真实外键，关掉会出现孤儿行
     enableForeignKeyConstraints: options.enableForeignKeys !== false,
+    // ⚠️⚠️ DF-2（2026-10-15）：**显式**关掉 readBigInts，而不是"靠默认值"。
+    //   INTEGER 读回 bigint 会让所有 `typeof v === 'number' ? v : 0` 的收窄**静默变 0**
+    //   （enabled 变 false ⇒ 库被悄悄停用；COUNT(*) 变 0 ⇒ "整库 0 条"）。实测过三次同类错误。
+    //   这里的口径是：**本层对外保证整数是 number**（SqlRunResult 里 number|bigint 只是照抄上游类型，
+    //   收窄由 numberOf()/changesOf() 做）；将来 node:sqlite 若把默认值改了，这一行仍然关着它。
+    //   真要开 bigint，必须同时把上层所有取值器改成 bigint 感知 —— 那时这条注释就是入口。
+    readBigInts: false,
   });
   return {
     exec: (sql: string): void => {

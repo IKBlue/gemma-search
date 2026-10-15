@@ -11,6 +11,10 @@ export { GsDbError, describeError } from './errors.ts';
 export type { GsDbErrorCode } from './errors.ts';
 
 export { openNodeSqlite, openOrThrow, DEFAULT_BUSY_TIMEOUT_MS } from './sqlite-adapter.ts';
+// DF-2：行的取值器（bigint ⇒ Number + 安全整数校验，类型不对就抛）—— 全仓只此一份，别在各模块自己写收窄
+export {
+  changesOf, flagOf, numberOf, numberOrNullOf, textOf, textOrNullOf,
+} from './sqlite-adapter.ts';
 export type {
   SqlDatabase,
   SqlOpenFn,

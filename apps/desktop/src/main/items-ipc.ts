@@ -20,9 +20,11 @@ import { ERR, USER_MESSAGE } from '../../../../packages/engine/src/errors.ts';
 import type { Envelope } from '../shared/ipc.ts';
 import { joinedRowToItemRecord } from './db/row-types.ts';
 import { openGsDb } from './db/open.ts';
+import { numberOf, numberOrNullOf, textOf, textOrNullOf } from './db/index.ts';
 import { codeOf, messageOf } from './errors.ts';
 import { log } from './log.ts';
 import { asEngineError, createLibraryResolverPort } from './storage-ports.ts';
+import type { SqlOpenFn } from './db/sqlite-adapter.ts';
 import type { LibraryRootInput } from './storage-roots.ts';
 
 export interface ItemsQueryInput {
@@ -31,6 +33,11 @@ export interface ItemsQueryInput {
   libraries: LibraryRootInput[];
   userDataDir: string | null;
   legacyLibrariesDir?: string;
+  /**
+   * 驱动注入（**只给测试用**）：模拟 `readBigInts` 之类的另一种取值类型。
+   * 生产路径不传 ⇒ openGsDb 自己用 openNodeSqlite。
+   */
+  driver?: SqlOpenFn;
 }
 
 /** 传给 items 的参数（已过 zod；这里再收一次类型） */
@@ -155,28 +162,31 @@ export function buildFilter(params: ItemsQueryParams): { where: string; values: 
   return { where: ' WHERE ' + parts.join(' AND '), values };
 }
 
-const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
-const str = (v: unknown): string => (typeof v === 'string' ? v : '');
-const strOrNull = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+// ⚠️ DF-2：DB 行的取值统一走**适配层同一套收窄**（bigint ⇒ Number + 安全整数校验；类型不对就抛）。
+//    旧写法（typeof === 'number' ? v : null / : ''）会把 bigint 静默读成 null / ''：
+//    facets 的 count 会变 0、total 会变 0、value 会变空串 —— 与 app-db.ts 那个 P0 同一类。
 
 /** 一行（本文件的别名）→ wire 行；**经由 S2 的映射器**，不在这里重做类型判据 */
 function toWire(row: Record<string, unknown>, root: string, where: string): ItemsWireRow {
   const rec = joinedRowToItemRecord(row, root, where) as unknown as Record<string, unknown>;
+  const at = (k: string): string => where + '.' + k;
   return {
-    uid: str(rec['uid']),
-    libId: str(rec['libId']),
-    folder: str(rec['folder']),
-    stem: str(rec['stem']),
-    name: str(rec['name']),
-    relPath: str(rec['relPath']),
-    imageExt: str(rec['imageExt']),
-    imageSize: num(rec['imageSize']),
-    imageMtime: num(rec['imageMtime']),
-    archiveRelPath: strOrNull(rec['archiveRelPath']),
-    archiveExt: strOrNull(rec['archiveExt']),
-    archiveSize: num(rec['archiveSize']),
-    archiveMtime: num(rec['archiveMtime']),
-    vectorRow: num(rec['vectorRow']),
+    // DF-2：类型不对就抛（bigint 的 TEXT 列 = schema 漂移，不许静默变空串）
+    uid: textOf(rec['uid'], at('uid')),
+    libId: textOf(rec['libId'], at('libId')),
+    folder: textOf(rec['folder'], at('folder')),
+    stem: textOf(rec['stem'], at('stem')),
+    name: textOf(rec['name'], at('name')),
+    relPath: textOf(rec['relPath'], at('relPath')),
+    imageExt: textOf(rec['imageExt'], at('imageExt')),
+    // 可空数值列：null 合法（缺包/未编码），bigint 走安全整数收窄，别的抛
+    imageSize: numberOrNullOf(rec['imageSize'], at('imageSize')),
+    imageMtime: numberOrNullOf(rec['imageMtime'], at('imageMtime')),
+    archiveRelPath: textOrNullOf(rec['archiveRelPath'], at('archiveRelPath')),
+    archiveExt: textOrNullOf(rec['archiveExt'], at('archiveExt')),
+    archiveSize: numberOrNullOf(rec['archiveSize'], at('archiveSize')),
+    archiveMtime: numberOrNullOf(rec['archiveMtime'], at('archiveMtime')),
+    vectorRow: numberOrNullOf(rec['vectorRow'], at('vectorRow')),
   };
 }
 
@@ -244,7 +254,7 @@ export function runItemsQuery(input: ItemsQueryInput, params: ItemsQueryParams):
   const { where, values } = buildFilter({ ...params, libId });
   let opened;
   try {
-    opened = openGsDb({ dbPath: layout.dbPath, readOnly: true });
+    opened = openGsDb(input.driver ? { dbPath: layout.dbPath, readOnly: true, driver: input.driver } : { dbPath: layout.dbPath, readOnly: true });
   } catch (e) {
     return failure(e, '读取列表', libId);
   }
@@ -254,7 +264,8 @@ export function runItemsQuery(input: ItemsQueryInput, params: ItemsQueryParams):
 
     // ① total（筛选后；**越界也如实给** —— 它就是 COUNT，不是 rows.length）
     const totalRow = db.prepare('SELECT COUNT(*) AS n' + JOINS + where).get(...(values as never[]));
-    const total = typeof totalRow?.['n'] === 'number' ? (totalRow['n'] as number) : 0;
+    // ⚠️ DF-2：COUNT(*) 在 readBigInts 下是 bigint ⇒ 旧写法会静默读成 0（"整库 0 条"却无报错）
+    const total = numberOf(totalRow === undefined ? undefined : totalRow['n'], 'items.total(COUNT(*))');
 
     // ② 这一页（排序带 a.uid 兜底 ⇒ 分页确定、不会同一行出现在两页）
     const order = ' ORDER BY ' + sortCol + (desc ? ' DESC' : ' ASC') + ', a.uid ASC';
@@ -274,10 +285,17 @@ export function runItemsQuery(input: ItemsQueryInput, params: ItemsQueryParams):
     const extsTotal = db.prepare("SELECT COUNT(DISTINCT p.ext) AS n FROM asset a JOIN asset_file p ON p.uid = a.uid AND p.role = 'preview' WHERE a.lib_id = ?").get(libId)?.['n'];
 
     const facets: ItemsFacets = {
-      folders: folderRows.map((r: Record<string, unknown>) => ({ value: str(r['value']), count: typeof r['count'] === 'number' ? r['count'] : 0 })),
-      exts: extRows.map((r: Record<string, unknown>) => ({ value: str(r['value']), count: typeof r['count'] === 'number' ? r['count'] : 0 })),
-      foldersTotal: typeof foldersTotal === 'number' ? foldersTotal : 0,
-      extsTotal: typeof extsTotal === 'number' ? extsTotal : 0,
+      // ⚠️ DF-2：这里同样是 DB 行 —— count/total 在 readBigInts 下是 bigint（旧写法会静默变 0）
+      folders: folderRows.map((r: Record<string, unknown>, i: number) => ({
+        value: textOf(r['value'], 'items.facets.folders[' + String(i) + '].value'),
+        count: numberOf(r['count'], 'items.facets.folders[' + String(i) + '].count'),
+      })),
+      exts: extRows.map((r: Record<string, unknown>, i: number) => ({
+        value: textOf(r['value'], 'items.facets.exts[' + String(i) + '].value'),
+        count: numberOf(r['count'], 'items.facets.exts[' + String(i) + '].count'),
+      })),
+      foldersTotal: numberOf(foldersTotal, 'items.facets.foldersTotal'),
+      extsTotal: numberOf(extsTotal, 'items.facets.extsTotal'),
     };
 
     log('[列表]', libId, 'total=' + String(total), 'rows=' + String(rows.length),

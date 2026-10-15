@@ -14,7 +14,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { DEFAULT_BUSY_TIMEOUT_MS, GsDbError, migrateApp, openNodeSqlite } from './db/index.ts';
+import {
+  changesOf, DEFAULT_BUSY_TIMEOUT_MS, flagOf, GsDbError, migrateApp, numberOf,
+  openNodeSqlite, textOf, textOrNullOf,
+} from './db/index.ts';
 import type { MigrationResult, SqlDatabase, SqlRow } from './db/index.ts';
 
 /** 应用级库文件名（唯一来源；落点 = <userData>/app.db） */
@@ -88,29 +91,36 @@ export interface AppMetaRow {
   updatedAtMs: number;
 }
 
-const text = (v: unknown): string => (typeof v === 'string' ? v : '');
-const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
-
+/**
+ * ⚠️⚠️ DF-2（P0 静默数据损坏）：这里原来是自己写的
+ *   `const text = (v) => (typeof v === 'string' ? v : '')` / `const num = (v) => (typeof v === 'number' ? v : 0)`，
+ *   而适配层明确允许 **bigint** 透出（node:sqlite 的 readBigInts / 将来升级）⇒
+ *   `enabled` 静默变 0（**库被悄悄停用**）、`sort_order` 静默变 0、`schema_version` 静默读成 0，
+ *   **一句报错都没有**。现在取值统一走**适配层同一套收窄**（sqlite-adapter.ts）：
+ *   bigint ⇒ Number() + 安全整数校验；类型不对/越界 ⇒ **抛**（响亮，不猜）。
+ *   `enabled` / `is_default` 用 `flagOf` —— DDL 上有 CHECK (col IN (0,1))，读到 7 也必须抛，
+ *   否则「7 → false」同样是一次静默停用。
+ */
 function toLibrary(row: SqlRow): LibraryRow {
   return {
-    libId: text(row['lib_id']),
-    root: text(row['root']),
-    displayName: text(row['display_name']),
-    enabled: num(row['enabled']) === 1,
-    compatKey: typeof row['compat_key'] === 'string' ? row['compat_key'] : null,
-    sortOrder: num(row['sort_order']),
-    registeredAtMs: num(row['registered_at_ms']),
-    updatedAtMs: num(row['updated_at_ms']),
+    libId: textOf(row['lib_id'], 'library_registry.lib_id'),
+    root: textOf(row['root'], 'library_registry.root'),
+    displayName: textOf(row['display_name'], 'library_registry.display_name'),
+    enabled: flagOf(row['enabled'], 'library_registry.enabled'),
+    compatKey: textOrNullOf(row['compat_key'], 'library_registry.compat_key'),
+    sortOrder: numberOf(row['sort_order'], 'library_registry.sort_order'),
+    registeredAtMs: numberOf(row['registered_at_ms'], 'library_registry.registered_at_ms'),
+    updatedAtMs: numberOf(row['updated_at_ms'], 'library_registry.updated_at_ms'),
   };
 }
 
 function toCollectDir(row: SqlRow): CollectDirRow {
   return {
-    dirId: text(row['dir_id']),
-    label: text(row['label']),
-    absPath: text(row['abs_path']),
-    isDefault: num(row['is_default']) === 1,
-    createdAtMs: num(row['created_at_ms']),
+    dirId: textOf(row['dir_id'], 'collect_dir.dir_id'),
+    label: textOf(row['label'], 'collect_dir.label'),
+    absPath: textOf(row['abs_path'], 'collect_dir.abs_path'),
+    isDefault: flagOf(row['is_default'], 'collect_dir.is_default'),
+    createdAtMs: numberOf(row['created_at_ms'], 'collect_dir.created_at_ms'),
   };
 }
 
@@ -138,7 +148,12 @@ export function listCollectDirs(db: SqlDatabase): CollectDirRow[] {
 export function readAppMeta(db: SqlDatabase): AppMetaRow | null {
   const row = db.prepare('SELECT * FROM app_meta WHERE id = 1').get();
   if (row === undefined) return null;
-  return { schemaVersion: num(row['schema_version']), createdAtMs: num(row['created_at_ms']), updatedAtMs: num(row['updated_at_ms']) };
+  // ⚠️ schema_version 走**同一套**收窄：bigint 静默变 0 会让诊断页把账本报成 0（DF-2）
+  return {
+    schemaVersion: numberOf(row['schema_version'], 'app_meta.schema_version'),
+    createdAtMs: numberOf(row['created_at_ms'], 'app_meta.created_at_ms'),
+    updatedAtMs: numberOf(row['updated_at_ms'], 'app_meta.updated_at_ms'),
+  };
 }
 
 // ---------------------------------------------------------------- 写：library_registry（唯一写入口）
@@ -162,7 +177,8 @@ export function normalizeRootPath(root: string): string {
 
 export function nextSortOrder(db: SqlDatabase): number {
   const row = db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM library_registry').get();
-  return num(row === undefined ? 0 : row['n']);
+  // COALESCE(MAX(...), -1) 保证这行**一定存在**且是数字；不是就抛（不静默给 0）
+  return numberOf(row === undefined ? undefined : row['n'], 'library_registry.MAX(sort_order)+1');
 }
 
 export interface InsertLibraryInput {
@@ -222,7 +238,8 @@ export function updateLibraryRootAndName(
 }
 
 export function deleteLibrary(db: SqlDatabase, libId: string): boolean {
-  return db.prepare('DELETE FROM library_registry WHERE lib_id = ?').run(libId).changes > 0;
+  // changes 在适配层声明的类型就是 number | bigint ⇒ 走同一套收窄（不许 > 0 隐式比较 bigint）
+  return changesOf(db.prepare('DELETE FROM library_registry WHERE lib_id = ?').run(libId), 'library_registry DELETE') > 0;
 }
 
 // ---------------------------------------------------------------- 写：collect_dir（唯一写入口）
@@ -250,7 +267,7 @@ export function insertCollectDir(db: SqlDatabase, input: InsertCollectDirInput):
 }
 
 export function deleteCollectDir(db: SqlDatabase, dirId: string): boolean {
-  return db.prepare('DELETE FROM collect_dir WHERE dir_id = ?').run(dirId).changes > 0;
+  return changesOf(db.prepare('DELETE FROM collect_dir WHERE dir_id = ?').run(dirId), 'collect_dir DELETE') > 0;
 }
 
 /**
