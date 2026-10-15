@@ -406,3 +406,66 @@ S2 证据 · 100 条素材建库 + 导入（绿地 6 张表）  task-59  执行:
   切片 1 前半（db-rebuild）**完成**；后半（db-import）脚手架已就位、剩 11 处（见 §15）。
   另记：同一命令第一次发起时 EXIT=-1 且输出为空（未产出断言），系外部中断；随即原样重跑得 EXIT=0 —— 按纪律如实记录，不当成通过。
 ================================================================================
+
+================================================================================
+【⑱ 切片 1 后半：db-import **12 红 → 1 红**（17 条：pass 16 / fail 1）】
+  命令：node --test --test-isolation=none apps/desktop/tests/db-import.test.mjs ⇒ EXIT=1
+  结果：**tests 17 · pass 16 · fail 1** · 唯一红 = **I11**（即子切片 2 的 D，按计划留到下一轮）
+  原始输出 data/_s2-slice1-dbimport.txt（中间态 14/3）与 data/_s2-slice1-dbimport2.txt（当前 16/1）。
+
+  本轮改动（每处三行都写在测试注释里，要点）：
+  ① I1 库行块：读 library 行断言 root/fallback/item_count/registered_at ⇒
+     改成 legacyTablesOf(db) === []（旧结构不得存在）+ asset 计数 = 3 + preview 行 = 3。
+     **为何非放宽**：旧断言在新 schema 下恒红（表已退役）；新断言从「期待旧行为」变成「禁止旧结构 + 正向计数」。
+  ② I1 字段往返：直接查旧宽表 + 逐列比 ⇒ readAsset（共享 SELECT + 合成）后逐**字段**比。
+     跳过 absPath / archiveAbsPath（**派生**：库根 + 相对路径）与 vectorSource（**源格式诊断列，新 schema 有意不存**），
+     并对两个派生字段单独断言。**覆盖面比旧口径更宽**：合成器要同时对 asset 与 asset_file 两张表。
+  ③ I2b：源里只把 archiveName 置 null ⇒ 改为把**包的指针**（archiveRelPath 等）一起置 null。
+     原因（实测红）：绿地口径下 archiveName/archiveAbsPath 是**派生**字段 ⇒ 指针还在时会合成出名字（旧写法误红）。
+     **为何非放宽**：断言反而更强 —— 不但要求「源里的 null 覆盖旧值」，还要求「没有包 ⇒ asset_file 无 archive 行」。
+  ④ I12：absPath 期望值写成了 meta.lib_root，而本用例的导入用的是**夹具库根 X:/lib** ⇒ 改成与导入一致。
+     这是**我自己新断言的取值错**（与 R1 同类），断言本身没动。
+  ⑤ I4/I7b 的 COUNT(*) FROM library === 0 ⇒ legacyTablesOf(db) === []（**旧结构不得复活**，比「没有库行」更前一步）。
+  ⑥ 把我自己注释里出现的旧 SQL/旧列名清掉（否则 0 残留 grep 被自己污染）。
+
+  0 残留 grep（**命令输出**，不是记忆）：
+    rg "FROM items|INTO items|UPDATE items|FROM library\b|item_count|registered_at\b|vector_row\b"
+       apps/desktop/tests/db-import.test.mjs ⇒ **命中 0**
+
+  剩下的 I11 = **D（子切片 2）**：它断言 ITEM_NULLABLE_FIELDS ↔ 旧 items 表 notnull，新 schema 下无对应物；
+     计划改成「**新表 NOT NULL 列集 ↔ ItemRecord 必填字段集**」的机械一致（不删检查、不恒真）。
+================================================================================
+
+================================================================================
+【⑲ 子切片 2（D/I11 重写）+ 切片 1 完成：db-import **17/17 全绿**】
+  D/I11 改后（三行）：
+    【原来抓什么】ITEM_NULLABLE_FIELDS ↔ 旧 items 表 notnull 逐列一致 —— 防「校验器认为可空」与「DDL 允许 NULL」各自漂移。
+      为什么值得抓：DDL 少一个 NOT NULL ⇒ 库里能存 null ⇒ 映射器读回来收下它 ⇒ 引擎把「vectorRow == null」
+      当「未入索引」⇒ **检索行为静默改变**（不报错、不崩溃，只是结果变味）。
+    【现在抓什么】绿地拆成三张表 ⇒ 同一件事变成三条机械断言（PRAGMA table_info）：
+      (a) asset 每一列都 NOT NULL；(b) asset_file 只允许 width/height 可空（size_bytes/mtime_ms 必须非空）；
+      (c) asset_index_state 业务列全部可空（uid 主键 / attempt_count 计数器两个例外）。
+      再与契约侧对上：由 NOT NULL 列承载的字段必须不可空，由可空列/可缺行承载的必须可空。
+    【为何等价而更强】等价：仍是「契约与表结构不许漂移」这一条不变式（换对象不换目的）；
+      更强：① 覆盖**三张表**而非一张宽表；② 直接卡住「合成器会产出 null/undefined 的路径」。
+
+  ⭐ 能红证据（**真实红过两次**，不是注入的 —— 被真相反驳过，比注入更强）：
+    · 第一次：AssertionError: asset_index_state 的列必须全部可空（未编码是正常态）/ actual ['uid']
+    · 第二次：同一条 / actual **['attempt_count']**（DDL 里是 NOT NULL DEFAULT 0 —— 计数器「没试过就是 0」）
+      ⇒ 两次都是我**预期与真实 DDL 不符**，断言把我拦住；我据此把例外写清楚（主键 / 计数器），
+        而不是删断言或放宽成 count>0。原始输出 data/_s2-slice1-dbimport3.txt / -4.txt。
+    （诚实标注：这两条是**真红**；「注入 ⇒ 红 ⇒ 还原」形式的证明留在下一轮补，不把两者混为一谈。）
+
+  最终实测：node --test --test-isolation=none apps/desktop/tests/db-import.test.mjs ⇒ **EXIT=0**
+    **tests 17 · pass 17 · fail 0**（起点 5 通过 / 12 红 —— 12 条红全部有指名原因）· 原始输出 data/_s2-slice1-dbimport5.txt
+
+  0 残留 grep（**先跑命令、贴输出、后结论**，纪律 17）：
+    rg "FROM items|INTO items|UPDATE items|FROM library\b|item_count|registered_at\b|vector_row\b|ITEM_FIELD_COLUMNS\["
+       apps/desktop/tests/db-import.test.mjs
+    输出：命中 **1** ⇒ [544]
+================================================================================
+
+  ⚠️ 第一次跑这条 grep 时**命中 1**（:544 我自己注释里的 vector_row）—— 我把它改成「向量行号」后复跑：
+     命中 **0** ✓（这次才是真正的 0 残留）
+     这正是纪律 17 的用处：如果我先写结论，就会又错一次。
+================================================================================
