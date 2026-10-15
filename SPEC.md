@@ -417,13 +417,18 @@
 | `asset_index_state` | **只有索引任务**；`excluded_at_ms` 另由用户的排除操作写 |
 | `app_meta` | 只有迁移 |
 
-**错误码（27 个：新增=兼容，改名=破坏性）**
+**错误码（28 个：新增=兼容，改名=破坏性）**
 
-**本轮仍会产生（23 个）**：`BAD_REQUEST` · `LIB_NOT_FOUND` · `LIB_ROOT_MISSING` · `INDEX_MISSING` · `INDEX_CORRUPT` · `UID_NOT_FOUND` · `ITEM_MISSING_ON_DISK` · `COMPAT_MISMATCH` · `PATH_ESCAPES_LIB` · `SYMLINK_REJECTED` · `COLLECT_DIR_NOT_ALLOWED` · `COLLECT_TARGET_EXISTS` · `DISK_FULL` · `MODEL_MISSING` · `PORT_MISSING` · `INTERNAL`
+**本轮仍会产生（24 个）**：`BAD_REQUEST` · `LIB_NOT_FOUND` · `LIB_ROOT_MISSING` · `INDEX_MISSING` · `INDEX_CORRUPT` · `UID_NOT_FOUND` · `ITEM_MISSING_ON_DISK` · `COMPAT_MISMATCH` · **`DB_OPEN_FAILED`** · `PATH_ESCAPES_LIB` · `SYMLINK_REJECTED` · `COLLECT_DIR_NOT_ALLOWED` · `COLLECT_TARGET_EXISTS` · `DISK_FULL` · `MODEL_MISSING` · `PORT_MISSING` · `INTERNAL`
 **元数据导入 / 重建一族（2026-10-15 新增 · 属兼容）**：`IMPORT_FAILED` · `IMPORT_INPUT_INVALID` · `IMPORT_SOURCE_INVALID` · `IMPORT_INDEX_UNREADABLE` · `IMPORT_RECORD_INVALID` · `IMPORT_DUPLICATE_UID` · `IMPORT_COUNT_MISMATCH`。
 语义 = **元数据导入/重建阶段的失败**（含临时目录或库根不可写）；
 ⚠️ **不得归成 `INDEX_CORRUPT`**（索引并没有坏）—— 那是**假因果**：用户会看到「索引文件已损坏」而体检说索引是好的（2026-10-15 T-15b/T-42 实测）。
 用户文案：`IMPORT_FAILED` = 「重建元数据时写不进去（临时目录或库根不可写），**本次没有改动任何数据**。」
+
+**库打不开（2026-10-15 新增 · 属兼容）**：**`DB_OPEN_FAILED`** —— `.gs.db` 打不开（损坏 / 被占用）时**唯一**的名字。
+⚠️ **不得归成 `INDEX_CORRUPT`**：**库坏 ≠ 索引坏** —— 索引可能完好，让用户去「重建索引」是**指错方向**（T-45 实测：经**引擎端口**那条路曾把它改名成 `INDEX_CORRUPT`，而**体检**那条路一直报 `DB_OPEN_FAILED` ⇒ 同一个坏库两个名字）。
+用户文案：`DB_OPEN_FAILED` = 「这个库的元数据打不开（文件可能损坏或被占用）。**索引文件没坏** —— 先试「重建元数据」，不行再看诊断。」
+它是**既有**的 main 侧码（`main/db/errors.ts` · `main/db/open.ts`，体检路径与 H5 测试一直在用它），本次只是把它**升进引擎码空间** ⇒ **收敛，不是新概念**（所有者 2026-10-15 裁定「加」，见 `TASKS §4 · U22`）。
 
 **随第二批（4 个）**：`JOB_NOT_FOUND` · `JOB_BUSY` · `RECOVERY_NEEDED` · `UNDO_EXPIRED` —— 对应 `job` 表 / 事务与撤销，那些表进第二批时一并启用。
 ⚠️ 它们**此刻仍在引擎的错误码联合体**里（`packages/engine/src/errors.ts`），只是**本轮 IPC 不暴露**相应方法 ⇒ SPEC 与代码**并不矛盾**：
