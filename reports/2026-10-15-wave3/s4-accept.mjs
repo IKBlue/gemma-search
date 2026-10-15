@@ -37,12 +37,15 @@ import {
   migrateApp,
   openGsDb,
   openNodeSqlite,
+  readSchemaVersion,
   schemaTables,
   tablesInLayer,
 } from '../../apps/desktop/src/main/db/index.ts';
 import { runItemsQuery } from '../../apps/desktop/src/main/items-ipc.ts';
 import { normalizeRootPath, insertLibrary } from '../../apps/desktop/src/main/app-db.ts';
 import { readIndexBin } from '../../packages/engine/src/index.ts';
+import { checkLibraryHealth } from '../../apps/desktop/src/main/library-health.ts';
+import { materialDigest, rebuildLibraryDb } from '../../apps/desktop/src/main/library-rebuild.ts';
 import { ERR } from '../../packages/engine/src/errors.ts';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -400,9 +403,92 @@ check('S4-A15', 'A15：library_registry.root 规范化 —— 同一目录不同
   } finally { app.db.close(); }
 });
 
+// ================================================================ A16（旧库不升级）
+
+check('S4-A16', 'A16 旧库不升级：旧口径 .gs.db ⇒ 如实告知 + 丢弃重建 + 素材不动；**当前版本的库不被丢弃**（能红对照）', () => {
+  // 源夹具 6 GB ⇒ 只取 3 条记录 + 3 组小文件，**在副本上**造库（源只读）
+  const allItems = JSON.parse(fs.readFileSync(path.join(FIXTURE_LIB, 'items.json'), 'utf8'));
+  assert(Array.isArray(allItems) && allItems.length >= 3, '夹具 items.json 读不出数组');
+  const sample = allItems.slice(0, 3);
+  const makeRoot = (label) => {
+    const root = tmpDir(label);
+    fs.writeFileSync(path.join(root, 'items.json'), JSON.stringify(sample, null, 2), 'utf8');
+    for (const rec of sample) {
+      for (const rel of [rec.relPath, rec.archiveRelPath]) {
+        if (!rel) continue;
+        const p = path.join(root, String(rel).split('\\').join(path.sep));
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        if (!fs.existsSync(p)) fs.writeFileSync(p, Buffer.from('material-8f3a-' + String(rel), 'utf8'));
+      }
+    }
+    return root;
+  };
+
+  // ① 旧口径库：旧表 items / library + schema_version = 2（**不在**本轮 6 张口径内）
+  const oldRoot = makeRoot('A16-old');
+  const oldDb = path.join(oldRoot, '.gs.db');
+  const mk = openNodeSqlite(oldDb);
+  mk.exec('CREATE TABLE IF NOT EXISTS schema_version (id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1), version INTEGER NOT NULL CHECK (version >= 0), updated_at INTEGER NOT NULL);');
+  mk.exec('CREATE TABLE IF NOT EXISTS library (lib_id TEXT PRIMARY KEY, lib_root TEXT, count INTEGER);');
+  mk.exec('CREATE TABLE IF NOT EXISTS items (uid TEXT PRIMARY KEY, lib_id TEXT, rel_path TEXT, folder TEXT, stem TEXT);');
+  mk.prepare('INSERT OR REPLACE INTO schema_version (id, version, updated_at) VALUES (1, 2, ?)').run(1700000000000);
+  mk.prepare('INSERT OR REPLACE INTO library (lib_id, lib_root, count) VALUES (?,?,?)').run('L1', oldRoot, 0);
+  mk.close();
+
+  const healthOpts = { libId: 'L1', root: oldRoot, dbPath: oldDb, itemsJsonPath: path.join(oldRoot, 'items.json'), legacyLibrariesDir: null };
+
+  // ② 如实告知：体检必须**说清**这是旧口径库，而不是当成好库
+  const health = checkLibraryHealth(healthOpts);
+  const schemaCheck = health.checks.find((c) => c.id === 'db-schema');
+  assert(schemaCheck !== undefined, '体检报告里必须有 db-schema 这一项');
+  eq(schemaCheck.ok, false, '旧口径库的 db-schema 不该通过（不假装兼容）');
+  eq(schemaCheck.code, 'SCHEMA_TOO_NEW', '码必须是 SCHEMA_TOO_NEW（库比程序新）');
+  assert(typeof schemaCheck.reason === 'string' && schemaCheck.reason.length > 0, '必须给出可读理由');
+  eq(health.ok, false, '体检不得对旧口径库宣布 ok');
+  eq(schemaCheck.rebuildable, true, '必须标为可重建（否则用户无路可走）');
+
+  // ③ 不静默迁移：直接用产品入口打开它必须**拒绝**，而不是把旧表留着继续用
+  let openErr = null;
+  try { const o = openGsDb({ dbPath: oldDb }); o.db.close(); } catch (e) { openErr = e; }
+  assert(openErr !== null, 'openGsDb 不该静默接受旧口径库（那就是"静默迁移/假装兼容"）');
+  eq(openErr.code, 'SCHEMA_TOO_NEW', 'openGsDb 也必须报同一个码');
+
+  // ④ 丢弃重建 + 素材不动
+  const before = materialDigest(oldRoot, { withContent: true });
+  const r = rebuildLibraryDb({ libId: 'L1', root: oldRoot, itemsJsonPath: path.join(oldRoot, 'items.json'), dbPath: oldDb, expectedCount: sample.length, checkBefore: true });
+  assert(r.removedDbFiles.length >= 1, '旧 .gs.db 必须被真的删掉（removedDbFiles 为空 = 没丢）');
+  eq(r.created, true, '重建必须新建一个库文件');
+  eq([r.schema.fromVersion, r.schema.toVersion], [0, 1], 'schema 必须从 v0 建到 v1');
+  eq(r.dbOk, true, '重建后的 db-* 检查必须全过');
+  assert(typeof r.reason === 'string' && r.reason.includes('重建完成'), '报告必须给出重建理由：' + String(r.reason));
+  const after = materialDigest(oldRoot, { withContent: true });
+  eq(after.count, before.count, '素材条目数不许变');
+  eq(after.digest, before.digest, '素材摘要（含内容 sha1）必须逐位相同 —— 重建不许动素材');
+
+  const nw = openNodeSqlite(oldDb, { readOnly: true });
+  const names = new Set(nw.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((x) => x.name));
+  nw.close();
+  eq([names.has('items'), names.has('library')], [false, false], '旧表 items / library 必须被清掉（丢干净）');
+  eq([...LIBRARY_TABLES, 'schema_version'].filter((x) => !names.has(x)), [], '绿地 6 张口径的表必须都在');
+
+  // ⑤ 能红对照：**当前版本**的库不许被丢弃（证明上面的判据不是恒真）
+  const curRoot = makeRoot('A16-current');
+  const curDb = path.join(curRoot, '.gs.db');
+  const first = openGsDb({ dbPath: curDb, now: () => 1700000000000 });
+  first.db.close();
+  const curHealth = checkLibraryHealth({ libId: 'L1', root: curRoot, dbPath: curDb, itemsJsonPath: path.join(curRoot, 'items.json'), legacyLibrariesDir: null });
+  const curSchema = curHealth.checks.find((c) => c.id === 'db-schema');
+  eq([curSchema.ok, curSchema.code], [true, ''], '当前版本的库必须通过 db-schema（不该被丢弃）');
+  const second = openGsDb({ dbPath: curDb, now: () => 1700000000000 });
+  const applied = second.migration.applied.length;
+  const ver = readSchemaVersion(second.db);
+  second.db.close();
+  eq([applied, ver], [0, 1], '再打开必须幂等（applied=0、版本仍 v1）');
+  assert(fs.existsSync(curDb), '当前版本的库文件必须还在（没被丢弃）');
+  return '旧库：如实告知(SCHEMA_TOO_NEW/可重建) + 丢弃重建(v0→v1、旧表清空) + 素材 sha1 不变；对照：当前版本库 db-schema 通过且幂等不丢';
+});
+
 console.log('');
-skip('S4-A16', 'A16 旧库不升级（旧 .gs.db ⇒ 丢弃重建并如实告知）',
-  '不在 Lead 本轮「现在就验」清单内，且 S2（task-59）尚未收口 —— 待 S2 收口后随 npm test 一起补跑');
 skip('S4-A18b', 'A18 第二半：同一个坏 .gs.db 经引擎端口与经体检返回同一个 DB_OPEN_FAILED',
   '依赖 S7b（task-61 pending：删 main 侧 DB_OPEN_FAILED→INDEX_CORRUPT 改名映射 + 端到端断言）');
 
@@ -417,6 +503,6 @@ console.log('  PASS ' + String(pass) + ' · FAIL ' + String(failN) + ' · SKIP '
 console.log('');
 console.log('── DEFERRED（明确**不算进**本脚本结论）─────────────────────────');
 console.log('  · npm test 全绿：S2（task-59）仍在关 24 条单测红 ⇒ 等 S2 收口后补跑。');
-console.log('  · A16、A18 第二半：见上面的 SKIP 原因。');
+console.log('  · A18 第二半：见上面的 SKIP 原因。');
 fs.rmSync(TMP, { recursive: true, force: true });
 process.exit(failed === 0 ? 0 : 1);
