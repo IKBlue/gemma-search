@@ -1,0 +1,105 @@
+===============================================================================
+DF-1 证据 · fingerprintLines 漏跳保留命名空间（与 materialDigest 两套口径）
+worker: indexer-migrator · 任务板 task-68 · 2026-10-15
+===============================================================================
+
+【0 缺陷（第三方审查 · Lead 已核实为真）】
+packages/engine/src/fingerprint.ts 的 fingerprintLines() 遍历库根时**不跳过保留命名空间**
+⇒ `.gs-index.bin` / `.gs.db` / `.gs.db-wal` / `.gs.db-shm` / `.gs-journal/` / `.gs-staging/` 都被算进
+`counts.files` 与指纹。后果：doScan() 用 fingerprintV1(root) ⇒ **索引一重建、库指纹就变**，被算成「库被改过」；
+而 main/library-rebuild.ts 的 materialDigest() 有跳过 ⇒ **两套口径（P1）**。这是 U11（把 .gs.db 当素材）第三次复发。
+
+===============================================================================
+【1 修法（唯一判据，不抄第二份）】
+===============================================================================
+packages/engine/src/fingerprint.ts：
+  + import { isReservedLibraryName } from './gs-names.ts';   // 引擎侧唯一判据（U11 的收敛落点）
+  walk(entries) 里、**isDirectory() 分支之前**：
+      if (isReservedLibraryName(e.name)) continue;
+  ⚠️ 必须在 isDirectory() 之前：`.gs-journal` / `.gs-staging` 是**目录**，漏判会走进去（staging 会建在任意子目录）。
+未改 scanner.ts / library-rebuild.ts（它们本来就有这一跳）；未碰 packages/indexer/** 与 main/encoder.*。
+
+===============================================================================
+【2 能红（拿掉跳过 ⇒ 必红；已还原复绿）】
+===============================================================================
+手法：临时把 fingerprint.ts 里那行 `if (isReservedLibraryName(e.name)) continue;` 注释掉，跑新单测。
+原始输出：
+  ✖ DF-1 ⭐⭐ 指纹的文件数 == 扫描器的素材文件数（保留命名空间一律不算；索引在场也成立）
+    AssertionError: 指纹只该数 4 个素材文件（实得 11）—— 多出来的就是保留命名空间
+  ✖ DF-1 ⭐⭐ 语义：改写/新增保留命名空间 ⇒ 指纹不变；改素材 ⇒ 指纹必须变
+    AssertionError: 索引/元数据变化**不许**改动库指纹（否则 doScan 会把它报成「库被改过」）
+  ℹ tests 2 / pass 0 / fail 2        RED_EXIT=1
+还原后：✔✔ 两条全绿 · tests 2 / pass 2 / fail 0 · GREEN_EXIT=0；`grep RED-PROOF packages/engine/src` = 0 命中。
+
+===============================================================================
+【3 机械断言 + 语义断言（新单测 packages/engine/tests/fingerprint.test.mjs）】
+===============================================================================
+夹具：2 组素材（图+包各 2 = **4 个素材文件**）+ 保留命名空间 7 个条目
+（`.gs-index.bin` · `.gs.db` · `.gs.db-wal` · `.gs.db-shm` · `.gs-write-probe-999` · `.gs-journal/` · `VR/.gs-staging/`）。
+① 机械断言：`fingerprint.counts.files === MATERIAL_FILES(4)` 且 `=== scan.counts.images + scan.counts.paired`（2+2）；
+   同时 `scan.counts.skippedReserved === 7` —— 两侧数的是**同一批文件**，即"同一份跳过判据"。
+② 语义断言：改写 `.gs-index.bin`（内容+长度都变）· 重写 `.gs.db-wal` · 新增 `.gs-index.bin.tmp-1` ⇒ **指纹逐字节不变**；
+   反向对照：改 `VR/ID-1.jpg` ⇒ **指纹必须变**（防止"指纹根本不敏感"的假绿）。
+命令: node --test packages/engine/tests/fingerprint.test.mjs
+  ✔ DF-1 ⭐⭐ 指纹的文件数 == 扫描器的素材文件数（保留命名空间一律不算；索引在场也成立） (12.1233ms)
+  ✔ DF-1 ⭐⭐ 语义：改写/新增保留命名空间 ⇒ 指纹不变；改素材 ⇒ 指纹必须变 (11.6086ms)
+  ℹ tests 2 / pass 2 / fail 0        TEST_EXIT=0
+
+③ 引擎全量单测（含跨语言基线）:
+命令: node --test --test-isolation=none packages/engine/tests/*.test.mjs
+  ✔ 指纹 v1：与 baseline-v1.json 记录的值一致（跨语言一致性） (248.0897ms)
+  ℹ tests 172 / suites 0 / pass 171 / fail 0 / cancelled 0 / skipped 1 / todo 0 / duration_ms 19595.6302
+  ENGINE_EXIT=0
+
+===============================================================================
+【4 一致性证据：指纹文件数 == materialDigest.count（同一库）】
+===============================================================================
+可复跑脚本（**受版本管理**）：reports/2026-10-15-wave3/df1-consistency.mjs
+命令: node reports/2026-10-15-wave3/df1-consistency.mjs "G:\model" "data/_schema100/lib" "data/libraries/L1"
+
+--- 修之前（原始输出，BEFORE_EXIT=1：data/_schema100/lib 不一致）---
+  [OK  ] G:\model
+      fingerprint.files   = 7188（图 3594 · 包 3594 · 其他 0）
+      materialDigest.count = 7188      （该库根下没有任何保留命名空间 ⇒ 修复前后都一样）
+      fingerprint_v1 = 3c62f15c5944…
+  [FAIL] data/_schema100/lib
+      fingerprint.files   = 207（图 100 · 包 100 · **其他 7**）   ← 多算了 4 个保留文件
+      materialDigest.count = 203
+      fingerprint_v1 = 85f8ca079a7b…
+  [OK  ] data/libraries/L1
+      fingerprint.files   = 4 · materialDigest.count = 4 · fingerprint_v1 = 19ff8943e0b8…
+
+--- 修之后（AFTER_EXIT=0：三处全一致）---
+  [OK  ] G:\model               指纹 7188 · 摘要 7188 · 指纹多算 0 · fingerprint_v1 = 3c62f15c5944…（**未变**）
+  [OK  ] data/_schema100/lib    指纹 203（图 100 · 包 100 · 其他 3 = items.json/meta.json/.picked.json）· 摘要 203 · 指纹多算 0
+                                磁盘全部文件 207 ⇒ 保留命名空间 4 个（.gs-index.bin · .gs.db · .gs.db-shm · .gs.db-wal）
+                                fingerprint_v1 = 68063ef7f671…（**修好了**：不再随索引/元数据而变）
+  [OK  ] data/libraries/L1      指纹 4 · 摘要 4 · 指纹多算 0 · fingerprint_v1 = 19ff8943e0b8…（未变）
+⇒ 三个库根上 `fingerprintLines(root).counts.files === materialDigest(root).count` **逐位相同**。
+
+⚠️ 真实库 G:\model 的指纹**没有变**（`3c62f15c…`）—— 因为该库根下递归搜索**没有**任何保留命名空间条目：
+   证据: Get-ChildItem -Recurse -Force G:\model | Where-Object { .gs-* / .gs.db / .gs.db-* / .gs-staging } ⇒ count=0。
+   ⇒ baseline-v1.json 的跨语言记录值仍然有效（§3 ③ 那条断言实测通过）。
+
+===============================================================================
+【5 类型门禁】
+===============================================================================
+命令: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "data/_esbuild-tmp/tsbi_df1_node.tsbuildinfo"
+  ⇒ TSC_NODE_EXIT=0 · error 行数 = 0
+
+===============================================================================
+【6 说明 / 残余 / 回滚】
+===============================================================================
+· **归因收敛**：`.gs-*` / `.gs.db`(+边车) / staging 的判据只有一份（packages/engine/src/gs-names.ts）；
+  fingerprint.ts 本次改为**调用**它（原先没有）。scanner.ts 与 library-rebuild.materialDigest 本来就在用。
+· **一条有意保留的口径差异（不是漏改）**：扫描器还会跳过"点开头但不是保留名"的隐藏项（SPEC §1 要求，见 scanner.ts:144），
+  而指纹/materialDigest 只跳保留名 ⇒ 一个 `.foo` 文件仍会计入指纹（它确实是库里的字节，改动它就该让指纹变）。
+  两边服务的目的不同：指纹=「库有没有被动过」，扫描器=「有哪些素材条目」。本卡只收口保留命名空间。
+· 未碰 packages/indexer/** 与 main/encoder.* ⇒ 不需要 T-00 编码护栏。
+· 回滚：删 import + 那一行 `continue`，删新单测与 df1-consistency.mjs 即可（指纹回旧行为）。
+· 未跑 git（AGENTS P7）；未跑 build/e2e（并发纪律；本卡不涉及）。
+
+改动文件:
+  packages/engine/src/fingerprint.ts            （+import isReservedLibraryName；walk 里 +1 行跳过）
+  packages/engine/tests/fingerprint.test.mjs    （新增：机械断言 + 语义断言，2 条）
+  reports/2026-10-15-wave3/df1-consistency.mjs  （新增：指纹 vs 素材摘要 的可复跑一致性核对）

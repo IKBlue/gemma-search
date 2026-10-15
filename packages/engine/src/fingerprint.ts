@@ -11,6 +11,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
+// ⚠️ 「库内产物」的判据**只有一份**（engine/src/gs-names.ts）：`.gs-*` / `.gs.db`(+边车) / staging。
+//    `.gs.db` 的第 4 个字符是 `.` 不是 `-` ⇒ 自己写 `.gs-` 前缀判断会漏（U11）。
+import { isReservedLibraryName } from './gs-names.ts';
+
 export const IMG_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.bmp']);
 export const ARCHIVE_EXT = new Set(['.rar', '.zip', '.7z']);
 
@@ -63,6 +67,12 @@ export function fingerprintLines(root: string): FingerprintLines {
       return;
     }
     for (const e of entries) {
+      // ⚠️ 保留命名空间**不是素材**（U11 类问题的第三次复发就在这儿）：`.gs-index.bin` / `.gs.db`(+边车) /
+      //    `.gs-journal` / `.gs-staging` 都是**我们自己的派生数据**。用 gs-names.ts 的唯一判据，不另写一份
+      //    （P1）。必须放在 `isDirectory()` **之前** —— `.gs-journal` / `.gs-staging` 是目录，漏判会走进去。
+      //    不改的后果（实测）：索引一重建，`doScan()` 的库指纹就跟着变 ⇒ 被算成「库被改过」；
+      //    而同一件事在 main/library-rebuild.ts 的 materialDigest 里有跳过 ⇒ 两套口径。
+      if (isReservedLibraryName(e.name)) continue;
       const full = path.join(dir, e.name);
       if (e.isDirectory()) { walk(full); continue; }
       if (!e.isFile()) continue;                       // 跳过符号链接等（不跟随）
