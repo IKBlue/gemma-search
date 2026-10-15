@@ -1,0 +1,126 @@
+===============================================================================
+ENC-1 证据 · 编码线两条：readImageAny 只读头（A）+ pickEmbedding 全零/多副本（D3）
+worker: indexer-migrator · 任务板 task-77 · 2026-10-15
+===============================================================================
+
+【步骤 0 · 改前基线（先跑，未改一行）】
+命令: node tools/verify_encoder_path.mjs --model "<model-cache/.../fp32>" --lib "G:\model"
+原始输出（关键行，BASELINE_EXIT=0）：
+  [OK  ] createEncoder 成功  device=webgpu loadMs=5332
+  [OK  ] resize_compat 已安装  kernel=pil-like rawImage=_RawImage
+  [OK  ] encodeImage ↔ 索引行  VR\ID-15602395.jpg  cos=1.000000  size=33460870B src=native
+  [OK  ] encodeImage ↔ 索引行  VR\ID-12089794.jpg  cos=1.000000  size=1821918B src=bmp-fallback
+  [OK  ] 真的走了 BMP 回退（source=bmp-fallback）  VR\ID-12089794.jpg
+  [OK  ] 文本向量已 L2 归一  ‖v‖=1.000000 · [OK] 文本向量维度 == 索引维度
+  查询「北欧吊灯」Top-5：
+    0.7855  CR\ID-633419997.jpg
+    0.7852  VR\ID-15588806.jpg
+    0.7836  VR\ID-723604.jpeg
+    0.7756  VR\ID-115822915.jpg
+    0.7751  VR\ID-1112089406.jpg
+  [OK  ] 分数确实有区分度 0.7855 vs 0.7734
+  结论：PASS（产品编码路径在这台机器上自洽）
+
+===============================================================================
+【A. readImageAny：整读 → 有界头读】
+===============================================================================
+改前（main/encoder.ts，readImageAny）：
+    const buf = fs.readFileSync(absPath);                          // ← 为了看 2 个字节**整读**文件
+    const isBmp = buf.length > 2 && buf[0] === 0x42 && buf[1] === 0x4d;
+  ⇒ 库里 33 MB 的预览图会整读进内存（只为判断是不是 "BM"）。
+改后：
+  · packages/indexer/src/bmp_decode.ts 新增 `readFileHead(absPath, maxBytes = HEAD_SNIFF_BYTES)`
+    （HEAD_SNIFF_BYTES = 64 KiB：open → fstat → 读 min(上限, 文件大小) → close）
+    + `isBmpHead(head)`（BMP 魔数的**唯一判据**；`isBmp(filePath)` 也改用这两者，从 2 字节硬编码变成同一实现）；
+  · main/encoder.ts 的 readImageAny 改为 `readHead(absPath, HEAD_SNIFF_BYTES)` + `isBmpHead(head)`，
+    并且 `readHead` 是**可注入**参数（默认 readFileHead）—— 单测用它注入计数（导出仅供单测）。
+为什么不是放宽：
+  · 嗅探仍然是**同样的判据**（前 2 字节 == "BM"），只是不再把整个文件读进来；
+  · 上限是**硬上限**（min(上限, 文件大小)），小文件读到 EOF 就停（不补零）；
+  · 解码所需的数据仍由解码器自己读（RawImage.read / bmp-js）—— 没有把"解码也截断"。
+能红（原始输出）：临时把 readFileHead 改回"读整文件" ⇒
+  ✖ readFileHead 有界：8 MiB 文件也最多读 64 KiB（小文件读到 EOF 就停）
+    AssertionError: 读取字节必须 ≤ 上限，实得 **8388608**
+  ✖ 编码路径不再整读：注入头读计数 ⇒ 读取字节 ≤ 上限（且注入的 reader 必须被调用）
+    AssertionError: 读取字节必须 ≤ 上限，实得 **8388608**
+  ℹ tests 2 / pass 0 / fail 2        REDA_EXIT=1
+还原后 8/8 绿、`grep RED-PROOF packages/indexer/src` = 0。
+
+===============================================================================
+【D3. pickEmbedding：全零必须拒绝 + 多副本收敛成一份】
+===============================================================================
+改前（**5 处副本**，各自维护）：
+  · apps/desktop/src/main/encoder.ts（函数 pickEmbedding，`Math.sqrt(n) || 1`）
+  · packages/indexer/src/encode_queries.ts（同名副本，注释写"与 build_index_onnx 保持一致"）
+  · packages/indexer/src/spike_onnx.ts（同名副本）
+  · packages/indexer/src/diagnose_resize_kernel.ts（简化版 `pick = out.sentence_embedding ?? out.text_embeds`）
+  · packages/indexer/src/build_index_onnx.ts（内联 `out.sentence_embedding ?? out.text_embeds` + 抛错）
+  （另有 docs/archive/legacy/... 的归档副本，不属产品路径，未动。）
+真因（审查 §03 的描述需要修正）：`|| 1` 挡住了除零 ⇒ **不会 NaN**；真正的失效是 T === 0 / 整块全零时
+  归一化成 **全零向量** —— 静默、不报错、检索永不命中（本项目最怕的失败形态）。
+改后：**唯一实现** packages/indexer/src/embedding.ts 的 `pickEmbedding`：
+  · `sentence_embedding` / `text_embeds` 分支：先 `assertNotAllZero` ⇒ 全零**拒绝**；
+  · `last_hidden_state` 分支：`T === 0` 直接拒绝；mean-pool 后 `n = Math.sqrt(n)`，`!(n > 0)` ⇒ **拒绝**（不再 `|| 1`）；
+  · 三者都缺 ⇒ 报错（原来 main 侧也是报错，消息统一）。
+  调用点（全部改为 import，无第二份）：main/encoder.ts（两处调用点写法不变，E-1 守着）·
+  build_index_onnx.ts · encode_queries.ts · spike_onnx.ts · diagnose_resize_kernel.ts。
+为什么不是放宽：
+  · 正常路径**数值不变**（见下：基线 cos=1.000000、Top-5 逐位一致；单测也钉了 mean-pool + L2 归一的结果）；
+  · 坏输入从"静默产出全零"变成**响亮拒绝** —— 是把断言**变严**，不是放行；
+  · 五种取法收敛成一份，`how` 取值保持 `sentence_embedding` / `text_embeds` / `mean_pool(last_hidden_state)` 不变。
+能红（原始输出）：临时拿掉"全零 ⇒ 拒绝"（恢复旧行为）⇒
+  ✖ ENC-1 ⭐⭐ 全零输入必须**拒绝并报错**（不许静默返回全零向量 —— 检索永不命中）
+    AssertionError: Missing expected exception.
+  ℹ tests 1 / pass 0 / fail 1        REDB_EXIT=1
+还原后 8/8 绿、`grep RED-PROOF` = 0。
+
+===============================================================================
+【步骤 1 · 改后基线（同一命令，逐项对比）】
+===============================================================================
+命令（与步骤 0 **完全相同**）: node tools/verify_encoder_path.mjs --model "<…/fp32>" --lib "G:\model"
+原始输出（关键行，BASELINE_EXIT=0）:
+  [OK  ] createEncoder 成功  device=webgpu loadMs=3194
+  [OK  ] encodeImage ↔ 索引行  VR\ID-15602395.jpg  cos=1.000000  size=33460870B src=native
+  [OK  ] encodeImage ↔ 索引行  VR\ID-12089794.jpg  cos=1.000000  size=1821918B src=bmp-fallback
+  [OK  ] 真的走了 BMP 回退（source=bmp-fallback）  VR\ID-12089794.jpg
+  [OK  ] 文本向量已 L2 归一  ‖v‖=1.000000
+  查询「北欧吊灯」Top-5：
+    0.7855  CR\ID-633419997.jpg
+    0.7852  VR\ID-15588806.jpg
+    0.7836  VR\ID-723604.jpeg
+    0.7756  VR\ID-115822915.jpg
+    0.7751  VR\ID-1112089406.jpg
+  [OK  ] 分数确实有区分度 0.7855 vs 0.7734
+  结论：PASS
+对比结论：**逐位一致**（Top-5 五个数与顺序、两条 encodeImage 的 cos=1.000000、BMP 回退来源、‖v‖=1、区分度 0.7855 vs 0.7734）。
+唯一可见差异是 loadMs（5332 → 3194 ms）与设备探测文案 —— 都是**机器负载/时间**，不是向量。
+⇒ **没有需要解释的差异**；没有出现"可解释差异"这种情况。
+
+===============================================================================
+【门禁（纪律 6/19：未跑全量 npm test）】
+===============================================================================
+· 新增单测: node --test packages/indexer/tests/*.test.mjs
+    ✔ readFileHead 有界（8 MiB ≤ 64 KiB） · ✔ 魔数判据唯一 · ✔ 编码路径不再整读（注入计数） · ✔ BMP 回退仍生效
+    ✔ sentence_embedding/text_embeds 透出 · ✔ mean-pool + L2 归一 · ✔ 全零必须拒绝 · ✔ T===0/缺键必须报错
+    ℹ tests 8 / pass 8 / fail 0        GREEN_EXIT=0
+· 编码路径的既有守卫: node --test apps/desktop/tests/encoder-call-site.test.mjs
+    ✔ E-1 编码路径必须把**模型输出**喂给 pickEmbedding（两处调用点都要）
+    ✔ E-2 护栏必须指向真实存在的 encoder 源文件
+    ℹ tests 2 / pass 2 / fail 0        E1_EXIT=0
+· 两个被改的 indexer 脚本仍能加载模块图（无参 ⇒ 打印用法并 exit 2，不载模型）:
+    node packages/indexer/src/build_index_onnx.ts ⇒ BI_EXIT=2 · node packages/indexer/src/encode_queries.ts ⇒ EQ_EXIT=2
+· 类型门禁: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "…/tsbi_enc1_node.tsbuildinfo"
+    ⇒ **TSC_NODE_EXIT=0 · lines=0**
+
+===============================================================================
+【改动文件 / 回滚 / 一个待你定的问题】
+===============================================================================
+新增: packages/indexer/src/embedding.ts（pickEmbedding 唯一实现：全零拒绝）
+      packages/indexer/tests/{pick-embedding,image-head}.test.mjs（8 条，含两处能红）
+改动: packages/indexer/src/bmp_decode.ts（+readFileHead/isBmpHead/HEAD_SNIFF_BYTES；isBmp 改用它们）
+      apps/desktop/src/main/encoder.ts（删第 5 份 pickEmbedding；readImageAny 改有界头读并导出可注入 reader）
+      packages/indexer/src/{build_index_onnx,encode_queries,spike_onnx,diagnose_resize_kernel}.ts（删各自副本，改 import）
+回滚: 逐条反向即可（恢复各自副本 + readImageAny 回 fs.readFileSync）。
+待你定：`packages/indexer/tests/` **不在** npm test 的 glob 里（现有 glob = packages/engine/tests + apps/desktop/tests）——
+  要不要把 `packages/indexer/tests/*.test.mjs` 加进 `package.json` 的 test 脚本？（package.json 不在我这次的写入范围，故未动。）
+未跑 git（AGENTS P7）；未跑全量 npm test（纪律 6/19：等你发话）。

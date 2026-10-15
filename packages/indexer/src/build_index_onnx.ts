@@ -23,7 +23,8 @@ import { execFileSync } from 'node:child_process';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
 import type { Processor } from '@huggingface/transformers';
 import type { Dirent } from 'node:fs';
-import type { ImageProcessorConfigView, ModelDevice, ModelDtype, TensorView } from './third_party_types.ts';
+import type { ImageProcessorConfigView, ModelDevice, ModelDtype } from './third_party_types.ts';
+import { pickEmbedding } from './embedding.ts';   // 唯一实现（ENC-1 / P1）
 import { readImageWithFallback, selfTestBmpLayout, isBmp } from './bmp_decode.ts';
 import { installResizeCompat, selfTestResizeCompat, resizeCompatState, assertResizeCompatInstalled } from './resize_compat.ts';
 
@@ -590,8 +591,7 @@ async function main() {
         if (vectorSourceKind !== 'native') fallbackUsed++;
         const inputs = await processor(null, [img]);
         const out = await model.forward(inputs);
-        const emb: TensorView | undefined = out.sentence_embedding ?? out.text_embeds;
-        if (!emb) throw new Error('输出无 sentence_embedding');
+        const emb = pickEmbedding(out);   // 缺键/全零都由唯一实现拒绝（别再内联一份）
         dim = emb.dims[emb.dims.length - 1];
         // ⚠️ 这里**必须**带上 vectorSource：漏了的话 persist() 里 srcByUid 取不到值，
         //    全部回落成 'native' —— 实测 meta.bmpFallbackUsed=20 而 items.json 里 3594 条

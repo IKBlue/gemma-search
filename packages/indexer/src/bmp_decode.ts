@@ -23,16 +23,34 @@ import { RawImage } from '@huggingface/transformers';
 
 const BMP_MAGIC = Buffer.from('BM');
 
-/** 按魔数判断是否 BMP（不信任扩展名） */
-export function isBmp(filePath: string): boolean {
-  const fd = fs.openSync(filePath, 'r');
+/**
+ * 嗅探魔数只需要**文件头** —— 有界读取的上限。
+ * 为什么要有它（ENC-1）：调用方曾为了看 2 个字节而 `fs.readFileSync` **整读**文件
+ * （33 MB 的图也全进内存）；解码器（RawImage / bmp-js）会自己读它需要的部分。
+ */
+export const HEAD_SNIFF_BYTES = 64 * 1024;
+
+/** 只读文件**头**（有界，最多 maxBytes 字节；EOF 时返回实际读到的字节数） */
+export function readFileHead(absPath: string, maxBytes: number = HEAD_SNIFF_BYTES): Buffer {
+  const fd = fs.openSync(absPath, 'r');
   try {
-    const head = Buffer.alloc(2);
-    fs.readSync(fd, head, 0, 2, 0);
-    return head.equals(BMP_MAGIC);
+    const want = Math.max(0, Math.min(maxBytes, fs.fstatSync(fd).size));
+    const buf = Buffer.allocUnsafe(want);
+    const got = fs.readSync(fd, buf, 0, want, 0);
+    return buf.subarray(0, got);
   } finally {
     fs.closeSync(fd);
   }
+}
+
+/** BMP 魔数（"BM"）—— **唯一判据**（不要在各处再写一遍那两个字面量） */
+export function isBmpHead(head: Buffer): boolean {
+  return head.length >= 2 && head[0] === 0x42 && head[1] === 0x4d;
+}
+
+/** 按魔数判断是否 BMP（不信任扩展名）—— 只读 2 字节的头，绝不整读 */
+export function isBmp(filePath: string): boolean {
+  return isBmpHead(readFileHead(filePath, 2));
 }
 
 /** 头部自查：只接受我们验证过的变体，其它明确报错（不猜） */

@@ -19,11 +19,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
 import { readImageWithFallback, selfTestBmpLayout } from './bmp_decode.ts';
-import type { ImageProcessorConfigView, ModelDevice, ModelDtype, ModelOutputView } from './third_party_types.ts';
+import type { ImageProcessorConfigView, ModelDevice, ModelDtype } from './third_party_types.ts';
 import { installResizeCompat, selfTestResizeCompat, assertResizeCompatInstalled } from './resize_compat.ts';
+// pickEmbedding 的**唯一实现**（ENC-1 / P1）：以前这里是与 build_index_onnx 各一份的副本
+import { pickEmbedding } from './embedding.ts';
+import type { PickedEmbedding } from './embedding.ts';
 
 interface QueryItem { id: string; kind: string; value: string }
-interface PickedEmbedding { data: ArrayLike<number>; dims: number[]; how: string }
 interface StoredVector { id: string; kind: string; value: string; dim: number; norm: number; vector: number[] }
 
 const argv = process.argv.slice(2);
@@ -46,29 +48,9 @@ const log = (...a: unknown[]) => console.log('[enc]', ...a);
 env.allowLocalModels = true;
 env.allowRemoteModels = false;
 
-/** 与 build_index_onnx.mjs 的 pickEmbedding 保持一致（改动请同步，并跑交叉核对） */
-function pickEmbedding(out: ModelOutputView): PickedEmbedding {
-  if (out.sentence_embedding) {
-    return { data: out.sentence_embedding.data, dims: out.sentence_embedding.dims, how: 'sentence_embedding' };
-  }
-  if (out.text_embeds) {
-    return { data: out.text_embeds.data, dims: out.text_embeds.dims, how: 'text_embeds' };
-  }
-  const lh = out.last_hidden_state;
-  if (!lh) throw new Error('输出里既无 sentence_embedding 也无 last_hidden_state，实际键: ' + Object.keys(out).join(','));
-  const [B, T, D] = lh.dims;
-  const data = new Float32Array(B * D);
-  for (let b = 0; b < B; b++) {
-    for (let t = 0; t < T; t++) {
-      for (let d = 0; d < D; d++) data[b * D + d] += lh.data[(b * T + t) * D + d];
-    }
-    let n = 0;
-    for (let d = 0; d < D; d++) n += data[b * D + d] * data[b * D + d];
-    n = Math.sqrt(n) || 1;
-    for (let d = 0; d < D; d++) data[b * D + d] /= n;
-  }
-  return { data, dims: [B, D], how: 'mean_pool(last_hidden_state)' };
-}
+// （本文件不再自带 pickEmbedding：见上面的 import 与 packages/indexer/src/embedding.ts。
+//   ENC-1 之前这里是与 build_index_onnx 各一份的副本，靠"人工保持同步 + 交叉核对"维持；
+//   副本里的 `Math.sqrt(n) || 1` 在 T===0 时会**静默产出全零向量**。）
 
 const norm = (a: ArrayLike<number>): number => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * a[i]; return Math.sqrt(s); };
 

@@ -12,7 +12,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ModelDevice, ModelOutputView } from './third_party_types.ts';
+import type { ModelDevice } from './third_party_types.ts';
+import { pickEmbedding } from './embedding.ts';   // 唯一实现（ENC-1 / P1）
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
 
 const [modelDir, seqArg, outPath, selectionPath, deviceArg] = process.argv.slice(2);
@@ -61,29 +62,7 @@ const model = await AutoModel.from_pretrained(modelDir, { config, dtype: 'fp32',
 const loadMs = Date.now() - t0;
 log(`  载入完成，用时 ${(loadMs / 1000).toFixed(1)}s`);
 
-/** 从模型输出里取句向量：优先 sentence_embedding，否则均值池化 + L2 归一化。 */
-function pickEmbedding(out: ModelOutputView): { data: ArrayLike<number>; dims: number[]; how: string } {
-  if (out.sentence_embedding) {
-    return { data: out.sentence_embedding.data, dims: out.sentence_embedding.dims, how: 'sentence_embedding' };
-  }
-  if (out.text_embeds) {
-    return { data: out.text_embeds.data, dims: out.text_embeds.dims, how: 'text_embeds' };
-  }
-  const lh = out.last_hidden_state;
-  if (!lh) throw new Error('输出里既无 sentence_embedding 也无 last_hidden_state，实际键: ' + Object.keys(out).join(','));
-  const [B, T, D] = lh.dims;
-  const data = new Float32Array(B * D);
-  for (let b = 0; b < B; b++) {
-    for (let t = 0; t < T; t++) {
-      for (let d = 0; d < D; d++) data[b * D + d] += lh.data[(b * T + t) * D + d];
-    }
-    let n = 0;
-    for (let d = 0; d < D; d++) n += data[b * D + d] * data[b * D + d];
-    n = Math.sqrt(n) || 1;
-    for (let d = 0; d < D; d++) data[b * D + d] /= n;
-  }
-  return { data, dims: [B, D], how: 'mean_pool(last_hidden_state)' };
-}
+// （pickEmbedding 见上面的 import：唯一实现在 ./embedding.ts —— ENC-1 收敛，别再抄一份。）
 
 const norm = (arr: ArrayLike<number>): number => {
   let s = 0;

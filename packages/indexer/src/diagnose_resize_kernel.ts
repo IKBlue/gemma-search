@@ -22,8 +22,9 @@
 import fs from 'node:fs';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
 import type { ResizeOptions } from 'sharp';
-import type { ImageProcessorConfigView, ModelDevice, ModelDtype, ModelOutputView } from './third_party_types.ts';
+import type { ImageProcessorConfigView, ModelDevice, ModelDtype } from './third_party_types.ts';
 import { readImageWithFallback } from './bmp_decode.ts';
+import { pickEmbedding } from './embedding.ts';   // 唯一实现（ENC-1 / P1）
 
 interface KernelCall { kernel: string; from: number[]; to: (number | null | undefined)[] }
 interface FailedSample { rel_path: string; error: string }
@@ -94,8 +95,6 @@ if (processor.image_processor) {
 const model = await AutoModel.from_pretrained(MODEL_DIR, { config, dtype: 'float32' as ModelDtype, device: DEVICE as ModelDevice });
 log('模型载入完成');
 
-const pick = (out: ModelOutputView) => out.sentence_embedding ?? out.text_embeds;
-
 const result: DiagnoseResult = { model_dir: MODEL_DIR, seq: SEQ, device: DEVICE, kernels: KERNELS, vectors: {} };
 for (const k of KERNELS) {
   KERNEL = k;
@@ -108,8 +107,7 @@ for (const k of KERNELS) {
       if (!image) throw new Error('解码失败');
       const inputs = await processor(null, [image]);
       const out = await model.forward(inputs);
-      const emb = pick(out);
-      if (!emb) throw new Error('输出无 sentence_embedding');
+      const emb = pickEmbedding(out);   // 缺键/全零都由唯一实现拒绝
       vectors[it.rel_path] = Array.from(emb.data);
     } catch (e) {
       failed.push({ rel_path: it.rel_path, error: e instanceof Error ? e.message : String(e) });

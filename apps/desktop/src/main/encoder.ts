@@ -15,17 +15,15 @@ import path from 'node:path';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
 import type { PretrainedModelOptions } from '@huggingface/transformers';
 import { installResizeCompat, selfTestResizeCompat, assertResizeCompatInstalled } from '../../../../packages/indexer/src/resize_compat.ts';
+// pickEmbedding 的**唯一实现**（ENC-1 / P1）：本文件以前自带第 5 份副本
+import { pickEmbedding } from '../../../../packages/indexer/src/embedding.ts';
+// 有界头读 + BMP 魔数（同样只有一份实现）
+import { readFileHead, isBmpHead, HEAD_SNIFF_BYTES } from '../../../../packages/indexer/src/bmp_decode.ts';
 import { decideDevice, UNPROBED } from './encoder-device.ts';
 import type { DeviceFallbackFact, GpuProbe, RequestedDevice } from './encoder-device.ts';
 
 export const QUERY_PREFIX = 'task: search result | query: ';
 export const IMG_EXT: ReadonlySet<string> = new Set(['.jpg', '.jpeg', '.png', '.webp', '.bmp']);
-
-/** 张量状输出（transformers 的 Tensor 是 JS 类，这里只声明本文件用到的两个字段） */
-interface TensorLike {
-  data: ArrayLike<number>;
-  dims: number[];
-}
 
 /** 图像向量：与索引器一样，额外挂一个 `__source`（bmp-fallback / native）供诊断 */
 export interface ImageVector extends Float32Array {
@@ -77,32 +75,10 @@ function errMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null;
-}
-
-/** 与 packages/indexer/src/build_index_onnx.ts 的 pickEmbedding 必须一致（有交叉核对测试守着） */
-function pickEmbedding(out: unknown): TensorLike {
-  const o: Record<string, unknown> = isRecord(out) ? out : {};
-  const se = o.sentence_embedding as TensorLike | undefined;
-  if (se) return se;
-  const te = o.text_embeds as TensorLike | undefined;
-  if (te) return te;
-  const lh = o.last_hidden_state as TensorLike | undefined;
-  if (!lh) throw new Error('输出里既无 sentence_embedding 也无 last_hidden_state：' + Object.keys(o).join(','));
-  const [B, T, D] = lh.dims;
-  const data = new Float32Array(B * D);
-  for (let b = 0; b < B; b++) {
-    for (let t = 0; t < T; t++) {
-      for (let d = 0; d < D; d++) data[b * D + d] += lh.data[(b * T + t) * D + d];
-    }
-    let n = 0;
-    for (let d = 0; d < D; d++) n += data[b * D + d] * data[b * D + d];
-    n = Math.sqrt(n) || 1;
-    for (let d = 0; d < D; d++) data[b * D + d] /= n;
-  }
-  return { data, dims: [B, D] };
-}
+// pickEmbedding 已收敛到**唯一实现** packages/indexer/src/embedding.ts（ENC-1 / AGENTS P1）。
+// 以前本文件是第 5 份副本，它（和另外几份）用 `Math.sqrt(n) || 1` 挡住除零 ⇒ 不 NaN，
+// 但在 T === 0 / 整块全零时**静默产出全零向量**（检索永不命中）。
+// 现在那一份实现直接**拒绝**全零；本文件只 import，两个调用点写法保持不变（E-1 守着）。
 
 /** `readImageAny` 的返回：图（RawImage 形状）与它的来源标签 */
 interface ReadImageResult {
@@ -111,17 +87,29 @@ interface ReadImageResult {
 }
 
 /**
+ * 头读的**注入点**（默认 = packages/indexer/src/bmp_decode.ts 的 readFileHead）。
+ * ENC-1 的单测用它注入计数，断言"读取字节 ≤ 上限"（本函数不再整读文件）。
+ */
+export type HeadReader = (absPath: string, maxBytes?: number) => Buffer;
+
+/**
  * BMP 解码：`@huggingface/transformers` 的 RawImage 读不了 BMP，
  * 而库里实测有 20 张 `.jpg` 其实是 BMP（见 data/quality/mismatch-test-result.json）。
  * 这里复用 packages/indexer/src/bmp_decode.ts 里已验证过的纯 JS 实现与像素布局。
  */
-async function readImageAny(absPath: string): Promise<ReadImageResult> {
+/**
+ * 读出可解码的图像 + 它的来源标签。
+ *
+ * ⚠️ 嗅探魔数**只读文件头**（有界，默认 64 KiB）：以前这里是 `fs.readFileSync(absPath)` ——
+ *    为了看 2 个字节把 33 MB 的图整读进内存（ENC-1 修的就是这个）。尺寸/像素交给解码器去读。
+ * 两次读盘是**有意的取舍**：BMP 回退是罕见路径（全库 20/3594），换来嗅探与解码互不耦合 —— 不是漏改。
+ *
+ * 导出仅供单测注入 `readHead`（断言读取量有界）；产品路径只用默认参数。
+ */
+export async function readImageAny(absPath: string, readHead: HeadReader = readFileHead): Promise<ReadImageResult> {
   const ext = path.extname(absPath).toLowerCase();
-  // 这一次读盘**只为嗅探魔数**（判断"名为 .jpg、实为 BMP"）；下面走 BMP 回退时会再读一次。
-  // 两次读盘是**有意的取舍**：BMP 回退是罕见路径（全库 20/3594），换来嗅探与解码互不耦合 ——
-  // 不是漏改。
-  const buf = fs.readFileSync(absPath);
-  const isBmp = buf.length > 2 && buf[0] === 0x42 && buf[1] === 0x4d;   // "BM"
+  const head = readHead(absPath, HEAD_SNIFF_BYTES);
+  const isBmp = isBmpHead(head);
   if (ext === '.bmp' || isBmp) {
     const { readBmpAsRawImage } = await import('../../../../packages/indexer/src/bmp_decode.ts');
     // ⚠️ 这个 API 要的是**路径**，不是 Buffer：`readBmpAsRawImage(filePath)` 内部自己做
