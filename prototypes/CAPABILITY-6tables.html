@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>6 张表满足哪些功能</title>
+<!--
+  能力 ↔ 表 对照（6 张绿地 schema）
+  来源 = reports/2026-10-15-schema-diff/DESIGN-6tables-and-contract.md + prototypes/DESIGN-6tables.html
+  单文件、无外部依赖、无 JS。
+-->
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+:root {
+  --line: #2c2c2e; --line-strong: #3a3a3c;
+  --surface: #161618; --raised: #1d1d1f; --hover: rgba(255,255,255,.055);
+  --text: #f5f5f7; --text-2: #a1a1a6; --text-3: #86868b;
+  --accent: #0d6fdb; --accent-text: #4da3ff; --accent-soft: rgba(77,163,255,.18);
+  --ok-text: #30d158; --warn-text: #ff9f0a; --crit-text: #ff685f;
+  --ok-soft: rgba(48,209,88,.22); --warn-soft: rgba(255,159,10,.22); --crit-soft: rgba(255,69,58,.22);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --r-panel: 18px; --r-pill: 999px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --line: #e5e5ea; --line-strong: #d2d2d7;
+    --surface: #fff; --raised: #fff; --hover: rgba(0,0,0,.045);
+    --text: #1d1d1f; --text-2: #6e6e73; --text-3: #707078;
+    --accent: #0071e3; --accent-text: #2b6fd4; --accent-soft: rgba(0,113,227,.10);
+    --ok-text: #217f3a; --warn-text: #a06406; --crit-text: #cd0014;
+    --ok-soft: rgba(52,199,89,.14); --warn-soft: rgba(255,159,10,.09); --crit-soft: rgba(255,59,48,.14);
+  }
+}
+body {
+  margin: 0; padding: 44px 32px 120px; font-size: 14px; line-height: 1.45;
+  background: #000; color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Hiragino Sans GB", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+@media (prefers-color-scheme: light) { body { background: #fff; } }
+.wrap { max-width: 1240px; margin: 0 auto; }
+h1 { font-size: 27px; font-weight: 680; letter-spacing: -.022em; margin: 0 0 6px; }
+h2 { font-size: 20px; font-weight: 660; letter-spacing: -.018em; margin: 54px 0 6px;
+     padding-top: 22px; border-top: 1px solid var(--line); }
+h2:first-of-type { border-top: 0; margin-top: 34px; }
+h3 { font-size: 15px; font-weight: 640; margin: 0; }
+h4 { font-size: 13px; font-weight: 640; margin: 0; }
+p { margin: 0; }
+.mono, code { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.lede { color: var(--text-2); font-size: 15px; max-width: 78ch; }
+.sub { color: var(--text-3); font-size: 12.5px; margin-top: 5px; max-width: 84ch; }
+.muted { color: var(--text-2); } .faint { color: var(--text-3); }
+
+/* 分层色带 */
+.band { display: flex; align-items: center; gap: 10px; margin: 26px 0 10px; }
+.band .tag { font-size: 11px; font-weight: 660; letter-spacing: .05em; text-transform: uppercase;
+  padding: 3px 10px; border-radius: var(--r-pill); }
+.b-fact { background: rgba(120,120,255,.16); color: #9b9bff; }
+.b-proc { background: var(--warn-soft); color: var(--warn-text); }
+.b-intent { background: var(--ok-soft); color: var(--ok-text); }
+.b-app { background: var(--accent-soft); color: var(--accent-text); }
+.band .ln { flex: 1; height: 1px; background: var(--line); }
+.band .note { font-size: 12px; color: var(--text-3); }
+
+.tbl { border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface);
+       margin-top: 14px; overflow: hidden; }
+.tbl-h { display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+         padding: 13px 18px; border-bottom: 1px solid var(--line);
+         background: color-mix(in srgb, var(--text) 3%, transparent); }
+.tbl-h h3 { font-family: var(--mono); font-size: 14px; letter-spacing: -.01em; }
+.tbl-h .why { flex-basis: 100%; font-size: 12.5px; color: var(--text-2); line-height: 1.6; }
+.tbl table { width: 100%; border-collapse: collapse; }
+.tbl th, .tbl td { text-align: left; padding: 8px 18px; border-top: 1px solid var(--line); vertical-align: top; }
+.tbl thead th { border-top: 0; font-size: 10.5px; font-weight: 620; letter-spacing: .05em;
+                text-transform: uppercase; color: var(--text-3); padding-top: 10px; padding-bottom: 6px; }
+.tbl td.f { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+.tbl td.t { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); white-space: nowrap; }
+.tbl td.c { white-space: nowrap; }
+.tbl td.d { font-size: 12.5px; color: var(--text-2); }
+
+.pill { display: inline-block; padding: 1px 6px; margin: 1px 3px 1px 0; border-radius: 5px;
+        font-size: 10px; font-weight: 620; letter-spacing: .02em; white-space: nowrap; }
+.p-pk { background: var(--accent-soft); color: var(--accent-text); }
+.p-fk { background: rgba(120,120,255,.16); color: #9b9bff; }
+.p-nn { background: var(--hover); color: var(--text-2); }
+.p-idx { background: var(--ok-soft); color: var(--ok-text); }
+.p-ck { background: var(--warn-soft); color: var(--warn-text); }
+.p-new { background: var(--ok-soft); color: var(--ok-text); }
+.p-now { background: var(--accent-soft); color: var(--accent-text); }
+.p-later { background: var(--hover); color: var(--text-3); }
+
+.note { display: flex; gap: 10px; padding: 12px 15px; border-radius: 11px; margin-top: 14px;
+        background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+        font-size: 12.5px; line-height: 1.6; }
+.note svg { width: 15px; height: 15px; flex: none; margin-top: 2px; color: var(--accent-text); }
+.note.warn { background: var(--warn-soft); border-color: color-mix(in srgb, #ff9f0a 30%, transparent); color: var(--warn-text); }
+.note.warn svg { color: var(--warn-text); }
+.note.crit { background: var(--crit-soft); border-color: color-mix(in srgb, #ff685f 30%, transparent); color: var(--crit-text); }
+.note.crit svg { color: var(--crit-text); }
+.note.ok { background: var(--ok-soft); border-color: color-mix(in srgb, #30d158 30%, transparent); color: var(--ok-text); }
+.note.ok svg { color: var(--ok-text); }
+.note b { font-weight: 660; }
+
+pre { margin: 14px 0 0; padding: 15px 17px; border-radius: 13px; overflow-x: auto;
+      background: #0d0d0f; border: 1px solid var(--line);
+      font-family: var(--mono); font-size: 12px; line-height: 1.75; color: #e8e8ea; }
+@media (prefers-color-scheme: light) { pre { background: #f6f6f8; color: #1d1d1f; } }
+pre .c { color: #86868b; } pre .k { color: #ff9f0a; } pre .s { color: #7fd6a0; }
+
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px;
+         border-radius: var(--r-pill); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.b-ok { background: var(--ok-soft); color: var(--ok-text); }
+.b-warn { background: var(--warn-soft); color: var(--warn-text); }
+.b-crit { background: var(--crit-soft); color: var(--crit-text); }
+.b-neutral { background: var(--hover); color: var(--text-2); }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 14px; }
+.box { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; background: var(--surface); }
+.box .n { font-family: var(--mono); font-size: 13px; font-weight: 620; }
+.box ul { margin: 8px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--text-2); }
+.box li { padding: 2px 0; } .box li b { color: var(--text); font-weight: 580; }
+
+.steps { margin-top: 12px; }
+.steps .st { display: flex; gap: 14px; padding: 11px 0; border-top: 1px solid var(--line); }
+.steps .st:first-child { border-top: 0; }
+.steps .st .no { flex: none; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent-text); font-size: 12px; font-weight: 660;
+  display: grid; place-items: center; }
+.steps .st .bd .t { font-size: 13.5px; font-weight: 620; }
+.steps .st .bd .d { font-size: 12.5px; color: var(--text-2); margin-top: 2px; line-height: 1.55; }
+</style>
+<style>
+  /* 本页新增的三个 pill 变体（颜色全部复用既有变量，不引入新色值） */
+  .pill.p-keep { background: var(--ok-soft); color: var(--ok-text); }
+  .pill.p-add  { background: var(--accent-soft); color: var(--accent-text); }
+  .pill.p-drop { background: var(--crit-soft); color: var(--crit-text); }
+  /* 既有 .note 是 display:flex（为多子元素设计），本页的 note 是纯文本 + <br> ⇒ 必须覆盖回 block，否则被挤成窄列 */
+  .note { display: block; }
+  .note .mono { white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>6 张表满足哪些功能</h1>
+<p class="lede">一句话：支撑的是<b>库管理 → 扫描入库 → 浏览/详情 → 检索 → 取件 → 索引状态与维护</b>；支撑不了的是<b>一切「用户标注类」</b>与<b>「历史与任务类」</b>。</p>
+<p class="band"><span class="badge b-ok">表已就位</span> <span class="badge b-warn">代码尚未接线</span> 2026-10-15 · DDL 提交 <span class="mono">14aa9d1</span> · 设计基线 <span class="mono">31d2258</span></p>
+
+<p class="warn"><b>先把最容易混的一件事分清</b>：<b>「表能支撑」≠「代码已通」</b>。表已就位，但 <span class="mono">scan / search / item / collect</span> <b>还是旧实现</b>、IPC 契约也<b>没重列</b>、6 个走旧 <span class="mono">items</span> 表的测试<b>还是红的</b> —— 那些归 <b>S2 / S3 + 契约卡</b>。下面列的是<b>表的支撑能力</b>。</p>
+
+<h2>1 · 表能支撑（字段够用）</h2>
+<div class="tbl"><table>
+  <thead><tr><th style="width:300px">能力</th><th style="width:250px">靠哪张表</th><th>关键字段</th></tr></thead>
+  <tbody>
+    <tr><td class="f">登记库 · 库列表 · 启停 · 排序 · 移除</td><td class="d">library_registry</td><td class="d"><span class="mono">root</span>（规范化 + UNIQUE）· <span class="mono">enabled</span> · <span class="mono">sort_order</span> · <span class="mono">compat_key</span></td></tr>
+    <tr><td class="f">取件白名单管理（增 / 删 / 设默认）</td><td class="d">collect_dir</td><td class="d"><span class="mono">abs_path</span> · <span class="mono">is_default</span>（<b>偏唯一索引保证只有一个默认</b>）</td></tr>
+    <tr><td class="f">扫描入库（条目 + 两个文件角色）</td><td class="d">asset · asset_file</td><td class="d"><span class="mono">uid</span> 匹配认领 · <span class="mono">rel_path</span> · <span class="mono">folder</span> · <span class="mono">stem</span> · <span class="mono">PK(uid, role)</span></td></tr>
+    <tr><td class="f">缺包如实（缺包 = 少一行，不是 NULL 块）</td><td class="d">asset_file</td><td class="d">没有 <span class="mono">role='archive'</span> 行 = 缺包</td></tr>
+    <tr><td class="f">浏览筛选：分类目录 / 扩展名 / 有无包</td><td class="d">asset · asset_file</td><td class="d"><span class="mono">folder</span> · <span class="mono">asset_file.ext</span> · 有无 <span class="mono">role='archive'</span></td></tr>
+    <tr><td class="f">排序：大小 / 修改时间</td><td class="d">asset_file</td><td class="d"><span class="mono">size_bytes</span> · <span class="mono">mtime_ms</span></td></tr>
+    <tr><td class="f">详情：字段 + 两条路径 + 预览图</td><td class="d">asset · asset_file</td><td class="d"><span class="mono">display_name</span> · <span class="mono">rel_path</span>（preview / archive 各一条）</td></tr>
+    <tr><td class="f"><b>索引状态 8 档（派生）</b></td><td class="d">asset_index_state</td><td class="d"><span class="mono">encoded_at_ms</span> · <span class="mono">encoded_mtime_ms</span> · <span class="mono">compat_key</span> · <span class="mono">attempt_count</span> · <span class="mono">last_error(+_at_ms)</span> · <span class="mono">excluded_at_ms</span> · <span class="mono">checked_at_ms</span></td></tr>
+    <tr><td class="f">排除某条不索引</td><td class="d">asset_index_state</td><td class="d"><span class="mono">excluded_at_ms</span>（意图，优先级最高）</td></tr>
+    <tr><td class="f">「这是上次已知状态，可能过期」</td><td class="d">asset_index_state</td><td class="d"><span class="mono">checked_at_ms</span></td></tr>
+    <tr><td class="f">语义检索（文本 / 以图）</td><td class="d">asset + <span class="mono">.gs-index.bin</span>（不是表）</td><td class="d">索引 100×768 由 <b>S3</b> 重建</td></tr>
+    <tr><td class="f">取件（复制到白名单）</td><td class="d">collect_dir + asset_file</td><td class="d">白名单校验唯一入口</td></tr>
+    <tr><td class="f">重建索引 / 重新编码单条</td><td class="d">asset_index_state</td><td class="d">写 <span class="mono">encoded_at_ms</span> / <span class="mono">encoded_mtime_ms</span> / <span class="mono">compat_key</span></td></tr>
+    <tr><td class="f">诊断页显示版本</td><td class="d">app_meta</td><td class="d"><span class="mono">schema_version</span></td></tr>
+  </tbody>
+</table></div>
+
+<h2>2 · 只<b>部分</b>支撑</h2>
+<div class="tbl"><table>
+  <thead><tr><th style="width:250px">能力</th><th style="width:330px">能到什么程度</th><th>差在哪</th></tr></thead>
+  <tbody>
+    <tr><td class="f">按文件名找</td><td class="d">浏览页用 <span class="mono">LIKE</span> 扫 <span class="mono">display_name</span> / <span class="mono">stem</span> <b>能凑合</b>（几千条无所谓）</td><td class="d">没有 FTS5（<span class="mono">asset_name_fts</span>）⇒ 大库子串搜慢；<b>搜不了备注 / 标签</b>（那两张表也没有）</td></tr>
+    <tr><td class="f">「编码中」这一档</td><td class="d">其余 7 档都从表里派生</td><td class="d">「编码中」是<b>运行时</b>状态，要 <span class="mono">job</span> 表才能持久化</td></tr>
+    <tr><td class="f">交付（F6）</td><td class="d"><b>能复制</b>（走白名单）</td><td class="d"><b>不留痕</b>（没有 <span class="mono">asset_export</span>）⇒ 「已复制 / 已跳过 / 失败」三分类<b>没有落点</b></td></tr>
+    <tr><td class="f">删除条目</td><td class="d">结构上能真删</td><td class="d">没有 <span class="mono">deleted_at_ms</span> ⇒ <b>没有回收站</b>、删了不可恢复</td></tr>
+    <tr><td class="f">按内容时间浏览</td><td class="d">只有文件 mtime 可用</td><td class="d">缺 <span class="mono">content_created_at_ms</span></td></tr>
+    <tr><td class="f">去重</td><td class="d">—</td><td class="d">缺 <span class="mono">content_hash_kind/value</span> 与 <span class="mono">dup_group_id</span>（且要真算哈希）</td></tr>
+  </tbody>
+</table></div>
+
+<h2>3 · 表支撑不了（缺哪张表就缺哪个功能）</h2>
+<div class="tbl"><table>
+  <thead><tr><th style="width:380px">缺的能力</th><th style="width:300px">要哪张表</th><th>优先级</th></tr></thead>
+  <tbody>
+    <tr><td class="f">任务进度持久化 · 断点续跑 · 取消 · 崩溃恢复</td><td class="d"><span class="mono">job</span></td><td class="c"><span class="pill p-keep">建议第二轮先做</span></td></tr>
+    <tr><td class="f">交付 / 取件历史（三分类落点）</td><td class="d"><span class="mono">asset_export</span></td><td class="c"><span class="pill p-keep">建议第二轮先做</span></td></tr>
+    <tr><td class="f">打标签 · 按标签找</td><td class="d"><span class="mono">tag</span> + <span class="mono">asset_tag</span></td><td class="c"><span class="pill p-add">标注组</span></td></tr>
+    <tr><td class="f">评分 · 备注 · 收藏</td><td class="d"><span class="mono">asset_user_meta</span></td><td class="c"><span class="pill p-add">标注组</span></td></tr>
+    <tr><td class="f">集合（<b>F6 交付依赖它</b>）</td><td class="d"><span class="mono">collection</span> + <span class="mono">collection_item</span></td><td class="c"><span class="pill p-add">标注组</span></td></tr>
+    <tr><td class="f">操作记录页</td><td class="d"><span class="mono">activity</span></td><td class="c"><span class="pill p-later">历史组</span></td></tr>
+    <tr><td class="f">体检台账与历史</td><td class="d"><span class="mono">health_run</span> + <span class="mono">health_finding</span></td><td class="c"><span class="pill p-later">历史组</span></td></tr>
+    <tr><td class="f">接着上次看 · 搜索历史</td><td class="d"><span class="mono">recent_view</span> · <span class="mono">recent_query</span></td><td class="c"><span class="pill p-later">体验组</span></td></tr>
+    <tr><td class="f">设置落库（现在走 config.json）</td><td class="d"><span class="mono">app_setting</span></td><td class="c"><span class="pill p-later">体验组</span></td></tr>
+    <tr><td class="f">瀑布流首屏占位（模糊色块）</td><td class="d"><span class="mono">asset_file.thumb_hash</span>（<b>加列</b>即可，不是新表）</td><td class="c"><span class="pill p-later">体验组</span></td></tr>
+  </tbody>
+</table></div>
+
+<h2>4 · 若要把两张提前（<b>等你一句话才落</b>）</h2>
+<p class="sub">下面两张按<b>你已定的 B 口径</b>（只建现在就要用的表）<b>暂不建</b>；若你要提前，字段定稿如下（仍走同一套迁移引擎与四层分类）。</p>
+<div class="tbl">
+  <div class="tbl-h"><h3>job</h3><span class="pill p-later">待批准</span>
+    <span class="why">任务。<b>心跳</b>管崩溃检测、<b>游标</b>管断点续跑 —— 没有它，进度只活在内存，崩了就没。过程层。</span></div>
+  <table>
+    <thead><tr><th style="width:190px">字段</th><th style="width:110px">类型</th><th style="width:210px">约束</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td class="f">job_id</td><td class="t">TEXT</td><td class="c"><span class="pill p-pk">PK</span></td><td class="d">nanoid。</td></tr>
+      <tr><td class="f">kind</td><td class="t">TEXT</td><td class="c"><span class="pill p-ck">CHECK scan / index / rebuild / …</span></td><td class="d">任务种类。</td></tr>
+      <tr><td class="f">state</td><td class="t">TEXT</td><td class="c"><span class="pill p-ck">CHECK queued / running / done / failed / cancelled</span></td><td class="d">状态机。</td></tr>
+      <tr><td class="f">progress_done · progress_total</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NOT NULL</span> · NULL</td><td class="d"><b>进度单调</b>（SPEC 要求）。</td></tr>
+      <tr><td class="f">phase</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d">「不静默」的那句话（扫描中 / 编码中 / 写回中）。</td></tr>
+      <tr><td class="f">cursor_json</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d">断点续跑位置（如最后处理成功的 rel_path）。</td></tr>
+      <tr><td class="f">heartbeat_at_ms</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d">启动时把「running 但心跳过期」判为 failed，否则界面永远显示一个不存在的进度。</td></tr>
+      <tr><td class="f">error · summary_json</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d">失败原因 / 结束摘要。</td></tr>
+      <tr><td class="f">queued_at_ms · started_at_ms · finished_at_ms</td><td class="t">INTEGER</td><td class="c"><span class="pill p-nn">NOT NULL</span> · NULL · NULL</td><td class="d">三个时刻。</td></tr>
+    </tbody>
+  </table>
+  <p class="note"><b>本批不建</b>：等你有「任务页 / 取消 / 续跑」的需求时再迁移加表。<span class="mono">uniq_job_single_active</span> 若要，应是全局单串行（索引 / 扫描 / 重建互斥）。</p>
+</div>
+<div class="tbl">
+  <div class="tbl-h"><h3>asset_export</h3><span class="pill p-later">待批准</span>
+    <span class="why">取件 <b>与</b> 交付合一，靠 <span class="mono">kind</span> 区分。意图层（历史里带 <span class="mono">asset_name</span> 快照，改名后仍看得懂）。</span></div>
+  <table>
+    <thead><tr><th style="width:190px">字段</th><th style="width:110px">类型</th><th style="width:210px">约束</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td class="f">export_id</td><td class="t">TEXT</td><td class="c"><span class="pill p-pk">PK</span></td><td class="d">nanoid。</td></tr>
+      <tr><td class="f">kind</td><td class="t">TEXT</td><td class="c"><span class="pill p-ck">CHECK collect / deliver</span></td><td class="d">取件 / 交付。</td></tr>
+      <tr><td class="f">uid</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d"><b>SET NULL 而不是 CASCADE</b> —— 条目删了，导出历史要留档。</td></tr>
+      <tr><td class="f">asset_name</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d"><b>历史快照</b>：改名后记录里仍看得出是哪条。</td></tr>
+      <tr><td class="f">batch_id</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d">一次批量 = 一个 batch（撤销与报表按它分组）。</td></tr>
+      <tr><td class="f">target_dir</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">落点（应来自 collect_dir 白名单）。</td></tr>
+      <tr><td class="f">result</td><td class="t">TEXT</td><td class="c"><span class="pill p-ck">CHECK copied / skipped / failed</span></td><td class="d">F6 要求的三分类。</td></tr>
+      <tr><td class="f">reason · at_ms</td><td class="t">TEXT · INTEGER</td><td class="c"><span class="pill p-nn">NULL</span> · NOT NULL</td><td class="d">失败/跳过原因 · 发生时刻。</td></tr>
+    </tbody>
+  </table>
+  <p class="note"><b>本批不建</b>：现在 <span class="mono">collect</span> 会把文件复制出去，但<b>什么都不留</b>。</p>
+</div>
+
+<h2>5 · 结论</h2>
+<div class="grid2">
+  <div class="box"><h3>本轮 100 条 + 索引这条链</h3><p>6 张<b>够</b>：扫描 → 索引 → 检索 → 详情 → 取件，全部有落点。</p></div>
+  <div class="box"><h3>但「管理系统」最常摸的三件事</h3><p><b>标注</b>（标签/评分/备注）与<b>交付留痕</b>缺失 —— 前者要 3 张表，后者要 1 张。</p></div>
+  <div class="box"><h3>我建议第二轮先补两张</h3><p><span class="mono">job</span>（进度不静默 + 断点续跑）· <span class="mono">asset_export</span>（F6 三分类落点）—— 是<b>功能承诺</b>，不是锦上添花。</p></div>
+  <div class="box"><h3>改动成本</h3><p>绿地之下：<b>加表 = 一条迁移 + 分类里加一行</b>（那条「每张表必须被点名」的断言会逼着分类）。</p></div>
+</div>
+
+<h2>6 · 这份对照证明不了什么</h2>
+<ul>
+  <li>「能支撑」是按<b>字段是否存在</b>判断的，<b>没有跑过</b>这些功能（S2/S3 才接线）。</li>
+  <li>「部分支撑」里的性能判断（如 <span class="mono">LIKE</span> 能不能凑合）是<b>按 3594 条量级估的</b>，不是实测。</li>
+  <li>第二批的优先级是<b>我的建议</b>，不是所有者裁定。</li>
+</ul>
+
+<p class="faint">同源文件：<span class="mono">reports/2026-10-15-schema-diff/DESIGN-6tables-and-contract.md</span> · <span class="mono">prototypes/DESIGN-6tables.html</span></p>
+</div>
+</body>
+</html>
