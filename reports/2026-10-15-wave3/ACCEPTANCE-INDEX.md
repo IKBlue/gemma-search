@@ -3,7 +3,7 @@
 日期：2026-10-15 · 口径：**只有「命令 + 原始输出」才算已验**；未验/部分一律写明，**不许含糊成「应该没问题」**。
 判据正文在 `SPEC §7`；本文件只做**索引**（哪条 · 现状 · 证据在哪 · 还缺什么）。
 
-> ✅ **权威门禁（2026-10-15 · **冻结窗口** · Lead 实跑 · commit `461e5e7`）**：单测 **613 / pass 612 / fail 0 / cancelled 0 / skipped 1 / EXIT=0**（**已含 `packages/indexer/tests`** —— 编码线的测试此前不在门禁里）· `npm run typecheck` **0** · `npm run build` **0** · `npm run e2e` **63 passed / 1 skipped / 0 failed（2.9 分钟）** · `s4-accept.mjs` **PASS 13 / FAIL 0 / SKIP 0** · `out/` 指纹 build 后 = e2e 后（`05EB8B70…`）。
+> ✅ **权威门禁（2026-10-15 收工前 · **冻结窗口** · Lead 实跑 · commit `16e7f3a`）**：`npx prettier --check .` **EXIT=0** · 单测 **613 / pass 612 / fail 0 / cancelled 0 / skipped 1 / EXIT=0** · `npm run typecheck` **0** · `npm run build` **0** · `npm run e2e` **63 passed / 1 skipped / 0 failed（3.1 分钟）** · `s4-accept.mjs` **PASS 13 / FAIL 0 / SKIP 0** · `out/` 指纹 build 后 = e2e 后（`AB88FA1B…`）；`npm run lint` 报告制 **22 条**（LINT-1 承接）。
 > ✅ **DF-1 / DF-2（第三方审查的两条 P0）修完后门禁复跑**：单测 **583 / pass 582 / fail 0 / skipped 1 / EXIT=0**（Lead 实跑）。
 > ⚠️ **波动如实记录**：全量 e2e 的**第一次**跑出 `62 passed / 1 failed`（`E11-a`）；`E11-a` **单跑 6.7s 绿**，随后**全量复跑 63/1/0 绿** ⇒ 判为**偶发**。第一次那次与我方另一张卡的**能红探针**（临时改 `main/storage-ports.ts`，而部分 spec 会转译 `src`）在时间上重叠 ⇒ 记在此处备查，**不当作已修复**。
 
@@ -90,7 +90,9 @@
 | **DF-9** | `assertCollectDirAllowed` 纯词法 ⇒ junction 绕过白名单（**第二条逃逸**，与 B **共用**同一份逐段实现） | ✅ 已提交（`b27541b`） |
 | **ENC-1** | `readImageAny` 有界头读 + `pickEmbedding` **全零拒绝**并把 **5 份副本收敛成 1 份**（**改前/改后同一编码基线**：Top-5 逐位一致） | ✅ 已提交（`1ab9a5f`） |
 | 门禁范围 | 把 `packages/indexer/tests/*.test.mjs` 纳入 `npm test`（**不在门禁里的测试等于白写**） | ✅ 已提交（`461e5e7`） |
-| **T-09** | ESLint + Prettier（全仓，**独占窗口**） | ◐ 已派（Prettier 落地 + ESLint 报告制，不长臂修复） |
+| **T-09** | ESLint + Prettier 落地（Prettier 全仓 + ESLint 报告制；`typescript-eslint` 因 TS7 冲突撤掉） | ✅ 已提交（`16e7f3a`）· 顺手挖出 **CT-3 假绿**（原本碰巧绿）并修 |
+| **LINT-1** | 修掉 **22 条** ESLint error（**不许关规则**） | ◐ 待派（`task-83`） |
+| **DOC-1** | 修 **3 处悬挂文档引用**（指向已删除的文档） | ◐ 待派（`task-84`） |
 | 待裁 | `appHealth`（第 22 个方法，只读，暴露「不健康」） | **等所有者**（一句话即可派卡） |
 
 ## 今日新增纪律（TASKS §3 · 14–19）
