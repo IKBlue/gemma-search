@@ -376,12 +376,37 @@ function emit(evt: unknown): void {
  *
  * 为什么要这个函数：引擎把公开方法放在一个对象上（未实现的那 6 个是生成式挂上去的），
  * 而调用点的名字来自**运行时** IPC 消息 —— 静态上无法把它与具体属性关联，
- * 所以这里显式收成"函数或 null"（拿不到就走原先的"引擎无此方法"分支），而不是把类型整体放宽。
+ * 所以这里显式收成「函数或 null」（拿不到就走原先的「引擎无此方法」分支），而不是把类型整体放宽。
  */
-function engineMethod(eng: EngineApi, method: MethodName): ((req: unknown) => Promise<unknown>) | null {
-  const table = eng as unknown as Record<string, unknown>;
+/** 引擎方法的统一调用形状（IPC 载荷是 unknown ⇒ 入参只能收成 unknown） */
+type EngineMethodFn = (req: unknown) => Promise<unknown>;
+
+/**
+ * `MethodName` 里**引擎真的有的**那些名字。
+ *
+ * ⚠️ DF-7 C：原实现用 `eng as unknown as Record<string, unknown>` 绕过类型系统 ⇒
+ *    「引擎少暴露一个方法」「名字写错」都只能等**运行时**才炸。
+ *    这个映射类型把不在 `EngineApi` 上的名字映射成 `never` ⇒
+ *    用这种名字调 `engineMethod` 会**编译失败**（能红 = 类型门禁），而不是运行时返回 null。
+ */
+type EngineBackedMethod = { [K in MethodName]: K extends keyof EngineApi ? K : never }[MethodName];
+
+/**
+ * 运行时判定：引擎真的有这个方法吗？
+ * **这是唯一一处「运行时方法名 → 类型收窄」的桥**；收窄之后调用点才能用 EngineBackedMethod 调 engineMethod。
+ * 赋值给 `Partial<Record<MethodName, unknown>>` 是**结构化赋值、没有 as**：引擎多出来的键无所谓。
+ */
+function isEngineBackedMethod(eng: EngineApi, method: MethodName): method is EngineBackedMethod {
+  const table: Partial<Record<MethodName, unknown>> = eng;
+  return typeof table[method] === 'function';
+}
+
+function engineMethod(eng: EngineApi, method: EngineBackedMethod): EngineMethodFn | null {
+  const table: Partial<Record<MethodName, unknown>> = eng;
   const fn = table[method];
-  return typeof fn === 'function' ? (fn as (req: unknown) => Promise<unknown>) : null;
+  // 仅剩的一处收窄：各引擎方法签名不同，统一入口只能是 (req: unknown) => Promise<unknown>；
+  // 上面已做 typeof 判定 ⇒ 这是运行时安全的收窄，不是绕过类型系统。
+  return typeof fn === 'function' ? (fn as EngineMethodFn) : null;
 }
 
 /**
@@ -641,7 +666,8 @@ function registerIpc(): void {
     const eng = engine;
     // buildEngine() 必定给 engine 赋值 ⇒ 这一条只是把类型收窄，运行期走不到。
     if (!eng) throw new Error('引擎未就绪：buildEngine() 没有装配引擎');
-    const fn = engineMethod(eng, v.method);
+    // 先由断言函数收窄（运行时真的存在），engineMethod 才接受这个名字（类型层也保证它是 EngineApi 的键）
+    const fn = isEngineBackedMethod(eng, v.method) ? engineMethod(eng, v.method) : null;
     if (!fn) {
       return { ok: false, error: { code: 'BAD_REQUEST', message: `引擎无此方法：${v.method}`,
                                    userMessage: '请求参数不合法。', details: {} } };

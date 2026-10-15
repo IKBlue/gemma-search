@@ -202,3 +202,50 @@ test('指纹 v1：与 baseline-v1.json 记录的值一致（跨语言一致性�
   t.diagnostic(`库 ${got.counts.images} 图 + ${got.counts.archives} 包 · 指纹 ${got.fingerprint.slice(0, 12)}` +
                ` · 库根来自 ${found.source}`);
 });
+
+// ---------------- ④ DF-7 B：悬挂链接不得被静默跳过 ----------------
+
+test('④⭐ 悬挂 junction（目标已删）⇒ **拒绝**，绝不返回带链接组件的库外路径（DF-7 B 的回归）', (t) => {
+  const root = tmp();
+  const outside = tmp();
+  const link = path.join(root, 'sub');
+  try {
+    // Windows 上 junction 不需要管理员（symlink 需要）
+    fs.symlinkSync(outside, link, 'junction');
+  } catch (e) {
+    return t.skip('本环境无法创建 junction：' + e.message);
+  }
+  fs.rmSync(outside, { recursive: true, force: true });   // 目标没了 ⇒ 悬挂
+  assert.equal(fs.existsSync(link), false,
+    '前置：悬挂链接下 existsSync 必须是 false —— 这正是旧实现被绕过的原因（stat 跟随链接）');
+  assert.equal(fs.lstatSync(link).isSymbolicLink(), true, '前置：lstat 能看见它（所以改用 lstat 才能拦住）');
+  const code = codeOf(() => resolveInLibrary(root, 'sub\\x.jpg'));
+  assert.equal(code, ERR.PATH_ESCAPES_LIB,
+    '拿不到真实路径 ⇒ 必须 fail-closed；旧实现这里返回了一条**真落在库外**的路径');
+  try { fs.rmdirSync(link); } catch { /* 清理失败不影响结论 */ }
+});
+
+test('④ 语义钉住：库内 → 库内 的目录链接**允许**（不变式是「真实路径仍在库内」，不是「不许有链接」）', (t) => {
+  const root = tmp();
+  const real = path.join(root, 'VR-2024');
+  fs.mkdirSync(real);
+  fs.writeFileSync(path.join(real, 'a.jpg'), 'x');
+  const link = path.join(root, 'alias');
+  try {
+    fs.symlinkSync(real, link, 'junction');
+  } catch (e) {
+    return t.skip('本环境无法创建 junction：' + e.message);
+  }
+  // ⚠️ 两种分支返回的东西**不一样**，断言要分开：
+  //   ① 目标存在 ⇒ 返回**真实路径**（realpath）⇒ 与 realpath(root) 比；
+  //   ② 目标不存在 ⇒ 返回**词法路径**（文件还没建）⇒ 与词法 root 比。
+  //   （本机 os.tmpdir() 给的是 8.3 短名 ADMINI~1，词法 ≠ 真实路径，混用会误报）
+  const rootReal = fs.realpathSync.native(root).toLowerCase();
+  // ① 目标存在（走真实路径分支）
+  assert.ok(resolveInLibrary(root, 'alias\\a.jpg').toLowerCase().startsWith(rootReal),
+    '目标存在 ⇒ 返回真实路径，且仍在库内');
+  // ② 目标不存在（走逐段下行分支）—— 库内链接同样放行，且必须仍在库内
+  const q = resolveInLibrary(root, 'alias\\new.jpg');
+  assert.ok(q.toLowerCase().startsWith(root.toLowerCase()), '目标不存在 ⇒ 返回词法路径，仍在词法库根内：' + q);
+  try { fs.rmdirSync(link); } catch { /* 清理失败不影响结论 */ }
+});

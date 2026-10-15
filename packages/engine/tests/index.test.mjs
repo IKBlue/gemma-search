@@ -14,6 +14,7 @@ import { readIndexBin, readItems, readMeta, relOf, MAGIC, HEAD_OFF, LEN_OFF } fr
 import { compatKey, compatComplete, compatMismatches, compatEqual, compatReason,
          COMPAT_FIELDS } from '../src/compat.ts';
 import { EngineError, ERR, USER_MESSAGE, envelope, err, ok } from '../src/errors.ts';
+import { makeLibrary, writeIndexFixture } from './helpers/lib-fixture.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // 仓库根：测试现在跟着引擎包走（`packages/engine/tests/`），但 `data/` 仍留在**仓库根** ——
@@ -229,4 +230,31 @@ test('errors: envelope 永不抛异常给调用方', async () => {
   assert.equal(r2.error.code, 'INTERNAL');
   const r3 = await envelope(async () => ok({ v: 1 }));
   assert.equal(r3.ok, true);
+});
+
+// ---------------- DF-7 D1：footLen 必须显式校验长度 ----------------
+
+test('index: footLen 非法（0 / 巨大）⇒ 明说「footer 长度非法」，不是笼统的「解析失败」（DF-7 D1）', () => {
+  const made = makeLibrary();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gs-footlen-'));
+  const fx = writeIndexFixture(dir, 'L1', made.rows, { libRoot: made.root });
+  const base = Buffer.from(fx.indexBuffer);
+  const headerLen = base.readUInt32LE(LEN_OFF);
+  const header = JSON.parse(base.subarray(HEAD_OFF, HEAD_OFF + headerLen).toString('utf8'));
+  const footOff = HEAD_OFF + headerLen + header.count * header.dim * 4;
+  for (const bad of [0, 0xffffff00]) {
+    const buf = Buffer.from(base);
+    buf.writeUInt32LE(bad >>> 0, footOff);
+    const f = path.join(dir, 'bad-' + String(bad) + '.bin');
+    fs.writeFileSync(f, buf);
+    assert.throws(() => readIndexBin(f), (e) => {
+      assert.equal(e.code, ERR.INDEX_CORRUPT);
+      assert.match(e.message, /footer 长度非法/, '要说清是长度非法：' + e.message);
+      return true;
+    }, 'footLen=' + String(bad) + ' 必须被拒');
+  }
+  // 反面：正常索引不能被这条新校验误伤
+  const good = path.join(dir, 'good.bin');
+  fs.writeFileSync(good, base);
+  assert.equal(readIndexBin(good).count, header.count);
 });

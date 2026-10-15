@@ -1,0 +1,120 @@
+gemma-search · DF-7 函数级缺陷：逐条核实 + 修复 · 证据（task-75）
+日期：2026-10-15 · 执行者：core-migrator · 来源：review-dev.html §03（第三方意见，逐条核实）
+边界（Lead 裁定 b）：**不改** packages/indexer/** 与 main/encoder.*（编码护栏）· 不改 renderer/**。
+测试窗口：Lead 批准后只跑 tsc + 相关测试文件；**未跑** npm test 全量 / build / e2e（权威门禁归 Lead）。
+
+改动文件（5 个）：
+  ~ packages/engine/src/library.ts       B：resolveInLibrary 改逐段下行 + fail-closed
+  ~ packages/engine/src/index.ts         D1：footLen 显式长度校验
+  ~ apps/desktop/src/main/index.ts       C：engineMethod 受约束类型 + 断言函数（去掉 as unknown as）
+  ~ packages/engine/tests/security.test.mjs  新增 2 条（1 条能红 + 1 条语义钉住）
+  ~ packages/engine/tests/index.test.mjs     新增 1 条（能红）
+
+
+===== 0. 结论先行（每条：真/假 + 处置） =====
+| 条目 | 判定 | 处置 |
+|---|---|---|
+| B `resolveInLibrary` 的 `catch { return target }` | **真 · 可逃逸**（比审查说的更严重：根因是「用 existsSync 探测祖先」） | ✅ 已修（逐段下行 + fail-closed）+ 能红用例 + 语义钉住 |
+| C `engineMethod` 的 `as unknown as` | **真**（写错方法名编译期不报） | ✅ 已修（受约束映射类型 + 断言函数）；两探针证明能红 |
+| D1 `footLen` 无长度校验 | **真**（把「长度非法」报成「解析失败」，误导排障） | ✅ 已修（显式校验）+ 能红用例 |
+| D2 `setDefaultCollectDir` 手写 BEGIN/COMMIT | **真 · 但无可达缺陷**（单连接同步模型下正确） | ⛔ 不改（见 §5，给理由 + 建议） |
+| D3 `pickEmbedding` 的 `T===0` | **半真**：确实没防御，但**不会 NaN**（`n = Math.sqrt(n) || 1` 挡住了除零）⇒ 后果是**全零向量**不是 NaN | ⛔ 不改（禁改范围），出结论给编码线 |
+| D4 TOCTOU 分支 | **真 · 固有**（纯 Node 无 openat 类 API，窗口不可根除）；**但「静默放行」那一半已随 B 修掉** | ⛔ 不改，见 §5 |
+| §03 第 2 条 `checkSpace` 的 `||` | **真 · 低（可读性/一致性）**，所有 sane 输入下结果相同 ⇒ 无可达缺陷 | ⛔ 不改，给建议补丁 |
+| A `readImageAny` 读整文件 | **真**（为 2 字节魔数读整图；BMP 回退再读一次） | ⛔ 不改（main/encoder.ts 禁改）→ 核实结论 + 改法见 §1 |
+
+
+===== 1. A 核实（只核实，不改）：readImageAny 读整文件 =====
+位置：`apps/desktop/src/main/encoder.ts:118`（`async function readImageAny`），调用点 `:230`。
+核实：审查成立 —— 为嗅探前 2 字节 `BM` 走 `fs.readFileSync(absPath)` 把**整张图**读进内存；BMP 回退分支再读一次。
+⚠️ 本卡边界明写「不改 main/encoder.*」，且 AGENTS §4 要求编码路径改动**先有 T-00 基线**（全库 min/中位余弦 + top10 对照）、改后重跑并归档 ⇒ 我**不动它**。
+建议改法（给编码线）：
+  1. 先用有界读拿头：`fs.openSync` + `readSync(buf, 0, 64, 0)`（上限取 64KB 足够）；
+  2. BMP 判定只依赖前 2 字节 `BM` + 头部尺寸字段（BMP 头 14+40 字节）；
+  3. 只有**确认是 BMP 且需要解码**时才读全文件（解码本来就需要全部字节，无法避免）；
+  4. 能红：注入读取计数（或断言请求的字节数 ≤ 上限），大图路径必须 ≤ 上限。
+风险：JPEG/PNG 路径改为只读头后，解码库仍要读全文件（那是它自己的读）；收益是**我们**不再多读一遍。
+
+
+===== 2. B 修复：resolveInLibrary（安全·最高优先级） =====
+### 2.1 最小复现（修复前，原始输出）—— 真的能逃出库根
+
+
+===== 3. C 修复：engineMethod 受约束类型（类型层能红） =====
+### 3.1 三行
+改前：`const table = eng as unknown as Record<string, unknown>; const fn = table[method];`（`method: MethodName`）⇒ 名字写错/引擎少暴露一个方法，**编译期都不报**，运行时才走「引擎无此方法」。
+改后：`type EngineBackedMethod = { [K in MethodName]: K extends keyof EngineApi ? K : never }[MethodName];`
+      + 断言函数 `isEngineBackedMethod(eng, m): m is EngineBackedMethod`（唯一的运行时→类型收窄桥）
+      + `engineMethod(eng, method: EngineBackedMethod)`；查找用 `const table: Partial<Record<MethodName, unknown>> = eng;`（**结构化赋值，无 as**）
+      调用点：`const fn = isEngineBackedMethod(eng, v.method) ? engineMethod(eng, v.method) : null;`
+为何非放宽：名字来自运行时，但它**必须是引擎真的有的名字**。映射类型把不在 `EngineApi` 上的名字变成 `never` ⇒ 这类错误从运行时提前到编译期。唯一保留的 `as` 是把各异的引擎方法签名收成统一入参形状，且前面已有 `typeof === 'function'` 判定（注释写明这不是绕过）。
+### 3.2 能红（两个探针：新/旧签名编同一个错名字）
+
+
+===== 4. D1 修复：footLen 显式长度校验 =====
+### 4.1 三行
+改前：`JSON.parse(buf.subarray(start+blockBytes+4, start+blockBytes+4+footLen))` —— subarray 自动截到 EOF ⇒ 荒谬 footLen 走到 JSON.parse 才炸，报「footer 解析失败」。
+改后：先 `if (footLen === 0 || footLen > FOOT_LEN_MAX || footLen > footHave) throw corrupt('footer 长度非法：…')`，再解析。
+为何非放宽：上界是**格式不变量**（footer 是我们自己写的元数据 JSON，实测 ~200 字节；取 1 MiB ≈ 5000×），既挡住荒谬值、保护内存，又不误伤将来加字段；把「长度非法」与「内容解析失败」分成两个可诊断的错误。
+### 4.2 能红（临时还原修复，原始输出）
+
+
+===== 5. D2 / D3 / D4 / checkSpace：逐条判真伪（不改 + 理由） =====
+### D2 `setDefaultCollectDir` 手写 BEGIN IMMEDIATE（`apps/desktop/src/main/app-db.ts:279-291`）
+判定：**真，但当前无可达缺陷**。审查自己也写了「当前单连接同步模型下正确」。证据：`withAppDb()` 每次调用是「打开→用→关」，同一时刻只有一条连接、且调用同步；BEGIN IMMEDIATE→两条 UPDATE→COMMIT 之间没有 await ⇒ 不存在重入/嵌套。
+不改的理由：① 现状无缺陷；② 全仓手写事务有 **3 处**（`app-db.ts:282`、`db/import.ts:290`、`db/migration-engine.ts:206`），只改 1 处 = 留下三套机制（P1/P2 更糟）；③ 迁移引擎那处的事务语义（每条迁移一个事务 + 回滚 + 版本记账）不能用一个通用包装器随替换。
+建议：**单开一条**「统一事务助手」，一次把 3 处换掉（助手要显式支持「已在事务里就报错」，而不是静默嵌套 —— SQLite 不支持嵌套 BEGIN）。
+
+### D3 `pickEmbedding` 的 `T === 0`（`packages/indexer/src/encode_queries.ts:50-71`，另有副本 `spike_onnx.ts:65` / `build_index_onnx.ts`）
+判定：**半真**。真：确实**没有** `T === 0` 的防御。**假**：不会产生 NaN —— 除零被 `n = Math.sqrt(n) || 1`（`:67`）挡住了：T===0 时 data 全 0 → n=0 → `|| 1` ⇒ 归一化后仍是**全零向量**，不是 NaN。
+   ⇒ 真实后果是「**静默产出全零向量**」（该素材检索时永不命中、且不报错），比 NaN 更隐蔽，但不是审查描述的 NaN。
+不改：`packages/indexer/**` 属编码护栏禁改范围（Lead 裁定 b）。
+建议（给编码线）：`if (!lh) throw …; const [B, T, D] = lh.dims; if (!T || !B || !D) throw new Error('last_hidden_state 维度非法');` 并同步两处副本的交叉核对。
+   ⚠️ 顺带：`pickEmbedding` 现在有**多份副本**（encode_queries 与 build_index_onnx 各自实现），注释靠「交叉核对」保证不漂 —— 建议收敛成一份（P2，同属编码线的活）。
+
+### D4 TOCTOU（同一函数）
+判定：**真 · 固有**。`lstat/existsSync` 与调用方真正使用路径之间存在窗口（组件可能被替换/新建）—— 纯 Node 没有 openat/相对 fd 解析，窗口不可根除。
+不改的理由：① 本轮修掉的是「**拿不到结论还放行**」这一半（真缺陷）；② 窗口那一半的缓解手段是「在使用点所在的层再校验一次」，而写入路径本来就有独立的一道：`assertWritableGsPath()`（直接子项 + 保留命名空间，见 §6 表第 3 行）与 `assertCollectDirAllowed()`（白名单，见 §6 表第 2 行 —— 那条**另有同类缺陷已上报**）。
+
+### §03 第 2 条 `checkSpace` 的 `||`（`packages/engine/src/transactions/executor.ts:158`）
+判定：**真 · 低（可读性/一致性），无可达缺陷**。`need = g.staged + Number(extraBytes) || g.staged`：所有 sane 输入（extraBytes ≥ 0、有限）下 `need === staged + extra`；staged=extra=0 时 `0 || 0` 仍是 0 ✓。
+   **但有一处真实的不一致**：同一函数里同一个值两种兜底 —— `need` 用 `|| g.staged`，`details` 用 `Number(extraBytes) || 0`（`:160`）。NaN 会被两者吞掉，但方式不同。
+不改：不在本卡 D 列表的批准范围内，且改动会改变负值/NaN 的行为（今天不可达）。
+建议补丁（若 Lead 要）：`const extra = Number.isFinite(Number(extraBytes)) ? Math.max(0, Number(extraBytes)) : 0; const need = g.staged + extra;` 并让 details 复用 `extra`。
+
+
+===== 6. 同类扫一遍（Lead 要求②：逐处判可逃/不可逃 + 证据） =====
+（只判、不改别人的文件；判为不可逃的也给理由。）
+
+| # | 位置 | 形态 | 判定 | 理由 / 证据 |
+|---|---|---|---|---|
+| 1 | `packages/engine/src/library.ts:53-127` `resolveInLibrary`（旧） | `existsSync` 祖先探测 + realpath | **可逃（已修）** | §2.1 最小复现真的写到库外；已改逐段下行 + fail-closed |
+| 2 | `packages/engine/src/library.ts:153-161` `assertCollectDirAllowed` | **纯词法** `sameOrUnder(norm(target), norm(allow))`，**无 realpath** | **可逃（同类，未修 → 上报）** | 白名单目录 `E:\取件` 里放一个 junction `link → C:\Windows`：`E:\取件\link\System32` 词法命中白名单 ⇒ 放行，写入实际落在白名单外。**与 B 同根因（拿词法路径当结论）**。建议单开一条，改法与 B 一致（对已存在祖先 realpath 后再比较） |
+| 3 | `apps/desktop/src/main/index-file.ts:142-162` `assertWritableGsPath` | `path.dirname(resolved) !== root` + 保留命名空间名 | **不可逃** | 要求「父目录**字符串等于**库根」⇒ 任何中间组件（含 junction / `sub/.gs-x` / `..`）都被挡在门外；名字判据用 `gs-names.isReservedLibraryName`（唯一实现）。库根自身含 junction 时只会**多拒**（fail-closed） |
+| 4 | `apps/desktop/src/main/app-db.ts:167-176` `normalizeRootPath` | 存在时 realpath，失败回落 `path.resolve` | **不可逃** | 它是**规范化**（让 `library_registry.root` 的 UNIQUE 文本比较认同一目录），不做包含判定；realpath 失败回落是**刻意**的（注释写明「目录不存在时退回，不假装成功」）。真正的边界在上游登记前校验 |
+| 5 | `apps/desktop/src/main/window-security.ts:38-39` | URL 前缀 `startsWith('file://')` / devUrl | **不可逃（策略性，非路径边界）** | 它管的是「窗口允许导航到哪些 URL」；`file://` 全放行是本地应用的**刻意策略**。若威胁模型含「渲染层被注入后导航本地任意文件」，需所有者另议（不在本卡范围） |
+| 6 | `packages/engine/src/transactions/executor.ts:149,183`、`steps.ts:178` | `path.resolve(src) === path.resolve(dst)` | **不适用** | 同一事务计划内的「源≠目标」自检，两侧都是内部生成路径；是否落在库内由上游（resolveInLibrary / 保留命名空间断言）保证，不是边界校验 |
+| 7 | `packages/engine/src/journal.ts:168`、`gs-names.ts:46/51/88`、`index-layout.ts:67-69`、`engine.ts:138,519` | 名字前缀 / `path.resolve` 归一 / 跳隐藏项 | **不可逃** | 都不做包含判定：journal 看文件名前缀；gs-names 是**纯字符串不碰盘**；index-layout 只决定**读**哪个索引（只读，路径来自注册表）；engine.ts:519 是扫描时跳隐藏项 |
+
+
+===== 7. 0 残留 grep（纪律 17：先跑后结论） =====
+1) engine/src 里 `catch { return target }` = 0
+2) engine/src 里 `existsSync(probe)` = 0
+3) main/index.ts 里 `as unknown as Record<string, unknown>` = 1 —— 逐行看：命中的是**注释**（337-391 行引用旧写法），**实际代码 0 处**
+4) B 修复后的实现锚点：library.ts:84 逐段下行 / :107 `fs.lstatSync(cur, { throwIfNoEntry: false })` / :92 fail-closed
+（另：main/index.ts 里旧 doc 与新增类型 doc 有重叠，已合并成一段，避免两处各说一半。）
+
+
+===== 8. 门禁（按 Lead 批准的范围：tsc + 相关测试文件） =====
+· `tsc --noEmit -p tsconfig.node.json` ⇒ **total error TS = 0**（C 的能红/还原两次也记录在 §3.2）
+· `node --test packages/engine/tests/security.test.mjs` ⇒ tests 18 · pass 17 · fail 0 · skipped 1
+· `node --test packages/engine/tests/index.test.mjs` ⇒ tests 20 · pass 20 · fail 0
+· **未跑** npm test 全量 / build / e2e（Lead 指定由他开冻结窗口跑权威门禁）。
+⇒ 冻结窗口里请注意：`npm test` 目前另有一条**别的线**的红（A1 精确清单缺 `db/tmp-dir.ts`，见 T-44 报告 §6），与本卡无关。
+
+
+===== 9. 未做 / 交给编码线（边界 b） =====
+1. **A readImageAny 只读头** —— 结论与改法见 §1；需要 T-00 编码基线。
+2. **D3 pickEmbedding 的 T===0** —— 结论见 §5（不是 NaN，是全零向量）；顺带建议收敛多份副本。
+3. **同类第 2 行 `assertCollectDirAllowed` 的词法白名单** —— 与 B 同根因，按「只判不改」处理，等 Lead 派单。
+4. **D2 三处手写事务** —— 建议单开一条统一事务助手（含「已在事务中即报错」）。

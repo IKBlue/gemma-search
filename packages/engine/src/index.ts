@@ -121,9 +121,21 @@ export function readIndexBin(file: string): IndexBin {
 
   // footer：没有"写完了"标记就当写入未完成
   const footLen = buf.readUInt32LE(start + blockBytes);
+  // ⚠️ DF-7 D1：先**显式校验长度**再解析。原实现直接 subarray（会自动截到 EOF）⇒
+  //    一个 4GB 的 footLen 会走到 JSON.parse 才炸，报「footer 解析失败」——把「长度非法」说成「解析失败」，
+  //    排障时误导。上界是**格式不变量**（footer 是我们自己写的小段元数据 JSON，实测 ~200 字节），
+  //    取 1 MiB（≈5000×）既挡住荒谬值、又不会误伤将来加字段。
+  const FOOT_LEN_MAX = 1 << 20;
+  const footAt = start + blockBytes + 4;
+  const footHave = buf.length - footAt;
+  if (footLen === 0 || footLen > FOOT_LEN_MAX || footLen > footHave) {
+    throw corrupt(
+      `footer 长度非法：footLen=${footLen}（上限 ${FOOT_LEN_MAX}，文件剩 ${footHave} 字节）`,
+      { file, footLen, limit: FOOT_LEN_MAX, have: footHave });
+  }
   let foot: Record<string, unknown>;
   try {
-    foot = JSON.parse(buf.subarray(start + blockBytes + 4, start + blockBytes + 4 + footLen).toString('utf8'));
+    foot = JSON.parse(buf.subarray(footAt, footAt + footLen).toString('utf8'));
   } catch (e) {
     throw corrupt(`footer 解析失败：${messageOf(e)}`, { file });
   }

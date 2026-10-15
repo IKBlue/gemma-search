@@ -81,28 +81,49 @@ export function resolveInLibrary(root: string, rel: unknown): string {
     return realTarget;
   }
 
-  // 不存在时：找到最深的已存在祖先，同样做真实路径校验（防止"经由链接到达的位置"）
-  let probe = target;
-  for (;;) {
-    const parent = path.dirname(probe);
-    if (parent === probe) break;
-    probe = parent;
-    if (fs.existsSync(probe)) break;
+  // ④'（目标不存在）自库根**逐段下行**校验每一个已存在的组件。
+  //
+  // ⚠️ 2026-10-15（DF-7 B · 实测可逃逸）：原实现是「找最深的已存在祖先」，用 `existsSync` 判断存在性 ——
+  //    而 existsSync **跟随链接**，悬挂/不可 stat 的链接返回 false ⇒ 探测**静默跳过那个链接组件**，
+  //    校验了更上层目录之后放行一条**带链接组件的词法路径**。最小复现（junction 无需管理员）：
+  //      root/sub → 库外目录；建好后删掉目标 ⇒ 悬挂；resolveInLibrary(root, 'sub\x.jpg')
+  //      旧实现返回 root\sub\x.jpg，恢复目标目录后写入**真的落在库外**（违反 P4 库内写入不变式）。
+  //    ⇒ 三条纪律：① 用 lstat（能看见悬挂链接，不跟随）；② 每段 realpath 并校验包含；
+  //      ③ **拿不到结论就拒**（fail-closed）—— 不再有任何静默放行。
+  //
+  // 语义钉住（有测试）：库内 → 库内 的链接**允许**。不变式是「解析后的真实路径仍在库内」，
+  // 而不是「不许有链接」；真实库里 VR → VR-2024 这类目录链接是合法的，一律拒掉会误伤。
+  if (!fs.existsSync(rootAbs)) return target;   // 库根都不存在：纯词法路径，没有链接可穿越（调用方另有 LIB_ROOT_MISSING 判定）
+  let realRoot: string;
+  try {
+    realRoot = fs.realpathSync.native(rootAbs);
+  } catch (e) {
+    throw fail(ERR.PATH_ESCAPES_LIB, `库根无法解析真实路径：${rootAbs}`, { root: rootAbs, why: messageOf(e) });
   }
-  if (fs.existsSync(probe)) {
-    let realRoot: string;
-    let realProbe: string;
+  const parts = rel.split(/[\\/]+/).filter((s) => s.length > 0 && s !== '.');
+  let cur = rootAbs;
+  for (const part of parts) {
+    cur = path.join(cur, part);
+    const st = fs.lstatSync(cur, { throwIfNoEntry: false });
+    if (st === undefined) break;   // 这一段（连 lstat 都）不存在 ⇒ 之后的更不存在，词法路径安全
+    let realCur: string;
     try {
-      realRoot = fs.realpathSync.native(rootAbs);
-      realProbe = fs.realpathSync.native(probe);
-    } catch {
-      return target;
+      realCur = fs.realpathSync.native(cur);
+    } catch (e) {
+      // 存在、但拿不到真实路径（悬挂链接 / 权限拒绝）⇒ **无法证明在库内** ⇒ 拒绝，绝不 return target
+      throw fail(ERR.PATH_ESCAPES_LIB,
+        `路径组件存在但无法解析真实路径（链接悬挂或权限不足）：${rel}`,
+        { rel, component: cur, why: messageOf(e) });
     }
-    if (!sameOrUnder(realProbe, realRoot)) {
+    if (!sameOrUnder(realCur, realRoot)) {
       throw fail(ERR.SYMLINK_REJECTED,
-        `目标的祖先目录真实路径在库根之外（符号链接/联接点）：${rel}`,
-        { rel, realProbe, realRoot });
+        `路径组件的真实路径在库根之外（符号链接/联接点）：${rel}`,
+        { rel, component: cur, realCur, realRoot });
     }
+    // 用 stat（跟随链接）判断这一段到底是不是目录：不是 ⇒ 后续组件不可能存在，到此为止
+    let isDir = false;
+    try { isDir = fs.statSync(cur).isDirectory(); } catch { isDir = false; }
+    if (!isDir) break;
   }
   return target;
 }
