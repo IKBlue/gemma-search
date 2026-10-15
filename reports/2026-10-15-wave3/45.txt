@@ -1,0 +1,155 @@
+===============================================================================
+T-45 证据 · 引擎错误码空间同步 IMPORT_*（最后一处假因果）
+worker: indexer-migrator · 任务板 task-51 · 2026-10-15
+===============================================================================
+
+【0 写入范围】
+声明范围：packages/engine/src · packages/engine/tests · apps/desktop/tests
+跨范围改动（TASKS §0「写入范围只是主战场、不是封锁线；跨范围要说明」）：
+  · apps/desktop/src/main/storage-ports.ts —— 本任务第 2 条（engineCodeOf 的映射顺序）就在这个文件里；
+    该文件当前无其他 in-flight 任务占用（task-26/42 已完成）。
+  · apps/desktop/src/main/library-ipc.ts —— AGENTS P1「文案只允许一份」：删掉与引擎重复的
+    MAIN_USER_MESSAGE 与已成死代码的 PASS_THROUGH_PREFIXES 分支。
+未触碰 packages/indexer/** 与 main/encoder.*（T-00 护栏不适用于本任务）。
+
+===============================================================================
+【1 做了什么】
+===============================================================================
+1) packages/engine/src/errors.ts：新增 7 个 IMPORT_* 码（20 → 27，与 SPEC §5 一致）+ 各自 USER_MESSAGE。
+   · 文案**从 main 侧搬过来**（同一批字符串），不新增第二份；main 那份已删。
+   · 未加 DB_OPEN_FAILED：SPEC §5 的 27 码里没有 DB_* 一族，加它 = 改需求（见 §3.1 的裁决理由）。
+2) apps/desktop/src/main/storage-ports.ts：engineCodeOf 顺序改为「引擎契约码原样透出 → 其余才映射」
+   （与 T-42 在 library-ipc.ts 定的顺序一致）；删掉 IMPORT_ 前缀兜底（现在是死代码）。
+3) apps/desktop/src/main/library-ipc.ts：删 MAIN_USER_MESSAGE（文案唯一来源 = 引擎 USER_MESSAGE）、
+   删 PASS_THROUGH_PREFIXES（IMPORT_* 已是引擎码，第一条判据就命中）。
+4) 断言（两种粒度）：
+   · 引擎侧 packages/engine/tests/storage-ports.test.mjs：T45-E1（任意 IMPORT_* 经**端口**抛进信封，
+     必须原样带出，绝不 INDEX_CORRUPT / INTERNAL；indexStatus 的 problems[].code 同样）+ T45-E2（文案不冒充索引损坏）。
+   · 主进程侧 apps/desktop/tests/storage-ports-main.test.mjs：M9（asEngineError 对 7 个码逐一原样透出）
+     + M9b（端到端：真 .gs.db 行类型不对 ⇒ IMPORT_RECORD_INVALID 进引擎信封）。
+   · 未新增文件；引擎保持零依赖（只用 node 内置 + 引擎自身模块）。
+
+===============================================================================
+【2 命令 + 原始输出】
+===============================================================================
+--- 2.1 引擎单测（全绿）---
+命令: node --test packages/engine/tests/*.test.mjs
+原始摘要:
+  i tests 168
+  i suites 0
+  i pass 167
+  i fail 0
+  i cancelled 0
+  i skipped 1
+  i todo 0
+  i duration_ms 325914.055
+  ENGINE_EXIT=0
+（T-45 新增 2 条：T45-E1 / T45-E2；改动前该套件 166 条）
+
+--- 2.2 引擎侧断言（单跑，秒级）---
+命令: node --test --test-name-pattern="T45" packages/engine/tests/storage-ports.test.mjs
+原始输出:
+  ok T45-E1 任意 IMPORT_* 经**引擎端口**抛进信封 ⇒ 原样带出，绝不变成 INDEX_CORRUPT (28.6642ms)
+  ok T45-E2 每个 IMPORT_* 都有**自己的**用户文案（不冒充"索引损坏"、不含绝对路径） (0.228ms)
+  i tests 2 / pass 2 / fail 0 / skipped 0
+  EXIT=0
+
+--- 2.3 主进程侧断言 ---
+命令: node --test apps/desktop/tests/storage-ports-main.test.mjs
+原始输出（节选）:
+  SKIP M9b：旧 items 表已退役（S1/S1b = asset/asset_file），storage-ports 尚未改线（S2/S6）
+            —— 端到端那一半暂不可执行；映射那一半由 M9 覆盖，信封那一半由引擎侧 T45-E1 覆盖。
+  ok M9 asEngineError：任意 IMPORT_* 原样透出（引擎端口映射不得归成 INDEX_CORRUPT） (0.3316ms)
+  ok M9b 端到端：…（见上：前置未满足，如实跳过而非静默通过）
+  x M3 条目端口：有 .gs.db 就从 db 读…（pre-existing：no such table: items）
+  x M7 接上引擎…（pre-existing：条目数 0 !== 4，同一原因）
+  i tests 10 / pass 8 / fail 2 / skipped 0
+  MAIN_EXIT=1
+M3/M7 的失败**与本任务无关**（见 §3.2）：报错是 `no such table: items`，来自 storage-ports.ts:readItemsFromDb
+的 SELECT，而 S1/S1b 已把库级 schema 换成 asset/asset_file（migrations.ts 只建这 3 张 + app 级 3 张）。
+
+--- 2.4 tsc 两工程 ---
+命令:
+  node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile "data/_esbuild-tmp/tsbi_t45_node.tsbuildinfo"
+  node node_modules/typescript/bin/tsc --noEmit -p tsconfig.web.json  --tsBuildInfoFile "data/_esbuild-tmp/tsbi_t45_web.tsbuildinfo"
+原始输出:
+  NODE_EXIT=0    （无 error TS 行 —— engine / indexer / main / tests 全干净）
+  WEB_EXIT=1
+  apps/desktop/src/renderer/src/pages/ItemPage.tsx(149,40): error TS2345: Argument of type '"mutate"' is not
+    assignable to parameter of type '"appMeta" | "collect" | … | "search"'
+（web 工程这 1 条红是 S6/task-58「删 6 个诚实桩」之后 renderer 的 ItemPage.tsx 尚未同步，属他人范围；
+ 与 T-45 无交集：T-45 只动引擎错误码与主进程两个文件的码/文案。）
+
+--- 2.5 能红证明（两半各一次；跑完都已还原）---
+RED1（把 storage-ports.ts 的「引擎契约码原样透出」那一行临时注掉）:
+  node --test --test-name-pattern="asEngineError" apps/desktop/tests/storage-ports-main.test.mjs
+  x M9 ⭐⭐ asEngineError：任意 IMPORT_* 原样透出…
+    AssertionError: IMPORT_FAILED 必须原样透出，实得 INTERNAL
+  i tests 1 / pass 0 / fail 1     RED1_EXIT=1
+RED2（把引擎 envelope() 里 `err(e.code, …)` 临时改成 `err(ERR.INTERNAL, …)`）:
+  node --test --test-name-pattern="T45" packages/engine/tests/storage-ports.test.mjs
+  x T45-E1 ⭐⭐ 任意 IMPORT_* 经**引擎端口**抛进信封 ⇒ 原样带出…
+    AssertionError: item 信封：IMPORT_FAILED 必须原样带出，实得 INTERNAL
+  i tests 2 / pass 1 / fail 1     RED2_EXIT=1
+还原后复跑: M9 EXIT=0（pass 1）· T45 EXIT=0（pass 2）—— 见 2.2/2.3。
+
+--- 2.6 全量 npm test（如实：34 红，逐条归因，**无一条属本任务**）---
+命令: npm test        NPM_EXIT=1
+原始摘要:
+  i tests 532 / suites 0 / pass 497 / fail 34 / cancelled 0 / skipped 1 / todo 0
+  i duration_ms 126761.3258
+失败按文件分组（node:test 的 "test at <file>" 汇总）:
+  apps/desktop/tests/db-import.test.mjs        12   ← S1/S1b schema 迁移（no such table: items / uid 列不存在）
+  apps/desktop/tests/health-rebuild.test.mjs    8   ← 同上
+  apps/desktop/tests/db-rebuild.test.mjs        6   ← 同上（no such table: doc_chunks 等）
+  apps/desktop/tests/library-methods.test.mjs   4   ← 同上：L2/L4/L7 都是 db-read(ERR_SQLITE_ERROR)
+  apps/desktop/tests/storage-ports-main.test.mjs 2  ← 同上：M3/M7 的 items 表
+  apps/desktop/tests/copy.test.mjs              1   ← renderer/契约（S6 方向）
+  apps/desktop/tests/sqlite-tmp-dir.test.mjs    1   ← ST3：新导入路径不再触发 SQLite 临时目录
+  apps/desktop/tests/item-actions.test.mjs      1   ← renderer/契约（S6 方向）
+两条最需要排除「是不是我改坏的」的用例，逐条给出因果：
+  · sqlite-tmp-dir.test.mjs:106 `assert.equal(onlySqlite.ok, false)` 失败于 **ok=true**：
+    即"导入根本没失败"。本任务在 library-ipc.ts 里只改「出错之后」的码与文案（failure()/normalizeCode/
+    userMessageFor）——**成功路径一个字节都没碰**，它在逻辑上不可能把 ok 从 false 变成 true。
+  · library-methods.test.mjs:253 同一条（`res.ok` 期望 false，实得 true），同一因果。
+⇒ 结论：34 条红全部落在 S1/S1b/S2/S6 的 schema+IPC 迁移与 renderer 同步上；T-45 的引擎单测与 node 工程 tsc 全绿。
+
+===============================================================================
+【3 未决 / 交代】
+===============================================================================
+--- 3.1 DB_OPEN_FAILED：本轮**故意不加**，理由与残余 ---
+任务书写的是「含 DB_OPEN_FAILED 若确需独立语义」。裁定：**不加**，因为它不在 SPEC §5 的 27 码里
+（20 原始 + 7 IMPORT_*），而 SPEC 是本项目的行为权威（AGENTS：改规格 = 改需求，要所有者批）。
+残余（如实写，已在 storage-ports.ts 注释里同样写明）：破掉 .gs.db 时引擎端口那条路仍报 INDEX_CORRUPT，
+用户看到的文案是「索引文件已损坏，需要重建。」——**名词不准**（坏的是元数据，处置方向"重建"是对的）。
+体检那条路（libraryHealth）报的是 DB_OPEN_FAILED，所以两条路对同一问题仍是两种口径。
+若所有者愿意把 DB_OPEN_FAILED 写进 SPEC §5（第 28 码），改动是两处、各一行：
+  · packages/engine/src/errors.ts 加 ERR.DB_OPEN_FAILED + USER_MESSAGE；
+  · storage-ports.ts 的 engineCodeOf 不用动（它自动走"引擎契约码原样透出"）。
+
+--- 3.2 S1/S1b 的 schema 迁移让 storage-ports 的读路径暂时失配（**跨任务**，需要 S2/S6 收口） ---
+证据:
+  · apps/desktop/src/main/db/migrations.ts 只建 asset / asset_file / asset_index_state；
+    app-migrations.ts 建 app_meta / library_registry / collect_dir —— 旧 `items` 表**已退役**。
+  · apps/desktop/src/main/db/import.ts 已改写成写 asset / asset_file（`SELECT … FROM asset`），
+    而 storage-ports.ts:readItemsFromDb 仍是 `SELECT … FROM items` ⇒ M3/M7 必红、M9b 的端到端前置不成立。
+影响：本任务要求的"IMPORT_* 经引擎端口走出去"在**映射层**（M9）与**信封层**（T45-E1）都已钉住；
+      等 S2/S6 把端口改读 asset/asset_file 后，M9b 只需把 UPDATE 的目标列换掉即可自动生效
+      （测试注释里已写明该操作）。
+
+--- 3.3 并发 ---
+本轮没有跑 build / e2e（另有人在跑 renderer 与 e2e）；typecheck 用的是仓库内 tsBuildInfoFile
+（data/_esbuild-tmp/），避免与其他 worker 抢根 tsbuildinfo。
+
+===============================================================================
+【4 影响面 / 回滚】
+===============================================================================
+改动文件（4 个既有 + 0 新增）:
+  packages/engine/src/errors.ts              （+7 码 +7 文案；ERR 从 20 → 27）
+  packages/engine/tests/storage-ports.test.mjs（+import USER_MESSAGE，+T45-E1/E2）
+  apps/desktop/src/main/storage-ports.ts     （engineCodeOf：加"引擎契约码原样透出" + 删前缀兜底）
+  apps/desktop/src/main/library-ipc.ts       （删重复文案表与死分支）
+  apps/desktop/tests/storage-ports-main.test.mjs（+asEngineError import、+codedError、+M9/M9b）
+回滚：删掉 errors.ts 的 7 个码与 7 条文案、storage-ports.ts 恢复 `code.startsWith('IMPORT_') ? INDEX_CORRUPT` 分支、
+      library-ipc.ts 恢复 MAIN_USER_MESSAGE/PASS_THROUGH_PREFIXES、删掉两处新测试即可（无数据/无落点副作用）。
+未跑 git（AGENTS P7）。

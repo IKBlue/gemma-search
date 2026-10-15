@@ -3,7 +3,11 @@
 // 契约要求：**按 code 分支，绝不按 message 分支**。
 // 所以错误码在这里集中定义一次，界面与测试都从这里取。
 
-/** 契约 §1.3 的 20 个错误码（19 个原始 + 2026-10-12 F-01 新增的 PORT_MISSING）。冻结后新增=兼容，改名=破坏性。 */
+/**
+ * 契约 §1.3 的错误码（SPEC §5 的**唯一来源**）。
+ * 20 个原始 + 2026-10-12 F-01 的 PORT_MISSING + 2026-10-15 T-45 的 7 个 IMPORT_* = **27**。
+ * 冻结后新增 = 兼容，改名 = 破坏性。
+ */
 export const ERR = Object.freeze({
   BAD_REQUEST: 'BAD_REQUEST',
   LIB_NOT_FOUND: 'LIB_NOT_FOUND',
@@ -27,6 +31,18 @@ export const ERR = Object.freeze({
   // 2026-10-12 新增（F-01）：引擎依赖一个**由外壳注入的能力端口**，而该端口没接上。
   // 契约 §1.3 明写「新增=兼容，改名=破坏性」，所以新增是安全的。
   PORT_MISSING: 'PORT_MISSING',
+  // 2026-10-15 新增（T-45）：元数据导入 / 重建一族（SPEC §5，20 → 27 码）。
+  // 为什么必须进**引擎码空间**：main 侧 storage-ports.engineCodeOf 把这些码归成 INDEX_CORRUPT ⇒
+  // **假因果** —— 用户看到「索引文件已损坏」，而同一时刻体检说索引是好的（T-15b / T-42 实测）。
+  // SPEC §5 明写这一族「**不得**归成 INDEX_CORRUPT」；走引擎端口（search/item/collect）那条路
+  // 只有它们也在引擎码表里，main 的映射才能"引擎契约码原样透出"而不必再抄一份前缀表。
+  IMPORT_FAILED: 'IMPORT_FAILED',
+  IMPORT_INPUT_INVALID: 'IMPORT_INPUT_INVALID',
+  IMPORT_SOURCE_INVALID: 'IMPORT_SOURCE_INVALID',
+  IMPORT_INDEX_UNREADABLE: 'IMPORT_INDEX_UNREADABLE',
+  IMPORT_RECORD_INVALID: 'IMPORT_RECORD_INVALID',
+  IMPORT_DUPLICATE_UID: 'IMPORT_DUPLICATE_UID',
+  IMPORT_COUNT_MISMATCH: 'IMPORT_COUNT_MISMATCH',
 });
 
 /** ERR 的取值联合。有了它，`USER_MESSAGE[code]` 这类查表在编译期就能被检查（不必用 any）。 */
@@ -66,6 +82,16 @@ export const USER_MESSAGE = Object.freeze({
   // 这是**能力没接上**，与用户的操作无关。故意说得保守：我们只知道端口没被注入，
   // 不知道资源管理器那边会怎样。
   PORT_MISSING: '这个功能在当前环境里不可用（缺少所需的系统接口）。',
+  // 2026-10-15 新增（T-45）：导入 / 重建一族。**用户文案的唯一来源就是本表** ——
+  // main 侧 library-ipc.ts 曾自己抄一份（MAIN_USER_MESSAGE），T-45 已删掉那份副本（AGENTS P1：
+  // 同一概念不许有两份定义）。文案要讲清"本次没有改动任何数据"，否则用户会以为库里留了半份。
+  IMPORT_FAILED: '重建元数据时写不进去（临时目录或库根不可写），本次没有改动任何数据。',
+  IMPORT_INPUT_INVALID: '重建的输入不完整（缺条目表或落点不可用），修好之后再来一次。',
+  IMPORT_SOURCE_INVALID: '条目表读不动或格式不对，重建没有开始。',
+  IMPORT_INDEX_UNREADABLE: '索引读不动，重建没有开始（可以先重新建一次索引）。',
+  IMPORT_RECORD_INVALID: '条目表里有不合法的条目，重建没有开始（详情见日志）。',
+  IMPORT_DUPLICATE_UID: '条目表里有重复的 uid，重建没有开始（详情见日志）。',
+  IMPORT_COUNT_MISMATCH: '条目表与索引的条数对不上，重建没有开始（详情见日志）。',
 });
 
 /** 引擎内部的类型化错误。**不直接抛给调用方** —— 由 envelope() 转成 §1.1 的信封。 */

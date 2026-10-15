@@ -14,7 +14,7 @@ import path from 'node:path';
 
 import { createEngine, indexPathFor } from '../src/engine.ts';
 import { readIndexBin } from '../src/index.ts';
-import { ERR, fail } from '../src/errors.ts';
+import { ERR, USER_MESSAGE, fail } from '../src/errors.ts';
 import { writeIndexFixture, makeLibrary, fakeEncoder } from './helpers/lib-fixture.mjs';
 
 /** 造一个 node 错误（带 code —— 引擎按 code 分类，不按 message） */
@@ -219,4 +219,49 @@ test('T16-P8 库解析端口也管「有哪些库」：未注册的 libId ⇒ �
   const r = await e.scan({ libId: 'L9' });
   assert.equal(r.ok, false);
   assert.equal(r.error.code, 'LIB_NOT_FOUND');
+});
+
+// ─────────────────────────────────────────── T-45：导入 / 重建一族（引擎码空间）
+
+/** T-45 新增的一族（顺序与 SPEC §5 的清单一致） */
+const IMPORT_CODES = [
+  'IMPORT_FAILED',
+  'IMPORT_INPUT_INVALID',
+  'IMPORT_SOURCE_INVALID',
+  'IMPORT_INDEX_UNREADABLE',
+  'IMPORT_RECORD_INVALID',
+  'IMPORT_DUPLICATE_UID',
+  'IMPORT_COUNT_MISMATCH',
+];
+
+test('T45-E1 ⭐⭐ 任意 IMPORT_* 经**引擎端口**抛进信封 ⇒ 原样带出，绝不变成 INDEX_CORRUPT', async () => {
+  const s = setup();
+  for (const code of IMPORT_CODES) {
+    assert.equal(ERR[code], code, code + ' 必须在冻结的 ERR 里（SPEC §5：新增=兼容）');
+    const ports = makePorts({ libRoot: s.libRoot, items: s.fx.items });
+    ports.items.getItem = () => { throw fail(code, '模拟：.gs.db 行不合法'); };
+    ports.items.listItems = () => { throw fail(code, '模拟：.gs.db 行不合法'); };
+    const e = enginePorts(s, ports);
+
+    const r = await e.item({ libId: 'L1', uid: s.fx.items[0].uid });
+    assert.equal(r.ok, false);
+    assert.equal(r.error.code, code, 'item 信封：' + code + ' 必须原样带出，实得 ' + r.error.code);
+    assert.notEqual(r.error.code, ERR.INDEX_CORRUPT, code + ' 不许被说成索引损坏（假因果）');
+    assert.notEqual(r.error.code, ERR.INTERNAL, code + ' 不许被吞成 INTERNAL');
+    assert.ok(r.error.userMessage && r.error.userMessage.length > 0, code + ' 的 userMessage 必须非空');
+
+    const st = await e.indexStatus();
+    assert.equal(st.data.libs[0].problems[0].code, code, 'indexStatus 的 problems[].code 也必须如实');
+  }
+});
+
+test('T45-E2 每个 IMPORT_* 都有**自己的**用户文案（不冒充"索引损坏"、不含绝对路径）', () => {
+  const corruptMsg = USER_MESSAGE[ERR.INDEX_CORRUPT];
+  for (const code of IMPORT_CODES) {
+    const msg = USER_MESSAGE[code];
+    assert.ok(typeof msg === 'string' && msg.length > 0, code + ' 缺 userMessage');
+    assert.notEqual(msg, corruptMsg, code + ' 的文案不许等于 INDEX_CORRUPT 的文案');
+    assert.ok(!msg.includes('索引文件已损坏'), code + ' 的文案不许说"索引文件已损坏"');
+    assert.ok(!/[A-Za-z]:\\/.test(msg), code + ' 的文案含绝对路径');
+  }
 });
