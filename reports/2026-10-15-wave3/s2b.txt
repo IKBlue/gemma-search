@@ -1,0 +1,134 @@
+==============================================================================
+S2b / task-65 · 余下 3 个测试文件的断言改写（绿地 6 张表口径）
+日期：2026-10-15 · 执行：main-migrator · 只碰 3 个测试文件（未碰 db-import.test.mjs 与任何产品代码）
+==============================================================================
+
+## 0. 前后计数（单文件 node:test）
+  health-rebuild        7 pass / 6 fail  →  ℹ pass 13 · ℹ fail 0
+  library-methods       7 pass / 1 fail  →  ℹ pass 8 · ℹ fail 0
+  storage-ports-main    9 pass / 2 fail  →  ℹ pass 11 · ℹ fail 0
+  ⇒ 三文件合计 23/32 pass → 32/32 pass，各自 EXIT=0。
+
+## 1. 逐条：改前 → 改后 → 为什么语义等价（不是放宽）
+
+### 1.1 storage-ports-main · M5（2 处断言）
+  改前：assert.throws(() => port.listItems(L1), isEngineError(ERR.INDEX_CORRUPT))（getItem 同）
+  改后：抓住错误本体 ⇒ code === ERR.DB_OPEN_FAILED 且 !== ERR.INDEX_CORRUPT（getItem 同步改）
+  等价性：S7b 已把「库文件打不开」从 INDEX_CORRUPT 正名为 DB_OPEN_FAILED（同文件 M9c、体检 H5 都钉这个码）。
+    被钉的失败模式没变 ——「库坏 ≠ 索引坏，不许假因果」；新写法更严：同时断言“等于新码”与“不等于旧码”，
+    并保留 isinstance(EngineError)（普通 Error 会被信封归成 INTERNAL）。
+
+### 1.2 storage-ports-main · M8（err3 一处）
+  改前：err3.code === ERR.INDEX_CORRUPT（.gs.db 被清零头）
+  改后：err3.code === ERR.DB_OPEN_FAILED 且 !== ERR.INDEX_CORRUPT 且 !== INTERNAL
+  等价性：同上（S7b 正名）。err1（索引文件本身坏 ⇒ INDEX_CORRUPT）未动 ⇒ 两条路仍各报各的码。
+
+### 1.3 library-methods · IM1（复现触发器 + 文案判据 + 更强正向断言）
+  改前：把 TEMP/TMP 指到不存在目录 ⇒ 期望导入以 IMPORT_FAILED 失败（开子进程）
+  改后：items.json 里制造两条不同 uid、同一 rel_path ⇒ 写事务内计数复核失败 ⇒ IMPORT_COUNT_MISMATCH；
+        断言 code 与 details.rawCode 都等于该 IMPORT_* 码、!== INDEX_CORRUPT、文案不谎称“索引损坏”；
+        新增：失败后 .gs.db 的 asset / asset_file 行数都是 0（写事务整条回滚、没有半份导入）。
+  为什么等价（且不是放宽）：被钉的失败模式不变 ——「导入阶段的失败必须以 IMPORT_* 码出信封，不许伪装成索引损坏」。
+   ⚠️ 旧触发器已失效（本轮实测）：S2 重写后的导入逐行 upsert，不再有 3594 占位符的 NOT IN 大清单
+      ⇒ 不落 SQLite 临时文件 ⇒ 同一条复现今天是 res.ok=true。换触发器不是删断言。
+   ⚠️ 文案判据由 !/索引/ 收紧为 !/索引(文件)?(已)?损坏/：IMPORT_COUNT_MISMATCH 的引擎文案本来就写
+      「条目表与索引的条数对不上」——那是事实；旧判据会误伤它，属过宽。
+
+### 1.4 health-rebuild · H3（3 处）
+  a) 改前 /items=3 行/ → 改后 /asset=3 行/ + /asset_file=6 行/ + /应有的 4 张表都在/
+     等价性：文案已随 S2 改（db-read 数 asset/asset_file）；改成两条确切计数（3 素材 ⇒ 3 行 asset、
+     3 preview + 3 archive = 6 行 asset_file）比单条正则更严，并额外钉住“应有张数 = 4”。
+  b) 改前 EXPECTED_TABLES 硬编码旧 8 张（items / library / doc_* / health_*）
+     → 改后 asset, asset_file, asset_index_state, schema_version，并新增：旧 7 张表一张都不许在 +
+       library_registry 不许落在库级 .gs.db（它是 app.db 的表）。
+     等价性：检查方向（DDL 派生清单 == sqlite_master 真实集合）没变，内容换新；
+     旧清单已无对应物 ⇒ 删掉它并补三条更强的正向断言（不是删检查）。
+
+### 1.5 health-rebuild · H6（1 处）
+  改前：UPDATE schema_version SET version = 1（期望 SCHEMA_OUTDATED）
+  改后：version = 0
+  等价性：绿地库级只有一条迁移 ⇒ TARGET_SCHEMA_VERSION = 1；写 1 等于“正好是目标”，不再落后。
+    被钉的失败模式不变（版本落后 ⇒ SCHEMA_OUTDATED + rebuildable），只是“落后”的值域变成 {0}。
+    ⇒ 这一条本身就是“改前必红”的证明（见 §2 R1）。
+
+### 1.6 health-rebuild · H7（2 处）
+  改前：DROP TABLE doc_chunks ⇒ 期望 DB_TABLE_MISSING 且 reason 含 doc_chunks
+  改后：DROP TABLE asset_file ⇒ 期望 DB_TABLE_MISSING 且 reason 含 asset_file
+  等价性：旧表已不存在（DROP 直接 SQLITE_ERROR）；换成绿地必需的事实层表，检查内容一字不变。
+
+### 1.7 health-rebuild · H8 / H12（各 1 处）
+  改前：rep.schema deepEqual { fromVersion: 0, toVersion: TARGET, applied: [1, 2] }
+  改后：applied: [1]
+  等价性：绿地库级只有一条迁移 v1；applied 仍被逐值钉住（多一条/少一条都会红）。
+
+### 1.8 health-rebuild · H9 / H12（logicalSnapshot 重写）
+  改前：SELECT ITEM_COLUMNS FROM items；lib: SELECT * FROM library
+  改后：ASSET_ITEM_SELECT_ALL_SQL + joinedRowToItemRecord（复用产品那份映射，不在测试里重写列序）；
+        旧 lib 字段 → registryTablesInLibraryDb（库级库里出现 library / library_registry 就非空）。
+  等价性：快照仍“逐字段比两次重建的逻辑内容”（H9 的 deepEqual 一字未改），且新写法多覆盖 absPath / archiveName
+    这类合成字段（错了同样会红）；新字段拦的是“把注册表写回库级库”。
+
+## 2. 能红证明（注入 ⇒ 必红 ⇒ 还原复绿；AGENTS §3.7：副本在 data/_s2b/，未用 git checkout）
+
+### R1 health-rebuild H6：把版本写回 1（旧夹具）
+命令：node --test --test-isolation=none --test-name-pattern="H6 自检" apps/desktop/tests/health-rebuild.test.mjs
+  ✖ H6 自检：schema_version 落后 ⇒ SCHEMA_OUTDATED，其它 db 项仍然 ok (393.8001ms)
+  ℹ tests 1
+  ℹ pass 0
+  ℹ fail 1
+  ✖ failing tests:
+  ✖ H6 自检：schema_version 落后 ⇒ SCHEMA_OUTDATED，其它 db 项仍然 ok (393.8001ms)
+    AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+      actual: [Object],
+      expected: [Object],
+  还原后：13/13 绿（§0）
+
+### R2 library-methods IM1：去掉 rel_path 撞车（触发器消失）
+命令：node --test --test-isolation=none --test-name-pattern="IM1 " apps/desktop/tests/library-methods.test.mjs
+  ✖ IM1 ⭐ IMPORT_* 经信封出去**不得**变成 INDEX_CORRUPT（T-42 的假因果） (870.3893ms)
+  ℹ tests 1
+  ℹ pass 0
+  ℹ fail 1
+  ✖ failing tests:
+  ✖ IM1 ⭐ IMPORT_* 经信封出去**不得**变成 INDEX_CORRUPT（T-42 的假因果） (870.3893ms)
+    AssertionError [ERR_ASSERTION]: 路径撞车必须让重建失败（这就是复现路径）
+      actual: true,
+      expected: false,
+  ⇒ 证明这条 repro 真的驱动失败（断言不是恒真）；还原后 8/8 绿
+
+### R3 health-rebuild H3：把 asset_file 行数写成 5
+命令：node --test --test-isolation=none --test-name-pattern="H3 " apps/desktop/tests/health-rebuild.test.mjs
+  ✖ H3 ⭐ 自检：健康库全绿；EXPECTED_TABLES 与 sqlite_master 机械一致 (595.3982ms)
+  ℹ tests 1
+  ℹ pass 0
+  ℹ fail 1
+  ✖ failing tests:
+  ✖ H3 ⭐ 自检：健康库全绿；EXPECTED_TABLES 与 sqlite_master 机械一致 (595.3982ms)
+    AssertionError [ERR_ASSERTION]: The input did not match the regular expression /asset_file=5 行/. Input:
+      actual: '可读：asset=3 行 · asset_file=6 行',
+      expected: /asset_file=5 行/,
+  ⇒ 证明是确切计数（不是 count>0）；还原后 13/13 绿
+
+## 3. 0 残留 grep（旧 schema 的取数/建表口径；可复跑）
+命令：Select-String -Path apps/desktop/tests/{health-rebuild,library-methods,storage-ports-main}.test.mjs -Pattern
+  FROM\s+(items|library|doc_chunks|doc_dirs|documents|health_runs|health_ledger)\b | INTO\s+(items|library)\b |
+  TABLE\s+(items|library|doc_chunks|doc_dirs|documents|health_runs|health_ledger)\b | ITEM_COLUMNS | ITEM_INSERT_SQL | ITEM_UPSERT_SQL
+输出：0 命中。
+
+广义搜（doc_chunks | items | library）仍有命中，逐条复核后全部合法：
+  · items.json —— 导入源文件名（绿地仍可从 items.json 建库）；
+  · library-root / items-file —— 产品 check id；
+  · health-rebuild H3 的守卫清单 items/library/doc_dirs/... —— 故意列出来断言“一张都不许在”；
+  · storage-ports-main 的 fullItems/items —— 夹具变量名。
+  ⇒ 没有任何一处把旧表当数据源读/写。
+
+## 4. 未决 / 阻塞
+  · 无阻塞。两点如实记：
+   (a) IM1 的码从 IMPORT_FAILED 变成 IMPORT_COUNT_MISMATCH —— 不是放宽，是当前唯一还能确定性复现的
+       IMPORT_* 写阶段失败；要保留“IMPORT_FAILED 也走一遍信封”，需要一个能确定性触发写阶段裸错误的产品钩子（现无）。
+   (b) 未跑 npm test / build / e2e（纪律 §3.6：全量门禁由 Lead 在树安静时跑）。
+
+## 5. 回滚方式
+  · 只改 3 个测试文件 ⇒ 撤销该提交即可（git revert <commit>）；产品代码一行未动。
+  · 注入副本：data/_s2b/health-rebuild.test.mjs.bak · data/_s2b/library-methods.test.mjs.bak（均已与工作树逐字节一致）。
+==============================================================================

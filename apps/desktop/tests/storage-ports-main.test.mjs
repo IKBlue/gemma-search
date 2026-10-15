@@ -10,7 +10,8 @@
 //   M2 回退落点被当成素材根     ⇒ scan/collect 跑到 userData 去数文件
 //   M3 有 .gs.db 却去读 items.json ⇒ 新布局形同虚设（而且没人知道）
 //   M4 回落**静默**发生         ⇒ 用户以为在读 .gs.db
-//   M5 .gs.db 坏了报 INTERNAL   ⇒ 与"索引损坏"的处置（重建）完全不同，界面给不出正确指引
+//   M5 .gs.db 坏了报 INDEX_CORRUPT ⇒ 把"库坏了"说成"索引损坏"（假因果）：处置不同（重建元数据 vs 重编码），
+//                                    界面给不出正确指引；正确码是 DB_OPEN_FAILED（S7b 起与体检路径同名）
 //   M6 第二份 GSIDX 解析        ⇒ 校验分叉（AGENTS P1）
 //   M7 端到端接不上             ⇒ M0 判据①"找到"就不成立
 //   M8 端口错误码在信封里丢了   ⇒ T-16a 钉的那条契约当场失效
@@ -29,6 +30,7 @@ import { makeLibrary, writeIndexFixture, fakeEncoder } from '../../../packages/e
 
 import { importItemsFromJson, openGsDb } from '../src/main/db/index.ts';
 import {
+  asEngineError,
   createItemStorePort,
   createLibraryResolverPort,
   createStoragePorts,
@@ -53,6 +55,20 @@ const isEngineError = (code) => (e) => {
   if (code) assert.equal(e.code, code);
   return true;
 };
+
+/**
+ * 抓住抛出的错误本体。
+ * 为什么不用 assert.throws：有的断言要**同时**看两个码（既等于 X、又不等于 Y），
+ * 而 assert.throws 的回调拿不到"实际是什么码"。
+ */
+function captureThrow(fn) {
+  try {
+    fn();
+    return null;
+  } catch (e) {
+    return e;
+  }
+}
 
 /**
  * 引擎夹具的条目是**精简形状**（14 字段），而 `.gs.db` 的列契约是 **18 字段**（SPEC §1.1，
@@ -209,7 +225,7 @@ test('M4 ⭐ 条目端口回落：没有 .gs.db ⇒ 读 items.json，且**必须
   assert.match(fell[0].replace(/\\\\/g, '/'), /items\.json/);
 });
 
-test('M5 ⭐ 条目端口错误码：.gs.db 损坏 ⇒ INDEX_CORRUPT；items.json 也没有 ⇒ INDEX_MISSING', () => {
+test('M5 ⭐ 条目端口错误码：.gs.db 损坏 ⇒ DB_OPEN_FAILED（库坏 ≠ 索引坏）；items.json 也没有 ⇒ INDEX_MISSING', () => {
   const s = setupWired('M5');
   const resolver = createLibraryResolverPort({ libraries: [{ libId: 'L1', root: s.libRoot }] });
   const port = createItemStorePort({ libraries: resolver, onFallback: () => {} });
@@ -218,8 +234,13 @@ test('M5 ⭐ 条目端口错误码：.gs.db 损坏 ⇒ INDEX_CORRUPT；items.jso
   const fd = fs.openSync(dbPath, 'r+');
   fs.writeSync(fd, Buffer.alloc(16, 0), 0, 16, 0);
   fs.closeSync(fd);
-  assert.throws(() => port.listItems('L1'), isEngineError(ERR.INDEX_CORRUPT));
-  assert.throws(() => port.getItem('L1', 'whatever0000'), isEngineError(ERR.INDEX_CORRUPT));
+  // 库文件头被清零 ⇒ **打不开**（不是"索引坏了"）⇒ DB_OPEN_FAILED。
+  // 这条抓的是**假因果**：把"元数据坏了"报成 INDEX_CORRUPT，界面就会去"重新编码索引"（点了没用）。
+  const dbErr = captureThrow(() => port.listItems('L1'));
+  assert.ok(dbErr instanceof EngineError, '必须是引擎错误（普通 Error 会被信封归成 INTERNAL），实得 ' + String(dbErr));
+  assert.equal(dbErr.code, ERR.DB_OPEN_FAILED, '库打不开 ⇒ DB_OPEN_FAILED（与体检路径同名）；实得 ' + dbErr.code);
+  assert.notEqual(dbErr.code, ERR.INDEX_CORRUPT, '**不许**把"库坏了"说成"索引损坏"（T-42 的假因果）');
+  assert.throws(() => port.getItem('L1', 'whatever0000'), isEngineError(ERR.DB_OPEN_FAILED));
 
   const s2 = setupWired('M5b', { withDb: false });
   fs.rmSync(path.join(s2.libRoot, 'items.json'));
@@ -353,13 +374,108 @@ test('M8 ⭐⭐ 端口错误进了信封还是**带码的**（不是 INTERNAL）
   assert.equal(err2.details.skipped[0].reason.code, ERR.INDEX_CORRUPT, 'skipped 的原因里必须保留端口的 code');
   fs.writeFileSync(indexPath, good);
 
-  // .gs.db 坏掉 ⇒ 条目端口抛 INDEX_CORRUPT（不是 INTERNAL）
+  // .gs.db 坏掉 ⇒ 条目端口抛 **DB_OPEN_FAILED**（不是 INDEX_CORRUPT、也不是 INTERNAL）
   const dbPath = path.join(s.libRoot, '.gs.db');
   const fd = fs.openSync(dbPath, 'r+');
   fs.writeSync(fd, Buffer.alloc(16, 0), 0, 16, 0);
   fs.closeSync(fd);
   const itemDbBroken = await engine.item({ libId: 'L1', uid: s.fx.items[0].uid });
   const err3 = envelopeError(itemDbBroken);
-  assert.equal(err3.code, ERR.INDEX_CORRUPT);
+  assert.equal(err3.code, ERR.DB_OPEN_FAILED, '库打不开 ⇒ 信封里必须是 DB_OPEN_FAILED（与体检/引擎端口同名）；实得 ' + err3.code);
+  assert.notEqual(err3.code, ERR.INDEX_CORRUPT, '**不许**把"库打不开"说成"索引损坏"（T-42 的假因果）');
   assert.notEqual(err3.code, 'INTERNAL');
+});
+
+// ============================================================ M9 T-45 导入族错误码（引擎侧对应物）
+
+/** 带 code 的普通错误：模拟 db 层抛出的 main 私有码错误（引擎只对 EngineError 保码 ⇒ 必须经 asEngineError 转换） */
+function codedError(code, message) {
+  const e = new Error(message);
+  e.code = code;
+  return e;
+}
+
+/** T-45 新增的一族（顺序与 SPEC §5 的清单一致） */
+const IMPORT_CODES = [
+  'IMPORT_FAILED',
+  'IMPORT_INPUT_INVALID',
+  'IMPORT_SOURCE_INVALID',
+  'IMPORT_INDEX_UNREADABLE',
+  'IMPORT_RECORD_INVALID',
+  'IMPORT_DUPLICATE_UID',
+  'IMPORT_COUNT_MISMATCH',
+];
+
+test('M9 ⭐⭐ asEngineError：任意 IMPORT_* 原样透出（引擎端口映射不得归成 INDEX_CORRUPT）', () => {
+  for (const code of IMPORT_CODES) {
+    const mapped = asEngineError(codedError(code, '模拟导入族错误'), '读条目');
+    assert.ok(mapped instanceof EngineError, code + ' 必须转成引擎错误（普通 Error 会被信封归成 INTERNAL）');
+    assert.equal(mapped.code, code, code + ' 必须原样透出，实得 ' + mapped.code);
+    assert.notEqual(mapped.code, ERR.INDEX_CORRUPT, code + ' 不许被归成索引损坏（假因果）');
+  }
+});
+
+test('M9b ⭐⭐ 端到端：真 .gs.db 行类型不对 ⇒ IMPORT_RECORD_INVALID 进引擎信封（不是 INDEX_CORRUPT）', async () => {
+  // ✅ S2 已把端口改线（asset + asset_file + asset_index_state）⇒ 本条**不再 SKIP**：
+  //    坏的是**新表的真实列**（asset_file.size_bytes 是 INTEGER），塞文本进去 ⇒
+  //    端口读它时经 joinedRowToItemRecord 的取值器 ⇒ 类型不符 ⇒ IMPORT_RECORD_INVALID。
+  const s = setupWired('M9b');
+  const dbPath = path.join(s.libRoot, '.gs.db');
+  const opened = openGsDb({ dbPath });
+  try {
+    // 塞一个**文本**进 INTEGER 列：SQLite 动态类型会原样存下（列亲和性不报错），
+    // 于是"库里的值不合法"这件事只能由**读路径**发现 —— 这正是本条要打的失败模式。
+    opened.db.prepare("UPDATE asset_file SET size_bytes = ? WHERE uid = ? AND role = 'preview'")
+      .run('not-a-number', s.fx.items[0].uid);
+  } finally {
+    opened.db.close();
+  }
+  const ports = createStoragePorts({
+    libraries: createLibraryResolverPort({ libraries: [{ libId: 'L1', root: s.libRoot, label: '测试库' }] }),
+  });
+  const engine = createEngine({
+    config: { data_dir: path.join(s.base, 'data') },
+    encoder: fakeEncoder('first'),
+    storage: ports,
+  });
+  const bad = await engine.item({ libId: 'L1', uid: s.fx.items[0].uid });
+  const err1 = envelopeError(bad);
+  assert.equal(err1.code, ERR.IMPORT_RECORD_INVALID, '行类型不对必须如实报导入族码，实得 ' + err1.code);
+  assert.notEqual(err1.code, ERR.INDEX_CORRUPT, '**不许**把"元数据行不合法"说成"索引损坏"（假因果）');
+  assert.notEqual(err1.code, 'INTERNAL');
+  assert.ok(err1.userMessage.length > 0 && !/索引文件已损坏/.test(err1.userMessage), '文案也不许提索引损坏：' + err1.userMessage);
+
+  // 状态那条路（problems[].code）同样如实
+  const st = await engine.indexStatus();
+  assert.equal(st.data.libs[0].problems[0].code, ERR.IMPORT_RECORD_INVALID);
+});
+
+test('M9c ⭐⭐ S7b 端到端：.gs.db 损坏 ⇒ 经**引擎端口**读 ⇒ DB_OPEN_FAILED（**不得** INDEX_CORRUPT）', async () => {
+  // 口径与**体检路径同名**：health-rebuild 的 H5 断言 db-open.code === 'DB_OPEN_FAILED'（:226/:233/:436），
+  // 那边走 checkLibraryHealth；这里走**引擎端口**（ItemStorePort）。
+  // 两条路必须同码 —— 否则"一颗坏库两个名字"，正是 SPEC §5.2「库坏 ≠ 索引坏」要消掉的假因果。
+  const s = setupWired('M9c');
+  const dbPath = path.join(s.libRoot, '.gs.db');
+  // 把 .gs.db 头部写成垃圾 ⇒ 打开即失败（SQLite: file is not a database）
+  const fd = fs.openSync(dbPath, 'r+');
+  try {
+    fs.writeSync(fd, Buffer.from('NOT A SQLITE DATABASE FILE — S7b red/green probe'.repeat(2)), 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+
+  const ports = createStoragePorts({
+    libraries: createLibraryResolverPort({ libraries: [{ libId: 'L1', root: s.libRoot, label: '测试库' }] }),
+  });
+  const engine = createEngine({
+    config: { data_dir: path.join(s.base, 'data') },
+    encoder: fakeEncoder('first'),
+    storage: ports,
+  });
+
+  const bad = await engine.item({ libId: 'L1', uid: s.fx.items[0].uid });
+  const err = envelopeError(bad);
+  assert.equal(err.code, ERR.DB_OPEN_FAILED, '库文件坏 ⇒ 必须报 DB_OPEN_FAILED（与体检路径同名）；实得 ' + err.code);
+  assert.notEqual(err.code, ERR.INDEX_CORRUPT, '**不许**把"库打不开"说成"索引损坏"（假因果）');
+  assert.notEqual(err.code, 'INTERNAL', 'S7b 之后它已在引擎码空间里，不许掉回 INTERNAL');
 });

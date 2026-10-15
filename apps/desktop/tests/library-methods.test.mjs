@@ -10,12 +10,11 @@
 //   L7 坏 .gs.db：体检把它报出来（结构化）→ 重建修好 → 复检 ok
 //   IM1（T-42）IMPORT_* 经信封出去**不得**变成 INDEX_CORRUPT（假因果）
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import { validateCall, METHOD_NAMES } from '../src/shared/ipc.ts';
 import { runLibraryHealth, runLibraryRebuild } from '../src/main/library-ipc.ts';
@@ -23,7 +22,6 @@ import { materialDigest } from '../src/main/library-rebuild.ts';
 import { openGsDb, importItemsFromJson } from '../src/main/db/index.ts';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
-const LIB_IPC = fileURLToPath(new URL('../src/main/library-ipc.ts', import.meta.url));
 const REAL = path.join(ROOT, 'data', 'libraries', 'L1');
 const TMP = path.join(ROOT, 'data', '_t15a2', 'library-methods-' + process.pid);
 const TINY_JPEG = Buffer.from('/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==', 'base64');
@@ -233,27 +231,42 @@ test('L7 坏 .gs.db：体检报出来（结构化）→ 重建修好 → 复检 
 });
 
 test('IM1 ⭐ IMPORT_* 经信封出去**不得**变成 INDEX_CORRUPT（T-42 的假因果）', () => {
-  // 复现手法：SQLite 的临时目录不可写 ⇒ 导入**写数据阶段**报 "unable to open database file"
-  //   （纯 Node 实测：TEMP 可写 ⇒ ok；TEMP 指到不存在的目录 ⇒ 同样的 IMPORT_FAILED）
-  // ⚠️ 必须开子进程：SQLite 会把临时目录配置缓存住，同进程里前面成功导入过的用例会把这条"洗白"。
+  // 复现手法（2026-10-15 · S2b 更新）：在 items.json 里制造**两条不同 uid、同一 rel_path**。
+  //   它骗过导入的前置校验（只查重复 uid），在**写事务内**被计数复核抓到
+  //   ⇒ GsDbError(IMPORT_COUNT_MISMATCH) ⇒ 经 library-ipc 的信封出去必须**还是** IMPORT_*。
+  //
+  // ⚠️ 旧手法（把 TEMP/TMP 指到不存在的目录）**已失效**：那是 S2 改写前的失败路径 ——
+  //    旧导入用 3594 个占位符的 `NOT IN (...)` 大清单，SQLite 要落临时文件；
+  //    S2 的导入逐行 upsert、不再溢出到临时文件 ⇒ 同一条复现在今天会**成功**（本轮实测 res.ok=true）。
+  //    换触发点不是放宽：被钉的失败模式没变 ——「导入阶段的失败必须以 IMPORT_* 码出去，不许伪装成索引损坏」。
   const dir = cloneBase('importfail');
-  const bogus = path.join(TMP, 'no-such-temp-' + String(Date.now()));
-  const code = 'const m = await import(' + JSON.stringify(pathToFileURL(LIB_IPC).href) + ');'
-    + 'const res = m.runLibraryRebuild({ libId: "L1", libraries: [{ libId: "L1", root: ' + JSON.stringify(dir) + ' }], userDataDir: null });'
-    + 'console.log("RESULT" + JSON.stringify(res));';
-  // ⚠️ 毒化的是**真正生效**的临时目录（TEMP/TMP），不是只设 SQLITE_TMPDIR ——
-  //    实测：只把 SQLITE_TMPDIR 指到不存在的目录时，SQLite 会**回退**到可写的 TEMP 并成功。
-  //    这与 Electron 里那条失败路径同形（electron.exe 在沙箱里写不了系统 TEMP）。
-  const env = Object.assign({}, process.env, { TEMP: bogus, TMP: bogus });
-  delete env.SQLITE_TMPDIR;
-  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { env, encoding: 'utf8' });
-  const line = String(r.stdout || '').split(/\r?\n/).find((l) => l.startsWith('RESULT'));
-  assert.ok(line, '子进程应当打出 RESULT：' + (String(r.stdout) + String(r.stderr)).slice(0, 400));
-  const res = JSON.parse(line.slice('RESULT'.length));
-  assert.equal(res.ok, false, '临时目录不可写时导入必须失败（这就是复现路径）');
-  assert.equal(res.error.code, 'IMPORT_FAILED', 'code 必须是 IMPORT_FAILED（实测 ' + res.error.code + '）');
+  const itemsPath = path.join(dir, 'items.json');
+  const cloned = JSON.parse(fs.readFileSync(itemsPath, 'utf8'));
+  assert.ok(cloned.length >= 2, '夹具前提：items.json 至少两条');
+  assert.notEqual(cloned[1].relPath, cloned[0].relPath, '夹具前提：前两条的 relPath 本来不同（否则这条断言空转）');
+  assert.notEqual(cloned[1].uid, cloned[0].uid, '夹具前提：两条 uid 不同 ⇒ 前置校验放行，失败发生在写事务内');
+  cloned[1].relPath = cloned[0].relPath;          // 撞 UNIQUE(lib_id, rel_path) 的**路径**
+  fs.writeFileSync(itemsPath, JSON.stringify(cloned), 'utf8');
+
+  const res = runLibraryRebuild(deps(dir, LIBS(dir)));
+  assert.equal(res.ok, false, '路径撞车必须让重建失败（这就是复现路径）');
+  assert.equal(res.error.code, 'IMPORT_COUNT_MISMATCH', '写事务内的计数复核失败 ⇒ 必须是这个 IMPORT_* 码（实测 ' + res.error.code + '）');
   assert.notEqual(res.error.code, 'INDEX_CORRUPT', '**不许**把它说成索引损坏（假因果）');
-  assert.equal(res.error.details.rawCode, 'IMPORT_FAILED');
+  assert.equal(res.error.details.rawCode, res.error.code, 'details.rawCode 必须与 code 同名（信封不许二次改名）');
   assert.ok(res.error.userMessage.length > 0, 'userMessage 恒非空');
-  assert.ok(!/索引/.test(res.error.userMessage), '文案不许再提"索引损坏"：' + res.error.userMessage);
+  // 文案判据要**精确**：拦的是"谎称索引文件坏了"，不是"提到索引两个字"
+  //   （IMPORT_COUNT_MISMATCH 的引擎文案本来就写着"条目表与索引的条数对不上"，那是事实，不是假因果）。
+  assert.ok(
+    !/索引(文件)?(已)?损坏/.test(res.error.userMessage),
+    '文案不许声称"索引损坏"（那是另一条因果）：' + res.error.userMessage,
+  );
+
+  // 更强的正向断言：写事务**整条回滚** ⇒ 新建的 .gs.db 里一条事实行都没有（"没有半份导入"）
+  const opened = openGsDb({ dbPath: path.join(dir, '.gs.db'), readOnly: true });
+  try {
+    assert.equal(opened.db.prepare('SELECT COUNT(*) AS n FROM asset').get().n, 0, '失败的导入不许留下半条 asset 行');
+    assert.equal(opened.db.prepare('SELECT COUNT(*) AS n FROM asset_file').get().n, 0, 'asset_file 同样不许留行（CASCADE 之外也要自证）');
+  } finally {
+    opened.db.close();
+  }
 });
