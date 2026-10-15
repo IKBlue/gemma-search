@@ -18,7 +18,7 @@
     "build": "electron-vite build",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
-    "test": "node --test --test-isolation=none \"packages/engine/tests/*.test.mjs\" \"apps/desktop/tests/*.test.mjs\"",
+    "test": "node --test --test-isolation=none \"packages/engine/tests/*.test.mjs\" \"packages/indexer/tests/*.test.mjs\" \"apps/desktop/tests/*.test.mjs\"",
     "test:watch": "node --test --watch --test-isolation=none \"packages/engine/tests/*.test.mjs\" \"apps/desktop/tests/*.test.mjs\"",
     "e2e": "playwright test -c apps/desktop/e2e/playwright.config.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
