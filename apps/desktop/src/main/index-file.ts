@@ -23,6 +23,8 @@ import path from 'node:path';
 
 import { readIndexBin } from '../../../../packages/engine/src/index.ts';
 import type { IndexBin, IndexHeader } from '../../../../packages/engine/src/index.ts';
+import { AtomicWriteError, writeFileAtomicSync } from './atomic-write.ts';
+import type { AtomicFs } from './atomic-write.ts';
 import { isReservedLibraryName } from './gs-names.ts';
 import { GS_INDEX_NAME } from './storage-roots.ts';
 
@@ -196,6 +198,42 @@ export interface IndexWriteReport {
   reason: string;
 }
 
+/**
+ * `IndexFs` → `AtomicFs`（共享原子写的接缝）。
+ *
+ * ⚠️ **故意不提供 `mkdirSync`**：库根必须已经存在（Lead 裁定 U6 —— 静默 mkdir 出一个空库根 = 幽灵库，
+ *    本模块的 L8 用例就钉着这一条）。共享实现见到没有 mkdirSync 就**不建目录**。
+ */
+function atomicFsFromIndexFs(fsImpl: IndexFs): AtomicFs {
+  return {
+    existsSync: (p: string): boolean => fsImpl.existsSync(p),
+    writeFileSyncedSync: (p: string, data: Uint8Array): void => { fsImpl.writeFileSyncedSync(p, data); },
+    renameSync: (from: string, to: string): void => { fsImpl.renameSync(from, to); },
+    unlinkSync: (p: string): void => { fsImpl.unlinkSync(p); },
+  };
+}
+
+/**
+ * 把共享实现的失败**翻译回本模块的文案**（三处语义之一：用户可见的理由不许丢）。
+ * 码一律映射成 INDEX_WRITE_FAILED（由调用处决定）；这里只管人话。
+ */
+function stageMessageOf(e: AtomicWriteError, target: string, temp: string): string {
+  if (e.code === 'ATOMIC_VALIDATE_FAILED') {
+    return '写出的索引没通过五道校验 ⇒ **放弃覆盖原索引**（原索引原样保留）：' + e.reason + '。';
+  }
+  if (e.code === 'ATOMIC_RENAME_FAILED') {
+    return 'rename 覆盖失败：' + target + '（' + e.reason + '）。';
+  }
+  if (e.code === 'ATOMIC_WRITE_FAILED') {
+    return '写临时索引失败：' + temp + '（' + e.reason + '）。';
+  }
+  if (e.code === 'ATOMIC_BYTES_REQUIRED') {
+    // 上面两道字节检查已经拦过；走到这里说明共享实现与我们判断不一致 —— 如实透出，不吞
+    return '拒绝写这份索引：' + e.reason + '。';
+  }
+  return '索引原子写失败（' + e.code + '）：' + e.reason + '。';
+}
+
 /** 进程内自增序号：同名进程里两次写入不会撞同一个临时名 */
 let tempSeq = 0;
 
@@ -230,9 +268,12 @@ export function writeIndexAtomically(
   const fsImpl = opts.fs ?? NODE_INDEX_FS;
   const root = requireRoot(libraryRoot);
   const target = assertWritableGsPath(root, indexPathFor(root));
+  const seq = opts.seq ?? ++tempSeq;
+  // ⚠️ 临时路径**先过落点断言**（库根的直接子项 + 保留命名空间）—— 在交给共享实现之前就验掉，
+  //    并把**同一个**路径作为 tempPath 传下去（共享实现不再自己拼名字，避免两处名字规则漂移）。
   const temp = assertWritableGsPath(
     root,
-    path.join(root, INDEX_TEMP_PREFIX + String(process.pid) + '-' + String(opts.seq ?? ++tempSeq)),
+    path.join(root, INDEX_TEMP_PREFIX + String(process.pid) + '-' + String(seq)),
   );
 
   if (!(bytes instanceof Uint8Array)) {
@@ -246,42 +287,31 @@ export function writeIndexAtomically(
     throw new IndexFileError('INDEX_BYTES_REQUIRED', '拒绝写 0 字节索引：那会把一份好索引变成一个必然损坏的文件');
   }
 
-  try {
-    fsImpl.writeFileSyncedSync(temp, bytes);
-  } catch (e) {
-    throw new IndexFileError(
-      'INDEX_WRITE_FAILED',
-      '写临时索引失败：' + temp + '（' + reasonOf(e) + '）。' + cleanupTemp(fsImpl, temp),
-      { cause: e },
-    );
-  }
-
-  let validation: IndexValidation | null = null;
   const validateBeforeRename = opts.validateBeforeRename !== false;
-  if (validateBeforeRename) {
-    const validate = opts.validate ?? ENGINE_INDEX_VALIDATOR;
-    try {
-      validation = validate(temp);
-    } catch (e) {
-      throw new IndexFileError(
-        'INDEX_WRITE_FAILED',
-        '写出的索引没通过五道校验 ⇒ **放弃覆盖原索引**（原索引原样保留）：' + reasonOf(e) +
-          '。' + cleanupTemp(fsImpl, temp),
-        { cause: e },
-      );
-    }
-  }
+  const validate = opts.validate ?? ENGINE_INDEX_VALIDATOR;
+  // 校验报告由共享实现的 validate 钩子产出；用数组接（TS 不会把闭包里的赋值当成"没发生"）
+  const seenValidations: IndexValidation[] = [];
+  /** 失败时的清理**由本模块做**：报错文案里必须有「已清理 / 未能删除」的留痕（L4a-c 的契约） */
+  let cleanupNote = '';
 
   try {
-    fsImpl.renameSync(temp, target);
+    writeFileAtomicSync(target, bytes, {
+      fs: atomicFsFromIndexFs(fsImpl),
+      tempPath: temp,
+      ...(validateBeforeRename
+        ? { validate: (tempPath: string): void => { seenValidations.push(validate(tempPath)); } }
+        : {}),
+      cleanup: (tempPath: string): void => { cleanupNote = cleanupTemp(fsImpl, tempPath); },
+    });
   } catch (e) {
-    throw new IndexFileError(
-      'INDEX_WRITE_FAILED',
-      'rename 覆盖失败：' + target + '（' + reasonOf(e) + '）。' + cleanupTemp(fsImpl, temp),
-      { cause: e },
-    );
+    if (e instanceof AtomicWriteError) {
+      // ⚠️ 三处语义**都不许丢**：① 仍是 IndexFileError；② 码仍是 INDEX_WRITE_FAILED；③ 文案带清理留痕
+      throw new IndexFileError('INDEX_WRITE_FAILED', stageMessageOf(e, target, temp) + cleanupNote, { cause: e });
+    }
+    throw e;
   }
 
+  const validation: IndexValidation | null = seenValidations.length > 0 ? seenValidations[0] : null;
   const validatedPart =
     validation === null
       ? '（未校验：validateBeforeRename=false）'

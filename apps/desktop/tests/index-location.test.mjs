@@ -369,3 +369,70 @@ test('L8 ⭐ 库根不存在 ⇒ 报错，不顺手创建（U6：静默建空库
   assert.equal(fs.existsSync(missing), false, '不许创建库根');
   assert.equal(fs.existsSync(path.dirname(missing)), false, '连父目录也不许顺手创建');
 });
+
+// ============================================================ DF-8：索引写入复用共享原子写
+
+test('L9 ⭐⭐ 调用序列证明复用的是**同一份**原子写：只写临时名 → rename(temp→target)，且**不建目录**', () => {
+  const dir = makeLib('L9');
+  const fsImpl = fakeFs();
+  // 假 fs 额外记一笔 mkdir：库根必须已存在（U6），共享实现**不该**去建它
+  const mkdirCalls = [];
+  fsImpl.mkdirSync = (p) => { mkdirCalls.push(p); };
+  const w = writeIndexAtomically(dir, Buffer.from([1, 2, 3, 4]), {
+    fs: fsImpl,
+    validate: () => ({ count: 7, dim: 8 }),
+    seq: 11,
+  });
+
+  const temp = path.join(dir, INDEX_TEMP_PREFIX + String(process.pid) + '-11');
+  assert.equal(w.tempPath, temp, '临时名必须由本模块算好并断言过（再交给共享实现）');
+  assert.deepEqual(fsImpl.calls.write.map((x) => x.p), [temp], '唯一一次写入必须落到临时名上（绝不直接写目标名）');
+  assert.deepEqual(fsImpl.calls.rename, [[temp, indexPathFor(dir)]], 'rename 是 temp → 目标 那一步');
+  assert.deepEqual(fsImpl.calls.unlink, [], '成功路径不需要删任何东西');
+  assert.deepEqual(mkdirCalls, [], '库根不许被顺手创建（U6；共享实现没拿到 mkdirSync 就不建）');
+  assert.equal(w.validated, true);
+  assert.equal(w.count, 7);
+  assert.equal(w.dim, 8);
+  assert.match(w.reason, /已原子写入/);
+});
+
+test('L10 ⭐⭐ 能红锚点：rename 失败 ⇒ 仍是 IndexFileError(INDEX_WRITE_FAILED) + 清理留痕 + **目标没被写过**', () => {
+  const dir = makeLib('L10');
+  const fsImpl = fakeFs();
+  fsImpl.renameSync = (a, b) => { fsImpl.calls.rename.push([a, b]); throw mkErr('EPERM', b); };
+
+  let err = null;
+  try {
+    writeIndexAtomically(dir, Buffer.from([9, 9, 9]), { fs: fsImpl, validate: () => ({ count: 1, dim: 2 }), seq: 12 });
+  } catch (e) {
+    err = e;
+  }
+  const temp = path.join(dir, INDEX_TEMP_PREFIX + String(process.pid) + '-12');
+  assert.ok(err instanceof IndexFileError, '失败必须仍是本模块的类型（不许把 AtomicWriteError 漏出去）');
+  assert.equal(err.code, 'INDEX_WRITE_FAILED', '码不许被共享实现的 ATOMIC_* 改名');
+  assert.match(err.message, /rename 覆盖失败/, '人话理由要保留');
+  assert.match(err.message, /已清理临时文件/, '清理留痕要保留');
+  assert.deepEqual(fsImpl.calls.write.map((x) => x.p), [temp], '只写过临时名 ⇒ 目标名下没有发生过写');
+  assert.deepEqual(fsImpl.calls.rename, [[temp, indexPathFor(dir)]], 'rename 尝试过一次（就是它失败的）');
+  assert.deepEqual(fsImpl.calls.unlink, [temp], '失败后必须把临时文件删掉');
+  assert.ok(!fsImpl.calls.write.some((x) => x.p === indexPathFor(dir)), '绝不允许直接写目标名');
+});
+
+test('L11：validateBeforeRename=false 仍然有效（不校验、report 如实说未校验）', () => {
+  const dir = makeLib('L11');
+  const fsImpl = fakeFs();
+  let called = 0;
+  const w = writeIndexAtomically(dir, Buffer.from([5, 5]), {
+    fs: fsImpl,
+    validateBeforeRename: false,
+    validate: () => { called += 1; return { count: 1, dim: 1 }; },
+    seq: 13,
+  });
+  assert.equal(called, 0, '关了校验就不该调用校验器');
+  assert.equal(w.validated, false);
+  assert.equal(w.count, null);
+  assert.equal(w.dim, null);
+  assert.match(w.reason, /未校验/);
+  assert.deepEqual(fsImpl.calls.write.map((x) => x.p), [path.join(dir, INDEX_TEMP_PREFIX + String(process.pid) + '-13')]);
+  assert.deepEqual(fsImpl.calls.rename.length, 1);
+});

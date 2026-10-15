@@ -1,0 +1,107 @@
+================================================================================
+DF-8 证据 · 索引写入复用共享原子写（P1 收敛：一份编排，接缝分流）
+任务板 id: task-74   执行: db-worker   日期: 2026-10-15
+边界：main/index-file.ts · main/atomic-write.ts（扩接缝）· tests/index-location.test.mjs
+     **未动** packages/indexer/** · main/encoder.* · thumb-cache.ts 的既有行为（DF-4 的 22 条仍绿）
+===============================================================================
+
+【结论】
+· index-file.ts 的写入编排**已改为复用** atomic-write.ts 的唯一实现 ⇒ 「第二份原子写编排」**0 残留**（§6 有改前/改后 grep）。
+· 卡片列的三处语义**逐条保住**，每条都有 code 位置 + 用例（§3）。
+· 基线：改后**同一批 41/41 全绿**（引用既有证据说明「改前」状态，§4）。
+· 能红：把共享实现的 tempPath 换成目标名（= 直接写目标、非原子）⇒ **7 条红**（含 L9/L10/L4c/L4a），回滚后 41/41 复绿（§5）。
+· 门禁：四个文件 **41/41** · tsc node **0** · npm test **600 / pass 599 / fail 0 / skipped 1**。
+
+【1. 改了什么】
+· **atomic-write.ts（扩接缝，DF-4 行为不变）**：
+  · `tempPath?`：调用方先断言过合法性的临时路径 —— **必须与目标同目录**，否则抛 `ATOMIC_TEMP_OUTSIDE_DIR`
+    （同卷 rename 才原子；跨目录会退化甚至 EXDEV）；
+  · `cleanup?`：接管失败清理（调用方要自己的留痕文案）；
+  · `AtomicFs.mkdirSync` 改**可选**（不给就**不建目录**）；
+  · `AtomicWriteError` 增 `reason`（底层原因）与 `tempPath`（供调用方组文案/清理）。
+· **index-file.ts**：
+  · 新增 `atomicFsFromIndexFs(fsImpl)`（IndexFs → AtomicFs，**故意不给 mkdirSync**）；
+  · 新增 `stageMessageOf(e, target, temp)`（把共享实现的 ATOMIC_* 失败翻回本模块人话）；
+  · `writeIndexAtomically` 主体改为一次 `writeFileAtomicSync(target, bytes, { fs, tempPath: temp, validate, cleanup })`；
+    临时路径仍**先过 assertWritableGsPath**，再把**同一个**路径传下去（名字规则不再有两份 ⇒ P1 的正解）。
+· **index-location.test.mjs**：加 L9 / L10 / L11（§3、§5 引用）。
+
+【2. 三处语义逐条给证据（卡片风险点）】
+① **临时名在 .gs- 命名空间、且受 assertWritableGsPath 约束**
+   · code：index-file.ts `const temp = assertWritableGsPath(root, path.join(root, INDEX_TEMP_PREFIX + pid + '-' + seq))`
+     —— 断言在调用共享实现**之前**；共享实现拿到的是这**同一个**路径（不再自己拼名）。
+   · 用例 L9：`w.tempPath === path.join(dir, INDEX_TEMP_PREFIX + process.pid + '-11')`，且
+     `calls.write == [temp]`、`calls.rename == [[temp, target]]`、**mkdir 调用 0 次**。
+   · 既有用例 L2（命名约束：素材路径/子目录/穿越一律 INDEX_PATH_OUTSIDE_GS）**仍绿**。
+② **失败仍抛 IndexFileError 并带自己的码**
+   · code：`catch (e) { if (e instanceof AtomicWriteError) throw new IndexFileError('INDEX_WRITE_FAILED', stageMessageOf(e, target, temp) + cleanupNote, { cause: e }); throw e; }`
+     —— `AtomicWriteError` **绝不外漏**，码恒为 INDEX_WRITE_FAILED（字节类问题在更前面就用 INDEX_BYTES_REQUIRED 拦掉）。
+   · 用例 L10：`err instanceof IndexFileError` + `err.code === 'INDEX_WRITE_FAILED'` + 文案含 `rename 覆盖失败` 与 `已清理临时文件`。
+   · 既有用例 L4a（校验不过）/ L4b（rename 失败）/ L4c（连临时文件都删不掉）/ L7（0 字节与非 Uint8Array）/ L8（不建库根）**全绿**。
+③ **IndexValidation 报告进 IndexWriteReport 文案**
+   · code：`seenValidations.push(validate(tempPath))` 在共享实现的 validate 钩子里 → 调用后
+     `const validation = seenValidations.length > 0 ? seenValidations[0] : null` → 进 `validated / count / dim / reason`。
+     （用数组接住报告：闭包里赋值对 TS 的控制流分析不友好，数组读法既无断言也不撒谎。）
+   · 用例 L3：`validated === true` · `count === 3594` · `dim === 768` · `reason` 匹配 `/已原子写入/`（全绿）。
+   · L11：`validateBeforeRename:false` ⇒ 校验器**不被调用** · `validated === false` · `count/dim === null` · reason 含「未校验」。
+
+【3. 基线（纪律 19 之后的口径）】
+· **改后同一批（本轮实测）**：`index-location` · `s3-index-state` · `gs-names-single-source` · `thumb-cache`
+  ⇒ `tests 41 · pass 41 · fail 0 · skipped 0`（STEP1=0）。
+· 「改前」状态**引用既有证据**（AGENTS 证据协议第 3 条，非本轮实测）：
+  · `thumb-cache.test.mjs` 22/22 —— DF-4 时 Lead 本人跑过；
+  · `gs-names-single-source` 4/4 —— DF-3 时 Lead 本人跑过；
+  · `index-location` / `s3-index-state` —— 上一轮权威全量（583/596 通过那次）里是绿的。
+· Lead 裁定（2026-10-15）：**不需要回退重跑基线**（回退再改回来反而制造一次未审写入）⇒ 本卡采用
+  「改后同批全绿 + 逐条核对语义」作为等价证据。
+
+【4. 能红实测（变异注入 → 失败原文 → 回滚）】
+变异：把 `writeIndexAtomically` 传给共享实现的 `tempPath` 由 `temp` 改成 `target`
+     （= 直接写目标名、rename 成自己 ⇒ 完全绕开原子写）
+$ node --test apps/desktop/tests/index-location.test.mjs
+  ✖ L4a 坏 buffer 不许覆盖好索引 · ✖ L4b rename 失败 · ✖ L4c 连临时文件都删不掉
+  ✖ L5 写入只碰 .gs-* · ✖ L9 调用序列 · ✖ L10 能红锚点 · ✖ L11 validateBeforeRename=false
+  ⇒ tests 13 / pass 6 / **fail 7**
+  断言原文（两条最有代表性的）：
+    · `AssertionError: 只写临时名，绝不直接写目标名 / actual: false, expected: true`（L4c）
+    · `AssertionError: 本任务只该新增索引文件本身 / actual: [], expected: [ '.gs-index.bin' ]`（L5）
+    · L4b：`The input did not match the regular expression /rename 覆盖失败/`（实得「写临时索引失败… EISDIR」——
+      因为写目标名那一步先炸了）⇒ 证明「码/文案」这两处语义真的挂了钩子。
+  ⇒ 回滚后同一批 **41/41 绿**（§7 STEP1 复核）。
+
+【5. 纪律 17「0 残留」：先跑 grep、贴输出、后结论】
+改前（本卡开工时跑）：`apps/desktop/src/main` 里「写 + rename」编排出现在
+  `index-file.ts:250(write temp) / :276(rename)` 与 `atomic-write.ts:126 / :143`。
+  （其余命中 log.ts:196 日志截断 · window-state.ts:188 JSON · storage-roots.ts:141 探针 · index.ts:1121 PNG ·
+    library-config.ts:235 JSON —— 都**不是**临时名 + rename 编排。）
+改后（本轮跑）：**编排只剩一处** —— `atomic-write.ts:158 fsImpl.writeFileSyncedSync(temp, bytes)` 与
+  `:180 fsImpl.renameSync(temp, target)`。
+  index-file.ts 剩余命中**都不是编排**，逐条说明：
+    :68 接口文档注释 · :74/:75 `IndexFs` **端口声明**（可注入面）· :86/:95/:96 `NODE_INDEX_FS` **适配器**（透传 fs）·
+    :210/:211 `atomicFsFromIndexFs` **适配器**（透传 IndexFs）。
+  ⇒ 结论（后于命令）：**第二份编排 0 残留**；剩下的只是「端口 + 适配器」，不再是本模式的第二份实现。
+
+【6. 门禁原始输出】
+$ node --test …index-location …s3-index-state …gs-names-single-source …thumb-cache
+  ⇒ tests 41 · pass 41 · fail 0 · skipped 0            （STEP1=0）
+$ npx tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile data/_verify/node.tsbuildinfo
+  ⇒ STEP2_NODE_TSC=0（0 行输出）
+$ node --test apps/desktop/tests/index-location.test.mjs（能红那一轮，见 §4）⇒ fail 7 → 回滚 ⇒ 41/41
+$ npm test ⇒ tests **600** · pass **599** · fail **0** · skipped **1**   （STEP4_NPM=0）
+  ⚠️ 跑前按**纪律 6**扫了进程：当时确实有别的 electron/node 进程在跑（输出里有 4 个 electron + 3 个 node）。
+     你已在放行时说明「门禁那轮已被污染、现在没有'别人在跑'的问题」，我据此继续；但按**纪律 19**，
+     **权威结论以你在所有写入停止后重跑的门禁为准** —— 我这一轮的数字只作为本卡的开发期证据。
+
+【7. 边界 / 未做（如实写）】
+· **未动** `packages/indexer/**` 与 `main/encoder.*`（编码基线护栏）· **未改** thumb-cache 的既有行为
+  （它的 22 条在本轮 STEP1 里全绿）· 未动 renderer/**。
+· 没做「改前基线」的独立重跑（Lead 裁定不需要；见 §3 的引用口径）。
+· 没动 `.gs-db` 家族/事务 journal 的写入路径（它们不在本卡射程；本卡只收敛"覆盖已有文件"这一类）。
+
+【8. 回滚】
+· index-file.ts：把 `writeIndexAtomically` 主体改回「自己 write/validate/rename + cleanupTemp」，
+  删掉 `atomicFsFromIndexFs` / `stageMessageOf` 与 atomic-write 的 import；
+· atomic-write.ts：删 `tempPath` / `cleanup` / 可选 mkdir / `AtomicWriteError.reason|tempPath`（DF-4 的调用方不受影响）；
+· tests/index-location.test.mjs：删 L9/L10/L11。
+· 未跑 git（AGENTS P7）。临时物：data/_verify/*.tsbuildinfo · data/_t11（用例 after() 自清）。
+===============================================================================
