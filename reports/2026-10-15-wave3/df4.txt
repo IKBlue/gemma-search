@@ -1,0 +1,111 @@
+================================================================================
+DF-4 证据 · thumb-cache 原子写 + 截断文件不再永久命中
+任务板 id: task-71   执行: db-worker   日期: 2026-10-15
+边界：main/thumb-cache.ts · main/atomic-write.ts（新增，共享范式）· tests/thumb-cache.test.mjs
+     未动 renderer/** · 未动 index-file.ts（说明见 §8）· 缓存落在 dataDir，**没碰任何素材**（P4 无关）
+===============================================================================
+
+【结论】
+· Lead 报的那处**核实为真**：thumb-cache.ts 的 writeCachedThumb 直接写目标名（裸 writeFileSync），
+  而 readCachedThumb 只把 **0 字节**当未命中 ⇒ **非零但截断**的 JPEG 会被**永久**当成命中，界面拿到一张永远坏掉的图。
+· 修法两条**缺一不可**：① 写侧改**原子写**（临时名 → fsync → 校验落盘的那份 → rename）；
+  ② 读侧加**最小有效性判据**（SOI 开头 + 尾部 EOI + 长度 ≥ 4）。
+· 共享范式提取成新模块 **main/atomic-write.ts**（本仓唯一一份原子写实现）；thumb-cache 不再有自己的一套。
+· **能红实测两组**（§5）：退回旧读规则 ⇒ C8 红；绕过 rename（非原子）⇒ C11 红。两次都回滚复绿。
+· 门禁：tsc web **0** · tsc node **0**（干净跑）· build **0** · npm test **597 / pass 596 / fail 0 / skipped 1**。
+
+【1. 缺陷（改前）】
+· thumb-cache.ts 旧写侧（约 :97-105）：
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    fs.writeFileSync(cachePath, bytes);          // ← 直接写目标名：中途被杀 ⇒ 半截文件
+· thumb-cache.ts 旧读侧（约 :73-84）：
+    const bytes = fs.readFileSync(cachePath);
+    if (!bytes || bytes.length === 0) { …未命中… }   // ← 只认 0 字节
+    return { hit: true, bytes, … };                    // ← 非零的截断文件**永久命中**
+· 缓存**从不校验、从不失效**：一旦写坏，除非用户手删 data/thumbs/，那张图永远修不好。
+· 对比同仓库 index-file.ts（:226-283）：临时名 → writeFileSyncedSync（含 fsync）→ 五道校验 → rename → 失败清理。
+  ⇒ 卡片说的"同一概念的第二种（更弱的）实现"成立：索引路径有这个保障，缩略图缓存没有。
+
+【2. 改法（改后）】
+· **main/atomic-write.ts（新增）** —— 原子写的**唯一**实现，范式四处缺一不可（都在注释里写了为什么）：
+    ① 临时名与目标**同目录**（同卷 rename 才原子）；② 写完 **fsync**；③ （可选）校验**临时文件**，不通过就放弃覆盖；
+    ④ rename 覆盖；任何一步失败都**清掉临时文件**；0 字节直接拒（写下去只会把好文件换成必然损坏的）。
+  对外：AtomicFs（可注入 ⇒ 失败路径能被单测**真跑**）/ writeFileSynced / NODE_ATOMIC_FS /
+        AtomicWriteError / writeFileAtomicSync。
+· **thumb-cache.ts 读侧**：新增 checkCachedThumbBytes（导出，判据与测试同源）——
+    长度 ≥ MIN_CACHED_THUMB_BYTES(4) 且以 FF D8 开头 且以 FF D9 结尾；不通过 ⇒ hit=false 且**理由写明是哪一条**。
+  注释写明它是**必要不充分**条件（不引解码器：读热路径），以及"读路径不删坏文件（无副作用），
+  由调用方的原子写覆盖它"。
+· **thumb-cache.ts 写侧**：先校验要写的字节（不合格 ⇒ 拒绝写且**不碰**旧文件），再用 writeFileAtomicSync；
+  其 validate 钩子**再校验落盘的那份临时文件**（并比对字节数 —— 短写/坏介质都能抓到）。
+  仍然"不抛"（缓存失败不许让这次请求失败），失败给 {ok:false, error}。
+· 调用点（main/index.ts:1001 的 out.toJPEG(82)）**没改**：写进去的本来就是真 JPEG（读侧也一直按 image/jpeg 出图），
+  所以严格校验不会误伤产品路径。
+
+【3. 改前 → 改后 → 为何**不是放宽**】
+| 维度 | 改前 | 改后 | 为什么不是放宽 |
+|---|---|---|---|
+| 读：截断文件 | 命中（返回半截字节） | **未命中** + 理由 | 断言从「只有 0 字节算未命中」变成「任何不完整 JPEG 都算未命中」⇒ **更强**（同一条 C4 仍然绿，另加 C7/C8） |
+| 写：落盘方式 | 裸写目标名（可留半截） | 临时名 → fsync → 校验 → rename | 新增的是**失败时不破坏旧文件**这一性质（C11 用假 fs 真跑），旧实现根本不具备 ⇒ 纯增 |
+| 写：入参校验 | 什么都写 | 只写完整 JPEG，否则拒绝 | 从「无条件写」变成「有条件写」⇒ 更严；旧测试 C5/C6 的载荷因此要改成真 JPEG（**收紧载荷**，不是放宽断言） |
+| 缓存失败时的请求 | 不失败（正确） | **仍然不失败** | 这条**没变**（C2/C6 照旧绿）—— 缓存只是加速，不因它让用户拿不到图 |
+| 资产安全 | 只写 dataDir | 只写 dataDir | 缓存在程序数据目录，**不是素材库** ⇒ 不涉 P4；且全程没有素材目录的写路径 |
+
+【4. 读侧判据为什么是「SOI + EOI」而不是"拷一个解码器"】
+· 缓存层唯一的失败模式是**写了一半**（进程被杀/掉电）⇒ 尾部不会有 EOI（JPEG 的结束标记）；SOI 再排掉"根本不是图"。
+· 真解码要引 nativeImage/解码库进**读热路径**，代价与收益不成比例；注释里如实写了"必要不充分"，
+  不声称"通过判据 ⇒ 一定能解码"。
+· 长度下限取 4（SOI+EOI 最少 4 字节）而不是拍一个"看起来像图"的魔数（如 128）——
+  那种阈值会误杀合法的小缩略图，而且没有依据。
+
+【5. 能红实测（变异注入 → 失败原文 → 回滚）】
+能红① 把读侧判据退回**旧规则**（只把 0 字节当未命中）：
+  ✖ C8 · ✖ C10   ⇒ tests 22 / pass 20 / fail 2
+  断言原文：`AssertionError: 截断的 JPEG 不是一张图 —— 必须未命中并重新生成 / actual: true, expected: false`
+  （actual=true = 旧实现把半截文件当成了命中 —— 正是卡片描述的症状）
+  ⇒ 回滚后 22/22 绿。
+能红② 让原子写**绕过 rename**（直接写目标名，模拟"更弱的第二份实现"）：
+  ✖ C11   ⇒ tests 22 / pass 21 / fail 1
+  断言原文：`AssertionError: rename 失败必须报 ok=false / actual: true, expected: false`
+  ⇒ 回滚后 22/22 绿。
+（C8 里还留了一条**判别力自证**：把旧规则写成 oldRule(bytes)=bytes.length>0，
+ 断言它在同一份截断字节上返回 true、与新实现相反 —— 说明这条用例不是恒真。）
+
+【6. 测试清单（apps/desktop/tests/thumb-cache.test.mjs，22 条全绿；新增 5 条）】
+  C7  ⭐⭐ 判据本身：完整 JPEG 通过；缺 EOI / 0 字节 / 长度不足 / 缺 SOI / null / undefined 逐条拒
+  C8  ⭐⭐ **非零但截断**的缓存必须未命中（+ 旧规则会命中的判别力自证 + 补全后必须命中的对照）
+  C9  ⭐ 写侧拒绝不合格字节：不写、**不碰**已存在的好缓存（旧缓存仍可读）
+  C10 ⭐⭐ 原子写：写完目录里**只剩目标文件**（临时名已 rename 掉）· 字节逐位一致 · 坏缓存被重算覆盖
+  C11 ⭐⭐ 失败路径**真跑**（假 fs）：rename 失败 ⇒ ok=false + 旧文件完好 + 临时文件清掉；
+      短写 ⇒ 落盘校验抓住 + 目标不动 + 临时文件清掉；对照组正常写入成功
+  改到的既有用例（载荷收紧，断言没放宽）：
+  · C3 原来用 [FF D8 FF E0 01 02 03]（**没有 EOI**）当"真缓存" ⇒ 按新判据那不是一张图，
+    改成 jpeg() 并把注释指向判据；C5/C6 的 Buffer.from('jpg') 同理换成 jpeg()。
+
+【7. 门禁原始输出（纪律 16：干净跑）】
+$ npx tsc --noEmit -p tsconfig.web.json --tsBuildInfoFile data/_verify/web.tsbuildinfo   ⇒ WEB_TSC=0
+$ npx tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile data/_verify/node.tsbuildinfo ⇒ NODE_TSC=0
+$ npm run build                                                                          ⇒ BUILD=0（三端产物齐）
+$ npm test ⇒ tests 597 · pass 596 · fail 0 · skipped 1   （NPM=0）
+  · 跑之前按**纪律 6**先扫过进程：无其它 node/electron/pwsh 在跑（输出为空）。
+  · 期间出现过一次 **别人在自己文件里**的中间态（main/gs-names.ts 的 re-export 还没带上 isMaterialEntryName，
+    导致 library-rebuild.ts 报 TS2305）—— 那是并行的另一张卡；等它落地后本轮 tsc 即为 0（如实记录，不当成我的错）。
+
+【8. 边界 / 残留（如实写，不夸大）】
+· **index-file.ts 我没动**。它仍有一段**同概念**的编排（临时名 → fsync → 校验 → rename → 清理）。
+  卡片允许"碰它的提取，但**先说明**"⇒ 我先说明再等裁定，不擅自改一条关键路径。合并它需要动的东西：
+    ① 它的临时名在 **.gs- 命名空间**里（库根内，受 assertWritableGsPath 约束）—— 本模块的临时名规则要支持自定义前缀/前缀校验；
+    ② 它的失败要抛 **IndexFileError** 并带自己的码（INDEX_WRITE_FAILED / INDEX_BYTES_REQUIRED）；
+    ③ 它的 validate 返回 **IndexValidation 报告**，而报告要进 IndexWriteReport 的文案。
+  ⇒ 草图：本模块已把 ①②③ 的**接缝**留好（AtomicFs 注入 / validate(tempPath) / AtomicWriteError(code)），
+    把 index-file 的 temp 命名与错误码映射过来即可；但它动的是**索引写入路径**，建议单独一张小卡（先跑它的测试当基线）。
+· **缓存位置**：`dataDir/thumbs/...`（程序数据目录），**不是素材库** ⇒ 不触 P4；本卡没有新增任何写素材的路径。
+· **未测**：真·进程被杀（没有可靠的"写到一半杀掉"注入手段）；我用的是**假 fs 注入失败路径**（rename 抛错、短写），
+  这在语义上覆盖了"写不完整 + rename 前失败"，但**不能说**等同真掉电/真 SIGKILL。这一点如实写在这里。
+· 缓存**没有**加 TTL/版本号：判据只要"完整 JPEG"，没有引入"缓存过期"这种新语义（避免顺手改需求）。
+
+【9. 回滚】
+· 删 apps/desktop/src/main/atomic-write.ts；thumb-cache.ts 的读写两侧改回裸 writeFileSync + 只看 0 字节；
+· tests/thumb-cache.test.mjs：删 C7–C11、把 C3/C5/C6 的载荷改回原来的三/七字节（**不建议**：那是把 DF-4 装回去）；
+· 未跑 git（AGENTS P7）。临时物：data/_verify/*.tsbuildinfo（TypeScript 缓存，可删）。
+===============================================================================

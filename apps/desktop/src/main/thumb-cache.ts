@@ -31,6 +31,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { AtomicWriteError, writeFileAtomicSync } from './atomic-write.ts';
+import type { AtomicFs } from './atomic-write.ts';
 import { codeOf, messageOf } from './errors.ts';
 import { thumbFailureStatus } from './thumb-url.ts';
 
@@ -64,17 +66,50 @@ export interface ThumbCacheRead {
   reason: string;
 }
 
+/** JPEG 起点（SOI）：FF D8 */
+const JPEG_SOI: readonly [number, number] = [0xff, 0xd8];
+/** JPEG 终点（EOI）：FF D9 —— **尾部必须有它**，这是「这张图是完整的」最便宜最可靠的判据 */
+const JPEG_EOI: readonly [number, number] = [0xff, 0xd9];
+/** 一条有效缓存至少要有 SOI + EOI 四个字节 */
+export const MIN_CACHED_THUMB_BYTES: number = 4;
+
 /**
- * 读缓存。**不抛**：文件不存在、权限不足、半截文件都只是"没命中"，并把原因带上。
+ * 缓存字节的**最小有效性判据**（DF-4）。
  *
- * ⚠️ **0 字节算未命中**：写缓存可能被进程中途杀掉而留下 0 字节文件；
- *    把它当命中会让界面拿到一张空图，而且**永远不会再重算**（比慢一点坏得多）。
+ * 为什么必须有它：缓存**只写不校验** —— 进程在 write 中途被杀会留下
+ * **非零但截断**的 JPEG，而旧实现只把 **0 字节**当未命中 ⇒ 截断文件**永久命中**，
+ * 界面拿到一张永远坏掉的图（缓存从不失效，除非用户手删目录）。
+ *
+ * 判据只做**最便宜的那两条**（不引解码器 —— 这里是读热路径）：
+ *   ① 长度 ≥ 4 且以 FF D8（SOI）开头；② 以 FF D9（EOI）结尾 —— 截断的 JPEG 尾部不会是 EOI。
+ * ⚠️ 它是**必要不充分**条件：通过 ≠ 一定能解码（那要真解码器，代价不值）。但「尾部有 EOI」
+ *    已经能挡掉「半截文件」，而这正是缓存层唯一的失败模式。
+ */
+export function checkCachedThumbBytes(bytes: Uint8Array | null | undefined): { ok: true } | { ok: false; reason: string } {
+  if (!bytes || bytes.length === 0) return { ok: false, reason: '缓存文件是 0 字节' };
+  if (bytes.length < MIN_CACHED_THUMB_BYTES) {
+    return { ok: false, reason: '长度只有 ' + String(bytes.length) + ' 字节（不足 ' + String(MIN_CACHED_THUMB_BYTES) + '，连 SOI/EOI 都放不下）' };
+  }
+  if (bytes[0] !== JPEG_SOI[0] || bytes[1] !== JPEG_SOI[1]) return { ok: false, reason: '开头不是 JPEG SOI（FF D8）' };
+  if (bytes[bytes.length - 2] !== JPEG_EOI[0] || bytes[bytes.length - 1] !== JPEG_EOI[1]) {
+    return { ok: false, reason: '尾部不是 JPEG EOI（FF D9）—— 文件被截断了' };
+  }
+  return { ok: true };
+}
+
+/**
+ * 读缓存。**不抛**：文件不存在、权限不足、半截文件都只是「没命中」，并把原因带上。
+ *
+ * ⚠️ **0 字节算未命中**，**非零但截断的 JPEG 也算未命中**（DF-4 修的就是后者）。
+ *    把它当命中会让界面拿到一张坏图，而且**永远不会再重算**（比慢一点坏得多）。
+ * 注意：这里**不删**坏文件 —— 读路径不该有副作用；调用方重新生成时会用**原子写**覆盖它。
  */
 export function readCachedThumb(cachePath: string): ThumbCacheRead {
   try {
     const bytes = fs.readFileSync(cachePath);
-    if (!bytes || bytes.length === 0) {
-      return { hit: false, bytes: null, reason: '缓存文件是 0 字节（当作未命中，重新生成）' };
+    const v = checkCachedThumbBytes(bytes);
+    if (!v.ok) {
+      return { hit: false, bytes: null, reason: v.reason + '（当作未命中，重新生成）' };
     }
     return { hit: true, bytes, reason: '缓存命中（' + bytes.length + ' 字节）' };
   } catch (e) {
@@ -90,16 +125,51 @@ export interface ThumbCacheWrite {
   error: string | null;
 }
 
+/** 写缓存的选项（测试可注入假 fs 来真跑失败路径） */
+export interface ThumbCacheWriteOptions {
+  fs?: AtomicFs;
+  seq?: number;
+}
+
 /**
  * 写缓存。**不抛**：写不进去只回一个 error。
  * 理由：缓存只是加速，**记不住缩略图绝不能让这次请求失败**（用户要的是图，不是缓存）。
+ *
+ * ⚠️ DF-4：**两步都不能省** ——
+ *   ① 先校验**要写的字节**：不是一张完整 JPEG 就**拒绝写**（也不碰已存在的旧文件）；
+ *   ② 用**原子写**（临时名 → fsync → 再校验落盘的那份 → rename）落盘：
+ *      进程中途被杀**不会**在目标名下留下半截文件（旧的要么完好、要么不存在）。
+ *   只做 ①（校验内存字节）是不够的：真正的失败模式是「写了一半」—— 那是原子写的活。
  */
-export function writeCachedThumb(cachePath: string, bytes: Buffer | Uint8Array): ThumbCacheWrite {
+export function writeCachedThumb(
+  cachePath: string,
+  bytes: Buffer | Uint8Array,
+  opts: ThumbCacheWriteOptions = {},
+): ThumbCacheWrite {
+  const pre = checkCachedThumbBytes(bytes);
+  if (!pre.ok) {
+    // 拒绝写坏字节：宁可这次不缓存（下次再算），也不能把坏图写进会永久命中的地方
+    return { ok: false, path: cachePath, error: '拒绝写入不合格的缩略图：' + pre.reason };
+  }
   try {
-    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-    fs.writeFileSync(cachePath, bytes);
-    return { ok: true, path: cachePath, error: null };
+    const written = writeFileAtomicSync(cachePath, bytes, {
+      ...(opts.fs ? { fs: opts.fs } : {}),
+      ...(typeof opts.seq === 'number' ? { seq: opts.seq } : {}),
+      // 校验**临时文件**：验的是真落盘的那份，不是内存里的 bytes（能抓到短写/坏介质）
+      validate: (tempPath: string): void => {
+        const onDisk = fs.readFileSync(tempPath);
+        const v = checkCachedThumbBytes(onDisk);
+        if (!v.ok) throw new Error('落盘内容不合格：' + v.reason);
+        if (onDisk.length !== bytes.length) {
+          throw new Error('落盘字节数不符：写 ' + String(bytes.length) + '，盘上 ' + String(onDisk.length));
+        }
+      },
+    });
+    return { ok: true, path: written.target, error: null };
   } catch (e) {
+    if (e instanceof AtomicWriteError) {
+      return { ok: false, path: cachePath, error: e.code + ': ' + e.message };
+    }
     return { ok: false, path: cachePath, error: codeOf(e) + ': ' + messageOf(e) };
   }
 }
