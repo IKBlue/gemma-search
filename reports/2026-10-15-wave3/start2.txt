@@ -1,0 +1,82 @@
+==============================================================================
+START-2 / task-104 · 「userData 不可写」的降级路径补自动化
+日期：2026-10-16 · 执行：main-migrator · 产品代码**零改动**（只加了一个 e2e 用例 + 本证据）
+==============================================================================
+
+## 0. 改前 → 改后 → 为何非放宽
+  改前：这条路径**实测到过**（START-1 副产品）——产品行为正确（不崩 / 如实记日志 / 继续跑），
+        但**没有任何自动化守着**：谁把它改成静默吞掉，不会有东西变红。
+  改后：新增 apps/desktop/e2e/start2-userdata-unwritable.spec.mjs，**进常规 e2e 门禁**（不是默认 skip 的探针），
+        断言三组：① 不崩（窗口照常出现）② 如实记日志（单实例锁 + app.db，各带路径/原因）③ 应用仍可用（#query + 一条真 IPC 成功）。
+  为何非放宽：**只加断言**，没有改产品一行、没有加 retries、没有把失败改成静默；
+        断言的是「**如实 + 不崩**」，不是「静默通过」——文案里逐字要求出现「单实例锁不可用」「userData 不可写」「app.db 操作失败」。
+
+## 1. 关键设计：触发器必须是**我们造的**，不能是环境的
+  做法：建一个真目录 data/_start2/ud-blocked，用 icacls **显式拒绝当前用户的写权限**，再当 --user-data-dir 传进去。
+  用例开头先**自证触发器生效**（自己写一个文件必须被拒），否则直接红 —— 免得「测的是环境」。
+
+  ⚠️ 试过并**否掉**的两个方案（都会让用例「绿得毫无意义」）：
+   ① 把 --user-data-dir 指向一个**文件**：Electron **忽略**无效路径，回落到默认 userData
+      （%APPDATA%\Electron），而那条路径恰好被本执行环境的沙箱写限制挡住 ⇒ 实测日志里出现的是
+      C:\Users\Administrator\AppData\Roaming\Electron，**不是**我们传的路径。
+      （原文：探测结果 = 目录不可写：C:\Users\Administrator\AppData\Roaming\Electron（EPERM …））
+   ② 用「工作区外的临时目录」：那个 EPERM 同属环境行为（START-1 已定性为沙箱写限制）。
+  ⇒ 现方案把写入**拒在 ACL 上**，任何机器、任何账号都成立；并且日志里出现的是**我们那个路径**（下面有原文）。
+  ⚠️ 踩到的坑（已写进代码注释）：deny 过的目录**连删都删不掉**（/grant 只给了 RX）⇒ 起始清理必须先
+     icacls /reset 再删；清理放在 finally 里，中途崩了下一轮也能自愈。
+
+## 2. 断言原文（三组）与实测日志
+  ① 不崩：  const win = await firstWindow(app, 30_000);            // 窗口照常出现
+  ② 日志：  expect(log).toMatch(/单实例锁不可用/) · /userData 不可写/ · toContain(BLOCKED_USER_DATA)
+            · /EPERM|EACCES|ENOTDIR|拒绝访问/ · /app\.db 操作失败/ · /unable to open database file|EPERM|EACCES|ENOTDIR/
+  ③ 可用：  await win.waitForSelector("#query", { timeout: 30_000 }) 且日志里 /invoke (libraryList|indexStatus) .*→ ok/
+  实测日志（本轮，原文节选）：
+    [07:45:26.377] ⚠️ 单实例锁不可用：userData 不可写 ⇒ Chromium 建不出 lockfile，本次**按单实例放行**并照常启动。
+    [07:45:26.378]    探测结果 = 目录不可写：D:\…\data\_start2\ud-blocked（EPERM: … .gs-write-probe-26216-1-…）
+    [07:45:26.427] !! [temp] 临时目录创建失败（保持系统临时目录）： D:\…\data\_start2\ud-blocked\tmp · EPERM
+    [07:45:26.435] !! app.db 操作失败: Error: unable to open database file
+    [07:45:32.617] invoke libraryList 6ms → ok
+    [07:45:32.656] invoke indexStatus 16ms → ok
+
+## 3. 能红（两条，覆盖「条件」与「产品」两侧）
+  能红 A —— **条件侧**：把触发器去掉（目录可写）并跳过自证 ⇒ 降级日志不再出现 ⇒
+    必须失败在「必须如实报『单实例锁不可用』而不是静默」。**实测**：
+      Error: 必须如实报「单实例锁不可用」而不是静默
+      expect(received).toMatch(expected)
+      > 103 | expect(log, ...).toMatch(/单实例锁不可用/);   →  1 failed（EXIT=1）
+  能红 B —— **产品侧（卡片点名）**：把 main/index.ts 里那条降级日志改成**静默**
+    （四个 log() 调用替换为 void udProbe;）⇒ tsc 0 ⇒ npm run build 成功 ⇒ 用例必须红。**实测**：
+      Error: 必须如实报「单实例锁不可用」而不是静默  →  1 failed（EXIT=1）
+    还原（index.ts 逐字节还原）⇒ 重建 ⇒ 单跑 1 passed（7.1s）。
+  ⚠️ 两次注入都用**副本还原**（data/_start2bak/index.ts.bak），未用 git checkout；还原后 git status 里
+     main/index.ts **无改动**（产品零 diff）。
+
+## 4. 门禁状态
+  · prettier --check（新文件）⇒ All matched files use Prettier code style!
+  · eslint（新文件）⇒ EXIT=0
+  · tsc -p tsconfig.node.json ⇒ EXIT=0
+  · **全量 e2e（含新用例）⇒ 69 passed / 4 skipped / 0 failed（5.6m）· EXIT=0**
+    （69 = 原来的 68 + 本卡新增 1；4 skipped 仍是那几个 GEMMA_PERF 探针）
+  · **npm test：尚未跑**（卡片要求「先问我」）—— 本卡改动只有 1 个 e2e 文件，**不可能影响单测**，
+    但我按要求等你开窗口再跑并贴数字。
+
+## 5. 0 残留 grep（先跑后结论）
+  ① GEMMA_PERF：只有 1 条命中，且是**注释**（说明本用例刻意**不**加门控）；代码里 0 命中 ⇒ 它进常规门禁 ✓
+  ② retries / waitForTimeout：**0 命中** ⇒ 没有靠重试或猜的等待 ✓
+  ③ git status（我只碰的东西）：?? apps/desktop/e2e/start2-userdata-unwritable.spec.mjs（唯一新增）
+     ⇒ apps/desktop/src/main/index.ts **无改动**（产品零 diff）
+
+## 6. 与 START-1 的关系（防止误读）
+  · START-1 改的是 **helper 的 userData 落点**（把 6.1 s 环境假象去掉）；本卡**没有再动 helper**。
+  · 本卡用的触发器是 **ACL 拒绝写**（我们造的），**不是** START-1 那个「工作区外 EPERM」（环境的）。
+  · 两条互不冲突：helper 落点保证门禁快且稳定；本用例保证降级路径**有人守**。
+
+## 7. 未决 / 边界
+  · test.setTimeout(120_000)：不是「调大超时掩盖」，这条路径会先撞 Chromium 对被拒缓存目录的重试（~6 s，
+    实测总时长 7.1 s）；断言全是结构性的，没有一条依赖快慢。注释里写明了。
+  · 未覆盖：真只读**卷**与 ACL 之外的其他不可写形态；本用例覆盖的是「目录存在但写不进去」。
+
+## 8. 回滚方式
+  · 撤销该提交（只新增 1 个 e2e 文件 + 本证据）；产品代码一行未动，无需回滚。
+  · 若只想在本地临时停用它：删掉该 spec 文件即可（它没有被其他文件引用）。
+==============================================================================
