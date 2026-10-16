@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { S } from '../src/transactions/states.ts';
-import { writeTxn, listTxns, readTxn, txnPath } from '../src/transactions/journal.ts';
+import { writeTxn, listTxns } from '../src/transactions/journal.ts';
 import { sha1File, sha1Of } from '../src/transactions/hash.ts';
 import { stagingPathFor } from '../src/transactions/executor.ts';
 import { recoverJournal } from '../src/transactions/recovery.ts';
@@ -155,7 +155,9 @@ test('RC-4 ⭐⭐ 判定不唯一（staging 丢失 **且** 源已不在）⇒ `R
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
   const sha = sha1File(src);
-  const rec = seed({
+  // ⚠️ LINT-1：原为 const rec = seed(...)，但 rec 从未被读 —— seed **有副作用**（写 journal），
+  //    所以保留调用、去掉绑定（整行删会让这条用例失去夹具）。
+  seed({
     journalDir: journal,
     state: S.STAGED,
     files: [{ src, dst, sha1: sha, stagedSha1: sha }],
@@ -274,7 +276,8 @@ test('RC-9 索引端口在恢复时失败 ⇒ **停下报出来**，绝不当成
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
   const sha = sha1File(src);
-  const rec = seed({
+  // 同上：seed 的副作用是夹具，绑定去掉即可。
+  seed({
     journalDir: journal,
     state: S.COMMITTED,
     files: [{ src, dst, sha1: sha, stagedSha1: sha }],
@@ -302,7 +305,7 @@ test('RC-10 坏日志**不静默**：`broken` 要报出来，且不影响其它�
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
   const sha = sha1File(src);
-  const rec = seed({ journalDir: journal, state: S.PREPARED, files: [{ src, dst, sha1: sha }] });
+  seed({ journalDir: journal, state: S.PREPARED, files: [{ src, dst, sha1: sha }] });
   fs.writeFileSync(path.join(journal, 'txn-坏掉.json'), '{ 半截 JSON', 'utf8');
 
   const out = recoverJournal({ journalDir: journal, indexPort: spyIndex().port });

@@ -33,11 +33,9 @@ import {
   listTxns,
   withState,
   archiveTxn,
-  ensureJournalDir,
 } from '../src/transactions/journal.ts';
 import {
   createTxnExecutor,
-  preflight,
   checkSpace,
   freeBytesOn,
   stagingPathFor,
@@ -414,7 +412,7 @@ test('TX-E4b 多文件事务：图 + 包一起移动，两条都要到目标、�
 // ══════════════════════════════════════════════════════ 空间核算（§6）
 
 test('TX-C1 ⭐ 空间核算用**目标所在目录**（相对路径也不许静默失败）', () => {
-  const { lib, journal } = setup('c1');
+  const { lib } = setup('c1');
   const src = path.join(lib, 'VR', 'VR-101.jpg');
   const dst = path.join(lib, 'CR', 'VR-101.jpg');
   // 相对路径曾让 path.parse(...).root === '' ⇒ statfs('') ENOENT ⇒ 整条流程静默 abort（实测踩过）

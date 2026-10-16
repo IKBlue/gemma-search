@@ -1,6 +1,6 @@
 {
   "_readme": [
-    "契约 CONTRACT-engine-v1.md §8 要求的那份样例索引（「P3 不等真实库」）。",
+    "契约 `SPEC.md` §5 要求的那份样例索引（「P3 不等真实库」）。",
     "用途：createEngine({ fake: true }) 的数据源。界面在 fake 模式下必须能演示**全部状态**：",
     "  空 · 加载 · 无结果 · 无索引 · 索引损坏 · RECOVERY_NEEDED · COMPAT_MISMATCH · 部分成功。",
     "⚠️ 这里所有路径都是**合成值**，且 fake 模式**绝不触碰真实文件系统** —— 见 fake.mjs 头注释。",
@@ -60,11 +60,11 @@
   },
   "transactions": {
     "_readme": [
-      "P3d「操作记录」的数据源（契约 §2.11 `transactions`；依据 SPEC-transactions.md:229",
+      "P3d「操作记录」的数据源（契约 §2.11 `transactions`；依据 `SPEC.md` §2.1",
       "「mutate() 返回事务 id；界面据 id 查询状态、显示进度、提供撤销入口」）。",
       "⚠️ 这里**不设** pendingTx ⇒ 写方法不会被 RECOVERY_NEEDED 挡住，",
       "   否则索引任务（E10）一上来就被拒。**待处理**那条由 state:'recovery_needed' 表达，",
-      "   界面据 canUndo/canRollback 给「重试 / 回退 / 保持现状」三条路（SPEC-transactions §4）。"
+      "   界面据 canUndo/canRollback 给「重试 / 回退 / 保持现状」三条路（`SPEC.md` §2.1）。"
     ],
     "items": [
       {

@@ -1,4 +1,4 @@
-/* apps/desktop/src/renderer/src/renderer.css —— 渲染层样式表**手写层**（只用令牌，值全部落在 DESIGN-tokens 的阶梯上）
+/* apps/desktop/src/renderer/src/renderer.css —— 渲染层样式表**手写层**（只用令牌，值全部落在 tokens.css 的阶梯上）
  *
  * ── 与 Tailwind 的职责边界（2026-10-13 T3 起，**必读**）────────────────────────
  *   · `styles/tailwind.css` —— **生成层**：Tailwind 按组件里的类名生成工具类。**新样式优先放这里。**

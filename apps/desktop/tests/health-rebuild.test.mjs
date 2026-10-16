@@ -125,7 +125,6 @@ function setupLibrary(label, uids) {
 }
 
 const checkById = (report, id) => report.checks.find((c) => c.id === id);
-const dbCheckIds = (report) => report.checks.filter((c) => c.id.startsWith('db-')).map((c) => c.id);
 
 /** 把 .gs.db 的文件头写坏（真实损坏的一种：被别的程序覆盖 / 截断） */
 function corruptDb(dbPath) {

@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 const ROOT = process.cwd();
-const SKIP = new Set(['node_modules','out','dist','release','data','docs','reports','.git','fixtures','prototypes','.npm-cache','model-cache']);
-const EXT = /\.(mjs|js|cjs|ts|tsx|json|css|html|md)$/;
+const SKIP = new Set(['node_modules','out','dist','release','data-tmp','.git','prototypes','reports','.npm-cache','model-cache','docs']);
+const EXT = /\.(mjs|js|cjs|ts|tsx|json|css|html|md|yml|yaml|toml|cfg|ini)$/;
+const NAMED = new Set(['LICENSE','NOTICE','README','Dockerfile']);
+const isScanned = (name) => EXT.test(name) || NAMED.has(name);
 // 第三维：**裸旧文档名的「引用」**（不是"提及"）。
 // ⚠️ 语义必须精确：只算**带锚点**的引用（`§x` 或 `:行号`）——
 //    否则「MIGRATION-PLAN.md 已改自述」这种**自述句**会被误计（我的第一版正是这么错的，被 --calibrate 拦下）。
@@ -31,9 +33,10 @@ function calibrate() {
   return bad === 0;
 }
 if (process.argv.slice(2).includes('--calibrate')) process.exit(calibrate() ? 0 : 1);
-const files = fs.readdirSync(ROOT).filter((f) => EXT.test(f) && fs.statSync(f).isFile());
-function walk(d){for(const e of fs.readdirSync(d,{withFileTypes:true})){if(SKIP.has(e.name))continue;const p=path.join(d,e.name);if(e.isDirectory())walk(p);else if(EXT.test(e.name))files.push(path.relative(ROOT,p));}}
-for (const d of ['apps','packages']) walk(d);
+const files = fs.readdirSync(ROOT).filter((f) => isScanned(f) && fs.statSync(f).isFile());
+function listData(d) { for (const e of fs.readdirSync(d, { withFileTypes: true })) { if (e.name.startsWith('_')) continue; const p = path.join(d, e.name); if (e.isDirectory()) listData(p); else if (isScanned(e.name)) files.push(path.relative(ROOT, p)); } }
+function walk(d){for(const e of fs.readdirSync(d,{withFileTypes:true})){if(SKIP.has(e.name))continue;const p=path.join(d,e.name);if(e.isDirectory())walk(p);else if(isScanned(e.name))files.push(path.relative(ROOT,p));}}
+for (const d of fs.readdirSync(ROOT)) { if (!fs.statSync(d).isDirectory() || SKIP.has(d)) continue; if (d === 'data') { listData(d); continue; } walk(d); }
 let n = 0; const rows = [];
 for (const rel of files) {
   let txt; try { txt = fs.readFileSync(path.join(ROOT, rel), 'utf8'); } catch { continue; }

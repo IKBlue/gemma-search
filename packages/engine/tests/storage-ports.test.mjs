@@ -66,7 +66,8 @@ function makePorts({ libRoot, items, spies = {}, readIndex = null }) {
         if (id !== 'L1') throw fail(ERR.LIB_NOT_FOUND, '库未注册：' + id);
         if (!fs.existsSync(libRoot)) throw fail(ERR.LIB_ROOT_MISSING, '库根不存在：' + libRoot);
       },
-      storageOf: (id) => layout,
+      // ⚠️ LINT-1：原来写成 (id) => layout，但 id 从未使用（端口的 storageOf(libId) 允许忽略入参）
+      storageOf: () => layout,
     },
     items: {
       listItems(id) {

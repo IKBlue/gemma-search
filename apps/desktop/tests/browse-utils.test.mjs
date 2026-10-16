@@ -33,21 +33,8 @@ import {
 import { useBrowseStore } from '../src/renderer/src/store/browse.ts';
 
 const S = () => useBrowseStore.getState();
-
-function fakeBridge(reply) {
-  const calls = [];
-  globalThis.window = {
-    api: {
-      invoke: async (method, params) => {
-        calls.push({ method, params });
-        return reply(method, params);
-      },
-      onEvent: () => () => {},
-      platform: 'win32',
-    },
-  };
-  return calls;
-}
+// ⚠️ LINT-1（2026-10-16）：这里原有一个 fakeBridge() 装桩函数，**从未被调用**（本文件的取数是
+//    注入 BrowseFetcher，不走 window.api）⇒ 删掉死代码。要装桩的用例在 adapter/搜索那些文件里。
 let savedWindow;
 beforeEach(() => {
   savedWindow = globalThis.window;

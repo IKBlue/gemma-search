@@ -4,7 +4,7 @@
 #   · 图标是 electron-vite 脚手架的**默认图标**，不是本项目的 —— P6 换真图标
 #   · `asarUnpack` 只列了 resources；`onnxruntime-node` / `sharp` 的原生 `.node`
 #     在 asar 里加载不了，P6 必须按实测把它们加进 asarUnpack（**别照抄，要实测**）
-#   · 模型（fp32 1.63 GB）与索引**不进安装器**（SPEC-app §3：NSIS 约 2 GB 封顶）
+#   · 模型（fp32 1.63 GB）与索引**不进安装器**（`SPEC.md` §3 F6 交付：NSIS 约 2 GB 封顶）
 #   · ⚠️ **从未真正打包过**：下面的 files 排除清单只保证与新布局（apps/ + packages/）
 #     形状一致，不代表打包已验证；P6 必须以实测为准。
 appId: com.gemmasearch.app
@@ -32,7 +32,7 @@ files:
   - '!{.env,.env.*,.npmrc,package-lock.json}'
   # ⚠️ 下面三条是 **T-22a 实测（2026-10-15）后补的**：原本缺失，导致未打包产物 asar = 3,685,390,481 B：
   #   · model-cache/ 3160.5 MB —— 上面那条注释写着"模型（fp32 1.63 GB）与索引不进安装器"，
-  #     但**清单从来没排过它** ⇒ 那句话只是注释，不是事实；照原样打 NSIS 会远超 SPEC-app §3 的 ~2 GB 上限。
+  #     但**清单从来没排过它** ⇒ 那句话只是注释，不是事实；照原样打 NSIS 会远超 `SPEC.md` §3 F6 交付 的 ~2 GB 上限。
   #   · .npm-cache/ 177.5 MB（本机 npm 缓存）· tsconfig.*.tsbuildinfo（构建中间物）。
   #   实测依据：reports/2026-10-15-wave3/22a.txt（asar 顶层体积表）。
   - '!model-cache/*'

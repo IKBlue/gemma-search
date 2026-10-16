@@ -95,7 +95,7 @@ console.log('  设备  :', DEVICE);
 const enc = await import(
   pathToFileURL(path.join(ROOT, 'apps', 'desktop', 'src', 'main', 'encoder.ts')).href
 );
-const { createEncoder, QUERY_PREFIX } = enc;
+const { createEncoder } = enc;
 console.log();
 console.log('--- 1) 编码器初始化 ---');
 
@@ -153,7 +153,6 @@ try {
 }
 console.log(`  索引 ${header.count} 条 · dim ${header.dim} · compat ${header.compat}`);
 
-const byRel = new Map(items.map((i) => [i.relPath || i.rel_path, i]));
 const dim = header.dim;
 const rowOf = (u) => vectors.subarray(u * dim, u * dim + dim);
 const cos = (a, b) => {

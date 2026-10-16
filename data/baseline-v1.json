@@ -76,5 +76,5 @@
   ]
  },
  "elapsed_seconds": 0.5,
- "note": "磁盘统计独立于索引自述；库指纹算法见 SPEC-identity §5（v1）"
+ "note": "磁盘统计独立于索引自述；库指纹算法见 `SPEC.md` §1.5 库（v1）"
 }

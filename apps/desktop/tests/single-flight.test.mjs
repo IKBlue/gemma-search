@@ -5,7 +5,6 @@ import { createSingleFlight } from '../src/main/single-flight.ts';
 
 /** 可控的 factory：计数 + 手动 resolve/reject */
 function makeFactory() {
-  let calls = 0;
   let settle = null;
   const state = { calls: 0, reject: null };
   const factory = () => {

@@ -5,7 +5,11 @@ const LOG = path.join(__dirname, 'probe.log');
 const w = (m) => {
   try {
     fs.appendFileSync(LOG, m + '\n');
-  } catch {}
+  } catch {
+    // ⚠️ LINT-1（2026-10-16）**故意留空**：这是启动探针，日志写不进去就没得写 ——
+    //    探针绝不能因为一次 appendFileSync 失败而崩（那会把「探针失效」伪装成「应用起不来」）。
+    //    no-empty 对**含注释**的空块不报（注释就是这里要说明的「为什么是空的」）。
+  }
 };
 w('--- probe start ---');
 w('execPath=' + process.execPath);

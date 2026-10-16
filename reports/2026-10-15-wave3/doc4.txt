@@ -1,0 +1,48 @@
+================================================================================
+DOC-4 证据（task-87 · 2026-10-16 · storage-worker）
+================================================================================
+【① 尺子扩面（按卡要求，纪律 21：扩完先校准）】
+  `doc2-legacy.mjs` 扫描面：**仓库全域**；显式排除 docs/ · reports/ · prototypes/ · node_modules/ · out/ · .git/ · dist/ · release/；
+  新增可扫类型：`.yml/.yaml/.toml/.cfg/.ini` 与**无扩展名文件**（`LICENSE`/`NOTICE`/`README`/`Dockerfile`）；
+  `data/` 纳入扫描但**跳过 `_` 开头的 scratch**（只收像 `data/baseline-v1.json` 这样的证据文件）。
+  校准：`--calibrate` ⇒ **7/7 OK**（含第四形态「名字后带收尾反引号」用例）⇒ 通过后才采信。
+
+【② 结果：三类归零（尺子先校准后采信）】
+  ① 文件悬挂 = **0**   ② 小节悬挂 = **0**（命中 21）   ③ 裸旧文档引用 = **0**
+
+【③ 改了什么（8 处 + 1 处提及）】
+  · electron-builder.yml:7 · :35 —— `SPEC-app §3`（NSIS ~2 GB 上限）⇒ **`SPEC.md` §3 F6 交付**（现存小节）
+  · LICENSE:33 —— `DESIGN-app-details.md §4` ⇒ **自述**（分发方案属本项目自述，指 `SPEC.md` §3 F6）
+    （理由：打包/分发在 SPEC 里没有专门的「模型分发」小节 ⇒ 按判据退回自述，不硬指一个差不多的小节）
+  · fixtures/sample-index.json:3 —— `CONTRACT-engine-v1.md §8` ⇒ **`SPEC.md` §5**
+  · fixtures/sample-index.json:63 —— `SPEC-transactions.md:229` ⇒ **`SPEC.md` §2.1**
+  · fixtures/sample-index.json:67 —— `SPEC-transactions §4` ⇒ **`SPEC.md` §2.1**
+  · **data/baseline-v1.json:79** —— note 里 `SPEC-identity §5（v1）` ⇒ **`SPEC.md` §1.5 库（v1）**
+    ⚠️ **只改这一句文字；数值与结构一字未动**（该文件是基线证据）：
+       diff 语义 = 仅 `note` 字符串内的文档指针变了，`elapsed_seconds`/结构与其它键全部原样。
+  · TASKS.md:160（新增命中）—— 纪律 23 的教学引文里写着旧名 ⇒ 改成**占位写法**（「旧安全文档名` §3」），
+    保住教训、去掉指向（纪律日志本身不该携带失效指针）。
+  · renderer.css:1（无锚点**提及**，卡里点名）—— `DESIGN-tokens 的阶梯` ⇒ **`tokens.css` 的阶梯**（现存文件）。
+
+【④ 独立信号交叉验证（纪律 23：必须用第二个互不相关的信号）】
+  朴素 rg（**不要求锚点**，全域，排除 node_modules/out/docs/reports/prototypes/data/_*）：
+    `rg -n 'SPEC-security|SPEC-app|SPEC-identity|SPEC-transactions|CONTRACT-engine-v1|MIGRATION-PLAN|UI-REVIEW-and-migration|
+      DESIGN-app-details|DESIGN-tokens|DEBT-CLEANUP|STACK-AUDIT|AUDIT-FINAL|stack-evidence|ROADMAP' .`
+    ⇒ **命中 1**：`TASKS.md:158` —— 纪律 21 的**教学引文**（它必须原样引用当初被误判的那串 `docs/MIGRATION-PLAN.md §3.1`，
+       否则这条纪律读不懂）。**逐条判定 = 合法提及，不是引用** ⇒ 保留，不改。
+    这也说明两把信号的**范围差**：专用尺子不扫 TASKS/AGENTS/SPEC/PLAN（① 的文件级），也不数无锚点提及（③）⇒ 两条信号互为补充。
+
+【⑤ 能红（纪律 20：还原也复验）】
+  注入：LICENSE 里已改好的 `（见 \`SPEC.md\` §3 F6）` 改回 `按 DESIGN-app-details.md §4` ⇒ ③ **0 → 1**；
+  还原 ⇒ **探针残留 grep = 0** ⇒ 复跑 ③ **回 0**。
+
+【⑥ 门禁】
+  tsc node                    ⇒ **TSC_NODE=0**
+  prettier --check .          ⇒ **0（All matched files use Prettier code style!）**（本轮无需 --write）
+  定向测试（fixtures 消费方：db-schema + engine/fake）⇒ **EXIT=0 · tests 34 · pass 34 · fail 0**
+  npm test（全量）            ⇒ **未跑**：Lead 明确要求「跑全量测试前先问」（db-worker 正在修 22 条 lint，避免并发污染）
+
+【⑦ 依据的裁定】
+  `data/baseline-v1.json` 只改文字不改数据（卡里写明）；`docs/archive/**` 的命中不算（归档自身记录旧路径），
+  尺子里已显式排除 docs/（含 archive）。
+================================================================================

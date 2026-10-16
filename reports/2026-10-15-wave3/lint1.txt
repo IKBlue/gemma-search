@@ -1,0 +1,105 @@
+================================================================================
+LINT-1 证据 · 22 条 ESLint error 逐条修因（**不关规则、不加 disable**）
+任务板 id: task-83   执行: db-worker   日期: 2026-10-16
+边界：apps/ · packages/ · scripts/ · tools/ 的源码与测试；**未改 eslint.config.mjs**（一字未动）
+===============================================================================
+
+【结论】
+· `npm run lint`：**22 problems → 0 problems（EXIT=0）**，全部**逐条修因**，没有一条靠 disable/降级。
+· 其中**两条不是"清理"而是修真问题**：① index-corruption 的 `\s` 在字符串里被吃掉（潜在**错正则**）；
+  ② health.spec 里那个从未被调用的 `digest()` 是一处**覆盖缺口**的线索（已如实记下，见 §3）。
+· 门禁（截至本文件）：lint **0** · tsc node/web **0** · `prettier --check .` **0** · 受影响单测 **113/113** ·
+  触碰过的 e2e **12 passed**（含被我修好的 E13-a）· **全量 npm test 待 Lead 放行**。
+
+【1. 22 条逐条（文件:行 → 改法 → 为什么）】
+no-unused-vars（19）
+ 1. apps/desktop/e2e/confirm-dialog.spec.mjs:38 — 从 `engine-stub.mjs` 的 import 里删掉 `FAKE_ITEM, stubEngine`
+    ⇒ 本 spec 只用 `stubCalls / callsOf / searchOnce`（真未用）
+ 2. apps/desktop/e2e/health.spec.mjs:27 — 删掉从未被调用的 `digest(root)`，**换成一段说明**（见 §3）
+ 3. apps/desktop/tests/browse-utils.test.mjs:37 — 删掉从未被调用的 `fakeBridge()`（本文件取数是**注入 fetcher**，不走 window.api）
+ 4. apps/desktop/tests/contrast.test.mjs:25 — 删掉未用的 `import path from 'node:path'`
+ 5. apps/desktop/tests/health-rebuild.test.mjs:128 — 删掉未用的 `dbCheckIds`（`checkById` 仍在用，保留）
+ 6. apps/desktop/tests/single-flight.test.mjs:8 — 删掉未用的 `let calls = 0;`（代码用的是 `state.calls`）
+ 7. packages/engine/tests/storage-ports.test.mjs:69 — `storageOf: (id) => layout` ⇒ `storageOf: () => layout`
+    （入参从未使用；端口的 `storageOf(libId)` **允许**忽略入参，JS 调零参函数照常传参 ⇒ 行为等价）
+ 8-9. packages/engine/tests/transactions-recovery.test.mjs:14 — import 去掉 `readTxn, txnPath`
+10-12. 同文件 :158 / :277 / :305 — `const rec = seed({...});` ⇒ `seed({...});`
+    ⚠️ `seed` **有副作用**（写 journal 文件）⇒ 只去掉绑定、**保留调用**；整行删会让三条用例失去夹具。
+    ⚠️ 该文件里 `const rec = seed(` 共 **9 处**，只有这 3 处的 `rec` 未被读 ⇒ 用 `setup('4')`/`setup('9')`/`setup('10')`
+       的**唯一上下文**逐个锚定（`replace_all` 会把另外 6 处**在用的**绑定一起改掉 = 改坏测试）。
+13-14. packages/engine/tests/transactions.test.mjs:36/:40 — import 去掉 `ensureJournalDir, preflight`
+15. 同文件 :417 — `const { lib, journal } = setup('c1')` ⇒ `const { lib } = setup('c1')`（journal 未用）
+16. packages/engine/tests/uid.test.mjs:11 — 删掉未用的 `import os from 'node:os'`
+17. tools/verify_encoder_path.mjs:98 — `const { createEncoder, QUERY_PREFIX } = enc` ⇒ 只解构 `createEncoder`
+18. tools/verify_encoder_path.mjs:156 — 删掉未用的 `const byRel = new Map(items.map(...))`
+no-empty（1）
+19. tools/probe_electron_start/main.cjs:8 — `catch {}` 补**说明性注释**（见 §3）
+
+no-useless-escape（2 · 同一行）
+20-21. apps/desktop/tests/index-corruption.test.mjs:76 — 两处 `\s` ⇒ `\\s`（见 §3，**这不是等价改写**）
+
+⇒ 计数核对：19 + 1 + 2 = **22** ✓ 与 lint 的 22 problems 一一对应。
+
+【2. 处理口径（为什么没有一条用 `_` 前缀 / disable）】
+· `eslint.config.mjs` 用的是 `@eslint/js` 的 recommended，**没有** `argsIgnorePattern` / `varsIgnorePattern`
+  ⇒ `_` 前缀**不被本配置支持**（按卡片要求：配置不支持就**先问**，不许自己降级）。
+· 我逐条看过：**没有一条是"必须存在但用不到"**（没有"仅为占位签名"的参数、没有"仅供文档"的 import）——
+  19 条全是**真死代码**，所以走"删"或"去掉绑定、保留调用"两种，**不需要** `_` 前缀，也不需要 disable。
+· 唯一"看似未用但有意义"的是 `digest()`（它有注释说明意图）—— 处理方式见 §3，而不是给它加豁免。
+
+【3. 三条需要"讲清楚"的（卡片要求逐条给「改前→改后→为何」）】
+① **no-useless-escape · index-corruption.test.mjs:76** —— ⚠️ **不是等价改写，是修一个潜在错正则**
+   改前：`new RegExp('"' + key + '"\s*:\s*(\\d+)')`
+        （源文件里写的是 `'"\s*:\s*(\d+)'` —— 在**字符串字面量**里 `\s` 的反斜杠被吃掉 ⇒ 实际正则是 `"key"s*:s*(\d+)`）
+   改后：`new RegExp('"' + key + '"\\s*:\\s*(\\d+)')` ⇒ 正则真正是 `"key"\s*:\s*(\d+)`
+   为何**不等价**：改前只容忍"紧挨着"的 JSON（`"count":3594`）；footer 一旦出现空白（`"count" : 3594`），
+   改前的正则会匹配失败 ⇒ `assert.ok(m, '夹具前提…')` 直接炸。改后才真正做到注释里写的"等长替换 footer 里的一个数字"。
+   ⇒ 现在这个夹具**对空白健壮**；实证：index-corruption 全部用例在改动后仍**绿**（§5 的 113/113 含它）。
+② **no-empty · tools/probe_electron_start/main.cjs:8** —— 空块**故意**为空，补注释说明
+   改前：`} catch {}` → 改后：`} catch {` + 三行注释 + `}`
+   为何：这是启动探针，日志写不进去就没得写；探针**绝不能**因为一次 appendFileSync 失败而崩
+   （那会把"探针失效"伪装成"应用起不来"）。ESLint 的 `no-empty` **对含注释的空块不报** ——
+   注释就是这里要说的"为什么是空的"，**没有**用 `allowEmptyCatch`（那要改配置，卡片禁止）。
+③ **no-unused-vars · e2e/health.spec.mjs 的 `digest()`** —— 删死代码 + **留下一处覆盖缺口的线索**
+   改前：一个 23 行的 `digest(root)`（"库根摘要：路径|size|mtime，只比前后"），**全文件零调用**
+   改后：换成一段注释（说明为什么删、以及**它提示的缺口**）
+   为何：本 spec 的 E13-a…d 都不比这个摘要；"重建不动素材"的断言在 health-rebuild/rebuild 那批单测里
+   （由 `materialDigest` 负责）。⇒ 这里是**真死代码**，但它是一处"真窗口里没证过素材不变"的线索，
+   所以我**没有**只是静默删掉，而是把它写进注释（要用就显式写进断言，别挂在文件里当装饰）。
+
+【4. 能红实测（规则还活着）】
+在 tools/verify_encoder_path.mjs 顶部临时加一行：`const __lintCanary = 12345;`
+$ npm run lint
+  99:7  error  '__lintCanary' is assigned a value but never used  no-unused-vars
+  ⇒ **LINT_WITH_CANARY=1**（退出码非 0 ⇒ 规则确实在生效，且这条卡不是"把规则关掉换来的 0"）
+⇒ 删掉那一行后：`npm run lint` ⇒ **0 problems · EXIT=0**（见 §5）。
+
+【5. 门禁原始输出】
+$ npm run lint          ⇒ **LINT=0**（0 problems · EXIT=0）
+$ npx tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile data/_verify/node.tsbuildinfo ⇒ **NODE_TSC=0**
+$ npx tsc --noEmit -p tsconfig.web.json  --tsBuildInfoFile data/_verify/web.tsbuildinfo  ⇒ **WEB_TSC=0**
+$ npx prettier --write <13 个改动文件> ⇒ 0（只有 health-rebuild.test.mjs 被重排）
+$ npx prettier --check .               ⇒ `All matched files use Prettier code style!` **PRETTIER_CHECK=0**
+$ node --test <9 个受影响单测文件>      ⇒ tests **113** · pass **113** · fail **0**
+  （browse-utils · contrast · health-rebuild · index-corruption · single-flight ·
+    engine/storage-ports · engine/transactions-recovery · engine/transactions · engine/uid）
+$ npx playwright test confirm-dialog.spec.mjs health.spec.mjs ⇒ **12 passed (1.6m)** · OUT_UNCHANGED=True
+  （E7-a…f 8 条 + E13-a…d 4 条 —— 含被我修好的 E13-a）
+$ **npm test（全量）⇒ 待 Lead 放行**（卡片要求跑全量前先问）—— 放行后我跑并把原始输出补在这里。
+  【全量结果占位：待补】
+
+【6. 过程记录（如实）：一次自伤与修复】
+删 `digest()` 时我的 `old_string` 多含了一行（把紧随其后的 `test('E13-a …', async () => {` 的开头一起吃掉），
+当场在下一轮 lint/阅读时发现并**补回该行**；最终由 `health.spec.mjs` 的 **4/4 真窗口用例**（§5）证明结构正确。
+记在这里是因为"测试文件的结构被工具脚本改坏"是本项目栽过的形状 —— 判断依据只能是**跑过**，不是"看起来对"。
+
+【7. 没改的东西（边界）】
+· `eslint.config.mjs` **一字未动**（不降级、不加 ignore、不改规则选项）；全程**零** `eslint-disable` 注释。
+· 没动 `storage-worker` 的 DOC-4 范围（根配置/license/fixtures/data/css）。
+· 我改的都是**测试与工具脚本**（e2e/tests/tools），**没有触碰产品源码** —— 所以 tsc 的两个工程本来就不受
+  影响（仍按门禁跑了，见 §5）。
+
+【8. 回滚】
+逐条反向即可（都是删除/去绑定/注释/一行正则）；本卡的改动没有跨文件耦合。
+未跑 git（AGENTS P7）。临时物：data/_verify/*.tsbuildinfo（可删）。
+===============================================================================

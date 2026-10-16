@@ -22,31 +22,13 @@ import { stubCalls, callsOf, openDiagnostics } from './helpers/health-stub.mjs';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const REAL_LIB = path.join(ROOT, 'data', 'libraries', 'L1');
-
-/** 库根摘要：路径|size|mtime（只比前后，不实现第二份 materialDigest；.gs-* 一律跳过） */
-function digest(root) {
-  const rows = [];
-  const walk = (dir) => {
-    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (String(ent.name).startsWith('.gs-')) continue;
-      const p = path.join(dir, ent.name);
-      if (ent.isDirectory()) {
-        walk(p);
-        continue;
-      }
-      const st = fs.statSync(p);
-      rows.push(
-        path.relative(root, p).split(path.sep).join('/') +
-          '|' +
-          String(st.size) +
-          '|' +
-          String(st.mtimeMs),
-      );
-    }
-  };
-  walk(root);
-  return rows.sort().join('\n');
-}
+/**
+ * ⚠️ LINT-1（2026-10-16）：这里原有一个 `digest(root)`（"库根摘要：路径|size|mtime"，"只比前后"）——
+ *    全文件**从未调用**它（本 spec 的 E13-a…d 都不比那个摘要；"素材一个字没变"的断言在
+ *    health-rebuild/rebuild 那批单测里，由 materialDigest 负责）⇒ 按 no-unused-vars 删掉死代码。
+ *    ⚠️ 留着这条注释是因为它是一处**覆盖缺口**的线索：若将来要在真窗口里证"重建不动素材"，
+ *    这份摘要函数就是当时留下的半成品 —— 要用就显式写进断言，而不是让它挂在文件里当装饰。
+ */
 
 test('E13-a ⭐ 体检的坏项在真窗口里显示：错误码 + 主进程给的人话理由', async () => {
   const { app, cleanup } = await launchWithStub();

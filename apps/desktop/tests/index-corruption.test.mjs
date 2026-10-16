@@ -73,7 +73,11 @@ function layoutOf(buf) {
 
 /** 等长替换 footer 里的一个数字（不等长会把第 4 道变成"footer 解析失败"，夹具就不成立了） */
 function bumpFooterNumber(out, layout, key, delta) {
-  const m = new RegExp('"' + key + '"\s*:\s*(\\d+)').exec(layout.footText);
+  // ⚠️ LINT-1（2026-10-16）：这里原来写的是 '"…"\s*:\s*(\d+)' —— 在**字符串字面量**里
+  //    '\s' 的反斜杠会被 JS 吃掉（未知转义 ⇒ 只剩 's'）⇒ 实际正则是 "key"s*:s*(\d+)，
+  //    **只有在 footer 恰好没有空白时才碰巧匹配**。改成 '\\s*' 才是真正的「容忍空白」，
+  //    与这条注释的原意一致（「等长替换 footer 里的一个数字」）。这不是等价改写，是修一个潜在错正则。
+  const m = new RegExp('"' + key + '"\\s*:\\s*(\\d+)').exec(layout.footText);
   assert.ok(m, '夹具前提：footer 里必须有 "' + key + '":<数字>');
   const bumped = String(Number(m[1]) + delta);
   assert.equal(

@@ -35,7 +35,7 @@ import { firstWindow } from './helpers/launch.mjs';
 // ⚠️ 2026-10-13（P2）：桩与 `searchOnce` 原先写在本文件内部，现提取到 helper ——
 //    新的 UI/UX 治理 spec 也要"有结果"的界面，照抄一份就是同一段逻辑两处存在。
 //    两条踩过的坑（启动期方法形状、装桩后必须 reload）也一并搬到 helper 头部注释里。
-import { FAKE_ITEM, stubEngine, stubCalls, callsOf, searchOnce } from './helpers/engine-stub.mjs';
+import { stubCalls, callsOf, searchOnce } from './helpers/engine-stub.mjs';
 
 const dialog = (win) => win.getByRole('alertdialog');
 
