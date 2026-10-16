@@ -242,6 +242,44 @@ CREATE TABLE IF NOT EXISTS health_finding (
 const LIBRARY_V2: readonly string[] = Object.freeze([...T_JOB]);
 
 /**
+ * **意图层** `asset_user_meta` —— 条目标注：评分 / 备注 / 收藏（B2-3 · 字段照抄设计基线
+ * `reports/2026-10-15-schema-diff/SPEC-COMPACT.md` §「asset_user_meta [本轮] · 字段 5」，第 179-187 行）。
+ *
+ * 为什么必须有它：详情页的「组织」块（评分/备注/收藏）是**资产管理最常摸的功能**，而今天这些
+ * **完全没有存储**（详情页只读）⇒ 表就是它的落点。设计基线把它评为"**只 1 张表，性价比最高**"。
+ *
+ * ⚠️ **层归属 = 意图层（必须留）**（先核对了基线四层分类表 `reports/2026-10-15-schema-diff/README.md:33`，
+ *    `asset_user_meta` 明确列在**意图层**）：评分/备注/收藏是**用户自己做的标注**，
+ *    重建元数据**绝不能**把它们抹掉 —— 过程层的定义是"丢了能重算"，这几样**丢了没法重算**。
+ *
+ * 逐字段的"为什么"（照抄基线的理由）：
+ *   · `uid` **PK + FK asset.uid ON DELETE CASCADE** —— **1:1**：没有行 = 还没被标注过（**合法状态，不是缺失**）；
+ *     素材真被删了，标注跟着走（CASCADE）——没有素材的标注没有意义；
+ *   · `rating` 可空 + **CHECK 1..5** —— 用 **NULL 表示"未评分"**，不用 0：0 会让人分不清"没评"与"评了 0 分"，
+ *     而后者语义上不存在；范围写进 CHECK（数据库层挡，不靠界面自觉）；
+ *   · `note` 可空 —— 自由备注，**不设长度上限**（截断是界面的事，不是存储的事）；
+ *   · `updated_at_ms` NOT NULL —— 最后编辑时刻；
+ *   · `is_favorite` NOT NULL DEFAULT 0 + **CHECK 0/1** —— 收藏是**一列布尔**而不是一张关联表：
+ *     它是比特级的用户意图，而"筛收藏"是高频查询。
+ *
+ * ⚠️ 与 `asset_export` / `job` 的边界：本表是**条目的标注**（1 条素材最多 1 行）；
+ *    导出历史是"发生过的事"（1 条素材 N 行，见 `asset_export`）；任务进度是"谁在跑"（`job`，与标注无关）。
+ */
+const T_USER_META: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS asset_user_meta (
+  uid           TEXT    PRIMARY KEY NOT NULL REFERENCES asset (uid) ON DELETE CASCADE,
+  rating        INTEGER CHECK (rating BETWEEN 1 AND 5),
+  note          TEXT,
+  updated_at_ms INTEGER NOT NULL,
+  is_favorite   INTEGER NOT NULL DEFAULT 0 CHECK (is_favorite IN (0, 1))
+);`,
+  // 基线在 `is_favorite` 的约束列里点名要"**偏索引** WHERE is_favorite = 1"（名字由本仓定）：
+  //   "筛收藏"是高频查询，而绝大多数行并不是收藏 ⇒ 偏索引只索引真正需要的那一小撮。
+  'CREATE INDEX IF NOT EXISTS idx_meta_favorite ON asset_user_meta (is_favorite) WHERE is_favorite = 1;',
+];
+
+/**
  * **意图层** `asset_export` —— 交付 / 取件**留痕**（B2-2 · 字段照抄设计基线
  * `reports/2026-10-15-schema-diff/SPEC-COMPACT.md` §「asset_export [v1.2 改名] · 字段 9」，第 189-204 行）。
  *
@@ -307,11 +345,18 @@ const LIBRARY_V3: readonly string[] = Object.freeze([...T_HEALTH]);
  */
 const LIBRARY_V4: readonly string[] = Object.freeze([...T_EXPORT]);
 
+/**
+ * v5：**条目标注**（B2-3）。
+ * 同一条规矩：**加表 = 加一条新迁移**，不回头改 v1–v4（改已跑过的迁移对已升级的库静默不生效）。
+ */
+const LIBRARY_V5: readonly string[] = Object.freeze([...T_USER_META]);
+
 export const LIBRARY_MIGRATIONS: readonly Migration[] = Object.freeze([
   Object.freeze({ version: 1, name: 'greenfield-library-3', statements: LIBRARY_V1 }),
   Object.freeze({ version: 2, name: 'batch2-job-ledger', statements: LIBRARY_V2 }),
   Object.freeze({ version: 3, name: 'batch2-health-ledger', statements: LIBRARY_V3 }),
   Object.freeze({ version: 4, name: 'batch2-asset-export', statements: LIBRARY_V4 }),
+  Object.freeze({ version: 5, name: 'batch2-asset-user-meta', statements: LIBRARY_V5 }),
 ]);
 
 /** 本程序知道的**库级**最高版本（从清单派生，不另写数字） */

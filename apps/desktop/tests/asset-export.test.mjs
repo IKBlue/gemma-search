@@ -362,9 +362,11 @@ test('E7 ⭐⭐ 迁移与分层：v4 新迁移 · 版本派生 · **意图层**�
   );
   assert.equal(TARGET_SCHEMA_VERSION, versions[versions.length - 1], '目标版本 = 清单上限（派生）');
   assert.equal(
-    LIBRARY_MIGRATIONS[versions.length - 1].name,
+    // ⚠️ B2-3（asset_user_meta）之后不能再断言"最后一条是我" ⇒ 改钉**自己那一格**：v4 永远是导出留痕。
+    //    （这条比原来那条更强：原来只证明"它是最后一条"，现在"被改名/挪位"也会红。）
+    LIBRARY_MIGRATIONS[3].name,
     'batch2-asset-export',
-    '最后一条是 B2-2 的 v4',
+    '导出留痕仍是 v4',
   );
   assert.ok(LIBRARY_TABLES.includes('asset_export'));
   assert.deepEqual(
@@ -373,7 +375,8 @@ test('E7 ⭐⭐ 迁移与分层：v4 新迁移 · 版本派生 · **意图层**�
     '应有表 = 业务表 + 账本',
   );
   // 层归属：**意图层**（设计基线 README 的四层分类表把 asset_export 列在"意图层（必须留）"）
-  assert.deepEqual(tablesInLayer('intent'), ['asset_export'], 'asset_export 属意图层');
+  // 意图层的**完整成员**由 db-schema 的 G1 逐张钉；这里只钉"我在意图层"（否则每加一张意图表都要改这里）
+  assert.ok(tablesInLayer('intent').includes('asset_export'), 'asset_export 属意图层');
   assert.ok(schemaTables().includes('asset_export'), '四组点名必须含它');
   assert.ok(libraryLayerTables().includes('asset_export'), '落在库级 .gs.db');
   assert.equal(appLayerTables().includes('asset_export'), false, '不许落在 app.db');

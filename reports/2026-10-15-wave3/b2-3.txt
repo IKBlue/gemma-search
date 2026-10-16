@@ -1,0 +1,103 @@
+================================================================================
+B2-3 证据 · `asset_user_meta` 条目标注（评分 / 备注 / 收藏）
+任务板 id: task-105   执行: db-worker   日期: 2026-10-16
+边界（**本卡独占**）：`main/db/migrations.ts` · `main/db/schema-layers.ts` + 测试 + 证据
+      **未加契约方法** · **未改界面** · 未碰 `main/index.ts`
+===============================================================================
+
+【结论】
+· `asset_user_meta` 落地（**5 列 = 设计基线的 5 个字段行**）+ **v5** 迁移 + 收藏的**偏索引**。
+· **层级先核对了基线**：四层分类表 `reports/2026-10-15-schema-diff/README.md:33` 把 `asset_user_meta` 列在
+  **意图层（必须留）** ⇒ 归意图层（不是过程层）；判断写进了 `migrations.ts` 与 `schema-layers.ts` 的注释。
+· **字段出处机械证明**：M1 从 `SPEC-COMPACT.md` 那一节**解析**字段集，与真 DDL **双向对照**（多一个/少一个都红）。
+· 关键语义都有断言：**1:1 + CASCADE**（M2）· **NULL = 未评分**、0/6 被拒（M3）· 收藏是**一列布尔** + 偏索引（M1/M4）·
+  备注**不设长度上限**（M5）· 与 `asset_export`（历史 N 行）、`job`（进度）的边界（M6）。
+· **能红三组**（原文见 §5）· 全部断言**从清单派生**（**没有**"当前张数/当前版本"写死）。
+· 门禁（本轮实测）：受影响面 **144/144** · **s4 16/0/0** · `prettier --check .` **0** · `tsc` node/web **0** · `lint` **0**。
+
+【1. ⭐ 层级归属：**先核对基线**（按卡面要求，这次以基线为准）】
+· 基线四层分类表（`README.md:29-34`）：
+  事实层 `asset · asset_file · asset_name_fts` ｜ 过程层 `asset_index_state · job · health_run · health_finding · recent_view · recent_query · activity`
+  ｜ **意图层 `asset_user_meta · tag · asset_tag · collection · collection_item · asset_export · collect_dir`** ｜ 应用层 `app_meta · library_registry · app_setting`
+· `asset_user_meta` 落**意图层** ⇒ `schema-layers.ts` 的 `intent` 从 `['asset_export']` 变成 `['asset_export', 'asset_user_meta']`。
+· 语义理由（写进注释）：评分/备注/收藏是**用户自己做的标注**，重建元数据**绝不能**抹掉；
+  过程层的定义是"丢了能重算"（编码状态、体检台账属那类），而标注**丢了没法重算**。
+· 与 B2-2 的关系：那次我按基线把 `asset_export` 放意图层并纠正了卡面写法；本卡沿用同一判据。
+
+【2. 字段出处（照抄设计基线）】
+出处 = `reports/2026-10-15-schema-diff/SPEC-COMPACT.md` §「asset_user_meta [本轮] · 字段 5」（第 179-187 行）。
+| 字段 | 类型/约束 | 为什么（照抄基线） |
+|---|---|---|
+| `uid` | TEXT **PK + FK asset.uid ON DELETE CASCADE** | **1:1**；没有行 = 还没被标注过（**合法状态，不是缺失**）；素材真被删 ⇒ 标注跟着走 |
+| `rating` | INTEGER NULL **CHECK 1..5** | **用 NULL 表示未评分，不用 0** —— 0 会让人分不清"没评"与"评了 0 分"，而后者**语义上不存在**；范围写进 CHECK |
+| `note` | TEXT NULL | 自由备注，**不设长度上限**（截断是界面的事，不是存储的事） |
+| `updated_at_ms` | INTEGER NOT NULL | 最后编辑时刻 |
+| `is_favorite` | INTEGER NOT NULL DEFAULT 0 **CHECK 0/1** | 收藏是**一列布尔**而不是一张关联表：比特级的用户意图，且"筛收藏"是高频查询 |
+索引：基线在 `is_favorite` 的约束列里点名要"**偏索引** `WHERE is_favorite = 1`"（**只给谓词、没给名字**）
+  ⇒ 本仓命名为 `idx_meta_favorite`（M1 断言它 `partial = 1` 且列就是 `is_favorite`）。
+  ⚠️ 名字是**本仓定的**（基线没规定名字）；谓词与列是基线规定的。这一点写清楚，避免"看起来像自造"。
+
+【3. 改前 → 改后 → 为何**不是放宽**】
+| # | 位置 | 改前 | 改后 | 为什么不是放宽 |
+|---|---|---|---|---|
+| 1 | `migrations.ts` | v1–v4（asset 三张 + job + 体检 + 导出留痕） | **v5 `batch2-asset-user-meta`**（T_USER_META） | **加新迁移**而不是改 v1–v4：改已跑过的迁移对已升级的库**静默不生效** |
+| 2 | `schema-layers.ts` | intent = ['asset_export'] | intent += 'asset_user_meta' | 四组点名仍强制全覆盖（G1 双向）；分类**按基线**，没有"为了方便"挪层 |
+| 3 | `db-schema.test.mjs` | 暂缓清单含 `asset_user_meta`；`KEPT_LIBRARY` 不含它 | 移出暂缓、加进已建（**只加名字，不写数量**） | 清单与 DDL 同步是它的用途；数量一律派生（ACC-1/B2-4 的教训） |
+| 4 | `asset-export.test.mjs` E7 | `LIBRARY_MIGRATIONS[last].name === 'batch2-asset-export'`（"最后一条是我"）· `tablesInLayer('intent') === ['asset_export']` | 改钉**自己那一格**（v4 永远是导出留痕）· 意图层改成 `includes('asset_export')` | **判据更强**：原来只证明"它是最后一条"，现在"被改名/挪位"也会红；意图层完整成员由 db-schema G1 钉（不再两处各列一份） |
+| 5 | `s4-accept.mjs` | `SECOND_BATCH_BUILT` 无 `asset_user_meta` · `NOT_BUILT` 含它 | 白名单加它（**同一份**，A14/FIELDMAP 共用）· 从 `NOT_BUILT` 移出 · **新增 S4-U6** | 白名单是显式登记（不在 map 又不在白名单 ⇒ 红）；新单测纳入同一门禁（不另写解析器，P1） |
+
+【4. 边界（"谁一行"）—— M6 机械证明】
+· `asset_user_meta`（意图层）= **条目的标注，1 条素材最多 1 行**（uid 就是主键 ⇒ 插第二行被 UNIQUE/PK 拒；M2/M6）；
+· `asset_export`（意图层）= **发生过的事，1 条素材 N 行**（M6：同一条素材两条不同批量的导出历史 = 2 行）；
+· `job`（过程层）= 任务/进度，与标注无关；M6 断言本表**不含** job 的进度字段（先证明那些字段确实在 job 里）。
+
+【5. ⭐ 能红（三组 · 注入 ⇒ 必红 ⇒ 还原 ⇒ 复绿）】
+① **去掉点名**（intent 清空 `asset_user_meta`）：
+   `✖ M7 … AssertionError: asset_user_meta 属意图层   actual: false expected: true`
+   `✖ G1 … DDL 建出的表与四组点名必须逐张对上    actual: [ …, 'asset_user_meta', … ]   expected: [ … 不含它 … ]`
+   s4 同轮：`FAIL S4-A14` + **`FAIL S4-U1`（db-schema）** + **`FAIL S4-U6`（asset-user-meta）** ⇒ `PASS 13 · FAIL 3`
+   ⇒ **三条守卫独立地都抓到**。
+② **改坏外键**（`ON DELETE CASCADE` → `SET NULL`）：
+   `✖ M2 … AssertionError: uid 必须是 FK asset(uid) ON DELETE CASCADE`
+   `   actual: [ [ 'asset', 'uid', 'SET NULL' ] ]   expected: [ [ 'asset', 'uid', 'CASCADE' ] ]`
+   （语义差别是真的：SET NULL 下素材被删会留下一条没有素材的孤零零标注，而且 uid 是 PK ⇒ 还会挡住新素材用同一个 uid）
+③ **去掉一条 CHECK**（`rating BETWEEN 1 AND 5`）：
+   `✖ M3 … AssertionError: Missing expected exception: 0 不许出现 —— "评了零分"语义上不存在（NULL 才是"未评分"）`
+⇒ 三组还原后：五个 schema 测试文件 **44/44 绿** · `s4 = 16/0/0`。
+
+【6. 0 残留 grep（先跑后结论 · 用**正证**）】
+$ `asset_user_meta` 在 `apps/desktop/src/main` 的出现：`db/migrations.ts × 5`（DDL + 注释）· `db/schema-layers.ts × 2`（点名 + 注释）
+  ⇒ **没有第二份实现**（唯一落点：DDL + 分类）。
+$ 正证（三处注入都还原）：`migrations.ts:271` = `uid … REFERENCES asset (uid) ON DELETE CASCADE,`（② 已还原）·
+  `migrations.ts:272` = `rating INTEGER CHECK (rating BETWEEN 1 AND 5),`（③ 已还原）·
+  `schema-layers.ts:63` = `intent: Object.freeze(['asset_export', 'asset_user_meta']),`（① 已还原）；
+  `migrations.ts` 里**没有** `MUTANT`/`__acc` 标记。
+
+【7. 门禁（本轮实测 · 最终字节）】
+$ node --test <受影响面 15 个文件>（asset-user-meta/asset-export/health-ledger/job-ledger/job-wiring/db-schema/db-rebuild/
+  db-import/app-db/items-ipc/health-rebuild/library-methods/s3-index-state/storage-ports-main/index-location）
+  ⇒ **144/144 · fail 0**
+$ node reports/2026-10-15-wave3/s4-accept.mjs ⇒ **PASS 16 · FAIL 0 · SKIP 0**（含 S4-U6）
+$ npx prettier --write <本卡改动文件> ⇒ 0 → npx prettier --check . ⇒ **0（All matched files use Prettier code style!）**
+$ npx tsc --noEmit -p tsconfig.node.json … ⇒ **0** ｜ tsconfig.web.json … ⇒ **0**
+$ npm run lint ⇒ **0**
+（全量 `npm test` 与冻结门禁由 Lead 跑 —— 纪律 6；收到「冻结开始」我会**先回执再停笔**。）
+
+【8. 过程记录（如实 · 一次自伤与修复）】
+写 `schema-layers.ts` 的意图层注释时，我写了 `（评分/备注/收藏**/标签/…` —— 里面的 `**/` 被 JS 当成**块注释结束**，
+于是 `tsc` 立刻报 `TS1005 ',' expected`（第 57/63/66 行）。改成用 `·` 分隔后复跑通过。
+⇒ 记在这里是因为它说明**门禁抓住了它**（不是我看出来的）；最终状态由 §7 的 144/144 + s4 16/0/0 证明。
+
+【9. 未做 / 边界（如实写 · P6）】
+· **只落地表**：没有 API ⇒ **界面看不到评分/备注/收藏**（详情页的"组织"块仍是只读）。
+  这一卡之后**能力边界没变**，只是这三项功能**有了落点**。
+· 没写"未标注过的素材"的默认行（基线的口径就是"**没有行 = 还没被标注过**"）⇒ 读取方要按"缺行"处理。
+· 没测真实详情页端到端（本卡不含写入/读取路径）。
+
+【10. 回滚】
+· `migrations.ts`：删 `T_USER_META` + `LIBRARY_V5` + 清单里 v5 条目（版本自动回 4）；
+· `schema-layers.ts`：intent 去掉 `asset_user_meta`（回到只有 `asset_export`）；
+· `db-schema.test.mjs` / `s4-accept.mjs`：清单加回 `asset_user_meta`、白名单去掉它、删 S4-U6；
+  `asset-export.test.mjs` E7 恢复"最后一条"写法（**不建议**，下一次加表还会红）；删 `asset-user-meta.test.mjs`。
+· 未跑 git（AGENTS P7）。临时物：`data/_b23/**`（测试自清）· `data/_verify/*.tsbuildinfo`。
+===============================================================================
