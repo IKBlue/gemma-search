@@ -13,7 +13,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 
 import {
   buildIndex,
@@ -23,7 +22,6 @@ import {
 } from '../src/build_index_onnx.ts';
 import { readIndexBin } from '../../engine/src/index.ts'; // 引擎的 GSIDX 解析（唯一权威，P1）
 
-const SRC = fileURLToPath(new URL('../src/build_index_onnx.ts', import.meta.url));
 // ⚠️ 动态 import 在 Windows 上必须收 **file:// URL**（传 D:\… 会 ERR_UNSUPPORTED_ESM_URL_SCHEME）
 const SRC_URL = new URL('../src/build_index_onnx.ts', import.meta.url).href;
 

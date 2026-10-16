@@ -3,6 +3,7 @@
 // 用法:
 //   node build_index_onnx.mjs --model <目录> --lib G:\model --out <目录>
 //        [--seq 140] [--device webgpu] [--limit N] [--save-every 200] [--rebuild]
+//        [--built-at <ISO 时间戳>]   固定 header.built_at（默认 = 现在；不传等价于重构前）
 //
 // 设计要点（**就地自述**：旧设计文档已随 v2 清除，不再外链）：
 //   · 配对：**同目录 + 同名主干**（不跨目录），图 .jpg/.jpeg/.png，包 .zip/.rar
@@ -1067,7 +1068,8 @@ function parseCliArgs(argv: string[]): BuildIndexOptions | null {
   if (!modelDir || !libRoot || !outDir) {
     console.error(
       '用法: node build_index_onnx.mjs --model <目录> --lib <库根> --out <目录>' +
-        ' [--seq 140] [--device webgpu] [--limit N] [--lib-id L1] [--weights-dtype fp32]',
+        ' [--seq 140] [--device webgpu] [--limit N] [--lib-id L1] [--weights-dtype fp32]' +
+        ' [--built-at <ISO 时间戳>]  固定 header.built_at（默认 = 现在；不传等价于重构前）',
     );
     return null;
   }

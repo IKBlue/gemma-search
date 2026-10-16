@@ -168,3 +168,38 @@ G8 `function writeIndexBin` 定义数 = 0（重构前的那个写入口已删除
 无数据/落点副作用：夹具与产物都在 gitignore 的 data/_idx1（可随时删）。
 另外 `--built-at` 是**新增**的 CLI 开关（默认 = 现在，不传等价于重构前）——产物对照才需要它；
 如果不想让它出现在 CLI 表面，可以只留 `BuildIndexOptions.builtAt`（注入用）而去掉该 flag，说一声我改。
+
+===============================================================================
+【11 交付后追加（Lead 2026-10-16 的两条裁定 + 一处 lint 红）】
+===============================================================================
+11.1 裁定 ①：卡面第 3 条「复用 writeIndexAtomically」⇒ **采用方案 ②（主进程注入）**
+  · Lead 复核并采纳我的分析（落点写死 <库根>/.gs-index.bin、无 target 参数；indexer → main/** 依赖倒置）；
+  · **不采用**「给 writeIndexAtomically 加 target / 抽中立原子写原语」—— 理由：本仓原子写已经只有一份实现
+    （apps/desktop/src/main/atomic-write.ts），再抽一层就是**第二份**（P1）；
+  · ⇒ 我的交付**无需改动代码**：注入点 `writeIndex` + JSDoc「主进程必须注入 writeIndexAtomically」正是方案 ② 的前半；
+    IDX-2 由主进程 `buildIndex({ …, writeIndex: ({ bytes }) => writeIndexAtomically(libRoot, bytes) })` 接上。
+11.2 裁定 ②：`--built-at <ISO>` **保留**（可复现构建的正常需要，非测试后门），并要求写进 usage
+  · 文件头用法注释（build_index_onnx.ts:5 之后）与 CLI usage 字符串都补了一行；
+  · 新增后的 usage 原文（node packages/indexer/src/build_index_onnx.ts，NOARG_EXIT=2）：
+      用法: node build_index_onnx.mjs --model <目录> --lib <库根> --out <目录> [--seq 140] [--device webgpu]
+            [--limit N] [--lib-id L1] [--weights-dtype fp32] [--built-at <ISO 时间戳>]  固定 header.built_at
+            （默认 = 现在；不传等价于重构前）
+  · ⚠️ 对 §2「输出逐字不变」的**唯一修订**：usage 多这一行（Lead 裁定的新增开关说明）；
+    6 条夹具那次真跑的 stdout 与 RESULT 行仍逐字相同，产物仍逐字节相同（下面 11.4 再验过一遍）。
+11.3 裁定 ③：lint 红（我自己的文件）——已修 + 能红
+  · 现场：`packages/indexer/tests/build-index-api.test.mjs:26  'SRC' is assigned but never used  (no-unused-vars)`
+    （`SRC` 是我写「Windows 动态 import 需要 file:// URL」时留下的旧写法，真正的实现走 `SRC_URL`）；
+  · 修法：删掉 `const SRC = …` **以及只剩它使用的** `import { fileURLToPath } from 'node:url'`
+    —— 没有加 disable、没有改 eslint.config；
+  · 复验：npm run lint ⇒ **LINT_GREEN_EXIT=0**（全仓 eslint . 无输出即 0 problem）；
+  · 能红（留一个未用变量）:
+      npm run lint  ⇒  10:7  error  'UNUSED_LINT_PROOF' is assigned a value but never used  no-unused-vars
+                       ✖ 1 problem (1 error, 0 warnings)        LINT_RED_EXIT=1
+    还原后 LINT_GREEN_EXIT=0 · `grep RED-PROOF` = 0。
+11.4 这一轮改动之后的**再复验**（全部重跑，不是引用旧结论）
+  · tsc: -p tsconfig.node.json ⇒ **TSC_NODE_EXIT=0**
+  · node --test packages/indexer/tests/*.test.mjs ⇒ **tests 13 / pass 13 / fail 0**  TESTS_EXIT=0
+  · npx prettier --check <我的三个文件> ⇒ **MY_PRETTIER_EXIT=0**（先 --write；两个文件均报 unchanged）
+  · 产物再对照（改 usage 之后再跑一遍，out-final3）: index.bin IDENTICAL · items.json IDENTICAL · meta.json IDENTICAL
+  · CLI 真跑仍 exit 0 且 RESULT 行逐字相同
+11.5 另记：Lead 确认 `prettier --check .` 的那个红是 apps/desktop/e2e/start1-probe.spec.mjs（START-1 的在飞文件），不是我的。
