@@ -66,8 +66,8 @@ export default function AppHealthPanel() {
       {/* 这是「上个会话异常退出」的唯一去处：**日志**（界面不持久化、不猜） */}
       <p className="muted small mt-2">
         这里只显示<strong>本次运行</strong>的事实；「上个会话是不是异常退出」以及退出前的最后几行，
-        请直接看应用日志（主进程日志文件 <span className="mono">data/_app.log</span>）。
-        界面刻意<strong>不保存</strong>「上次崩溃」这类标记 —— 那会在下次启动时变成过期信息。
+        请直接看应用日志（主进程日志文件 <span className="mono">data/_app.log</span>）。 界面刻意
+        <strong>不保存</strong>「上次崩溃」这类标记 —— 那会在下次启动时变成过期信息。
       </p>
     </div>
   );
