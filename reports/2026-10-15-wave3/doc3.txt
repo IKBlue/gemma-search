@@ -1,0 +1,78 @@
+================================================================================
+DOC-3 只读半场 · 70 处**裸旧文档引用**的分类 + 判据 + 抽样校准 + 能红方案     2026-10-16  storage-worker
+================================================================================
+状态：**未写任何产品文件**（U18 正在改 main/** · renderer/** ⇒ 纪律 19）。本文件只做准备。
+
+【尺子（已入库、含 --calibrate）】
+  node reports/2026-10-15-wave3/doc2-legacy.mjs [--calibrate]  ⇒ ③ 裸旧文档引用（**带锚点的引用**，不算提及）
+  node reports/2026-10-15-wave3/doc2-verify.mjs [--calibrate]  ⇒ ① 文件悬挂 · ② 小节悬挂（**别把它们改坏**）
+  node reports/2026-10-15-wave3/doc3-collect.mjs               ⇒ 逐条列 70 处（file:line + 原句，按文档分组）
+  node reports/2026-10-15-wave3/doc3-sections.mjs              ⇒ 关键词 → SPEC.md 落点（给分类找证据用）
+  当前基线：③ = **70**（67 行）· ① = 0 · ② = 0
+
+【分类判据（与 DOC-2 同一套，不另立）】
+  A **权威引用**：为**当前行为**提供规范依据 ⇒ 改指向现存权威（且**逐处核对小节真实存在**）；
+  B **历史引用**：记录过去发生的事（审查/实测/已完成的迁移）⇒ **改自述**，不外链。
+  ⇒ 判别问句：删掉这条引用，读者还知道**现行规则去哪查**吗？（不知道 ⇒ A；注释本身已讲完 ⇒ B）
+  ⚠️ 禁止为归零而**新建 md**（AGENTS §7）。
+
+【关键词 → SPEC.md 落点（doc3-sections.mjs 实测，用于给 A 类定目标）】
+  sha1 ⇒ §2.2 GSIDX 格式 · F5 体检
+  uid ⇒ §1.1/§1.2（asset 表：uid 是主键）
+  compat ⇒ §1.4 向量与索引 · §1.5 库
+  GSIDX ⇒ §2.2
+  thumb:// ⇒ §5.3 thumb:// 协议与失败状态映射
+  normalization / L2 ⇒ §1.4 向量与索引
+  事务 / 写入不变式 ⇒ §2.1 写入不变式（可断言）· §5.2 每张表的唯一写入口
+  band ⇒ §4 界面规格 · F1 找→取
+  重编码 ⇒ §1.1 · §2 存储布局 · asset_index_state 小节
+  ⚠️ **sandbox / CSP / devTools / envelope 在 SPEC.md 命中 = 0** ⇒ 这批**没有可指的权威** ⇒
+     按判据只能**自述**，或指向 **AGENTS.md §1 Stack 硬约束**（那里确实写着 sandbox: true 与 preload .cjs）。
+     ⇒ 这是本次分类里**最重要的判定**：不是所有 A 类都能改指向，有相当一部分必须**退回自述**。
+
+【分类结果（70 处 / 67 行）】
+  · **SPEC-identity（28）** ⇒ A。uid/条目格式 → §1.1/§1.2；索引 header/版本/常量/normalization → §2.2 + §1.4；
+      items.json 条目格式（5 处）目标**待定**（grep 只在 §5.1 提到它 ⇒ 落地时逐条判：指 §1.1/§2.3 还是自述）。
+  · **SPEC-security（21）** ⇒ **混合**：
+      sandbox / CSP / devTools / 决定 3（约 8 处）⇒ SPEC.md 无对应节 ⇒ **B 自述**（或指 AGENTS.md §1）；
+      thumb:// / 权限与通道（S4–S6、§3 表、§5）（约 6 处）⇒ A → **§5.3 / §5.1**；
+      窗口安全边界（§8.1 / §9）（约 4 处）⇒ A → **§6 非功能**（§6 无对应表述则自述）；
+      其余（§2–§5 职责概览）⇒ A → §5.1 / §6。
+  · **DESIGN-app-details（5）** ⇒ A → **§4 界面规格**（是否需重编码的标注口径在 §1.1/§2 亦有落点）。
+  · **ROADMAP（4）** ⇒ A → **PLAN.md §4 阶段与依赖** / **TASKS.md §1（P4）**。
+  · **SPEC-transactions（4）** ⇒ A → **§2.1 写入不变式**。
+  · **UI-REVIEW-and-migration（4）** ⇒ A → **§4 界面规格**。
+  · **DESIGN-tokens（3）** ⇒ A → **packages/design-tokens/tokens.css 本文件**（视觉值唯一权威，不是文档）。
+  · **SPEC-app（1）** ⇒ A → **§2 存储布局**。
+
+【抽样校准（8 条，跨 6 个文档；逐条给判据）】
+  1. packages/engine/src/uid.ts:1（素材稳定标识，SPEC-identity §2 已冻结）
+     ⇒ 判据问句：删掉它，读者知道 uid 公式去哪查吗？不知道 ⇒ **A**；目标 **SPEC.md §1.2 + §2.2**。
+  2. packages/engine/src/engine.ts:98（索引里的行已是 L2，SPEC-identity §6.2）
+     ⇒ **A**；关键词 normalization/L2 实测落 **§1.4** ⇒ 目标 §1.4。
+  3. packages/engine/tests/fingerprint.test.mjs:3（指纹是库有没有被动过的唯一判据，SPEC-identity §5）
+     ⇒ **A**（判据本身 ⇒ 读者要知道规则在哪）⇒ 目标 **§1.5 库** 或 §2.3，落地复核。
+  4. apps/desktop/src/main/thumb-url.ts:3（这是 SPEC-security §8 的 S4–S6）
+     ⇒ **A**；thumb:// 实测落 **§5.3** ⇒ 目标 §5.3（S4–S6 编号若 §5.3 没有 ⇒ 自述）。
+  5. apps/desktop/src/main/index.ts:1362（devTools: true // 决定 3 生产态也保留）
+     ⇒ **B**：devTools 在 SPEC.md **0 命中** ⇒ 现行规则无处可指；决定 3 是**历史决策** ⇒ 自述理由。
+  6. apps/desktop/src/preload/index.ts:7（渲染进程能做的事 = 这三个成员能做的事）
+     ⇒ **A**（安全不变量）⇒ 目标 **§5.1** +（sandbox 语境）**AGENTS.md §1 硬约束 3**。
+  7. packages/indexer/src/build_index_onnx.ts:307（SPEC-identity §6.3 的兼容性判定键）
+     ⇒ **A**；compat 实测落 §1.4/§1.5 ⇒ 目标 **§1.4 向量与索引**。
+  8. apps/desktop/src/renderer/src/utils/index-state.ts:91（DESIGN-app-details.md:414 的态度）
+     ⇒ **B**：那是在解释为什么刻意不自动扫的**设计态度**（历史设计文档）⇒ 自述，不外链。
+  抽样结论：**A 6 · B 2**（与整体估计一致：大量 A 但逐条核小节；涉及 sandbox/devTools 的一律 B）。
+
+【能红方案（落地时执行）】
+  1) 先 doc2-legacy.mjs --calibrate ⇒ 必须 6/6 OK（**否则不采信**，纪律 21）；
+  2) 注入：把任意一处**已改好**的引用改回裸旧名（例：thumb-url.ts:3 的 SPEC.md §5.3 改回 SPEC-security §8）⇒
+     复跑 ⇒ **③ 0 → 1**；
+  3) 还原 ⇒ 探针残留 grep = 0 ⇒ 复跑 ⇒ **③ 回 0**（纪律 20：还原也是写入，必须复验）；
+  4) 同时报 **① 0 · ② 0**（证明没把 DOC-2 的成果改坏）。
+
+【落地门禁与边界】
+  · tsc 0 · npm test 全绿 · prettier --check . 0（**先 --write 再复验** —— DOC-2 我在这里踩过一次）；
+  · 改动若碰**用户可见文案**（library-config 类）⇒ **同步核对测试断言**并贴改前/改后 + 实跑；
+  · **不新建 md**；等 U18 落地再逐条执行（本文件仅为只读准备）。
+================================================================================
