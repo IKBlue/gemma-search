@@ -1,0 +1,119 @@
+==============================================================================
+E2E-FLAKE-1 / task-102 · E9-a 间歇红：归因 + 根治（不是超时太短，也不是 retries）
+日期：2026-10-16 · 执行：main-migrator · 证据全部可复跑（命令见 §1/§7）
+==============================================================================
+
+## 0. 结论（一句话）
+  E9-a 的间歇红**不在产品里**，在**这条判据自己**：图片区的"两种形态之一"是用 Playwright
+  **locator** 读的，而 locator 调用带**自动等待** —— 一旦 <img> 已被兜底换掉，
+  `img.getAttribute("src")` 就会为这个**已经不存在**的元素等满 action timeout（30 s），
+  而 `expect.poll` 的预算只有 20 s ⇒ **第一轮就吃光预算，"重试"从来没发生过**：
+  判据实际仍取决于第一眼那一瞬，只是把 8af6365 的"单次瞬时读"换了个形式。
+  ⇒ 修法：poll 的每一轮改成 **一次 page.evaluate 的纯 DOM 读**（无自动等待、无 strict mode），有界、可重试。
+
+## 1. 复现矩阵（同一具用例，只换判据版本；命令都可复跑）
+  | 判据版本 | 命令 | 结果 |
+  |---|---|---|
+  | 8af6365 之前（单次瞬时读） | npx playwright test -c apps/desktop/e2e/playwright.config.mjs item-detail.spec.mjs --repeat-each=6 | **2 failed / 34 passed**（5.0m） |
+  | 8af6365（poll + locator 自动等待） | 同上 --repeat-each=8 | **1 failed / 47 passed**（2.2m） |
+  | 8af6365 | 同上 --repeat-each=25 | **1 failed / 149 passed**（6.2m）· 同一次抓到 DOM 现场 |
+  | 8af6365 · 全量 | npx playwright test -c apps/desktop/e2e/playwright.config.mjs | **1 failed / 67 passed**（accept-run2） |
+  | **修后**（纯 DOM 读 + 有界重试） | --repeat-each=25 | **150 passed**（6.0m） |
+  | **修后 · 全量 ×5** | 全量连跑 5 次 | **5 ×（68 passed / 4 skipped / 0 failed）** 每次 2.9m |
+  ⇒ "单跑 6/6 绿、全量偶发"是因为它是**竞态**（窗口很小），不是"全量特有的状态污染"。
+
+## 2. 现场（决定性证据）：失败那一瞬的 DOM
+  在失败路径上 dump 图片区（只读、不参与判据；代码见 item-detail.spec.mjs 的 dumpImageArea）：
+  {"hash":"#/item/L1/a00000000001","readyState":"complete","testids":["app-health-entry","image-fallback","action-groups"],"imgCount":0,"imgSrc":null,"fbCount":1,"fbBox":{"w":248,"h":15,"display":"block","visibility":"visible"},"text":"G Gemma Search LOCAL IMAGE INTELLIGENCE 工作区 WORKSPACE ⌕ 语义搜索 ▣ 图片详情 ▦ 浏览图库 ＋ 入库与增量 ◴ 索引任务 ↺ 操作记录 ☰ 文档 ⚕ 诊断与重建 ⚙ 设置 当前图库 未配置 索引状态需要处理 0% 已建立索引 工作区 / 语义搜索 / 图片详情 诊断 ← ITEM VR-101 库 L1 · VR · 原生档 检查变更 重新读取 无预览（缩略图取不到 —— 文件可能已不在盘上） 原始大小 在盘上 · 40 KB 已编码 （是否被外部改过要一次「检查变更」才知道） ID VR-101 uid a00000000001 分类 VR 库 L1 向量档 native 预览图 40 KB 修改时间 2025-10-09 16:53 压缩包 .rar · 8.5 MB 图路径 Z:\\__fake_library__\\VR\\VR-","rootHead":"<div class=\"app\"><aside class=\"sidebar\"><div class=\"brand\"><div class=\"logo\">G</div><div><div class=\"brand-name\">Gemma Search</div><div class=\"brand-sub\">LOCAL IMAGE INTELLIGENCE</div></div></div><div><div class=\"nav-label\">工作区 WORKSPACE</div><nav class=\"nav\"><a data-nav=\"search\" href=\"#/\" data-discover=\"true\"><span class=\"ico\" aria-hidden=\"true\">⌕</span><span>语义搜索</span></a><a data-nav=\"detail\" aria-label=\"图片详情（P3c（从结果卡进入））\" href=\"#\" class=\"disabled\" title=\"图片详情（P3c（从结果卡进入））\" aria-disabled=\"true\"><span class=\"ico\" aria-hidden=\"true\">▣</span><span>图片详情</span></a><a data-nav=\"browse\" href=\"#/browse\" data-discover=\"true\"><span class=\"ico\" aria-hidden=\"true\">▦</span><span>浏览图库</span></a><a data-nav=\"ingest\" aria-label=\"入库与增量（P4（等对应的数据表上线））\" href=\"#\" class=\"disabled\" title=\"入库与增量（P
+  读法：
+   · `hash=#/item/L1/a00000000001`、`testids` 含 `image-fallback`、正文有「无预览（缩略图取不到…）」
+     ⇒ **页面完全正常**（标题/元数据/动作区都在）；
+   · `fbCount=1` ⇒ **没有 strict mode 冲突**；`fbBox={w:248,h:15,display:block,visibility:visible}`
+     ⇒ **兜底存在且可见**；`imgCount=0` ⇒ <img> 确实已被换掉。
+   ⇒ 也就是说：**"再读一次就对了"** —— 但判据读不到第二次。
+
+## 3. 根因（为什么读不到第二次）
+  失败版 poll 的一轮：
+    ① if (await fallback.isVisible().catch(() => false)) → 第一眼时兜底还没画出来 ⇒ false
+    ② imgSrc = await img.getAttribute("src").catch(() => null)   ← **就在这里挂住**
+       <img> 已经不存在 ⇒ locator 自动等待直到 action timeout（30 s）；
+        而 poll 自己的 timeout 是 20 s ⇒ 报「未就绪」时，其实第一轮还卡在第 ② 步。
+  两条独立信号的原文：
+   · 旧版（同一竞态的另一种表现）直接 await 在 else 分支里 ⇒
+         1) apps\desktop\e2e\item-detail.spec.mjs:29:1 › E9-a ⭐ 显示大图 + 元数据 + **两条绝对路径**（P3c 的核心验收） ────────
+       
+           TimeoutError: locator.getAttribute: Timeout 30000ms exceeded.
+           Call log:
+             - waiting for locator('img').first()
+       
+       
+             45 |       await expect(fallback).toContainText(/文件可能已不在盘上/);
+             46 |     } else {
+           > 47 |       expect(await img.getAttribute('src')).toBe('thumb://L1/a00000000001@512');
+   · 8af6365 版（poll 但用 locator）：
+         1) apps\desktop\e2e\item-detail.spec.mjs:29:1 › E9-a ⭐ 显示大图 + 元数据 + **两条绝对路径**（P3c 的核心验收） ────────
+       
+           Error: 图片区既没进兜底、也没出现带 src 的 <img>（未就绪）
+       
+           Timeout 20000ms exceeded while waiting on the predicate
+       
+             72 |         { timeout: 20_000, message: '图片区既没进兜底、也没出现带 src 的 <img>（未就绪）' },
+             73 |       )
+           > 74 |       .not.toBe('pending');
+                |            ^
+             75 |
+             76 |     if (imageState === 'fallback') {
+
+## 4. 修复（只改判据，不碰产品代码、不加 retries、不调超时）
+  改前：poll 内用 locator 读（fallback.isVisible / img.getAttribute）—— 带自动等待
+  改后：poll 内一次 win.evaluate 纯 DOM 读：
+        const s = await win.evaluate(() => { ...visible(fb)... imgEl.getAttribute("src") ... });
+        if (s.fallbackVisible) → fallback； else if (s.imgSrc) → img； else → pending（继续等）
+  为何非放宽：**断言一字未改** —— 仍然是"两种形态必须其一"，仍然断言兜底的两条精确文案
+    「无预览」「文件可能已不在盘上」、仍然断言 `thumb://L1/a00000000001@512` 这个**精确** src；
+    改的只是"怎么读"（有界、可重试），以及失败时 dump 现场。
+  顺带删掉一个已不再使用的 locator 常量（eslint no-unused-vars 抓出来的）。
+
+## 5. 验收：连续 5 次全量 e2e 全绿（每次贴输出）
+  命令：npx playwright test -c apps/desktop/e2e/playwright.config.mjs（= npm run e2e；未加 retries、未改超时）
+  · RUN 1/5 · rc=0 · 4 skipped · **68 passed (2.9m)**
+  · RUN 2/5 · rc=0 · 4 skipped · **68 passed (2.9m)**
+  · RUN 3/5 · rc=0 · 4 skipped · **68 passed (2.9m)**
+  · RUN 4/5 · rc=0 · 4 skipped · **68 passed (2.9m)**
+  · RUN 5/5 · rc=0 · 4 skipped · **68 passed (2.9m)**
+  原始输出：data/_esbuild-tmp/accept2-run{1..5}.txt（每次完整日志）
+  另：E9-a 自身的压力复跑 150/150（--repeat-each=25，6.0m）—— 同一压力下修前是 1/25 失败。
+
+## 6. 能红（把根因改回去 ⇒ 必须重新偶发）
+  ① 把判据换回 **8af6365 之前**的版本（单次瞬时读）⇒ item-detail --repeat-each=6 ⇒ **2 failed**（原文见 §3 第 1 条）；
+  ② 把判据换回 **8af6365 版**（poll + locator 自动等待）⇒ 同压力 --repeat-each=8 ⇒ **1 failed**；
+     --repeat-each=25 ⇒ **1 failed**（并因此抓到 §2 的 DOM 现场）；全量 ⇒ accept-run2 **1 failed**。
+  ③ 修后同压力 ⇒ 150 passed、全量 5/5 全绿。
+  ⇒ 这条链证明"改的是根因"：同一个竞态在三种判据下出现/消失，且现场 DOM 显示是判据读法的问题。
+
+## 7. Lead 的怀疑：把 `data/_e2e-tmp` 集中 = userData 共用 / 单实例锁撞车？—— **不成立**（实测 + 代码）
+  · **每次启动的 userData 都是唯一的**：helpers/launch.mjs 用 fs.mkdtempSync(E2E_TMP_ROOT, "launchapp-")
+    （app.mjs 的三个场景 helper 走 tmpDir(tag) 同样唯一）⇒ `requestSingleInstanceLock()` 按 userData 计，
+    **不同 spec 之间不可能撞**；`data/_e2e-tmp` 只是父目录，子目录互不复用（mkdtemp 不复用已存在的名字）。
+  · 症状也不对：锁没抢到的表现是**窗口根本不出现**（firstWindow 超时），而 E9-a 失败时
+    **窗口/标题/元数据/动作区全在**（§2 的 DUMP）—— 不是"卡在启动"，是"卡在一次读"。
+  · `.gs.db`/WAL 残留也不适用：E9-a 跑在**模拟模式**（库根 Z:\__fake_library__ 不存在，不写盘）。
+  · 结论：这条线索方向优雅但被证据否掉了；真因是判据里的自动等待（§3）。
+  ⚠️ 这不等于"helper 的落点改动有问题"：START-1 的落点改动仍然必要（它把 6.1 s 的环境假象去掉了）。
+
+## 8. 残留检查（先跑后结论）
+  Select-String -Path apps/desktop/e2e/item-detail.spec.mjs -Pattern "img.getAttribute|fallback.isVisible"
+    ⇒ 原始命中 **4**：1 条是 dumpImageArea 里 `win.evaluate` 内的**纯 DOM 读**（不是 locator），3 条是注释（解释为什么不能那样读）。
+    ⇒ **poll 里带自动等待的 locator 读 = 0**（`fallback` locator 只用于对**已存在**元素断言文案）。
+  eslint apps/desktop/e2e/item-detail.spec.mjs ⇒ EXIT=0；prettier --check ⇒ All matched files use Prettier code style!
+
+## 9. 未决 / 如实边界（P6）
+  · 这是一个**低频竞态**（旧版 2/6、8af6365 版约 1/8..1/25）⇒ 150 次干净 + 5 次全量全绿是**证据**，
+    不等于"数学上不可能再犯"；但修后的判据**结构上不再有"自动等待吃光预算"**这一步，那一类失败被移除。
+  · 我没有加 retries、没有改任何超时阈值；产品代码（main/** · renderer · shared · packages）**一行未动**。
+  · 新增的 dumpImageArea 只在**失败路径**调用，不改变判据，也不影响通过时的行为。
+
+## 10. 回滚方式
+  · 只回滚判据：把 poll 内改回 locator 读（副本 data/_flake1/item-detail.dumpver.mjs 就是"8af6365 版"）⇒ 竞态立刻回来（§6）；
+  · 整卡撤销：撤销该提交（只动 apps/desktop/e2e/item-detail.spec.mjs + 本证据）。
+==============================================================================

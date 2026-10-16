@@ -26,6 +26,39 @@ async function openItem(win, uid = 'a00000000001') {
 const metaValue = (win, label) =>
   win.locator(`[data-meta="${label}"] > span:nth-child(2)`).innerText();
 
+/**
+ * 诊断用：把**图片区现在到底是什么形态**原样 dump 出来（只在失败路径调用，不参与判据）。
+ * 为什么需要它：E9-a 偶发失败时，"既不是兜底、也不是带 src 的 <img>"是一个**未被识别**的第三形态；
+ * 不抓住它，任何"修好了"的说法都是猜（AGENTS P6 / 纪律：先取证）。
+ */
+async function dumpImageArea(win) {
+  return win.evaluate(() => {
+    const fb = document.querySelector('[data-testid="image-fallback"]');
+    const img = document.querySelector('img');
+    const style = fb ? getComputedStyle(fb) : null;
+    return {
+      hash: location.hash,
+      readyState: document.readyState,
+      testids: [...document.querySelectorAll('[data-testid]')]
+        .map((e) => e.getAttribute('data-testid'))
+        .slice(0, 40),
+      imgCount: document.querySelectorAll('img').length,
+      imgSrc: img ? img.getAttribute('src') : null,
+      fbCount: document.querySelectorAll('[data-testid="image-fallback"]').length,
+      fbBox: fb
+        ? {
+            w: fb.clientWidth,
+            h: fb.clientHeight,
+            display: style.display,
+            visibility: style.visibility,
+          }
+        : null,
+      text: document.body.innerText.replace(/\s+/g, ' ').slice(0, 400),
+      rootHead: (document.getElementById('root')?.innerHTML ?? '').slice(0, 1500),
+    };
+  });
+}
+
 test('E9-a ⭐ 显示大图 + 元数据 + **两条绝对路径**（P3c 的核心验收）', async () => {
   const { app, cleanup } = await launchFake();
   try {
@@ -47,31 +80,54 @@ test('E9-a ⭐ 显示大图 + 元数据 + **两条绝对路径**（P3c 的核心
     //    ⇒ 抖动不是"重跑就好"，而是**判据踩了时序**。改成**等图片区进入确定的两种形态之一**（就绪标记）
     //      再分叉：要么兜底可见，要么 <img> 带 src。这样"等待"是**显式且可重试**的，不再靠读一眼。
     const fallback = win.getByTestId('image-fallback');
-    const img = win.locator('img').first();
     let imageState = 'pending';
     let imgSrc = null;
-    await expect
-      .poll(
-        async () => {
-          imageState = 'pending';
-          imgSrc = null;
-          // ① 已经换成诚实兜底了？
-          if (await fallback.isVisible().catch(() => false)) {
-            imageState = 'fallback';
+    try {
+      await expect
+        .poll(
+          async () => {
+            // ⚠️ 2026-10-16（E2E-FLAKE-1）：**每一轮都必须"不等待"**。
+            //    上面那版用 locator 读（fallback.isVisible / img.getAttribute）——
+            //    locator 调用带**自动等待**：一旦 <img> 已被兜底换掉，getAttribute('src')
+            //    就会为这个"不存在的元素"等满 action timeout（30 s），而 poll 自己的预算只有 20 s
+            //    ⇒ **第一轮就吃光预算，"重试"从来没发生过**，判据实际仍取决于第一眼的时刻。
+            //    实测（repeat-each=25，1 次失败）失败瞬间的 DOM：兜底**存在且可见**（248×15）、
+            //    imgCount=0 —— 也就是"再读一次就对了"，但因为上面那个自动等待，永远读不到第二次。
+            //    ⇒ 改成一次 page.evaluate 的**纯 DOM 读**（无自动等待、无 strict mode）：有界、可重试。
+            const s = await win.evaluate(() => {
+              const fbEl = document.querySelector('[data-testid="image-fallback"]');
+              const imgEl = document.querySelector('img');
+              const visible = (el) =>
+                !!el && !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+              return {
+                fallbackVisible: visible(fbEl),
+                imgSrc: imgEl ? imgEl.getAttribute('src') : null,
+              };
+            });
+            // ① 已经换成诚实兜底了？
+            if (s.fallbackVisible) {
+              imageState = 'fallback';
+              imgSrc = null;
+              return imageState;
+            }
+            // ② 还是原图、且已经拿到 src？
+            if (s.imgSrc) {
+              imageState = 'img';
+              imgSrc = s.imgSrc;
+              return imageState;
+            }
+            // ③ 两个都还不是 ⇒ 还没就绪，继续等（而不是就此分叉）
+            imageState = 'pending';
+            imgSrc = null;
             return imageState;
-          }
-          // ② 还是原图、且已经拿到 src？
-          imgSrc = await img.getAttribute('src').catch(() => null);
-          if (imgSrc) {
-            imageState = 'img';
-            return imageState;
-          }
-          // ③ 两个都还不是 ⇒ 还没就绪，继续等（而不是就此分叉）
-          return imageState;
-        },
-        { timeout: 20_000, message: '图片区既没进兜底、也没出现带 src 的 <img>（未就绪）' },
-      )
-      .not.toBe('pending');
+          },
+          { timeout: 20_000, message: '图片区既没进兜底、也没出现带 src 的 <img>（未就绪）' },
+        )
+        .not.toBe('pending');
+    } catch (e) {
+      console.log('[E9-a DUMP] ' + JSON.stringify(await dumpImageArea(win)));
+      throw e;
+    }
 
     if (imageState === 'fallback') {
       await expect(fallback).toContainText(/无预览/);
