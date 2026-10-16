@@ -58,6 +58,13 @@ const FIXTURE_LIB = path.join(ROOT, 'data', '_schema100', 'lib');
 const DESIGN_DOC = path.join(ROOT, 'reports', '2026-10-15-schema-diff', 'DESIGN-6tables-and-contract.md');
 const SPEC = path.join(ROOT, 'SPEC.md');
 const SQLITE_INTERNAL = ['sqlite_sequence'];
+
+// **第二批已经建出来的表** —— 它们不在设计基线 §1 的 field-map 里（那份 map 覆盖第一批 6 张），
+// 字段出处分别是 `BATCH2-PLAN` 的第 1 张（job）与 `SPEC-COMPACT.md` 的「health_run / health_finding」小节。
+// ⚠️ 这是一个**显式名单**（不是数量）：它的作用是"任何**既不在这份名单、也不在 map 里**的表都会被抓住"。
+//    加表的人必须**显式**在这里登记（并同时给出它的字段出处）—— 想"悄悄多一张表"这条路是堵死的。
+// ⚠️ 只此一份（A14 与 FIELDMAP 都读它）：两处各写一份迟早会漂。
+const SECOND_BATCH_BUILT = ['job', 'health_run', 'health_finding'];
 let seq = 0;
 
 function tmpDir(label) {
@@ -146,6 +153,10 @@ console.log('── A. 就绪判据：跑既有单测（本脚本不重写它们
 runTestFile(path.join(ROOT, 'apps/desktop/tests/db-schema.test.mjs'), 'S4-U1');
 runTestFile(path.join(ROOT, 'apps/desktop/tests/app-db.test.mjs'), 'S4-U2');
 runTestFile(path.join(ROOT, 'apps/desktop/tests/items-ipc.test.mjs'), 'S4-U3');
+// B2-2：体检台账的**字段保真**（列集 ↔ 设计基线 SPEC-COMPACT.md 双向）就在这个文件里 ——
+//   本脚本的 FIELDMAP 只解析「第一批 6 张」的 field-map，第二批表的字段出处是 SPEC-COMPACT.md，
+//   所以把那组断言作为**同一条门禁的一部分**跑掉，而不是在这里再写一遍解析器（P1：判据一份）。
+runTestFile(path.join(ROOT, 'apps/desktop/tests/health-ledger.test.mjs'), 'S4-U4');
 console.log('');
 
 // ================================================================ B. 验收级判据
@@ -177,12 +188,15 @@ check('S4-A14', 'DDL 建出的表 == 四层点名（双向），**张数从真�
     // 仍未建的表：这份**清单**是第二/第三批的输入，但它的**长度不再断言**（随功能上线而变）。
     //   改钉两条真判据：① 清单里的表一张都不许被建出来；② 已建出的表不许出现在清单里。
     const NOT_BUILT = ['app_setting', 'activity', 'recent_query', 'recent_view', 'asset_name_fts',
-      'asset_user_meta', 'tag', 'asset_tag', 'collection', 'collection_item', 'asset_export',
-      'health_run', 'health_finding'];
+      'asset_user_meta', 'tag', 'asset_tag', 'collection', 'collection_item', 'asset_export'];
     assert(NOT_BUILT.length > 0, '未建清单不能为空（否则这条检查变成恒真）');
     eq(NOT_BUILT.filter((n) => grouped.includes(n)), [], '被标为「未建」的表却已经建出来了 ⇒ 清单必须同步');
-    assert(grouped.includes('job'), '`job` 已由 B2-1 建出 ⇒ 必须出现在四层点名里');
-    assert(!NOT_BUILT.includes('job'), '`job` 已建出 ⇒ 不许还留在「未建」清单里');
+    // ⚠️ ACC-1 的教训：**不再逐个写死**（原来这里点名 `job`，B2-2 一来就得改）。
+    //    改成从**同一份** SECOND_BATCH_BUILT 派生：已建的第二批表必须①被四层点名 ②不在「未建」清单里。
+    for (const n of SECOND_BATCH_BUILT) {
+      assert(grouped.includes(n), n + ' 已建出 ⇒ 必须出现在四层点名里');
+      assert(!NOT_BUILT.includes(n), n + ' 已建出 ⇒ 不许还留在「未建」清单里');
+    }
     const present = [];
     for (const n of NOT_BUILT) {
       if (allTables(lib.db).includes(n) || allTables(app.db).includes(n)) present.push(n);
@@ -295,10 +309,14 @@ check('S4-FIELDMAP', 'field-map（设计基线 §1）↔ 真 DDL 双向覆盖：
   //    design 基线 §1 的 field-map 只覆盖**第一批**的表；B2-1 的 `job` 属**第二批**，
   //    它的字段出处是 BATCH2-PLAN 第 1 张（不是这份 map）⇒ 旧断言变成假红。
   //    现在：① 检查**显式限定到 map 覆盖的表**；② 新增一条 —— **未被 map 覆盖的表必须恰好等于**
-  //    一份**显式的第二批白名单**。将来冒出一张既不在 map、也不在白名单的表，照样红（判别力不降）。
-  const SECOND_BATCH = ['job'];
+  //    一份**显式的第二批白名单**（模块级的那一份，A14 也读它）。将来冒出一张既不在 map、也不在白名单的表，照样红。
   const unmapped = built.filter((t) => !mappedTables.includes(t));
-  eq(unmapped, SECOND_BATCH, '未被 field-map 覆盖的表必须恰好是显式的第二批白名单（多一张/少一张都红）');
+  // 两边都排序再比（`built` 本身已排序；白名单按可读性写，不该被书写顺序影响判定）
+  eq(
+    [...unmapped].sort(),
+    [...SECOND_BATCH_BUILT].sort(),
+    '未被 field-map 覆盖的表必须恰好是显式的第二批白名单（多一张/少一张都红）',
+  );
   eq(mappedTables.filter((t) => !built.includes(t)), [], 'map 里点名的表必须在 DDL 里真的建出来');
 
   const lib = openLibrary('FM-lib');
@@ -323,7 +341,7 @@ check('S4-FIELDMAP', 'field-map（设计基线 §1）↔ 真 DDL 双向覆盖：
     eq(undocumented, [], 'DDL 里没有任何出处的列（要么进 map，要么显式标为内部字段）');
     const total = [...map.values()].reduce((n, s) => n + s.size, 0);
     return 'map ' + String(mappedTables.length) + ' 表 / ' + String(total) + ' 字段；双向零漂移；未覆盖表 = 第二批白名单 [' +
-      SECOND_BATCH.join(', ') + ']；内部字段 0 个';
+      SECOND_BATCH_BUILT.join(', ') + ']；内部字段 0 个';
   } finally { lib.db.close(); app.db.close(); }
 });
 

@@ -486,23 +486,36 @@ test('J8 ⭐ job 表 = 设计基线的 11 个字段行（13 物理列）+ 可空
 
 // ============================================================ J9 迁移 / 分层（四件套）
 
-test('J9 ⭐⭐ 迁移与分层：库级 6 → 7 张、每张被点名、job 属过程层、旧库升级路径不回归', () => {
-  assert.equal(TARGET_SCHEMA_VERSION, 2, 'B2-1 把库级目标版本推到 v2');
+test('J9 ⭐⭐ 迁移与分层：job 已建出、每张被点名、job 属过程层、旧库升级路径不回归', () => {
+  // ⚠️ B2-2（ACC-1 的教训）：**不写死"当前目标版本/当前张数"** —— 那是状态，会随每批加表过期。
+  //    改钉**关系**：版本从 1 起连续 · 目标版本 == 清单上限 · B2-1 自己那两条迁移**仍是** v1/v2（它不能被后来者改名/挪位）·
+  //    表清单与其应有清单对照。过程层的**完整成员**由 db-schema 的 G1 逐张钉（不在这里再列一遍 —— 两处各列一份必漂）。
+  const versions = LIBRARY_MIGRATIONS.map((m) => m.version);
   assert.deepEqual(
-    LIBRARY_MIGRATIONS.map((m) => m.version),
-    [1, 2],
-    '加表 = 加一条新迁移（不许改 v1）',
+    versions,
+    versions.map((_, i) => i + 1),
+    '库级版本必须从 1 起连续',
   );
-  assert.deepEqual(
-    LIBRARY_MIGRATIONS.map((m) => m.name),
-    ['greenfield-library-3', 'batch2-job-ledger'],
+  assert.equal(TARGET_SCHEMA_VERSION, versions[versions.length - 1], '目标版本 = 清单上限（派生）');
+  assert.equal(
+    LIBRARY_MIGRATIONS[0].name,
+    'greenfield-library-3',
+    'v1 仍是绿地那一条（不许回头改）',
+  );
+  assert.equal(LIBRARY_MIGRATIONS[1].name, 'batch2-job-ledger', 'B2-1 的 job 台账仍是 v2');
+  assert.ok(
+    LIBRARY_MIGRATIONS[1].statements.some((s) => s.includes('CREATE TABLE IF NOT EXISTS job')),
+    'v2 里确实是 job',
   );
   assert.ok(LIBRARY_TABLES.includes('job'), 'LIBRARY_TABLES 必须含 job');
-  assert.equal(LIBRARY_TABLES.length, 4);
   assert.ok(EXPECTED_TABLES.includes('job'));
-  assert.equal(EXPECTED_TABLES.length, 5, '4 业务表 + schema_version 账本');
+  assert.deepEqual(
+    [...EXPECTED_TABLES],
+    [...LIBRARY_TABLES, 'schema_version'].sort(),
+    '应有表 = 业务表 + 账本',
+  );
   assert.ok(schemaTables().includes('job'), '四组点名必须含 job');
-  assert.deepEqual(tablesInLayer('process'), ['asset_index_state', 'job'], 'job 属**过程层**');
+  assert.ok(tablesInLayer('process').includes('job'), 'job 属**过程层**');
   assert.ok(libraryLayerTables().includes('job'), '落在库级 .gs.db');
   assert.equal(appLayerTables().includes('job'), false, '不许落在 app.db');
 
@@ -523,14 +536,15 @@ test('J9 ⭐⭐ 迁移与分层：库级 6 → 7 张、每张被点名、job 属
   } finally {
     old.db.close();
   }
-  // 用完整清单再打开同一个库 ⇒ 升到 v2，且**老行还在**
+  // 用完整清单再打开同一个库 ⇒ 升到**当前目标版本**，且**老行还在**
   const upgraded = openGsDb({ dbPath: old.dbPath });
   try {
-    assert.equal(readSchemaVersion(upgraded.db), 2);
+    assert.equal(readSchemaVersion(upgraded.db), TARGET_SCHEMA_VERSION);
+    // ⚠️ 不写死 [2]：只跑"比 from 大"的那些迁移（B2-2 起会有 v3…），从清单派生
     assert.deepEqual(
       upgraded.migration.applied.map((m) => m.version),
-      [2],
-      '只跑缺的那条 v2',
+      versions.filter((v) => v > 1),
+      '只跑缺的那些迁移（v1 之后的全部）',
     );
     assert.equal(
       upgraded.db.prepare('SELECT COUNT(*) AS n FROM asset').get().n,

@@ -1,0 +1,107 @@
+================================================================================
+B2-2 证据 · `health_run` / `health_finding` 两张表（体检台账 · **不复制 job 的进度字段**）
+任务板 id: task-98   执行: db-worker   日期: 2026-10-16
+边界（**本卡独占**）：`main/db/migrations.ts` · `main/db/schema-layers.ts` + 测试 + 证据
+      **未加契约方法** · **未改界面** · 未动产品其它模块
+★ 改动**从清单派生**、**没有把当前数量写死**（ACC-1 的教训）。
+===============================================================================
+
+【结论】
+· 两张表落地（`health_run` 6 列 · `health_finding` 9 列 = 设计基线的 **14 个字段行**）+ **v3** 新迁移 + 进**过程层**。
+· **不是 `job` 的第二份实现**（P1）：`health_run.job_id` **外键 → job(job_id)**，列集里**没有**任何进度/断点/心跳字段；
+  而且那条外键**真的在拦**（插假 `job_id` 被拒 —— 本仓 `sqlite-adapter` 默认 `enableForeignKeyConstraints`）。
+· 字段**照抄设计基线**：测试从 `SPEC-COMPACT.md` 那一节**解析**出字段集，与真 DDL 列集**双向对照**（多一个/少一个都红）。
+· **能红三组**（原文见 §5）：去掉点名 ⇒ 三条守卫独立红 · 去掉 `job_id` 外键 ⇒ H3 红 · 整列删掉 ⇒ 7 条全红。
+· 门禁（本轮实测）：受影响面 **130/130** · **s4 14/0/0** · `prettier --check .` **0** · `tsc` node/web **0** ·
+  本卡文件的 `eslint` **0**；**全树 `lint` 有 1 条红，在别卡的文件里**（见 §7，已如实归属、**未越界修**）。
+
+【1. 字段出处（照抄，不发明）】
+出处 = `reports/2026-10-15-schema-diff/SPEC-COMPACT.md` §「`health_run` / `health_finding` [v1.2 新增] · 字段 14」（第 141-169 行）。
+· **health_run**（6 列）：`run_id`(TEXT PK) · `job_id`(TEXT **FK job** 可空) · `state`(TEXT CHECK running/done/failed/cancelled) ·
+  `started_at_ms` / `finished_at_ms`(INTEGER 可空，基线**同一字段行**) · `summary_json`(TEXT 可空)
+· **health_finding**（9 列）：`finding_id`(INTEGER PK) · `run_id`(TEXT NOT NULL **FK health_run ON DELETE CASCADE**) ·
+  `check_id`(TEXT NOT NULL) · `severity`(TEXT CHECK info/warn/error) · `target_uid`(TEXT) · `target_rel_path`(TEXT) ·
+  `detail`(TEXT NOT NULL 人话) · `detail_json`(TEXT) · `created_at_ms`(INTEGER NOT NULL)
+· 索引（每条对应一个真的会跑的查询）：`idx_health_run_job(job_id)` · `idx_health_finding_run(run_id)` · `idx_health_finding_check(check_id)`
+⚠️ **一处偏离（可发现，写在 DDL 注释里）**：基线给 `finding_id` 写 `INTEGER PK AUTOINCREMENT`，本仓用 `INTEGER PRIMARY KEY`
+  （rowid 别名，**同样自增**）。原因：`AUTOINCREMENT` 会让 SQLite 建内部表 `sqlite_sequence`，而本仓既有自检
+  `db-schema.test.mjs` G2 **明确要求库里不出现它**（`本轮没有 AUTOINCREMENT 表`）—— 那条是**本卡不动的产品约束**。
+  语义不受影响（基线要的是"流水自增、不需跨库唯一"）。H6 同时钉住：`finding_id` 确实 1、2 递增 **且** 库里没有 `sqlite_sequence`。
+
+【2. 改前 → 改后 → 为何**不是放宽**】
+| # | 位置 | 改前 | 改后 | 为什么不是放宽 |
+|---|---|---|---|---|
+| 1 | `migrations.ts` | 库级 v1/v2（asset 三张 + job） | **v3 `batch2-health-ledger`**（T_HEALTH） | **加新迁移**而不是改 v1/v2（改已跑过的迁移对已升级的库**静默不生效**） |
+| 2 | `schema-layers.ts` | process = [asset_index_state, job] | process += [health_run, health_finding] | 两张表是"尽量留、丢了能重算"的过程数据 ✓ 归属不变；四组点名仍强制全覆盖 |
+| 3 | `db-schema.test.mjs` G1/G2/G0 | 写死 `7 张` / `seen.size===7` / `DEFERRED.length===13` / `applied===[1,2]` / `LIBRARY_MIGRATIONS.length===2` / `process===[…,job]` | **全部改派生**：点名集合 == 派生集合（双向）· 每张恰好一次 · `DEPERRED` 与已建集合**互斥** · `applied === LIBRARY_MIGRATIONS.map(version)` · 版本**从 1 起连续** + **目标版本 == 清单上限** · process 层按事实列出 | 写死的是**状态**（几张/几条/哪个版本），检查的本意是**关系**；改后"加表却不分类/不登记"仍然红，而"改大数字蒙混"这条路没了（ACC-1 的教训） |
+| 4 | `s4-accept.mjs` | `SECOND_BATCH = ['job']`（FIELDMAP 内）· A14 里**逐个点名 `job`** · `NOT_BUILT` 仍含两张表 | 模块级**单一** `SECOND_BATCH_BUILT = ['job','health_run','health_finding']`（A14 与 FIELDMAP **共用**）· `NOT_BUILT` 移出两张 · 比较时**两边排序** | 白名单从"两处各写一份"收成**一份**（P1）；A14 从"逐个写死"变成**遍历白名单**（下一批加表只需登记一次）；判别力不变（不在 map 又不在白名单 ⇒ 红，§5② 有原文） |
+| 5 | `s4-accept.mjs` 就绪组 | 跑 3 个单测文件 | **+ S4-U4 `health-ledger.test.mjs`** | 第二批表的字段出处是 `SPEC-COMPACT.md`（不是本脚本解析的 6 张 field-map）⇒ 把那组断言**纳入同一门禁**，而不是在这里再写一份解析器（P1） |
+| 6 | `job-ledger.test.mjs` J9 | `TARGET_SCHEMA_VERSION === 2` · 版本 `===[1,2]` · `LIBRARY_TABLES.length===4` · `EXPECTED_TABLES.length===5` · `process===[…,job]` · 升级后 `applied===[2]` | 版本连续 + 目标 == 清单上限 · B2-1 自己那两条迁移**仍叫 v1/v2** · 清单关系派生 · process 只断言**含 job**（完整成员由 G1 钉）· 升级后 `applied === versions.filter(v => v > 1)` | 同 #3：B2-1 的意图（job 属过程层、旧库升级只跑缺的迁移）全部保留，只是不再把"当前版本号"写进断言 |
+
+【3. 四件套（逐条）】
+1. **加一条迁移**：v3 `batch2-health-ledger`（`validateMigrations` 通过：严格递增、有名字）；
+2. **推版本号**：`TARGET_SCHEMA_VERSION` 2 → 3（从清单派生，不另写数字）；
+3. **`schema-layers.ts` 点名**：两张 → **过程层**（库级 `.gs.db` = fact ∪ process ∪ intent，现 6 张）；
+4. **`db-schema.test.mjs`**：全部改成**关系断言**（见 §2 #3），**「每张建出的表都必须被点名」仍强制**（双向）。
+   `applied` 由 `[1,2]` 时代进入"跟随清单"时代；暂缓清单移出两张；**没有**任何地方再写当前张数。
+
+【4. 「不是 job 的第二份实现」怎么被钉住】
+· **H2**：`health_run` 列集 ∩ `{progress_done, progress_total, phase, cursor_json, heartbeat_at_ms, kind, queued_at_ms}` = **空**；
+  同时先断言这些字段**确实存在于 `job`**（有牙，否则等于断言"没这个词"）；并断言 `health_run` 列集恰为
+  `[finished_at_ms, job_id, run_id, started_at_ms, state, summary_json]`。
+· **H3**：`PRAGMA foreign_key_list(health_run)` == `[['job','job_id','job_id']]`；插**假 `job_id`** 被拒（`FOREIGN KEY` 错）；
+  插**真实 job** 通过（否则这条断言只是"什么都插不进去"）。
+· 设计基线原话（`SPEC-COMPACT.md:146`）：「`job_id` … 关联任务 ⇒ **体检的进度与取消复用同一套任务机制，不另写一份**（P1）」。
+
+【5. ⭐ 能红（三组 · 注入 ⇒ 必红 ⇒ 还原 ⇒ 复绿）】
+① **去掉点名**（`schema-layers` 的 process 拿掉两张表）：
+   `✖ G1 … AssertionError: DDL 建出的表与四组点名必须逐张对上（缺分类 / 多分类都算漂移）`
+   `   actual: [ … 'health_finding', 'health_run', 'job' … ]   expected: [ … 'job' … ]`
+   s4 侧同轮：`FAIL S4-A14` + **`FAIL S4-U1`（db-schema）** + **`FAIL S4-U4`（health-ledger）** ⇒ `PASS 11 · FAIL 3`
+   ⇒ **三条守卫互相独立地都抓到了**（不是只靠一条）。
+② **去掉 `job_id` 的外键**（保留列，只删 `REFERENCES job (job_id)`）：
+   `✖ H3 … AssertionError: health_run.job_id 必须声明为指向 job(job_id) 的外键`
+   `   actual: []   expected: [ [ 'job', 'job_id', 'job_id' ] ]`
+③ **整列删掉 `job_id`**：`health-ledger` **7/7 全红**（H1 列集、H2 关联、H3 外键、H4 CASCADE、H5 CHECK、H6、H7 全被带崩）。
+⇒ 还原后：`health-ledger + db-schema + job-ledger = 30/30 绿`；`s4 = 14/0/0`。
+
+【6. 0 残留 grep（先跑后结论）】
+$ 产品面：`CREATE TABLE IF NOT EXISTS health_run|health_finding` 只在 `db/migrations.ts` 的 `T_HEALTH` 里；
+  `health_run|health_finding` 在 `main/**` 的其它出现只在 `schema-layers.ts` 的点名（**定义**，不是第二份实现）。
+$ 注入残留：`Select-String migrations.ts, schema-layers.ts -Pattern 'MUTANT|__acc'` ⇒ 只有**既有注释**里的"注入"字样
+  （"测试用注入的自定义清单…" / "时钟注入"），**没有**任何变异体；`process: Object.freeze(['asset_index_state', 'job', 'health_run', 'health_finding'])` 为现值。
+$ `sqlite_sequence` 在库里**不存在**（H6 断言；G2 的老断言也仍然在）。
+
+【7. 门禁（本轮实测）】
+$ node --test <受影响面 13 个文件>（health-ledger/job-ledger/job-wiring/db-schema/db-rebuild/db-import/app-db/items-ipc/
+  health-rebuild/library-methods/s3-index-state/storage-ports-main/index-location）⇒ **130/130 · fail 0**
+$ node reports/2026-10-15-wave3/s4-accept.mjs ⇒ **PASS 14 · FAIL 0 · SKIP 0**（含新增的 S4-U4）
+$ npx prettier --write <本卡改动文件> ⇒ 0 → npx prettier --check . ⇒ **0（All matched files use Prettier code style!）**
+$ npx tsc --noEmit -p tsconfig.node.json … ⇒ **0** ｜ tsconfig.web.json … ⇒ **0**
+$ npx eslint <本卡改动的 5 个文件> ⇒ **0 errors**（另 2 条 warning 是"这些 .ts 不匹配 JS 配置"，与代码无关）
+$ npm run lint（全树）⇒ **1 problem** —— **不在本卡范围**，见 §8。
+（全量 `npm test` 与冻结门禁由 Lead 跑；收到「冻结开始」我会**先回执再停笔**。）
+
+【8. ⚠️ 跨范围发现（如实归属 · **未越界修**）】
+$ npm run lint ⇒ `packages/indexer/tests/build-index-api.test.mjs`
+   `  26:7  error  'SRC' is assigned a value but never used  no-unused-vars`
+· **不是本卡的文件**（本卡只动 `main/db` + 测试 + `reports/…`；`packages/indexer` 明确不在我的范围）。
+· **时间证据**：该文件 `LastWriteTime = 2026/10/16 13:27:39`，而**我最后一次改动是 13:25:23** ⇒ 它是在我之后被别人写入/修改的。
+· 内容看：`const SRC = fileURLToPath(...)`（26 行）与 `const SRC_URL = new URL(...).href`（28 行）是同一路径的两种写法，
+  前者未使用 ⇒ 看起来是那次改动的**遗留**。
+· 按纪律：**只报不改**（跨范围问题上报，不越界写）。⇒ **请 Lead 转给该文件的作者**（或授权我改，我再动）。
+· 同一时刻的 `prettier --check .` = **0**（上一轮它也曾因同一文件不达标；对方已格式化）⇒ **本卡的文件 prettier 0 / lint 0**。
+
+【9. 未做 / 边界（如实写 · P6）】
+· **没有 API**：本卡只落地**表**（+ 迁移/分层/自检）。把体检历史写进去、以及 `state-cache-drift` 对账 ⇒ 属 **B2-4**（BATCH2-PLAN）。
+· **界面看不到**：没加契约方法、没改界面 ⇒ 用户在界面上**仍然看不到**体检历史/台账（能力边界不变，与 B2-1b 的口径一致）。
+· **外键默认启用**这件事是 `sqlite-adapter`（`enableForeignKeyConstraints` 默认 true）**既有**行为，不是本卡引入的；
+  B2-2 只是让新表也吃到这条既有保证（H3 实测）。
+
+【10. 回滚】
+· `migrations.ts`：删 `T_HEALTH` + `LIBRARY_V3` + 清单里的 v3 条目（版本自动回到 2）；
+· `schema-layers.ts`：process 去掉两张表；
+· `db-schema.test.mjs` / `job-ledger.test.mjs`：把派生断言改回写死（**不建议**：那会再次变成"每次加表都要改测试"）；
+· `s4-accept.mjs`：`SECOND_BATCH_BUILT` 去掉两张 + 删 S4-U4 + `NOT_BUILT` 加回两张；删 `health-ledger.test.mjs`。
+· 未跑 git（AGENTS P7）。临时物：`data/_b22/**`（测试自清）· `data/_verify/*.tsbuildinfo`。
+===============================================================================

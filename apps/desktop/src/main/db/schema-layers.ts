@@ -46,8 +46,12 @@ export const SCHEMA_LAYERS: Readonly<Record<SchemaLayer, readonly string[]>> = O
   /** 事实层：条目 + 两个文件角色 —— 全部可从素材重建 */
   fact: Object.freeze(['asset', 'asset_file']),
 
-  /** 过程层：编码状态 + **任务台账** —— 尽量留，丢了能重算（任务历史丢了不至于让用户误解数据） */
-  process: Object.freeze(['asset_index_state', 'job']),
+  /**
+   * 过程层：编码状态 + **任务台账** + **体检台账** —— 尽量留，丢了能重算
+   * （体检历史丢了 = 少一份对账依据，但不至于让用户误解数据；
+   *   `health_run` 通过 `job_id` 关联 `job`，不复制进度字段 —— 见 migrations.ts 的 T_HEALTH 说明）
+   */
+  process: Object.freeze(['asset_index_state', 'job', 'health_run', 'health_finding']),
 
   /** 意图层：用户自己做的（评分/备注/收藏/标签/集合/导出历史）—— 本轮一张都还没建 */
   intent: Object.freeze([]),

@@ -190,6 +190,49 @@ const LIBRARY_V1: readonly string[] = Object.freeze([
 ]);
 
 /**
+ * 过程层 ③④ `health_run` / `health_finding` —— **体检台账**（B2-2 · 字段照抄设计基线
+ * `reports/2026-10-15-schema-diff/SPEC-COMPACT.md` §「health_run / health_finding [v1.2 新增] · 字段 14」）。
+ *
+ * ⚠️ **不是 `job` 的第二份实现**（P1）：设计基线原话是「体检的进度与取消**复用同一套任务机制，不另写一份**」
+ *    ⇒ `health_run.job_id` **外键关联 `job`**，而**不**在这里复制 `progress_done / progress_total /
+ *    phase / cursor_json / heartbeat_at_ms`。这张表只记"**这一次体检本身**"（状态与汇总），
+ *    进度/断点/心跳**永远只有 `job` 一处**（测试里有一条断言专门钉这件事：列集里不许出现那些字段）。
+ *
+ * ⚠️ 与基线的**一处偏离（可发现）**：基线给 `finding_id` 写的是 `INTEGER PK AUTOINCREMENT`，
+ *    本仓用 `INTEGER PRIMARY KEY`（rowid 别名，**同样自增**）。原因：`AUTOINCREMENT` 会让 SQLite 建一张
+ *    内部表 `sqlite_sequence`，而本仓的 schema 自检**明确要求库里不出现它**
+ *    （`db-schema.test.mjs` G2：`本轮没有 AUTOINCREMENT 表`）——那条自检是本卡不动的产品约束。
+ *    语义不受影响：基线要的是"流水号自增且不需要跨库唯一"，`INTEGER PRIMARY KEY` 正是这个语义。
+ */
+const T_HEALTH: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS health_run (
+  run_id          TEXT    PRIMARY KEY NOT NULL,
+  job_id          TEXT    REFERENCES job (job_id),
+  state           TEXT    CHECK (state IN ('running', 'done', 'failed', 'cancelled')),
+  started_at_ms   INTEGER,
+  finished_at_ms  INTEGER,
+  summary_json    TEXT
+);`,
+  `
+CREATE TABLE IF NOT EXISTS health_finding (
+  finding_id      INTEGER PRIMARY KEY,
+  run_id          TEXT    NOT NULL REFERENCES health_run (run_id) ON DELETE CASCADE,
+  check_id        TEXT    NOT NULL,
+  severity        TEXT    CHECK (severity IN ('info', 'warn', 'error')),
+  target_uid      TEXT,
+  target_rel_path TEXT,
+  detail          TEXT    NOT NULL,
+  detail_json     TEXT,
+  created_at_ms   INTEGER NOT NULL
+);`,
+  // 查询模式（每条索引都对应一个真的会跑的查询，不预建"迟早有用"的索引）：
+  'CREATE INDEX IF NOT EXISTS idx_health_run_job ON health_run (job_id);',
+  'CREATE INDEX IF NOT EXISTS idx_health_finding_run ON health_finding (run_id);',
+  'CREATE INDEX IF NOT EXISTS idx_health_finding_check ON health_finding (check_id);',
+];
+
+/**
  * v2：**任务台账**（B2-1）。
  *
  * ⚠️ 为什么是**新的一条迁移**而不是改 v1：v1 已经在真实库里跑过了（账户里那条版本是「已发生的事」）。
@@ -198,9 +241,17 @@ const LIBRARY_V1: readonly string[] = Object.freeze([
  */
 const LIBRARY_V2: readonly string[] = Object.freeze([...T_JOB]);
 
+/**
+ * v3：**体检台账**（B2-2）。
+ * 仍然遵守 v2 的同一条规矩：**加表 = 加一条新迁移**，绝不回头改 v1/v2
+ * （改已跑过的迁移对已升级的库静默不生效）。
+ */
+const LIBRARY_V3: readonly string[] = Object.freeze([...T_HEALTH]);
+
 export const LIBRARY_MIGRATIONS: readonly Migration[] = Object.freeze([
   Object.freeze({ version: 1, name: 'greenfield-library-3', statements: LIBRARY_V1 }),
   Object.freeze({ version: 2, name: 'batch2-job-ledger', statements: LIBRARY_V2 }),
+  Object.freeze({ version: 3, name: 'batch2-health-ledger', statements: LIBRARY_V3 }),
 ]);
 
 /** 本程序知道的**库级**最高版本（从清单派生，不另写数字） */
