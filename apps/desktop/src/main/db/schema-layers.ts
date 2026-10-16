@@ -43,15 +43,26 @@ export const SCHEMA_LAYER_ORDER: readonly SchemaLayer[] = Object.freeze([
  * 空数组是**合法**的（intent 本轮为空）—— 见文件头"空层是允许的"。
  */
 export const SCHEMA_LAYERS: Readonly<Record<SchemaLayer, readonly string[]>> = Object.freeze({
-  /** 事实层：条目 + 两个文件角色 —— 全部可从素材重建 */
-  fact: Object.freeze(['asset', 'asset_file']),
+  /**
+   * 事实层：条目 + 两个文件角色 + **文件名全文索引** —— 全部可从素材重建
+   * （`asset_name_fts` 是 FTS5 **虚拟表**：丢了重建一遍就有；重建路径见 migrations.ts 的 T_SEARCH 说明）
+   */
+  fact: Object.freeze(['asset', 'asset_file', 'asset_name_fts']),
 
   /**
-   * 过程层：编码状态 + **任务台账** + **体检台账** —— 尽量留，丢了能重算
-   * （体检历史丢了 = 少一份对账依据，但不至于让用户误解数据；
-   *   `health_run` 通过 `job_id` 关联 `job`，不复制进度字段 —— 见 migrations.ts 的 T_HEALTH 说明）
+   * 过程层：编码状态 + **任务台账** + **体检台账** + **搜索历史 / 续看** —— 尽量留，丢了能重算
+   * （体检历史丢了 = 少一份对账依据；搜索历史/续看丢了 = 少一份便利，都不至于让用户误解数据；
+   *   `health_run` 通过 `job_id` 关联 `job`，不复制进度字段 —— 见 migrations.ts 的 T_HEALTH 说明；
+   *   `recent_query` / `recent_view` 归这里，**不是**意图层：它们是"系统记的最近行为"，不是用户标的注）
    */
-  process: Object.freeze(['asset_index_state', 'job', 'health_run', 'health_finding']),
+  process: Object.freeze([
+    'asset_index_state',
+    'job',
+    'health_run',
+    'health_finding',
+    'recent_query',
+    'recent_view',
+  ]),
 
   /**
    * 意图层：用户自己做的（评分 · 备注 · 收藏 · 标签 · 集合 · 导出历史）—— **必须留**，丢了没法重算。

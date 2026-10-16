@@ -71,15 +71,15 @@ const KEPT_LIBRARY = [
   'health_finding',
   'asset_export',
   'asset_user_meta',
+  'asset_name_fts',
+  'recent_query',
+  'recent_view',
 ];
 const KEPT_APP = ['app_meta', 'collect_dir', 'library_registry'];
 /** 仍未建的表（随功能上线；它们现在一张都不许被建出来）—— `job`(B2-1) / `health_run`+`health_finding`(B2-2) 已建出，从本表移走 */
 const DEFERRED_TABLES = [
   'app_setting',
   'activity',
-  'recent_query',
-  'recent_view',
-  'asset_name_fts',
   'tag',
   'asset_tag',
   'collection',
@@ -274,17 +274,10 @@ test('G1 ⭐ 每张建出的表都在四组里被点名，且只被点名一次'
   assert.deepEqual([...seen.keys()].sort(), grouped, '点名集合必须与派生集合逐张相同');
   for (const [name, n] of seen) assert.equal(n, 1, name + ' 被点名了 ' + String(n) + ' 次');
 
-  // 四层各自点名（**空层是合法的**：intent 本轮为空）
-  assert.deepEqual(tablesInLayer('fact'), ['asset', 'asset_file']);
-  assert.deepEqual(tablesInLayer('process'), [
-    'asset_index_state',
-    'job',
-    'health_run',
-    'health_finding',
-  ]);
-  // ⚠️ B2-2：这里原来断言「意图层为空」—— 那是**当时的状态**，不是判据。B2-2 起 `asset_export` 落在意图层，
-  //    所以改成**关系**：每一层声明的表都必须真的建出来（对任何一层将来的内容都成立，且比"为空"更强）。
-  //    "空层"这件事不再断言：某一层此刻有没有表是**设计进度**，不是不变量。
+  // 四层各自点名 —— ⚠️ **这里不再逐层写死成员**（ACC-1/B2-2/B2-5 的教训：那是**状态**，
+  //   每加一张表都要来改一次，而改的人只要把列表改大就"绿"了）。改钉**关系**：
+  //   每一层声明的表都必须在 DDL 里真的建出来；"某张表属于哪一层"由**那张表自己的测试**钉
+  //   （例如 asset_user_meta 的 M7、asset_export 的 E7、本卡 search-history 的 S6）。
   for (const layer of SCHEMA_LAYER_ORDER) {
     for (const t of tablesInLayer(layer)) {
       assert.ok(
@@ -293,7 +286,6 @@ test('G1 ⭐ 每张建出的表都在四组里被点名，且只被点名一次'
       );
     }
   }
-  assert.deepEqual(tablesInLayer('app'), ['app_meta', 'library_registry', 'collect_dir']);
 
   // 物理落点与层一一对应
   assert.deepEqual([...LIBRARY_TABLES].sort(), KEPT_LIBRARY.slice().sort());
@@ -339,11 +331,25 @@ test('G2 ⭐ 打开两个库：DDL 建出全部表与索引；仍未建的表一
       [...LIBRARY_TABLES, 'schema_version'].sort(),
       '应有清单 = 业务表 + 账本（派生对照，不写死张数）',
     );
-    assert.deepEqual(
-      [...LIBRARY_VIRTUAL_TABLES],
-      [],
-      '本轮没有 FTS 虚表（asset_name_fts 进第二批）',
+    // ⚠️ B2-5 起 FTS5 **虚拟表**（asset_name_fts）已建出 ⇒ 不再断言"虚表为空"（那是状态）。改钉三条**关系**：
+    //   ① 虚表也算"我们建的表"（必须出现在 LIBRARY_TABLES / EXPECTED_TABLES 里，否则分类会漏掉它）；
+    //   ② 它**确实**有自己的影子表（否则这张虚表可能没真建出来）；
+    //   ③ 影子表不许混进"我们建的表"（靠 ourTables 的前缀排除 —— 这条是那条排除逻辑的机械证明）。
+    for (const vt of LIBRARY_VIRTUAL_TABLES) {
+      assert.ok(LIBRARY_TABLES.includes(vt), vt + ' 是虚拟表，但也必须被记进 LIBRARY_TABLES');
+      assert.ok(EXPECTED_TABLES.includes(vt), vt + ' 也必须在应有清单里');
+    }
+    const shadow = allTables(lib.db).filter((t) =>
+      LIBRARY_VIRTUAL_TABLES.some((vt) => t.startsWith(vt + '_')),
     );
+    assert.ok(shadow.length > 0, 'FTS5 虚表应当有自己的影子表（_data/_idx/_docsize/_config）');
+    for (const s of shadow) {
+      assert.equal(
+        ourTables(lib.db, LIBRARY_VIRTUAL_TABLES).includes(s),
+        false,
+        '影子表不许混进"我们建的表"：' + s,
+      );
+    }
     assert.equal(allTables(lib.db).includes('sqlite_sequence'), false, '本轮没有 AUTOINCREMENT 表');
 
     // 索引：DDL 里声明的 idx_* 必须真的建出来

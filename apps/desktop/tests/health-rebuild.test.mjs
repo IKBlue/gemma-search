@@ -27,6 +27,7 @@ import {
   ASSET_ITEM_SELECT_ALL_SQL,
   EXPECTED_TABLES,
   LIBRARY_MIGRATIONS,
+  LIBRARY_VIRTUAL_TABLES,
   TARGET_SCHEMA_VERSION,
   importItemsFromJson,
   joinedRowToItemRecord,
@@ -272,10 +273,18 @@ test('H3 ⭐ 自检：健康库全绿；EXPECTED_TABLES 与 sqlite_master 机械
   //    （断言强度不变：清单多一张、少一张、或库里多一张都照样红。）
   const opened = openGsDb({ dbPath: s.dbPath, readOnly: true });
   try {
-    const have = opened.db
+    const all = opened.db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
       .all()
       .map((row) => row.name);
+    // ⚠️ B2-5：库里有了 FTS5 **虚拟表** ⇒ sqlite_master 里还会多出它的**影子表**
+    //    （`asset_name_fts_data` / `_idx` / `_docsize` / `_config`）。影子表**不是我们建的表**，
+    //    按仓内既有规则（db-schema 的 ourTables）用 `<虚表>_` 前缀**机械排除** —— 不手写影子表名。
+    //    同时正向断言"影子表确实在"：否则这条排除会掩盖"虚表没真建出来"。
+    const shadow = all.filter((t) => LIBRARY_VIRTUAL_TABLES.some((vt) => t.startsWith(vt + '_')));
+    assert.ok(LIBRARY_VIRTUAL_TABLES.length > 0, 'B2-5 起应至少有一张虚拟表');
+    assert.ok(shadow.length > 0, '虚拟表的影子表必须在（否则虚表可能没真建出来）');
+    const have = all.filter((t) => !shadow.includes(t));
     assert.deepEqual(have, [...EXPECTED_TABLES]);
     // 更强的正向断言：旧设计的表**一张都不许**在（旧清单被删掉，但"它没回来"要单独钉）
     for (const gone of [

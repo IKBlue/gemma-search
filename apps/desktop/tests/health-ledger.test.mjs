@@ -302,12 +302,10 @@ test('H7 ⭐⭐ 迁移与分层：v3 新迁移 · 版本派生 · 两张表进�
     '应有表 = 业务表 + 账本',
   );
   // ③ 分层：两张表都在**过程层**，且都落在库级
-  assert.deepEqual(tablesInLayer('process'), [
-    'asset_index_state',
-    'job',
-    'health_run',
-    'health_finding',
-  ]);
+  //    ⚠️ B2-5 起不再断言"过程层 == 这四张"（那是状态：`recent_query`/`recent_view` 已加进来）。
+  //    改钉"我在过程层"——过程层的**完整成员**由 db-schema 的 G1 关系断言兜住（声明 ⊆ 已建 + 双向点名）。
+  assert.ok(tablesInLayer('process').includes('health_run'), 'health_run 属过程层');
+  assert.ok(tablesInLayer('process').includes('health_finding'), 'health_finding 属过程层');
   for (const t of ['health_run', 'health_finding']) {
     assert.ok(schemaTables().includes(t), '四组点名必须含 ' + t);
     assert.ok(libraryLayerTables().includes(t), t + ' 落在库级 .gs.db');

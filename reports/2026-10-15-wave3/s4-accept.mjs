@@ -64,7 +64,16 @@ const SQLITE_INTERNAL = ['sqlite_sequence'];
 // ⚠️ 这是一个**显式名单**（不是数量）：它的作用是"任何**既不在这份名单、也不在 map 里**的表都会被抓住"。
 //    加表的人必须**显式**在这里登记（并同时给出它的字段出处）—— 想"悄悄多一张表"这条路是堵死的。
 // ⚠️ 只此一份（A14 与 FIELDMAP 都读它）：两处各写一份迟早会漂。
-const SECOND_BATCH_BUILT = ['job', 'health_run', 'health_finding', 'asset_export', 'asset_user_meta'];
+const SECOND_BATCH_BUILT = [
+  'job',
+  'health_run',
+  'health_finding',
+  'asset_export',
+  'asset_user_meta',
+  'asset_name_fts',
+  'recent_query',
+  'recent_view',
+];
 let seq = 0;
 
 function tmpDir(label) {
@@ -161,6 +170,8 @@ runTestFile(path.join(ROOT, 'apps/desktop/tests/health-ledger.test.mjs'), 'S4-U4
 runTestFile(path.join(ROOT, 'apps/desktop/tests/asset-export.test.mjs'), 'S4-U5');
 // B2-3：`asset_user_meta` 的字段保真（列集 ↔ 设计基线 SPEC-COMPACT.md 双向）+ 评分/收藏约束。
 runTestFile(path.join(ROOT, 'apps/desktop/tests/asset-user-meta.test.mjs'), 'S4-U6');
+// B2-5：`asset_name_fts`（FTS5 真子串）+ 搜索历史/续看的字段保真与"同步只有一处"。
+runTestFile(path.join(ROOT, 'apps/desktop/tests/search-history.test.mjs'), 'S4-U7');
 console.log('');
 
 // ================================================================ B. 验收级判据
@@ -197,8 +208,7 @@ check('S4-A14', 'DDL 建出的表 == 四层点名（双向），**张数从真�
 
     // 仍未建的表：这份**清单**是第二/第三批的输入，但它的**长度不再断言**（随功能上线而变）。
     //   改钉两条真判据：① 清单里的表一张都不许被建出来；② 已建出的表不许出现在清单里。
-    const NOT_BUILT = ['app_setting', 'activity', 'recent_query', 'recent_view', 'asset_name_fts',
-      'tag', 'asset_tag', 'collection', 'collection_item'];
+    const NOT_BUILT = ['app_setting', 'activity', 'tag', 'asset_tag', 'collection', 'collection_item'];
     assert(NOT_BUILT.length > 0, '未建清单不能为空（否则这条检查变成恒真）');
     eq(NOT_BUILT.filter((n) => grouped.includes(n)), [], '被标为「未建」的表却已经建出来了 ⇒ 清单必须同步');
     // ⚠️ ACC-1 的教训：**不再逐个写死**（原来这里点名 `job`，B2-2 一来就得改）。

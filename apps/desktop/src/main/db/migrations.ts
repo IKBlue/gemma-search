@@ -280,6 +280,87 @@ CREATE TABLE IF NOT EXISTS asset_user_meta (
 ];
 
 /**
+ * **事实层** `asset_name_fts` + **过程层** `recent_query` / `recent_view`（B2-5 · 搜索与历史）。
+ * 字段/形状照设计基线 `reports/2026-10-15-schema-diff/SPEC-COMPACT.md`：
+ *   · `asset_name_fts`（§106「[本轮]」）—— 基线原话是「**（无字段行；此卡不是数据表）**」；
+ *   · `recent_query`（§59 · 字段 7）· `recent_view`（§171 · 字段 3）。
+ * 层归属**先核对了基线四层分类表**（`README.md:31-32`）：`asset_name_fts` 属**事实层**（丢掉可重建）、
+ *   `recent_query` / `recent_view` 属**过程层**（尽量留，丢了只是少一份历史）。
+ *
+ * ── 为什么用 FTS5 而不是 LIKE ────────────────────────────────────────────────
+ * 基线原话：「现在按名找只能 LIKE；**FTS5 已实测可用**」。`LIKE '%x%'` 是全表扫 + 每行子串匹配；
+ *   FTS5 建索引后是**索引查找**。本卡已实测（SQLite 3.51.2 · `node:sqlite`）：
+ *   `CREATE VIRTUAL TABLE … IF NOT EXISTS … fts5(…)` 可重复执行（迁移幂等）；外部内容 + 触发器同步
+ *   INSERT / UPDATE / DELETE 三条路径全部走到位。
+ *
+ * ── ⚠️ 形状是**本卡定的**（基线没给字段行）—— 写清是为了避免"看起来像自造" ──────────
+ * 基线只说"文件名子串搜"，**没有列**（因为它"不是数据表"）。本卡取**最小可用形状**：
+ *   索引列 `name`（喂 `asset.display_name`）+ `content='asset'`（**外部内容**：不复制名字文本，
+ *   单一事实来源仍是 `asset`）。查询按 rowid 回查内容表：
+ *     `SELECT a.uid FROM asset_name_fts JOIN asset a ON a.rowid = asset_name_fts.rowid
+ *        WHERE asset_name_fts MATCH ?`
+ *   ⚠️ **外部内容表只暴露自己声明的列**（实测：`SELECT uid FROM asset_name_fts` → no such column）⇒ 必须 JOIN。
+ *
+ * ── `tokenize='trigram'`：为了兑现基线里的"**子串**"两个字 ──────────────────────
+ * 默认 `unicode61` 是**按词元**切：`VR-101.jpg` → `vr`/`101`/`jpg` ⇒ 找 `101` 能中，
+ *   但找 `R-10` **中不了**（跨词元）。基线写的是"**子串**搜" ⇒ 用 **trigram**（实测 `R-101` 命中 `VR-101.jpg`）。
+ *   代价（如实记）：trigram 索引更大；查询串**至少 3 个字符**才有意义。
+ * ⚠️ **MATCH 的右边是表达式，不是纯文本**：`-`、`:`、`*` 有语法含义 ⇒ 用户输入必须**加引号**
+ *   （实测：裸 `R-101` 直接报 `no such column: 101`，加引号成 `"R-101"` 才正常）。
+ *   本卡只落地表；这条留给"按名搜"那张卡 —— 写在这里是为了别让"用户搜带连字符的文件名就报错"再被踩一次。
+ *
+ * ── ⚠️ 同步**只有一处** = 这三条触发器（P1）──────────────────────────────────
+ * 写 `asset` 的路径不止一条（导入 `import.ts` · 扫描 `scanLibrary` · 重建 `rebuildLibraryDb`，
+ *   将来还会有"改显示名"的功能）⇒ 同步若写在**应用层**，每加一条写入路径就多一次"记得同步"的机会，
+ *   漏一处就是**静默的搜索不一致**（明明存在却搜不到）。放进**触发器**：
+ *   ① 只有一处（就是这个 DDL）；② 任何写入路径自动生效，调用方不必知道 FTS 存在。
+ *   代价：每次写 `asset` 多三条行级触发器开销（`asset` 的写入本来就是批量，可接受）。
+ * ⚠️ 迁移**幂等**：`CREATE VIRTUAL TABLE IF NOT EXISTS` 与 `CREATE TRIGGER IF NOT EXISTS` 都可重复执行（已实测）。
+ */
+const T_SEARCH: readonly string[] = [
+  `
+CREATE VIRTUAL TABLE IF NOT EXISTS asset_name_fts USING fts5(
+  name,
+  content='asset',
+  content_rowid='rowid',
+  tokenize='trigram'
+);`,
+  // ── 同步：唯一的三条触发器（见上面的 P1 说明）──
+  `
+CREATE TRIGGER IF NOT EXISTS asset_name_fts_ai AFTER INSERT ON asset BEGIN
+  INSERT INTO asset_name_fts (rowid, name) VALUES (new.rowid, new.display_name);
+END;`,
+  `
+CREATE TRIGGER IF NOT EXISTS asset_name_fts_ad AFTER DELETE ON asset BEGIN
+  INSERT INTO asset_name_fts (asset_name_fts, rowid, name) VALUES ('delete', old.rowid, old.display_name);
+END;`,
+  // 只关心 display_name：其它列（大小/时间戳）改了不需要重建索引 ⇒ 触发器更窄，写路径更便宜
+  `
+CREATE TRIGGER IF NOT EXISTS asset_name_fts_au AFTER UPDATE OF display_name ON asset BEGIN
+  INSERT INTO asset_name_fts (asset_name_fts, rowid, name) VALUES ('delete', old.rowid, old.display_name);
+  INSERT INTO asset_name_fts (rowid, name) VALUES (new.rowid, new.display_name);
+END;`,
+  `
+CREATE TABLE IF NOT EXISTS recent_query (
+  query_id      TEXT    PRIMARY KEY NOT NULL,
+  kind          TEXT    CHECK (kind IN ('text', 'image')),
+  text          TEXT,
+  image_ref     TEXT,
+  scope_lib_id  TEXT,
+  result_count  INTEGER,
+  at_ms         INTEGER NOT NULL
+);`,
+  'CREATE INDEX IF NOT EXISTS idx_recent_query_at ON recent_query (at_ms DESC);',
+  `
+CREATE TABLE IF NOT EXISTS recent_view (
+  uid           TEXT    PRIMARY KEY NOT NULL REFERENCES asset (uid) ON DELETE CASCADE,
+  viewed_at_ms  INTEGER NOT NULL,
+  view_count    INTEGER NOT NULL DEFAULT 1
+);`,
+  'CREATE INDEX IF NOT EXISTS idx_recent_view_at ON recent_view (viewed_at_ms DESC);',
+];
+
+/**
  * **意图层** `asset_export` —— 交付 / 取件**留痕**（B2-2 · 字段照抄设计基线
  * `reports/2026-10-15-schema-diff/SPEC-COMPACT.md` §「asset_export [v1.2 改名] · 字段 9」，第 189-204 行）。
  *
@@ -351,12 +432,19 @@ const LIBRARY_V4: readonly string[] = Object.freeze([...T_EXPORT]);
  */
 const LIBRARY_V5: readonly string[] = Object.freeze([...T_USER_META]);
 
+/**
+ * v6：**搜索与历史**（B2-5：`asset_name_fts` · `recent_query` · `recent_view`）。
+ * 同一条规矩：**加表 = 加一条新迁移**，不回头改 v1–v5；本条 DDL 全部 `IF NOT EXISTS` ⇒ 可重复执行。
+ */
+const LIBRARY_V6: readonly string[] = Object.freeze([...T_SEARCH]);
+
 export const LIBRARY_MIGRATIONS: readonly Migration[] = Object.freeze([
   Object.freeze({ version: 1, name: 'greenfield-library-3', statements: LIBRARY_V1 }),
   Object.freeze({ version: 2, name: 'batch2-job-ledger', statements: LIBRARY_V2 }),
   Object.freeze({ version: 3, name: 'batch2-health-ledger', statements: LIBRARY_V3 }),
   Object.freeze({ version: 4, name: 'batch2-asset-export', statements: LIBRARY_V4 }),
   Object.freeze({ version: 5, name: 'batch2-asset-user-meta', statements: LIBRARY_V5 }),
+  Object.freeze({ version: 6, name: 'batch2-search-history', statements: LIBRARY_V6 }),
 ]);
 
 /** 本程序知道的**库级**最高版本（从清单派生，不另写数字） */
