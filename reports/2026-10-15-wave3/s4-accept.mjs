@@ -64,7 +64,7 @@ const SQLITE_INTERNAL = ['sqlite_sequence'];
 // ⚠️ 这是一个**显式名单**（不是数量）：它的作用是"任何**既不在这份名单、也不在 map 里**的表都会被抓住"。
 //    加表的人必须**显式**在这里登记（并同时给出它的字段出处）—— 想"悄悄多一张表"这条路是堵死的。
 // ⚠️ 只此一份（A14 与 FIELDMAP 都读它）：两处各写一份迟早会漂。
-const SECOND_BATCH_BUILT = ['job', 'health_run', 'health_finding'];
+const SECOND_BATCH_BUILT = ['job', 'health_run', 'health_finding', 'asset_export'];
 let seq = 0;
 
 function tmpDir(label) {
@@ -157,6 +157,8 @@ runTestFile(path.join(ROOT, 'apps/desktop/tests/items-ipc.test.mjs'), 'S4-U3');
 //   本脚本的 FIELDMAP 只解析「第一批 6 张」的 field-map，第二批表的字段出处是 SPEC-COMPACT.md，
 //   所以把那组断言作为**同一条门禁的一部分**跑掉，而不是在这里再写一遍解析器（P1：判据一份）。
 runTestFile(path.join(ROOT, 'apps/desktop/tests/health-ledger.test.mjs'), 'S4-U4');
+// B2-2：`asset_export` 的字段保真（列集 ↔ 设计基线 SPEC-COMPACT.md 双向）与"一次批量 = N 行"的边界断言。
+runTestFile(path.join(ROOT, 'apps/desktop/tests/asset-export.test.mjs'), 'S4-U5');
 console.log('');
 
 // ================================================================ B. 验收级判据
@@ -183,12 +185,18 @@ check('S4-A14', 'DDL 建出的表 == 四层点名（双向），**张数从真�
     }
     eq([...seen.keys()].sort(), grouped, '点名集合必须与派生集合逐张相同（少一张/多一张都红）');
     eq([...seen.values()].filter((n) => n !== 1), [], '每张表恰好点名一次（重复点名 = 分类漂移）');
-    eq(tablesInLayer('intent'), [], '意图层本轮为空（空层合法）');
+    // ⚠️ B2-2：原来这里断言「意图层为空」—— 那是**当时的状态**（ACC-1 的教训：状态会过期，关系不会）。
+    //    现在改成**关系**：每一层声明的表都必须真的建出来（对任何一层将来的内容都成立，且比"为空"更强）。
+    for (const layer of SCHEMA_LAYER_ORDER) {
+      for (const t of tablesInLayer(layer)) {
+        assert(grouped.includes(t), layer + ' 层的 ' + t + ' 必须出现在四层点名里（也就是 DDL 里真的建出来）');
+      }
+    }
 
     // 仍未建的表：这份**清单**是第二/第三批的输入，但它的**长度不再断言**（随功能上线而变）。
     //   改钉两条真判据：① 清单里的表一张都不许被建出来；② 已建出的表不许出现在清单里。
     const NOT_BUILT = ['app_setting', 'activity', 'recent_query', 'recent_view', 'asset_name_fts',
-      'asset_user_meta', 'tag', 'asset_tag', 'collection', 'collection_item', 'asset_export'];
+      'asset_user_meta', 'tag', 'asset_tag', 'collection', 'collection_item'];
     assert(NOT_BUILT.length > 0, '未建清单不能为空（否则这条检查变成恒真）');
     eq(NOT_BUILT.filter((n) => grouped.includes(n)), [], '被标为「未建」的表却已经建出来了 ⇒ 清单必须同步');
     // ⚠️ ACC-1 的教训：**不再逐个写死**（原来这里点名 `job`，B2-2 一来就得改）。

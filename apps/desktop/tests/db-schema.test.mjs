@@ -69,6 +69,7 @@ const KEPT_LIBRARY = [
   'job',
   'health_run',
   'health_finding',
+  'asset_export',
 ];
 const KEPT_APP = ['app_meta', 'collect_dir', 'library_registry'];
 /** 仍未建的表（随功能上线；它们现在一张都不许被建出来）—— `job`(B2-1) / `health_run`+`health_finding`(B2-2) 已建出，从本表移走 */
@@ -83,7 +84,6 @@ const DEFERRED_TABLES = [
   'asset_tag',
   'collection',
   'collection_item',
-  'asset_export',
 ];
 
 let seq = 0;
@@ -282,7 +282,17 @@ test('G1 ⭐ 每张建出的表都在四组里被点名，且只被点名一次'
     'health_run',
     'health_finding',
   ]);
-  assert.deepEqual(tablesInLayer('intent'), [], '意图层本轮一张表都没有 —— 空层允许为空');
+  // ⚠️ B2-2：这里原来断言「意图层为空」—— 那是**当时的状态**，不是判据。B2-2 起 `asset_export` 落在意图层，
+  //    所以改成**关系**：每一层声明的表都必须真的建出来（对任何一层将来的内容都成立，且比"为空"更强）。
+  //    "空层"这件事不再断言：某一层此刻有没有表是**设计进度**，不是不变量。
+  for (const layer of SCHEMA_LAYER_ORDER) {
+    for (const t of tablesInLayer(layer)) {
+      assert.ok(
+        LIBRARY_TABLES.includes(t) || APP_TABLES.includes(t),
+        layer + ' 层的 ' + t + ' 必须在 DDL 里真的建出来',
+      );
+    }
+  }
   assert.deepEqual(tablesInLayer('app'), ['app_meta', 'library_registry', 'collect_dir']);
 
   // 物理落点与层一一对应

@@ -287,10 +287,12 @@ test('H7 ⭐⭐ 迁移与分层：v3 新迁移 · 版本派生 · 两张表进�
     '版本从 1 起连续',
   );
   assert.equal(TARGET_SCHEMA_VERSION, versions[versions.length - 1], '目标版本 = 清单上限');
+  // ⚠️ B2-2（asset_export）之后：**不能**再断言"最后一条是我"（那会被后来者自动打红）。
+  //    改钉**自己那一格**：体检台账永远是 v3（idx 2）——这是"它没被改名/挪位"这件事的正确判据。
   assert.equal(
-    LIBRARY_MIGRATIONS[versions.length - 1].name,
+    LIBRARY_MIGRATIONS[2].name,
     'batch2-health-ledger',
-    '最后一条是 B2-2 的 v3',
+    '体检台账仍是 v3（不许被改名/挪位）',
   );
   // ② 表清单（派生）
   assert.ok(LIBRARY_TABLES.includes('health_run') && LIBRARY_TABLES.includes('health_finding'));
@@ -328,11 +330,12 @@ test('H7 ⭐⭐ 迁移与分层：v3 新迁移 · 版本派生 · 两张表进�
   }
   const upgraded = openGsDb({ dbPath: old.dbPath, now: () => T0 });
   try {
-    assert.equal(readSchemaVersion(upgraded.db), 3);
+    assert.equal(readSchemaVersion(upgraded.db), TARGET_SCHEMA_VERSION);
+    // ⚠️ 不写死 [3]：只跑"比 from 大"的那些迁移（B2-2 的 v4 之后还会有 v5…），从清单派生
     assert.deepEqual(
       upgraded.migration.applied.map((m) => m.version),
-      [3],
-      '只跑缺的那条 v3',
+      versions.filter((v) => v > 2),
+      '只跑缺的那些迁移（v2 之后的全部）',
     );
     assert.equal(upgraded.db.prepare('SELECT COUNT(*) n FROM job').get().n, 1, '升级不动老数据');
     assert.equal(upgraded.db.prepare('SELECT COUNT(*) n FROM health_run').get().n, 0, '新表是空的');

@@ -53,8 +53,13 @@ export const SCHEMA_LAYERS: Readonly<Record<SchemaLayer, readonly string[]>> = O
    */
   process: Object.freeze(['asset_index_state', 'job', 'health_run', 'health_finding']),
 
-  /** 意图层：用户自己做的（评分/备注/收藏/标签/集合/导出历史）—— 本轮一张都还没建 */
-  intent: Object.freeze([]),
+  /**
+   * 意图层：用户自己做的（评分/备注/收藏/标签/集合/**导出历史**）—— **必须留**，丢了没法重算。
+   * B2-2 起不再是空层：`asset_export`（交付/取件留痕）落在这里 ——
+   *   「我在什么时候把哪一条导出到了哪个目录」是**用户做过的事**，重建元数据不该把它抹掉
+   *   （对比过程层的定义"丢了能重算"：编码状态、体检台账属于那类）。
+   */
+  intent: Object.freeze(['asset_export']),
 
   /** 应用层：跨库的配置与全局安全边界（不参与库级重建） */
   app: Object.freeze(['app_meta', 'library_registry', 'collect_dir']),

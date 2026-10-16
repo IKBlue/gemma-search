@@ -1,0 +1,109 @@
+================================================================================
+B2-2 证据 · `asset_export` 交付/取件**留痕**（第二批计划里的 **B2-2**；体检台账那张实为 B2-4）
+任务板 id: task-103   执行: db-worker   日期: 2026-10-16
+边界（**本卡独占**）：`main/db/migrations.ts` · `main/db/schema-layers.ts` + 测试 + 证据
+      ⚠️ 按 Lead 指示**没有碰 `main/index.ts`**（main-migrator 正在跑 START-2）· 未加契约方法 · 未改界面
+证据文件名用卡面指定的 `b2-2-export.txt`（与体检台账那张的 `b2-2.txt` 区分开 —— 后者按更正实为 B2-4）。
+===============================================================================
+
+【结论】
+· `asset_export` 落地（**9 列 = 设计基线的 9 个字段行**）+ **v4** 迁移 + `idx_export_uid`（基线附加段指定的那一条）。
+· 字段**照抄设计基线**：E1 从 `SPEC-COMPACT.md` 那一节**解析**出字段/索引，与真 DDL **双向对照**（多一个/少一个都红）。
+· **语义关键点**：`uid` 是 `ON DELETE SET NULL`（**不是 CASCADE**）—— 素材被删之后"我导出过它"**仍然成立**、
+  `asset_name` 快照还在；`batch_id` **不建外键**（`activity` 在应用级 `app.db`，跨库无外键）。
+· **边界清楚**：一次批量 = `asset_export` **N 行**（每条素材一行），`job` **一行**（任务/进度），`health_run` 与导出无关。
+· **能红三组**（原文见 §5）· 四件套齐全 · 全部断言**从清单派生**（**没有**任何"当前张数/当前版本"写死）。
+· 门禁（本轮实测）：受影响面 **137/137** · **s4 15/0/0** · `prettier --check .` **0** · `tsc` node/web **0** · `lint` **0**。
+
+【0. ⚠️ 卡面与设计基线**冲突**一处（我按规格处理，报你知情）】
+· **卡面**写：`schema-layers.ts` 点名（**过程层**）。
+· **设计基线**（四层分类表 `reports/2026-10-15-schema-diff/README.md:33`）把 `asset_export` 列在
+  **意图层（必须留）**；语义也对得上：过程层的定义是"**丢了能重算**"（编码状态、体检台账属那类），
+  而"我在什么时候把哪一条导出到了哪个目录"是**用户做过的事**，**丢了没法重算**。
+· 按 **AGENTS §0**：「任务与规格不符 → **改任务**，不许改规格来迁就实现」⇒ 我**按规格放进意图层**，
+  并把这段判断写进了 `schema-layers.ts` 与 `migrations.ts` 的注释（可发现）。
+  **如果你要的是过程层**，那是一行改动；但按基线它应该是意图层（这也让"意图层不再是空层"这件事发生）。
+
+【1. 字段出处（照抄，不发明）】
+出处 = `reports/2026-10-15-schema-diff/SPEC-COMPACT.md` §「asset_export [v1.2 改名] · 字段 9」（第 189-204 行）。
+| 字段 | 类型/约束 | 为什么（照抄基线的理由） |
+|---|---|---|
+| `export_id` | TEXT PK | nanoid；一次导出流水一行 |
+| `kind` | TEXT NOT NULL CHECK collect/deliver | **取件与交付共用一张表**：结果分类、目标目录语义、"跳过原因"结构完全相同 |
+| `uid` | TEXT **FK asset.uid ON DELETE SET NULL**（可空） | 素材被彻底删除后**置空**——"我导出过它"仍成立，且外键不挡住建素材的删除 |
+| `asset_name` | TEXT NOT NULL | **快照**：条目改名/被删后历史里仍是当时的名字（与上一行是一对：去关联但留名字） |
+| `batch_id` | TEXT（可空，**无外键**） | 同一次批量的 id（复用 `activity.activity_id`）⇒ "把 N 行归成一条历史"；**跨库不能建外键** |
+| `target_dir` | TEXT NOT NULL | 导出到哪个**白名单**目录（`collect_dir` 那条安全边界的落点） |
+| `result` | TEXT CHECK copied/skipped/failed | SPEC §3 **F6 承诺的三分类**；取件共用同一套词 |
+| `reason` | TEXT（可空） | 跳过/失败的**具体原因（人话）** |
+| `at_ms` | INTEGER NOT NULL | 发生时刻 |
+索引（基线附加段）：`idx_export_uid (uid, at_ms DESC)` —— 详情页"这条被导出过几次、最近一次何时"，也是"是否已交付"的推导来源。
+⚠️ 基线把 `batch_id` 标为"偏索引"，但**附加清单只给了上面这一条** ⇒ 本卡**不擅自加**第二条；
+  "把 N 行归成一条历史"那个查询等历史列表落地时按查询再加（不预建"迟早有用"的索引）。
+
+【2. 改前 → 改后 → 为何**不是放宽**】
+| # | 位置 | 改前 | 改后 | 为什么不是放宽 |
+|---|---|---|---|---|
+| 1 | `migrations.ts` | v1..v3（asset 三张 + job + 体检台账） | **v4 `batch2-asset-export`**（T_EXPORT） | **加新迁移**而不是改 v1/v2/v3：改已跑过的迁移对已升级的库**静默不生效** |
+| 2 | `schema-layers.ts` | intent = []（空层） | intent = ['asset_export'] | 从"空层"变成有表：**分类本身没放宽**（四组点名仍强制全覆盖），且这是设计基线的分类 |
+| 3 | `db-schema.test.mjs` G1 | `assert.deepEqual(tablesInLayer('intent'), [], '意图层本轮一张表都没有')` | 换成**关系**：每一层声明的表都必须真的建出来（对任何一层将来的内容都成立） | 原来那条断言的是**当时的状态**（意图层恰好为空），不是判据；换成的断言**更强**：任何一层写了却没建出来都会红 |
+| 4 | `db-schema.test.mjs` 清单 | 暂缓清单里还留着 `asset_export` | 移出；`KEPT_LIBRARY` 加名字（**不写数量**） | 清单与 DDL 同步是它的用途；数量一律派生 |
+| 5 | `s4-accept.mjs` | `SECOND_BATCH_BUILT = ['job','health_run','health_finding']` · A14 里断言 `tablesInLayer('intent') === []` · `NOT_BUILT` 含 `asset_export` | 白名单加 `asset_export`（**同一份**，A14/FIELDMAP 共用）· A14 改为**遍历各层**做"声明 ⊆ 已建"· `NOT_BUILT` 移出 | 白名单是**显式登记**（不在 map 又不在白名单 ⇒ 红，判别力不变）；A14 从"状态断言"变"关系断言"；**新增 S4-U5** 把新单测纳入同一门禁 |
+| 6 | `health-ledger.test.mjs` H7（B2-4 的测试） | `LIBRARY_MIGRATIONS[last].name === 'batch2-health-ledger'` · 升级后 `applied === [3]` | 改钉**自己那一格**（v3 永远是体检台账）· `applied === versions.filter(v => v > 2)` | 这是**本卡的必要连带**（加 v4 必然把"最后一条是我"打红）。改后判据更强：体检台账**被改名/挪位**仍会红（原来那条只证明"它是最后一条"） |
+
+【3. 与 `job` / `health_run` 的边界（"一次批量 = 谁一行"）—— E6 机械证明】
+· `job`（过程层）= **任务**台账：谁在跑、跑到哪、心跳 ⇒ 一次批量**一行**（E6 断言：3 条素材的批量在 `job` 里仍只有 1 行）；
+· `health_run`/`health_finding`（过程层）= **体检**台账 ⇒ 与导出无关（本表不含任何 job 字段，E6 反向断言）；
+· `asset_export`（**意图层**）= **一次批量里每条素材一行**（E6：同 `batch_id` 的 3 行 + 另一个批量 1 行 ⇒ `[('batch-A',3),('batch-B',1)]`）。
+  设计基线原话（`BATCH2-PLAN.md:30`）：「一次批量 = `activity` 1 行 + `export` **N** 行」。
+· E6 还断言：`asset_export` 列集 ∩ `job` 的进度字段（progress_done/progress_total/phase/cursor_json/heartbeat_at_ms）= **空**（先证明这些字段确实在 job 里 ⇒ 有牙）。
+
+【4. 迁移/分层（四件套 · 全部派生）】
+1. **加一条迁移**：v4 `batch2-asset-export`；2. **推版本号**：从清单派生（现为 4，**没有**任何地方写死）；
+3. **点名**：`asset_export` → **意图层**（见 §0 冲突说明）；4. **`db-schema.test.mjs`**：清单同步 + 状态断言改关系断言。
+E7 复验：版本从 1 起连续 · 目标 == 清单上限 · 最后一条名 = `batch2-asset-export` · 应有表 = 业务表 + 账本 ·
+**旧库（只到 v3）升级**：升级前没有该表 → 升级只跑"比 from 大"的迁移 → 老数据（job 行）还在 → 幂等。
+
+【5. ⭐ 能红（三组 · 注入 ⇒ 必红 ⇒ 还原 ⇒ 复绿）】
+① **去掉点名**（`schema-layers` 的 intent 清空）：
+   `✖ E7 … AssertionError: asset_export 属意图层   actual: []   expected: [ 'asset_export' ]`
+   `✖ G1 … DDL 建出的表与四组点名必须逐张对上    actual: [ …, 'asset_export', … ]   expected: [ … 不含它 … ]`
+   s4 同轮：`FAIL S4-A14` + **`FAIL S4-U1`（db-schema）** + **`FAIL S4-U5`（asset-export）** ⇒ `PASS 12 · FAIL 3`
+   ⇒ **三条守卫独立地都抓到**。
+② **把 `ON DELETE SET NULL` 改成 `CASCADE`**（语义反转：删素材会连导出历史一起删）：
+   `✖ E2 … AssertionError: uid 必须是 FK asset(uid) **ON DELETE SET NULL**（不是 CASCADE）`
+   `   actual: [ [ 'asset', 'uid', 'CASCADE' ] ]   expected: [ [ 'asset', 'uid', 'SET NULL' ] ]`
+③ **去掉 `kind` 的 CHECK**：`✖ E4 … AssertionError: Missing expected exception: kind 只认 collect/deliver`
+⇒ 三组还原后：四个 schema 测试文件 **37/37 绿** · `s4 = 15/0/0`。
+
+【6. 0 残留 grep（先跑后结论 · 用**正证**不只靠"为空"）】
+$ `asset_export` 在 `apps/desktop/src/main` 的出现：`db/migrations.ts × 6`（DDL + 注释）· `db/schema-layers.ts × 2`（点名 + 注释）
+  ⇒ **没有第二份实现**（唯一落点：DDL + 分类）。
+$ `db/migrations.ts:282` = `uid TEXT REFERENCES asset (uid) ON DELETE SET NULL,`（② 已还原）·
+  `kind ... CHECK (kind IN ('collect','deliver'))`（③ 已还原）·
+  `schema-layers.ts:62` = `intent: Object.freeze(['asset_export'])`（① 已还原）。
+$ 变异标记：`migrations.ts` 里**没有** `MUTANT`/`__acc`；命中的 `ON DELETE SET NULL` 是**注释里的说明**与**正式的 DDL 行**。
+
+【7. 门禁（本轮实测 · 最终字节）】
+$ node --test <受影响面 14 个文件>（asset-export/health-ledger/job-ledger/job-wiring/db-schema/db-rebuild/db-import/
+  app-db/items-ipc/health-rebuild/library-methods/s3-index-state/storage-ports-main/index-location）⇒ **137/137 · fail 0**
+$ node reports/2026-10-15-wave3/s4-accept.mjs ⇒ **PASS 15 · FAIL 0 · SKIP 0**（含 S4-U5）
+$ npx prettier --write <本卡改动文件> ⇒ 0 → npx prettier --check . ⇒ **0（All matched files use Prettier code style!）**
+$ npx tsc --noEmit -p tsconfig.node.json … ⇒ **0** ｜ tsconfig.web.json … ⇒ **0**
+$ npm run lint ⇒ **0**（上一轮那条 `packages/indexer` 的 `SRC` 未用已由对方修掉 ⇒ 全树 0）
+（全量 `npm test` 与冻结门禁由 Lead 跑 —— 纪律 6；收到「冻结开始」我会**先回执再停笔**。）
+
+【8. 未做 / 边界（如实写 · P6）】
+· **只落地表**：`collect` **还没有**往里写（写入属后续卡）⇒ **界面上看不到交付历史**（没加契约方法、没改界面）。
+  这一卡之后**能力边界没变**，只是"F6 的三分类与历史列表"**有了落点**。
+· `batch_id` 的索引**没加**（基线附加清单只给了 `idx_export_uid`）——见 §1 末尾；等历史列表那一步按查询加。
+· 与 `activity`（`BATCH2-PLAN:30` 的"1 行"）是**两张表**的关系，本卡**没建** `activity`（那是 B2-8）。
+· 没测真实 `collect` 端到端（本卡不含写入路径）。
+
+【9. 回滚】
+· `migrations.ts`：删 `T_EXPORT` + `LIBRARY_V4` + 清单里 v4 条目（版本自动回 3）；
+· `schema-layers.ts`：intent 回到 `[]`（并恢复"空层"注释）；
+· `db-schema.test.mjs` / `s4-accept.mjs`：清单加回 `asset_export`、白名单去掉它、删 S4-U5、A14 恢复 intent 断言；
+  `health-ledger.test.mjs` H7 恢复"最后一条"写法（**不建议**，那会被下一次加表再打红）；删 `asset-export.test.mjs`。
+· 未跑 git（AGENTS P7）。临时物：`data/_b22x/**`（测试自清）· `data/_verify/*.tsbuildinfo`。
+===============================================================================

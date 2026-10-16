@@ -242,16 +242,76 @@ CREATE TABLE IF NOT EXISTS health_finding (
 const LIBRARY_V2: readonly string[] = Object.freeze([...T_JOB]);
 
 /**
- * v3：**体检台账**（B2-2）。
+ * **意图层** `asset_export` —— 交付 / 取件**留痕**（B2-2 · 字段照抄设计基线
+ * `reports/2026-10-15-schema-diff/SPEC-COMPACT.md` §「asset_export [v1.2 改名] · 字段 9」，第 189-204 行）。
+ *
+ * 为什么必须有它：`collect` 现在**把文件复制出去却什么都不留** —— SPEC §3 F6 承诺的三分类
+ * （已复制 / 已跳过 / 失败）与「历史列表」**没有落点**。这张表就是那条承诺的落点。
+ *
+ * ⚠️ **层归属 = 意图层（必须留）**，不是过程层：
+ *   设计基线的四层分类表（`reports/2026-10-15-schema-diff/README.md:33`）把 `asset_export` 列在
+ *   **意图层（必须留）**；语义也对得上 —— 「我在什么时候把哪一条导出到了哪个目录」是**用户做过的事**，
+ *   **丢了没法重算**（过程层的定义是"丢了能重算"：编码状态、体检台账都属于那类）。
+ *   ⇒ 任务卡面上写的"(过程层)"与此冲突，按 AGENTS §0「任务与规格不符 → 以规格为准」处理为**意图层**。
+ *
+ * 逐字段的"为什么"（照抄基线的理由，不是我自己想的）：
+ *   · `kind` collect/deliver —— **取件与交付共用一张表**：两者的结果分类、目标目录语义、"跳过原因"结构完全相同；
+ *   · `uid` **可空 + ON DELETE SET NULL**（不是 CASCADE）—— 条目被彻底删除后**置空**："我导出过它"这件事**仍然成立**，
+ *     外键也不该挡住建素材的删除；
+ *   · `asset_name` **快照（NOT NULL）**—— 历史记录表的标准做法：条目改名/被删之后，历史里看到的仍是**当时的名字**，
+ *     不会变成一个空 uid（与上一行是一对：**去关联但留名字**）；
+ *   · `batch_id`（可空，**不建外键**）—— 同一次批量操作的 id（复用 `activity.activity_id`），用于"把 N 行归成一条历史"；
+ *     **不能建外键**：`activity` 在**应用级** `app.db`，跨库没有外键（基线原话）；
+ *   · `target_dir` NOT NULL —— 导出到哪个**白名单**目录（`collect_dir` 那条安全边界的落点）；
+ *   · `result` copied/skipped/failed —— SPEC §3 F6 要的三分类；**取件也共用这套词**（"已存在所以跳过"在两种动作里是同一件事）；
+ *   · `reason` 可空 —— 跳过/失败的**具体原因（人话）**；
+ *   · `at_ms` NOT NULL —— 发生时刻。
+ *
+ * ⚠️ **与 `job` / `health_run` 的边界**（"一次批量 = 谁一行"）：
+ *   · `job`（过程层）= **任务**台账：谁在跑、跑到哪、心跳 —— 一次批量**一行**（进度）；
+ *   · `health_run`/`health_finding`（过程层）= **体检**台账 —— 与导出无关；
+ *   · `asset_export`（**意图层**）= **一次批量里、每一条素材一行**。设计基线 `BATCH2-PLAN.md:30` 的原话是
+ *     「一次批量 = `activity` 1 行 + `export` N 行」⇒ 导出 N 条就写 N 行，同 `batch_id`。
+ *   ⇒ 本表**不复制** `job` 的任何进度/心跳字段（那些只有 `job` 一处）。
+ */
+const T_EXPORT: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS asset_export (
+  export_id   TEXT    PRIMARY KEY NOT NULL,
+  kind        TEXT    NOT NULL CHECK (kind IN ('collect', 'deliver')),
+  uid         TEXT    REFERENCES asset (uid) ON DELETE SET NULL,
+  asset_name  TEXT    NOT NULL,
+  batch_id    TEXT,
+  target_dir  TEXT    NOT NULL,
+  result      TEXT    CHECK (result IN ('copied', 'skipped', 'failed')),
+  reason      TEXT,
+  at_ms       INTEGER NOT NULL
+);`,
+  // 基线「附加」段**唯一**指定的索引：详情页要显示"这条被导出过几次、最近一次何时"，
+  //   也是"是否已交付"的推导来源。DESC 与查询方向一致（历史列表按时间倒序看）。
+  // ⚠️ 基线把 batch_id 标为"偏索引"但附加清单**只给了这一条** ⇒ 本卡**不擅自加**第二条；
+  //    "把 N 行归成一条历史"那个查询等历史列表落地时按查询再加（不预建"迟早有用"的索引）。
+  'CREATE INDEX IF NOT EXISTS idx_export_uid ON asset_export (uid, at_ms DESC);',
+];
+
+/**
+ * v3：**体检台账**（设计基线的第二批第 4 张 —— 卡号曾误记为 B2-2，实为 B2-4）。
  * 仍然遵守 v2 的同一条规矩：**加表 = 加一条新迁移**，绝不回头改 v1/v2
  * （改已跑过的迁移对已升级的库静默不生效）。
  */
 const LIBRARY_V3: readonly string[] = Object.freeze([...T_HEALTH]);
 
+/**
+ * v4：**交付/取件留痕**（B2-2）。
+ * 同一条规矩：**加表 = 加一条新迁移**，不回头改 v1/v2/v3（改已跑过的迁移对已升级的库静默不生效）。
+ */
+const LIBRARY_V4: readonly string[] = Object.freeze([...T_EXPORT]);
+
 export const LIBRARY_MIGRATIONS: readonly Migration[] = Object.freeze([
   Object.freeze({ version: 1, name: 'greenfield-library-3', statements: LIBRARY_V1 }),
   Object.freeze({ version: 2, name: 'batch2-job-ledger', statements: LIBRARY_V2 }),
   Object.freeze({ version: 3, name: 'batch2-health-ledger', statements: LIBRARY_V3 }),
+  Object.freeze({ version: 4, name: 'batch2-asset-export', statements: LIBRARY_V4 }),
 ]);
 
 /** 本程序知道的**库级**最高版本（从清单派生，不另写数字） */
