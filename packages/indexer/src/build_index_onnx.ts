@@ -13,12 +13,20 @@
 //   · 可续跑：参数一致时复用已有向量，只编码缺的
 //   · 原子落盘：写 .tmp → rename；每 N 条落一次盘
 //   · 单张失败不停整个构建（记录到 meta.failed）
+//
+// IDX-1（2026-10-16）—— 本文件不只是 CLI 了：
+//   · 导出 `buildIndex(opts)`：**可被主进程 import**，带进度回调（`onProgress`）、
+//     取消信号（`signal`）与**可注入的写者**（`writeIndex`）；
+//   · 文件末尾的 CLI 入口**保留**（手工用法与输出逐字不变），它只是 `buildIndex` 的一层壳；
+//   · 被 import 时**零副作用**（顶层不再直接跑构建）—— 判据见
+//     `packages/indexer/tests/build-index-api.test.mjs` 的「import 不许执行 CLI」。
 
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { AutoConfig, AutoProcessor, AutoModel, RawImage, env } from '@huggingface/transformers';
 import type { Processor } from '@huggingface/transformers';
@@ -136,33 +144,107 @@ interface IndexBin {
   vectors: Float32Array;
 }
 
-// ---------------- 参数 ----------------
-const argv = process.argv.slice(2);
-const arg = (name: string, dflt?: string): string => {
-  const i = argv.indexOf('--' + name);
-  return i >= 0 ? argv[i + 1] : (dflt as string);
-};
-const has = (name: string): boolean => argv.includes('--' + name);
+// ---------------- 可导入的构建 API（IDX-1）----------------
+//
+// 为什么要有这一层：本文件以前是**无导出、顶层就跑 main() 的 CLI** —— 主进程没法调用它，
+// 于是「把索引接到界面」连第一步都迈不出去（进度 / 取消 / 续跑都无从谈起）。
+// 现在拆成两件事：① `buildIndex(opts)`（可 import、可注入进度/取消/写者）；
+//                ② 文件末尾的 CLI 入口（改成调用 ①，**手工用法与输出逐字不变**）。
+//
+// ⚠️ 本卡是**纯重构 + 参数化**：产物字节必须与重构前一致（对照见 reports/…/idx1.txt）。
 
-const MODEL_DIR = arg('model');
-const LIB_ROOT = arg('lib');
-const OUT_DIR = arg('out');
-const SEQ = parseInt(arg('seq', '140'), 10);
-const DEVICE = arg('device', 'webgpu');
-const LIMIT = parseInt(arg('limit', '0'), 10);
-const SAVE_EVERY = parseInt(arg('save-every', '200'), 10);
-const REBUILD = has('rebuild');
-const LIB_ID = arg('lib-id', 'L1');
-// 权重精度：决定向量，进 compat（`SPEC.md` §1.4（向量与索引））
-const WEIGHTS_DTYPE = arg('weights-dtype', 'fp32');
-const MODEL_REPO = arg('model-repo', 'onnx-community/embeddinggemma-2-ONNX');
+export type BuildPhase = 'scan' | 'uid' | 'selftest' | 'model' | 'encode' | 'persist' | 'done';
 
-if (!MODEL_DIR || !LIB_ROOT || !OUT_DIR) {
-  console.error(
-    '用法: node build_index_onnx.mjs --model <目录> --lib <库根> --out <目录>' +
-      ' [--seq 140] [--device webgpu] [--limit N] [--lib-id L1] [--weights-dtype fp32]',
-  );
-  process.exit(2);
+/**
+ * 进度事件。`done` / `total` 对应任务表的 `progress_done` / `progress_total`，`phase` 对应 `phase`。
+ * ⚠️ 本卡**只产生信号，不落库、不接契约**（那是 IDX-2）。
+ */
+export interface BuildProgress {
+  phase: BuildPhase;
+  done: number;
+  total: number;
+  reused?: number;
+  failed?: number;
+  rate?: number;
+  etaSec?: number;
+  message?: string;
+}
+
+/** 索引字节的写者入参（**注入点**：主进程侧应传 `index-file.ts` 的 `writeIndexAtomically`） */
+export interface WriteIndexInput {
+  /** 目标目录（CLI 语义 = outDir） */
+  dir: string;
+  /** 目标文件绝对路径 */
+  file: string;
+  /** 完整 GSIDX 字节（含 footer） */
+  bytes: Uint8Array;
+  header: object;
+  count: number;
+  dim: number;
+}
+
+export type WriteIndexFn = (input: WriteIndexInput) => void;
+
+/** `buildIndex` 的入参。除三个必填项外全部有默认值（与 CLI 的默认值**逐字相同**）。 */
+export interface BuildIndexOptions {
+  modelDir: string;
+  libRoot: string;
+  outDir: string;
+  seq?: number;
+  device?: string;
+  limit?: number;
+  saveEvery?: number;
+  rebuild?: boolean;
+  libId?: string;
+  /** 权重精度：决定向量，进 compat（`SPEC.md` §1.4（向量与索引）） */
+  weightsDtype?: string;
+  modelRepo?: string;
+  /**
+   * 固定 header.built_at（默认 = 现在）。
+   * 用处：产物对照时把两次构建的 header 钉成同一份 ⇒ `index.bin` 可**逐字节**比对。
+   */
+  builtAt?: string;
+  /** 进度回调（抛异常**不会**毁掉构建） */
+  onProgress?: (p: BuildProgress) => void;
+  /** 取消信号：置位后在下一次检查点抛 `BuildCancelledError`（不静默返回半成品） */
+  signal?: AbortSignal;
+  log?: (...a: unknown[]) => void;
+  /** 写者注入点（默认 `writeIndexBinFile`：`<outDir>/index.bin`，与重构前逐字节相同） */
+  writeIndex?: WriteIndexFn;
+}
+
+export interface BuildSummary {
+  ok: number;
+  dim: number;
+  failed: number;
+  reused: number;
+  compat: string;
+  scanned: number;
+  outDir: string;
+  indexBin: string;
+  itemsJson: string;
+  metaJson: string;
+}
+
+/** 取消（**明确抛**：进度类状态必须单调且不静默） */
+export class BuildCancelledError extends Error {
+  readonly phase: BuildPhase;
+  constructor(phase: BuildPhase) {
+    super(`构建已取消（阶段 ${phase}）`);
+    this.name = 'BuildCancelledError';
+    this.phase = phase;
+  }
+}
+
+/**
+ * 一条向量都没编出来。单独一个类，是因为 CLI 侧这条路径**行为必须逐字保留**：
+ * 重构前 = 打印一行「没有编码出任何向量，终止」然后 exit(1)（不打印「致命错误」）。
+ */
+export class BuildNoVectorsError extends Error {
+  constructor() {
+    super('没有编码出任何向量，终止');
+    this.name = 'BuildNoVectorsError';
+  }
 }
 
 // `SPEC.md` §2.2（GSIDX 格式） / §6.3 的版本号与常量
@@ -179,7 +261,8 @@ const ONNX_SPIKE_DIR = path.dirname(
   new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'),
 );
 
-const log = (...a: unknown[]) => {
+/** CLI 的默认输出（`buildIndex` 可用 `opts.log` 覆盖；**这也是 CLI 输出的唯一去处**） */
+const defaultLog = (...a: unknown[]) => {
   console.log(`[build]`, ...a);
 };
 const now = (): number => Number(process.hrtime.bigint()) / 1e6;
@@ -187,9 +270,8 @@ const now = (): number => Number(process.hrtime.bigint()) / 1e6;
 // 只从本地读模型：allowLocalModels + 关掉远程，否则它会把本地路径当成 HF 仓库 ID 去联网找文件
 env.allowLocalModels = true;
 env.allowRemoteModels = false;
-const INDEX_BIN = path.join(OUT_DIR, 'index.bin');
-const ITEMS_JSON = path.join(OUT_DIR, 'items.json');
-const META_JSON = path.join(OUT_DIR, 'meta.json');
+// ⚠️ 三个落点（index.bin / items.json / meta.json）现在**由 buildIndex 的 outDir 派生**，
+//    不再是模块级常量 —— 否则 import 本模块就会依赖启动参数（IDX-1）。
 // ⚠️ MAGIC 必须**恰好 8 字节**，且读写两端的偏移一律从 MAGIC.length 推导。
 // 踩过的坑：曾写成 Buffer.from('GSIDX\x00\x01','latin1') —— 那是 **7** 字节，
 // 而读端用 subarray(0,8) 比较 + 按 8/12 取偏移，于是
@@ -333,7 +415,9 @@ function scanLibrary(root: string): LibraryItem[] {
       entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch (e) {
       const code = typeof e === 'object' && e !== null && 'code' in e ? String(e.code) : 'error';
-      log('  跳过不可读目录', dir, code);
+      // ⚠️ scanLibrary 是模块级函数、拿不到 buildIndex 的 opts.log ⇒ 这里固定走 CLI 的默认输出
+      //    （这是「跳过不可读目录」的告警路径；注入了自定义 log 的调用方仍会在控制台看到它）
+      defaultLog('  跳过不可读目录', dir, code);
       continue;
     }
 
@@ -408,29 +492,47 @@ function buildFooter(count: number, dim: number, body: Buffer): Buffer {
   return Buffer.concat([len, json]);
 }
 
-function writeIndexBin(
-  file: string,
+/**
+ * 组装完整 GSIDX 字节：MAGIC + u32 headerLen + headerJSON + float32 块 + footer。
+ * **纯函数**（不碰文件系统）—— 于是产物格式可以脱离模型单测（见 build-index-api.test.mjs），
+ * 而「写到哪、怎么原子落盘」由下面的写者负责（可注入）。
+ */
+export function buildIndexBinBytes(
   header: object,
   vectors: ArrayLike<number>,
   count: number,
   dim: number,
-): void {
+): Buffer {
   const headerJson = Buffer.from(JSON.stringify(header), 'utf8');
   const lenBuf = Buffer.alloc(4);
   lenBuf.writeUInt32LE(headerJson.length, 0);
   const body = Buffer.alloc(count * dim * 4);
   for (let i = 0; i < count * dim; i++) body.writeFloatLE(vectors[i], i * 4);
+  return Buffer.concat([MAGIC, lenBuf, headerJson, body, buildFooter(count, dim, body)]);
+}
+
+/**
+ * 默认写者（CLI 语义）：`<file>.tmp` 写全 → fsync → rename 原子替换。
+ * 与重构前的 `writeIndexBin` **逐字节相同**（只是拆成「先组装字节、再落盘」）。
+ *
+ * 主进程侧**不要**用它写库根：库根写 `.gs-index.bin` 要走 `apps/desktop/src/main/index-file.ts`
+ * 的 `writeIndexAtomically`（五道校验 + 落点断言），通过 `buildIndex({ writeIndex })` 注入。
+ */
+export function writeIndexBinFile(input: WriteIndexInput): void {
+  const { file, bytes } = input;
   const tmp = file + '.tmp';
   const fd = fs.openSync(tmp, 'w');
-  fs.writeSync(fd, MAGIC);
-  fs.writeSync(fd, lenBuf);
-  fs.writeSync(fd, headerJson);
-  fs.writeSync(fd, body);
-  fs.writeSync(fd, buildFooter(count, dim, body));
-  fs.fsyncSync(fd);
-  fs.closeSync(fd);
+  try {
+    fs.writeSync(fd, bytes);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
   fs.renameSync(tmp, file); // 原子替换
 }
+
+// （重构前的 `writeIndexBin` 已删除：它只是「组装字节 + 落盘」的组合，而这两件事现在各只有**一份**
+//   实现 —— `buildIndexBinBytes`（纯组装）+ `writeIndexBinFile`（默认写者 / 可注入）。留着它就是第二个写入口。）
 
 /** 读回并**校验**：MAGIC / 长度自洽 / footer 完整标记 / 向量块 sha1。任一不符返回 null。 */
 function readIndexBin(file: string): IndexBin | null {
@@ -492,7 +594,14 @@ function selfTestIndexBin(): { ok: boolean; checked: number } {
       seq: 140,
       dtype: 'float32',
     };
-    writeIndexBin(f, header, src, count, dim);
+    writeIndexBinFile({
+      dir,
+      file: f,
+      bytes: buildIndexBinBytes(header, src, count, dim),
+      header,
+      count,
+      dim,
+    });
     const back = readIndexBin(f);
     if (!back) throw new Error('读回返回 null');
     if (back.header.count !== count || back.header.dim !== dim) throw new Error('header 不一致');
@@ -516,7 +625,42 @@ function selfTestIndexBin(): { ok: boolean; checked: number } {
 }
 
 // ---------------- 主流程 ----------------
-async function main() {
+export async function buildIndex(opts: BuildIndexOptions): Promise<BuildSummary> {
+  // —— 参数（重构前是模块级常量；现在只在这里解析一次，函数体其余部分**逐字未改**）——
+  const MODEL_DIR = opts.modelDir;
+  const LIB_ROOT = opts.libRoot;
+  const OUT_DIR = opts.outDir;
+  const SEQ = opts.seq ?? 140;
+  const DEVICE = opts.device ?? 'webgpu';
+  const LIMIT = opts.limit ?? 0;
+  const SAVE_EVERY = opts.saveEvery ?? 200;
+  const REBUILD = opts.rebuild === true;
+  const LIB_ID = opts.libId ?? 'L1';
+  const WEIGHTS_DTYPE = opts.weightsDtype ?? 'fp32';
+  const MODEL_REPO = opts.modelRepo ?? 'onnx-community/embeddinggemma-2-ONNX';
+  const INDEX_BIN = path.join(OUT_DIR, 'index.bin');
+  const ITEMS_JSON = path.join(OUT_DIR, 'items.json');
+  const META_JSON = path.join(OUT_DIR, 'meta.json');
+  const log = opts.log ?? defaultLog;
+  const writeIndex: WriteIndexFn = opts.writeIndex ?? writeIndexBinFile;
+
+  // —— 进度与取消（IDX-1 新增；**只发信号**，不写库、不改产物）——
+  let phase: BuildPhase = 'scan';
+  /** 进度回调抛异常**不许**毁掉构建：进度是旁路，失败只当没听见 */
+  const emit = (p: BuildProgress): void => {
+    try {
+      opts.onProgress?.(p);
+    } catch {
+      /* 忽略 */
+    }
+  };
+  /** 取消检查点：**每一步之前**都查，置位即抛（不静默返回半成品） */
+  const checkAbort = (): void => {
+    if (opts.signal?.aborted) throw new BuildCancelledError(phase);
+  };
+
+  checkAbort();
+  emit({ phase, done: 0, total: 0, message: '扫描库' });
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
   log(`扫描库: ${LIB_ROOT}`);
@@ -529,6 +673,8 @@ async function main() {
     items = items.slice(0, LIMIT);
     log(`  --limit ${LIMIT} → 本次只处理 ${items.length} 条`);
   }
+  emit({ phase, done: items.length, total: items.length, message: `条目 ${scanned}` });
+  checkAbort();
 
   // 计算 UID —— **必须**用 `SPEC.md` §1.2（asset.uid） 冻结的公式：
   //     uid = sha1( lib_id + "|" + rel_dir + "|" + stem ).slice(0, 12)
@@ -539,6 +685,9 @@ async function main() {
   //    于是 rowByUid 把两组折叠成一行 → 一条向量行被孤立、条目数与行数不等，
   //    A 项"条目数 = 3594"必然失败。
   //    用 (目录, 主干) 作种子则天然唯一，内容重复也不影响。
+  phase = 'uid';
+  emit({ phase, done: 0, total: items.length, message: '计算 UID' });
+  checkAbort();
   log('计算 UID（sha1(lib_id|rel_dir|stem) 前 12 位，`SPEC.md` §1.2（asset.uid））…');
   const t0 = now();
   const uidSeen = new Map<string, string>();
@@ -557,9 +706,13 @@ async function main() {
     uidSeen.set(it.uid!, it.relPath);
   }
   log(`  完成，用时 ${((now() - t0) / 1000).toFixed(1)}s · ${uidSeen.size} 个 uid 无重复`);
+  emit({ phase, done: items.length, total: items.length });
 
   // 索引往返自检：**必须在任何 readIndexBin 之前**跑 —— 续跑依赖它，
   // 而这个读写对曾因 MAGIC 长度不一致（7 vs 8）静默失效过。
+  phase = 'selftest';
+  emit({ phase, done: 0, total: 0, message: 'index.bin 往返自检' });
+  checkAbort();
   log('index.bin 往返自检…');
   const ist = selfTestIndexBin();
   log(`  通过：校验 ${ist.checked} 个浮点 · 并确认"截断文件会被拒绝"`);
@@ -582,6 +735,9 @@ async function main() {
   log(`  通过：校验 ${st.checked} 个像素（${st.size}）`);
 
   // 载入模型
+  phase = 'model';
+  emit({ phase, done: 0, total: 0, message: '载入模型' });
+  checkAbort();
   log(`载入模型（dtype=${WEIGHTS_DTYPE}, seq=${SEQ}, device=${DEVICE}）…`);
   const tLoad = now();
   const config = await AutoConfig.from_pretrained(MODEL_DIR);
@@ -660,7 +816,7 @@ async function main() {
     count: 0,
     lib_id: LIB_ID,
     lib_root: LIB_ROOT,
-    built_at: new Date().toISOString(),
+    built_at: opts.builtAt ?? new Date().toISOString(),
   };
   header.compat = compatKey(header);
   log(`  compat = ${header.compat}`);
@@ -711,7 +867,10 @@ async function main() {
   let fallbackUsed = 0; // 走 BMP 回退的条数（应为 20）
 
   const tEnc = now();
+  phase = 'encode';
+  emit({ phase, done: 0, total: items.length, message: '编码' });
   for (let i = 0; i < items.length; i++) {
+    checkAbort(); // 每条之前查一次：取消要**及时**，且不静默
     const it = items[i];
     const hit = reusable.get(it.relPath); // 复用表按 relPath 作键（与 uid 方案无关）
     if (hit) {
@@ -756,19 +915,31 @@ async function main() {
       const secs = (now() - tEnc) / 1000;
       const rate = done / secs;
       const eta = rate > 0 ? (items.length - done) / rate : 0;
+      emit({
+        phase,
+        done,
+        total: items.length,
+        reused,
+        failed: failed.length,
+        rate,
+        etaSec: eta / 1000,
+      });
       log(
         `  ${done}/${items.length}  已编码 ${done - reused} · 复用 ${reused} · 失败 ${failed.length}` +
           `  ${rate.toFixed(2)} 条/秒  已用 ${(secs / 60).toFixed(1)} 分  预计剩余 ${(eta / 60).toFixed(1)} 分`,
       );
     }
     if (SAVE_EVERY > 0 && (i + 1) % SAVE_EVERY === 0) {
+      checkAbort();
       persist(items, rows, vectors, dim, failed, 'midbuild');
     }
   }
 
   if (!dim) {
     log('没有编码出任何向量，终止');
-    process.exit(1);
+    // CLI 侧这条路径的行为**逐字保留**：打印这一行之后 exit(1)（**不**打印「致命错误」）。
+    // 所以单独一个错误类，由文件末尾的 runCli 识别。
+    throw new BuildNoVectorsError();
   }
   // dim 是 compat 的成员之一：实测值必须等于规格固定的 768，否则 compat 已经算错
   if (dim !== DIM) {
@@ -777,6 +948,7 @@ async function main() {
   const ok = rows.length;
   header.dim = dim;
   header.count = ok;
+  checkAbort();
   persist(items, rows, vectors, dim, failed, 'final');
   log(
     `完成：${ok} 条 · dim=${dim} · 失败 ${failed.length} · 复用 ${reused} · BMP回退 ${fallbackUsed}`,
@@ -792,7 +964,20 @@ async function main() {
         .map((f) => f.relPath)
         .join(', ')}）`,
     );
-  return { ok, dim, failed: failed.length, reused, compat: header.compat };
+  phase = 'done';
+  emit({ phase, done: ok, total: items.length, reused, failed: failed.length });
+  return {
+    ok,
+    dim,
+    failed: failed.length,
+    reused,
+    compat: header.compat,
+    scanned,
+    outDir: OUT_DIR,
+    indexBin: INDEX_BIN,
+    itemsJson: ITEMS_JSON,
+    metaJson: META_JSON,
+  };
 
   function persist(
     allItems: LibraryItem[],
@@ -800,8 +985,16 @@ async function main() {
     vecs: number[],
     d: number,
     fails: FailedItem[],
-    phase: string,
+    persistPhase: string,
   ): void {
+    phase = 'persist';
+    emit({
+      phase,
+      done: allRows.length,
+      total: allItems.length,
+      message: `落盘（${persistPhase}）`,
+    });
+    checkAbort();
     const rowByUid = new Map(allRows.map((r) => [r.uid, r.vectorRow]));
     const srcByUid = new Map(allRows.map((r) => [r.uid, r.vectorSource || 'native']));
     const outItems = allItems
@@ -826,7 +1019,17 @@ async function main() {
         vectorRow: rowByUid.get(it.uid!),
         vectorSource: srcByUid.get(it.uid!) || 'native', // 'native' | 'bmp-fallback'
       }));
-    writeIndexBin(INDEX_BIN, { ...header, count: allRows.length }, vecs, allRows.length, d);
+    const count = allRows.length;
+    const headerForWrite = { ...header, count };
+    // 写者**注入点**：CLI 默认 = <outDir>/index.bin；主进程侧注入 writeIndexAtomically（库根 .gs-index.bin）
+    writeIndex({
+      dir: OUT_DIR,
+      file: INDEX_BIN,
+      bytes: buildIndexBinBytes(headerForWrite, vecs, count, d),
+      header: headerForWrite,
+      count,
+      dim: d,
+    });
     fs.writeFileSync(ITEMS_JSON + '.tmp', JSON.stringify(outItems, null, 1), 'utf8');
     fs.renameSync(ITEMS_JSON + '.tmp', ITEMS_JSON);
     fs.writeFileSync(
@@ -835,7 +1038,7 @@ async function main() {
         {
           ...header,
           count: allRows.length,
-          phase,
+          phase: persistPhase,
           scanned: scanned,
           failed: fails,
           bmpFallbackUsed: fallbackUsed,
@@ -849,12 +1052,75 @@ async function main() {
   }
 }
 
-main()
-  .then((r) => {
-    console.log('RESULT ' + JSON.stringify(r));
+// ---------------- CLI 入口（手工用法与输出**逐字不变**）----------------
+
+/** CLI 的参数解析（重构前是模块级；现在只在真正当脚本跑时才解析） */
+function parseCliArgs(argv: string[]): BuildIndexOptions | null {
+  const arg = (name: string, dflt?: string): string => {
+    const i = argv.indexOf('--' + name);
+    return i >= 0 ? argv[i + 1] : (dflt as string);
+  };
+  const has = (name: string): boolean => argv.includes('--' + name);
+  const modelDir = arg('model');
+  const libRoot = arg('lib');
+  const outDir = arg('out');
+  if (!modelDir || !libRoot || !outDir) {
+    console.error(
+      '用法: node build_index_onnx.mjs --model <目录> --lib <库根> --out <目录>' +
+        ' [--seq 140] [--device webgpu] [--limit N] [--lib-id L1] [--weights-dtype fp32]',
+    );
+    return null;
+  }
+  const builtAt = arg('built-at');
+  return {
+    modelDir,
+    libRoot,
+    outDir,
+    seq: parseInt(arg('seq', '140'), 10),
+    device: arg('device', 'webgpu'),
+    limit: parseInt(arg('limit', '0'), 10),
+    saveEvery: parseInt(arg('save-every', '200'), 10),
+    rebuild: has('rebuild'),
+    libId: arg('lib-id', 'L1'),
+    weightsDtype: arg('weights-dtype', 'fp32'),
+    modelRepo: arg('model-repo', 'onnx-community/embeddinggemma-2-ONNX'),
+    // 产物对照用：`--built-at <ISO>` 把 header.built_at 钉住（默认 = 现在）
+    ...(builtAt ? { builtAt } : {}),
+  };
+}
+
+async function runCli(): Promise<void> {
+  const opts = parseCliArgs(process.argv.slice(2));
+  if (!opts) process.exit(2);
+  try {
+    const r = await buildIndex(opts);
+    // ⚠️ 只打印这 5 个字段，且键序与重构前一致 —— 手工/脚本可能在解析这一行
+    console.log(
+      'RESULT ' +
+        JSON.stringify({
+          ok: r.ok,
+          dim: r.dim,
+          failed: r.failed,
+          reused: r.reused,
+          compat: r.compat,
+        }),
+    );
     process.exit(r.failed > 0 ? 3 : 0);
-  })
-  .catch((e) => {
+  } catch (e) {
+    // 「一条都没编出来」：那一行已经由 buildIndex 打印过，这里只退出（保持重构前行为）
+    if (e instanceof BuildNoVectorsError) process.exit(1);
     console.error('[build] 致命错误:', e);
     process.exit(1);
-  });
+  }
+}
+
+/**
+ * 只有**被当作脚本直接运行**时才执行 CLI。
+ * `pathToFileURL(process.argv[1]) === import.meta.url` 是 ESM 下判断「是不是入口模块」的标准做法；
+ * 被 `import` 时（主进程 / 单测）这里什么都不做 ⇒ 顶层层零副作用（IDX-1 的可导入性判据）。
+ */
+const invokedDirectly =
+  process.argv[1] !== undefined && pathToFileURL(process.argv[1]).href === import.meta.url;
+if (invokedDirectly) {
+  void runCli();
+}

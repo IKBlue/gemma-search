@@ -1,0 +1,170 @@
+===============================================================================
+IDX-1 证据 · 索引构建器：CLI → 可导入函数（不改契约、不改界面、产物逐字节不变）
+worker: indexer-migrator · 任务板 task-97 · 2026-10-16
+前置：PLAN.md:122 原写「packages/indexer/src/** 必须原样保留」⇒ Lead 报所有者；
+      所有者 2026-10-16 裁「可以动」⇒ 本文按 Lead 承诺的四条约束交付。
+===============================================================================
+
+【交付物】
+· packages/indexer/src/build_index_onnx.ts —— 导出 buildIndex / buildIndexBinBytes / writeIndexBinFile
+  / BuildCancelledError / BuildNoVectorsError + 6 个类型；模块级参数解析移入函数；末尾 CLI 改为调用 buildIndex
+· packages/indexer/tests/build-index-api.test.mjs —— 新增 5 条（import 零副作用 / GSIDX 格式 / 取消 / 进度 / 回调容错）
+· reports/2026-10-15-wave3/idx1-api.mjs —— 端到端证据脚本（真模型：进度 + 注入写者 + 三种取消）
+· reports/2026-10-15-wave3/idx1.txt —— 本文
+
+===============================================================================
+【1 改前 → 改后 → 为何非放宽】
+===============================================================================
+1.1 形态
+  改前：文件**无任何 export**；模块级（旧 139-174 行）解析 argv 得到 MODEL_DIR/LIB_ROOT/OUT_DIR/…，
+        缺参就 process.exit(2)；末尾 `main().then(...)` 在**顶层直接执行** ⇒ import 即跑 CLI。
+  改后：`export async function buildIndex(opts)`；模块级只剩纯常量与纯函数；
+        CLI 参数解析在 `parseCliArgs`；末尾按 `pathToFileURL(process.argv[1]) === import.meta.url` 判定后 `runCli()`。
+  为何非放宽：手工用法与输出**逐字保留**（§2），只是执行入口从「模块顶层」挪进「函数 + 守卫」；
+        新增的进度/取消/写者都**只加信号**，不动产物（§3 逐字节对照）。
+1.2 进度
+  改前：只有 log()。改后：`onProgress({ phase, done, total, reused, failed, rate, etaSec })`，
+        phase ∈ scan|uid|selftest|model|encode|persist|done ⇒ 正好对应 job 表的 progress_done/total/phase。
+  为何非放宽：本卡**不落库、不接契约**（IDX-2 才做）；回调抛异常被吞掉（进度是旁路），不影响构建结果。
+1.3 取消
+  改前：没有。改后：`signal`(AbortSignal) + 检查点（开始 / 每条之前 / 落盘之前），抛 `BuildCancelledError`。
+  为何非放宽：取消**明确抛**，不静默返回半成品；预置取消时**连 outDir 都不建**（测试断言）。
+1.4 写路径（P1）
+  改前：`writeIndexBin(file, header, vectors, count, dim)` 一把抓（组装 + tmp/fsync/rename）。
+  改后：`buildIndexBinBytes`（**纯**组装）+ `writeIndexBinFile`（默认写者）；persist 走 `writeIndex` **注入点**。
+  为何非放宽：产物字节逐字节相同（§3）；写者只剩一份实现（`writeIndexBin` 定义数 = 0，见 §7 G8）。
+  ⚠️ 与本卡第 3 条的偏差需要你判定 —— 见 §8。
+
+===============================================================================
+【2 CLI 用法与输出逐字不变】
+===============================================================================
+2.1 无参（原样 usage + exit 2）
+  命令: node packages/indexer/src/build_index_onnx.ts
+  原始输出: 用法: node build_index_onnx.mjs --model <目录> --lib <库根> --out <目录> [--seq 140] [--device webgpu]
+            [--limit N] [--lib-id L1] [--weights-dtype fp32]        NOARG_EXIT=2
+2.2 真跑 6 条夹具（同一输入、同一 --built-at）
+  改前 stdout: 22 行（含 RESULT {"ok":6,...,"reused":0,"compat":"…|fp32|2|140|768|l2|mean_soft_tokens"}）· OLDCLI_EXIT=0
+  改后 stdout: 22 行 · 同一 RESULT 行 · NEWCLI_EXIT=0
+  归一化（out 目录名、耗时文本）后 Compare-Object 的**全部差异只有 1 行**：
+    => [build]   6/6  已编码 6 · 复用 0 · 失败 0  RATE 条/秒  已用 0.1 分  预计剩余 0.0 分
+    <= [build]   6/6  已编码 6 · 复用 0 · 失败 0  RATE 条/秒  已用 0.0 分  预计剩余 0.0 分
+  ⇒ 差异只有「已用 0.1 分 vs 0.0 分」这种**时间文本**，不是行为。
+
+===============================================================================
+【3 产物逐字节一致（同一输入 ⇒ 同一 index.bin）】
+===============================================================================
+夹具: data/_idx1/lib（6 张图 + 6 个同名包；含 1 张「名为 .jpg 实为 BMP」⇒ BMP 回退路径也被覆盖）
+改前（旧 CLI，--out out-before）：
+  index.bin   962C3B40B44711E1FEE275CAF6CAC61C27378202CDD5D37D3EC22B2E9090112D  19811 B
+  items.json  1A46D574FF9AFD8BA5595CE579034EDF14735EA090189A6741179FAD884813BB  3853 B
+  meta.json   8D9D751BD07AF2EDE133CA507F3E9A0ABA358EC714669F6D32908EA3C847913F  1562 B
+改后（新 CLI，--built-at 2026-10-16T05:21:12.682Z）：
+  index.bin IDENTICAL · items.json IDENTICAL · meta.json IDENTICAL · CLI_EXIT=0 · RESULT 行相同
+prettier --write 之后再跑一遍（out-final2 / out-final）：
+  index.bin IDENTICAL 962C3B40… · items.json IDENTICAL 1A46D574… · meta.json IDENTICAL 8D9D751B…
+注入写者路径（reports/2026-10-15-wave3/idx1-api.mjs，真模型）：
+  INDEX_SHA256 962C3B40B44711E1FEE275CAF6CAC61C27378202CDD5D37D3EC22B2E9090112D
+  ITEMS_SHA256 1A46D574FF9AFD8BA5595CE579034EDF14735EA090189A6741179FAD884813BB
+  META_SHA256  8D9D751BD07AF2EDE133CA507F3E9A0ABA358EC714669F6D32908EA3C847913F
+  WRITER_CALLS 3 counts=3/768 6/768 6/768   （中途落盘 + 最终落盘；与改前同一节流节奏）
+  ⇒ 默认写者与「注入写者」两条路产出**同一组字节**。
+
+===============================================================================
+【4 被 import 时零副作用】
+===============================================================================
+测试（build-index-api.test.mjs）在**子进程**里只 import、不给任何参数：
+  ✔ IDX-1 ⭐⭐ import 本模块**零副作用**：顶层不再跑 CLI（无参数 import 必须干净退出） (232.2172ms)
+  实现：execFileSync(node, ["--input-type=module","-e", `await import("<file url>"); console.log("IMPORTED")`])
+        ⇒ 期望 stdout 含 IMPORTED、exit 0（改前：顶层立刻跑 main ⇒ 打印用法并 exit 2 ⇒ 拿不到 IMPORTED）。
+  注：Windows 下动态 import 必须传 file:// URL（传 D:\… 会 ERR_UNSUPPORTED_ESM_URL_SCHEME）—— 测试里已踩过并注明。
+
+===============================================================================
+【5 能红（四组，全部「先跑后结论」，改动均已还原）】
+===============================================================================
+(a) 取消检查改成空操作（`checkAbort` 变 no-op）
+    ✖ IDX-1 ⭐⭐ 取消：signal 已置位 ⇒ 抛 BuildCancelledError，且**不落盘**
+      AssertionError: 预置取消信号必须抛 BuildCancelledError（而不是去载模型或静默返回）
+    ℹ tests 1 / pass 0 / fail 1        REDA_EXIT=1
+(b) `buildIndexBinBytes` 去掉 footer
+    ✖ IDX-1 ⭐⭐ 产物字节仍是 GSIDX：引擎 readIndexBin 能读回（截断必须被拒）
+      code: 'INDEX_CORRUPT'        （引擎五道校验当场发现 ⇒ 测试红）
+    ℹ tests 1 / pass 0 / fail 1        REDB_EXIT=1
+(c) 把「顶层不跑构建」的守卫改回 `if (true) { void runCli(); }`
+    用法: node build_index_onnx.mjs --model <目录> …            （子进程打印用法）
+    ✖ packages\indexer\tests\build-index-api.test.mjs（整数文件失败）
+    ℹ tests 1 / pass 0 / fail 1        REDI_EXIT=1
+(d) 注入点改成忽略 `opts.writeIndex`（`const writeIndex = writeIndexBinFile`）
+    WRITER_CALLS 0 counts=
+    INJECTION_NOT_USED：注入了 writeIndex 却没被调用 —— 注入点没接上（IDX-1 的硬断言）
+    REDII_EXIT=1        （idx1-api.mjs 现在是**带断言的脚本**，不是只看日志）
+还原后：indexer 全部单测 13/13 绿 · `grep RED-PROOF` = 0。
+
+===============================================================================
+【6 端到端：进度 / 取消 / 注入（真模型，reports/2026-10-15-wave3/idx1-api.mjs）】
+===============================================================================
+PHASES scan → uid → selftest → model → encode → persist → done
+EVENTS 12 · ENCODE_LAST {"phase":"encode","done":0,"total":6,"message":"编码"}
+SUMMARY {"ok":6,"dim":768,"failed":0,"reused":0,"scanned":6}
+CANCEL_AT_MODEL（模型阶段事件里立刻置位） name=BuildCancelledError errPhase=model lastEvent=model 0/0 artifacts=(none)
+CANCEL_AT_ENCODE（编码阶段事件里立刻置位） name=BuildCancelledError errPhase=encode lastEvent=encode 0/6 artifacts=(none)
+CANCEL_BY_TIMER(1200ms)（纯定时，仅供参考） name=BuildCancelledError errPhase=encode lastEvent=encode 0/6 artifacts=(none)
+DONE · API_EXIT=0
+⇒ 取消：错误类型、发生阶段、以及「没有落下任何产物」三者都可核对。
+
+===============================================================================
+【7 0 残留 grep（先跑后结论）】
+===============================================================================
+G1 模块级参数常量（^const MODEL_DIR|LIB_ROOT|OUT_DIR|SEQ|DEVICE|LIMIT|SAVE_EVERY|REBUILD|LIB_ID|WEIGHTS_DTYPE|MODEL_REPO）= 0
+G2 process.argv：只出现在 CLI 入口 —— 1101 parseCliArgs(process.argv.slice(2)) / 1127 注释 / 1131 invokedDirectly
+G3 process.exit：只在 runCli —— 1102 exit(2) 缺参 / 1116 exit(0|3) 成功 / 1119 no-vectors exit(1) / 1121 致命 exit(1)
+G4 顶层直接跑构建（^main\(\)|^buildIndex\() = 0
+G5 守卫：1130 const invokedDirectly = … / 1132 if (invokedDirectly) {
+G6 导出面 11 项：BuildPhase / BuildProgress / WriteIndexInput / WriteIndexFn / BuildIndexOptions / BuildSummary
+   / BuildCancelledError / BuildNoVectorsError / buildIndexBinBytes / writeIndexBinFile / buildIndex
+G7 writeIndexAtomically 在 indexer 里只出现在**注释**（173 / 519 / 1032），无 import —— 原因见 §8
+G8 `function writeIndexBin` 定义数 = 0（重构前的那个写入口已删除 ⇒ 写者只剩一份）
+
+===============================================================================
+【8 ⚠️ 需要你判定的一条：卡片第 3 条「复用 writeIndexAtomically」】
+===============================================================================
+事实（file:line）：
+· apps/desktop/src/main/index-file.ts:277-291：`writeIndexAtomically(libraryRoot, bytes, opts)` 的落点**写死**为
+    `assertWritableGsPath(root, indexPathFor(root))` = <库根>/.gs-index.bin，且 `WriteIndexOptions` 没有 target 参数
+    ⇒ 它**无法**写 <outDir>/index.bin。
+· CLI 的 `--out` 是**构建暂存目录**（如 data/idx-full-v2），不是库根；两者不是同一个落点。
+· packages/indexer 若 import apps/desktop/src/main/**，会把「包 → 应用」的依赖方向倒过来
+    （PLAN.md:122 把 indexer 列为「原样保留」的独立脚本，就是因为这个方向）。
+我的处理：给出**注入点** `writeIndex`（本卡能做的最大程度），并在两处 JSDoc 写明
+  「主进程侧不要用默认写者写库根，必须注入 writeIndexAtomically」；CLI 默认写者保持原实现 ⇒ 产物逐字节不变。
+  注入点**确实被调用**这一点已被证明（§3 的 WRITER_CALLS 与 §5(d) 的能红）。
+建议（IDX-2 时二选一，都需要动 main/** ⇒ 不在本卡写入范围，我按边界停手）：
+  ① 给 writeIndexAtomically 增加 target 参数（或抽出一个中立的原子写原语给两侧共用）；
+  ② 由主进程这样调用：buildIndex({ …, writeIndex: ({ bytes }) => writeIndexAtomically(libRoot, bytes) })。
+
+===============================================================================
+【9 门禁】
+===============================================================================
+· tsc: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json ⇒ **TSC_NODE_EXIT=0**
+· 单测（新增 5 条 + ENC-1 的 8 条）: node --test packages/indexer/tests/*.test.mjs
+    ℹ tests 13 / pass 13 / fail 0 / skipped 0        TESTS_EXIT=0
+· prettier：先 --write 再复验
+    npx prettier --write packages/indexer/src/build_index_onnx.ts packages/indexer/tests/build-index-api.test.mjs \
+        reports/2026-10-15-wave3/idx1-api.mjs   ⇒ WRITE_EXIT=0（其中 build_index_onnx.ts 第二次跑已是 unchanged）
+    npx prettier --check <上述三个文件>        ⇒ MY_FILES_PRETTIER_EXIT=0
+    npx prettier --check .                     ⇒ **CHECK_EXIT=1**，唯一不符文件：
+        [warn] apps/desktop/e2e/start1-probe.spec.mjs
+      ⚠️ 该文件**不是我的写入范围**（我的范围只有 packages/indexer / tools / reports）——
+         从文件名看属 PERF-1/task-99（renderer-migrator）并发新增。我没有动它。
+· T-00 编码护栏（动了 packages/indexer/** 的硬要求）
+    改前: node tools/verify_encoder_path.mjs --model <…/fp32> --lib G:\model ⇒ **PASS / BASELINE_EXIT=0**
+          Top-5 = 0.7855 / 0.7852 / 0.7836 / 0.7756 / 0.7751 · encodeImage cos=1.000000 ×2 · ‖v‖=1.000000
+    改后: 同命令同输出 ⇒ **PASS / BASELINE_EXIT=0**，Top-5 与两条 cos **逐位一致**
+· **未跑**全量 npm test / build / e2e（纪律：跑全量前先问你）
+
+===============================================================================
+【10 回滚】
+===============================================================================
+反向逐条即可：恢复模块级参数解析与顶层 `main().then(...)`、恢复 writeIndexBin、删掉导出与三个新文件。
+无数据/落点副作用：夹具与产物都在 gitignore 的 data/_idx1（可随时删）。
+另外 `--built-at` 是**新增**的 CLI 开关（默认 = 现在，不传等价于重构前）——产物对照才需要它；
+如果不想让它出现在 CLI 表面，可以只留 `BuildIndexOptions.builtAt`（注入用）而去掉该 flag，说一声我改。
