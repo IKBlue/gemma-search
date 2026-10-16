@@ -97,3 +97,57 @@ U12 / task-81 · 孤包（只有包、没有图）作为**独立异常类别**�
   · 只回滚界面：删掉 DiagnosticsPage 的那段（主进程字段留着不影响任何调用方）；
   · 注入副本：data/_u12/library-health.R1.bak · library-health.R2.bak（均已与工作树逐字节一致）。
 ==============================================================================
+
+==============================================================================
+U12 追加 · 徽标文案收紧（Lead 2026-10-16 裁定；本段为**追加**，上面原文未改）
+==============================================================================
+
+## A1. 为什么要改：标签说得比它测的多
+  `DiagnosticsPage.tsx` 的徽标量的是 `report.ok` = **检查项**是否全过；
+  孤包是**信息**不是失败项（本卡裁决①：不翻 ok）⇒ 旧文案「全部通过」会让
+  **一个带 60 个孤包的库顶着「全部通过」的徽标**。这正是 P6「不许过度声称」的那类问题。
+  Lead 裁定：**不改 report.ok 语义**，只收紧文案。
+
+## A2. 改前 → 改后 → 为何非放宽
+  改前：
+      <span className="tag" data-health={report.ok ? 'ok' : 'bad'}>
+        {report.ok ? '全部通过' : '有问题 ' + String(bad) + ' 项'}
+      </span>
+  改后：
+      <span className="flex flex-wrap items-center gap-2">
+        <span className="tag" data-health={report.ok ? 'ok' : 'bad'}>
+          {report.ok ? '检查项全部通过' : '有问题 ' + String(bad) + ' 项'}
+        </span>
+        {orphans > 0 ? (
+          <span className="tag muted" data-orphan-badge={String(orphans)}>
+            {'· 另有 ' + String(orphans) + ' 个孤包'}
+          </span>
+        ) : null}
+      </span>
+  为何非放宽：这是**收紧**声称范围 —— 徽标从笼统的「全部通过」变成它真正测的「检查项全部通过」；
+    孤包**并列**显示（中性 `tag muted`，**不是**失败样式、**不进** `bad` 计数、**不翻** `ok`）。
+    `data-health` / `data-health-ok` 两个属性**一字未动** ⇒ e2e 的既有断言不受影响。
+
+## A3. 断言核查（要求③：若有测试断言这四个字 ⇒ 同步）
+  命令：Select-String -Path apps/desktop/tests/*.mjs,apps/desktop/e2e/*.mjs -Pattern "全部通过"
+  输出：只有一处，且**与徽标无关** —— thumb-cache.test.mjs:322 的用例名「T8 全部通过 ⇒ null（可以出图）」（缩略图状态语义）。
+  ⇒ **没有任何测试断言徽标文案**，所以无需同步断言；e2e 断的是 data-health-ok 属性（未改）。
+
+  产品里的文案（改后，grep 原样）：
+    73: *   旧文案是笼统的「全部通过」—— 标签说得比它测的多：一个带 60 个孤包的库会顶着「全部通过」。
+    81: {report.ok ? '检查项全部通过' : '有问题 ' + String(bad) + ' 项'}
+    84: <span className="tag muted" data-orphan-badge={String(orphans)}>
+    85: {'· 另有 ' + String(orphans) + ' 个孤包'}
+
+## A4. 门禁原始输出（改完实跑）
+  · prettier --check apps/desktop/src/renderer/src/pages/DiagnosticsPage.tsx ⇒ "All matched files use Prettier code style!"
+  · tsc -p tsconfig.node.json ⇒ EXIT=0（0 行）
+  · tsc -p tsconfig.web.json  ⇒ EXIT=0（0 行）
+  · node --test health-rebuild.test.mjs ⇒ EXIT=0 · tests 15 / pass 15 / fail 0
+  · node --test health-store.test.mjs   ⇒ EXIT=0 · tests 11 / pass 11 / fail 0
+  · 未跑全量 npm test / build / e2e（纪律 6/19：等 Lead 开窗口）
+
+## A5. 未动的东西（Lead ④）
+  `revealPath` 仍不开（gap 见上文 §5）· samples 上限 50 + truncated 保持与 §3.2 一致 ·
+  「不算素材 · 不是损坏 · 重建修不好」三句逐字保留（孤包段与大段文案都没改）。
+==============================================================================

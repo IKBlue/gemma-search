@@ -65,12 +65,26 @@ function CheckRow({ check }: { check: HealthCheck }) {
   );
 }
 
-/** 结论徽标：好 / 有问题 —— 文案与语气直接取 ok，不自己算档位 */
+/**
+ * 结论徽标：**只说它真正测的东西**。
+ *
+ * ⚠️ 徽标量的是 `report.ok` = **检查项**是否全过；孤包（orphanArchive）是**信息**不是失败项
+ *   ⇒ 有孤包时**并列**显示中性提示，不换失败样式、也**不进 bad 计数**（U12 · Lead 2026-10-16 裁定）。
+ *   旧文案是笼统的「全部通过」—— 标签说得比它测的多：一个带 60 个孤包的库会顶着「全部通过」。
+ */
 function HealthBadge({ report }: { report: LibraryHealthReport }) {
   const bad = report.checks.filter((c) => !c.ok).length;
+  const orphans = report.orphanArchive.count;
   return (
-    <span className="tag" data-health={report.ok ? 'ok' : 'bad'}>
-      {report.ok ? '全部通过' : '有问题 ' + String(bad) + ' 项'}
+    <span className="flex flex-wrap items-center gap-2">
+      <span className="tag" data-health={report.ok ? 'ok' : 'bad'}>
+        {report.ok ? '检查项全部通过' : '有问题 ' + String(bad) + ' 项'}
+      </span>
+      {orphans > 0 ? (
+        <span className="tag muted" data-orphan-badge={String(orphans)}>
+          {'· 另有 ' + String(orphans) + ' 个孤包'}
+        </span>
+      ) : null}
     </span>
   );
 }
