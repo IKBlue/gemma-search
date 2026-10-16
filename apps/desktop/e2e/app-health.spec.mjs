@@ -94,9 +94,10 @@ test('E15-b ⭐⭐ 注入一次真实的未处理异常 ⇒ 标记可见 + 面�
     await expect(entry).toHaveAttribute('data-unhealthy', 'yes', { timeout: 10_000 });
     await expect(entry).toContainText(String(after.data.count));
 
-    // 诊断页的面板：三样事实都要在（次数 / 首条原因 / 首条时间）
-    // ⚠️ 必须 exact：顶栏那个入口的 aria-label 也是「诊断与重建：…」⇒ 不限定会同时命中两个链接
-    await win.getByRole('link', { name: '诊断与重建', exact: true }).click();
+    // 从**顶栏那个入口**进诊断页（不是侧栏）—— 顺带钉住它的可访问名与侧栏**不撞车**：
+    //   `getByRole('link', { name: '诊断与重建' })` 必须**唯一**（侧栏那个），这正是被门禁抓到的那条回归。
+    await expect(win.getByRole('link', { name: '诊断与重建' })).toHaveCount(1);
+    await entry.click();
     const panel = win.getByTestId('app-health-panel');
     await expect(panel).toBeVisible({ timeout: 20_000 });
     await expect(panel).toHaveAttribute('data-unhealthy', 'yes');

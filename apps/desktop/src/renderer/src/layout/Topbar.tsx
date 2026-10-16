@@ -11,7 +11,20 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 
-import { LABELS, PATHS } from '../router/paths.ts';
+import { PATHS } from '../router/paths.ts';
+
+/**
+ * 这个入口的**可访问名**（2026-10-16 · 被冻结门禁抓到的跨 spec 回归）。
+ *
+ * ⚠️ 它**不能**叫「诊断与重建」—— 那是**侧栏导航链接**的名字，而三处 e2e（`health.spec.mjs` /
+ *    `helpers/health-stub.mjs`）都用 `getByRole('link', { name: '诊断与重建' })` 点侧栏；
+ *    我第一版把手写成 `LABELS.health + '：' + …` ⇒ **可访问名撞车** ⇒ 那些用例变成
+ *    「strict mode violation: resolved to 2 elements」，4 条红（是**跨 spec 耦合**，只跑自己的 spec 看不见）。
+ * ⇒ 定稿：名字说清**它自己是什么**（进程健康，不是「去诊断页」），且带状态 ⇒ **唯一**且信息量更高。
+ */
+function entryLabel(h: Parameters<typeof entryText>[0]): string {
+  return h && h.unhealthy === true ? '运行诊断：本次运行出现过未处理异常' : '运行诊断：正常';
+}
 import useAppHealth from '../hooks/useAppHealth.ts';
 import { entryText } from '../store/app-health.ts';
 
@@ -29,7 +42,7 @@ export default function Topbar({ crumb, actions }: TopbarProps) {
           data-testid="app-health-entry"
           data-unhealthy={bad ? 'yes' : 'no'}
           className={bad ? 'text-caption tone-warn' : 'text-caption muted'}
-          aria-label={LABELS.health + '：' + entryText(data)}
+          aria-label={entryLabel(data)}
           title={
             bad
               ? '本次运行出现过未处理异常：点开诊断页看原因与次数'

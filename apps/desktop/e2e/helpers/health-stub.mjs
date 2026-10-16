@@ -53,6 +53,18 @@ function badReport() {
         rebuildable: true,
       },
     ],
+    // ⚠️ 2026-10-16：**必须给全 `LibraryHealthReport` 的字段** —— 缺一个，界面就在渲染时崩
+    //    （实测：U12 在诊断页加了孤包段之后，本桩缺 `orphanArchive` ⇒ 诊断页整页
+    //     `Cannot read properties of undefined (reading 'count')` ⇒ E13-a/b/c 三条全红）。
+    //    桩的形状要对齐**真实载荷**，不是「只给本用例看的那几个字段」。
+    materialCount: 2,
+    orphanArchive: {
+      count: 0,
+      samples: [],
+      truncated: false,
+      scanned: true,
+      error: null,
+    },
     ok: false,
     needsDbRebuild: true,
     needsIndexRebuild: false,
@@ -105,6 +117,14 @@ function okReport() {
         rebuildable: false,
       },
     ],
+    materialCount: 2,
+    orphanArchive: {
+      count: 1,
+      samples: [{ relPath: 'CR\\orphan-only.zip', ext: '.zip' }],
+      truncated: false,
+      scanned: true,
+      error: null,
+    },
     ok: true,
     needsDbRebuild: false,
     needsIndexRebuild: false,

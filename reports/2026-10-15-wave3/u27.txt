@@ -143,3 +143,55 @@ U27 · `appHealth`（第 22 个只读方法）· 2026-10-16 · 执行: ui-migrat
 =================================================================================
   删 4 个新源码文件 + 2 个新测试 + 1 个 e2e；还原 shared/ipc.ts · main/crash-policy.ts · main/index.ts ·
   layout/Topbar.tsx · pages/DiagnosticsPage.tsx（两行）· 3 处测试断言 · SPEC §6 那一节。无依赖变更。
+
+=================================================================================
+11. 冻结门禁抓到的两处红 + 我自己多抓到的一处（2026-10-16 补记）
+=================================================================================
+### 11.1 CP-2（非注释代码不许出现 `**加粗**`）—— Lead 已替我修
+  `AppHealthPanel.tsx:68/70` 我写的**用户可见**文案里有 `**本次运行**` / `**不保存**`：界面不渲染 Markdown ⇒ 会把星号**字面**显示给用户。
+  Lead 改成 `<strong>本次运行</strong>` / `<strong>不保存</strong>`（**保留强调意图**，不是删星号了事）。我认。
+  教训（写进我自己的清单）：`**` 在**注释**里没问题，在**会显示给用户的字符串**里就是缺陷；我写注释时把两种场合混用了。
+
+### 11.2 ⚠️ 跨 spec 回归：顶栏入口与侧栏的**可访问名撞车**（我的，已修）
+  症状：`health.spec.mjs` **3 条红**（E13-a/b/c）——
+    `Error: locator.click: strict mode violation: getByRole('link', { name: '诊断与重建' }) resolved to 2 elements`
+  根因：我给顶栏入口写的 `aria-label = LABELS.health + '：' + entryText(data)` = **「诊断与重建：诊断」**，
+        与**侧栏导航链接**（可访问名就叫「诊断与重建」）**同名** ⇒ Playwright 严格模式拒绝。
+  ⚠️ **为什么我自测没看见**：我只跑了自己的 `app-health.spec.mjs`（自己的 spec 里我写了 `exact: true` 绕开）；
+     而 `health.spec.mjs` 与 `helpers/health-stub.mjs` **三处**点的都是那个侧栏链接 ⇒ 这是**跨 spec 耦合**。
+  ⇒ 修法（**不改侧栏名字、不放宽断言**）：顶栏入口的可访问名改成**说它自己是什么**（进程健康，不是「去诊断页」）：
+     `'运行诊断：正常'` / `'运行诊断：本次运行出现过未处理异常'`（唯一 + 信息量更高）。
+     判据由 `app-health.spec.mjs` 钉住：`getByRole('link', { name: '诊断与重建' })` **必须 toHaveCount(1)**（仍是侧栏那个）。
+     我自己的 spec 也改成**点顶栏入口**（`entry.click()`），不再借道侧栏。
+
+### 11.3 ⚠️ 我自己在全量里多抓到的一处红（**不是我的卡引入的**）：`health-stub.mjs` 缺字段
+  症状：E13-a/b/c 三条**整页崩**，不是选择器问题 ——
+    `Unexpected Application Error! … TypeError: Cannot read properties of undefined (reading 'count') at DiagnosticsPage`
+  根因：U12（task-81）在诊断页加了「孤包」渲染（读 `report.orphanArchive.count`），
+        而 e2e 的**桩** `helpers/health-stub.mjs` 的 `badReport()` / `okReport()` **只给了本用例当时用到的字段**，
+        **没有** `orphanArchive`（那个字段是 U12 之后才被界面读的）⇒ 桩返回的载荷与真实 `LibraryHealthReport` **形状漂移**。
+  ⇒ 修法（**测试侧**，我没碰 U12 的产品代码）：把桩补齐成**真实载荷的形状** ——
+     `materialCount: 2` + `orphanArchive: { count, samples, truncated, scanned, error }`（`okReport` 用 count=1 + 一个样例，顺带覆盖「有孤包」的渲染）。
+  ⇒ 这处也说明一条口径：**桩的形状要对齐真实载荷，不是「只给本用例看的那几个字段」** —— 少一个字段就是「测试通过、产品崩」。
+
+### 11.4 顺手确认的一条 flake（**不是回归**）
+  第一轮全量里 `routing-E2-d` 报 `TimeoutError: page.waitForLoadState: Timeout 30000ms exceeded`（**domcontentloaded 没到、networkidle 到了**）——
+  典型启动慢；第二轮全量里它 **ok（7.0s）** ⇒ 判为**环境抖动**，不是回归（我对它没有改动）。
+
+=================================================================================
+12. 全量 e2e（Lead 要求的第二轮 · 最终结果）
+=================================================================================
+  命令原文（时刻 2026-10-16T02:17:06Z 起跑）：
+    $ npx playwright test -c apps/desktop/e2e/playwright.config.mjs
+  结果：**65 passed / 1 skipped / 0 failed（7.2m）· EXIT=0**（原始输出 data/_w2ui/u27-e2e-full2.txt）
+    ok  6 E15-a ⭐ 健康时顶栏就有那个低调入口 · appHealth 如实说「没出过事」(6.6s)
+    ok  7 E15-b ⭐⭐ 注入一次未处理异常 ⇒ 标记可见 + 面板给出次数/首条原因/首条时间 (12.0s)
+    ok 29 E13-a ⭐ 体检坏项在真窗口显示 (2.3s)
+    ok 30 E13-b ⭐⭐ 取消重建 ⇒ 零 IPC (2.3s)
+    ok 31 E13-c ⭐⭐ 确认后：忙碌 → 重建报告 → 自动复检 (3.2s)
+    ok 32 E13-d ⭐⭐ 真库 · 真实现（不经桩）(2.2s)
+    ok 45 E2-d 未知 hash ⇒ 回搜索页 (7.0s)   ← 第一轮那条 flake，这轮 ok
+  `out/` 指纹：跑前 = 跑后 = `71038A67D0A02164EF6CDD2B24DA5AA8A4630017BCE147530828E956044EFAA0`（**逐字节相同**）
+
+  对照第一轮（同一棵树的更早状态，我改了 11.2/11.3 之前）：4 failed / 1 skipped / 61 passed ——
+    4 条 = E13-a/b/c（11.3 的桩缺字段）+ E2-d（11.4 的 flake）。
