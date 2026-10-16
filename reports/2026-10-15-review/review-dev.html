@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gemma-search 开发者视角审查：债务 · 漏洞 · 缺陷 · 规范</title>
+<style>
+  :root {
+    --bg: #0e1014; --panel: #161920; --panel2: #1c202b; --line: #2a3040;
+    --ink: #e7eaf0; --muted: #97a0b0; --faint: #6b7386;
+    --acc: #54a7ff; --good: #34c759; --warn: #ff9f0a; --bad: #ff453a;
+    --good-t: #5ad87c; --warn-t: #f0b34d; --bad-t: #ff7a72;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI","Microsoft YaHei",sans-serif; line-height:1.65; font-size:15px; }
+  .wrap { max-width:1100px; margin:0 auto; padding:40px 28px 120px; }
+  header.hero { border:1px solid var(--line); border-radius:20px; padding:38px 42px; background:linear-gradient(160deg,var(--panel2),var(--panel)); margin-bottom:34px; }
+  .eyebrow { color:var(--acc); font-size:12px; letter-spacing:.16em; font-weight:700; text-transform:uppercase; }
+  h1 { font-size:28px; margin:10px 0 6px; letter-spacing:-.02em; }
+  .sub { color:var(--muted); max-width:760px; }
+  .meta { display:flex; flex-wrap:wrap; gap:9px; margin-top:20px; }
+  .meta span { border:1px solid var(--line); border-radius:999px; padding:4px 13px; font-size:12px; color:var(--muted); }
+  .meta b { color:var(--ink); font-weight:600; }
+  h2 { font-size:21px; margin:48px 0 6px; padding-top:4px; }
+  h2 .no { color:var(--acc); margin-right:10px; }
+  h2 + p.lead { color:var(--muted); margin-top:0; }
+  h3 { font-size:16px; margin:24px 0 8px; }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; background:var(--panel2); padding:1px 6px; border-radius:6px; color:#c8d3e4; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; color:#c8d3e4; }
+  .src { font-size:11.5px; color:var(--faint); font-family:ui-monospace,Menlo,Consolas,monospace; }
+
+  table { width:100%; border-collapse:collapse; margin:14px 0; font-size:13.5px; }
+  th,td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-size:11.5px; letter-spacing:.05em; text-transform:uppercase; background:var(--panel); }
+  tr:hover td { background:rgba(255,255,255,.014); }
+
+  .card { border:1px solid var(--line); border-radius:14px; padding:16px 18px; margin:14px 0; background:var(--panel); }
+  .card.sev-high { border-left:4px solid var(--bad); }
+  .card.sev-med { border-left:4px solid var(--warn); }
+  .card.sev-low { border-left:4px solid var(--acc); }
+  .card.debt { border-left:4px solid #9b8cff; }
+  .card .t { font-weight:700; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .card .t .tag { font-size:11px; font-weight:700; letter-spacing:.04em; }
+  .sev-high .t .tag { color:var(--bad-t); }
+  .sev-med .t .tag { color:var(--warn-t); }
+  .sev-low .t .tag { color:var(--acc); }
+  .debt .t .tag { color:#b9a8ff; }
+  .card p { margin:8px 0 4px; }
+  .card .fix { margin-top:8px; padding:8px 12px; background:var(--panel2); border-radius:8px; font-size:13px; }
+  .card .fix b { color:var(--good-t); }
+
+  .good { color:var(--good-t); } .warn { color:var(--warn-t); } .bad { color:var(--bad-t); }
+  .pill { display:inline-block; border-radius:999px; padding:1px 10px; font-size:11.5px; font-weight:700; }
+  .pill.high { background:rgba(255,69,58,.15); color:var(--bad-t); }
+  .pill.med { background:rgba(255,159,10,.15); color:var(--warn-t); }
+  .pill.low { background:rgba(84,167,255,.15); color:var(--acc); }
+  .pill.debt { background:rgba(155,140,255,.15); color:#b9a8ff; }
+
+  .score-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin:20px 0; }
+  .sc { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .sc .d { font-size:12px; color:var(--muted); }
+  .sc .n { font-size:26px; font-weight:800; margin:2px 0; }
+  .footer { margin-top:56px; padding-top:18px; border-top:1px solid var(--line); color:var(--faint); font-size:12.5px; }
+  ul { padding-left:22px; } li { margin:4px 0; }
+  @media (max-width:640px){ .wrap{padding:20px 14px 80px} header.hero{padding:24px 20px} h1{font-size:23px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Developer-Focused Code Review</div>
+  <h1>gemma-search 开发者视角审查</h1>
+  <div class="sub">技术债务 · 漏洞与缺陷 · 函数/方法级问题 · 行业编程规范。以代码事实（<span class="mono">文件:行号</span> 或直接引用）为依据，不依赖项目自身文档的自述。</div>
+  <div class="meta">
+    <span>审查范围：<b>引擎 / 主进程 / 渲染层 / 数据层 / 事务 / 编码路径</b></span>
+    <span>规模：<b>约 16,500 行 TS · 51 单测 · 16 E2E</b></span>
+    <span>日期：<b>2026-10-15</b></span>
+  </div>
+</header>
+
+<h2><span class="no">◎</span>结论先行</h2>
+<p class="lead">这是我看过的同规模项目中<b>工程自律性最强</b>的之一：信封式错误、单一契约来源、机械断言、原子写入、write-ahead 事务日志，每一项都做到了行业上游。但自律不等于没有债——<b>最典型的问题恰恰是「纪律体系内部的漏洞」</b>：死代码没清、ID 用了 <code>Math.random</code>、有一处静默类型降级、指纹函数漏了保留命名空间。下面按严重度给出可复现、可定位的证据。</p>
+
+<div class="score-row">
+  <div class="sc"><div class="d">代码质量与可维护性</div><div class="n good">8.5</div><div>分层清晰、注释是「为什么」，但死代码与冗长注释并存</div></div>
+  <div class="sc"><div class="d">安全与健壮性</div><div class="n warn">7.0</div><div>安全边界强，但存在 Math.random、静默降级、非原子缓存写</div></div>
+  <div class="sc"><div class="d">技术债务控制</div><div class="n warn">6.0</div><div>多套双轨（布局/CSS/配置源）与遗留代码未收敛</div></div>
+  <div class="sc"><div class="d">行业规范符合度</div><div class="n good">7.5</div><div>多数主流实践达标，但缺 ESLint/Prettier 落地</div></div>
+</div>
+
+<!-- ============ 一、漏洞与缺陷 ============ -->
+<h2 id="s1"><span class="no">01</span>漏洞与缺陷 <span style="font-size:13px;color:var(--faint)">—— 按严重度排序</span></h2>
+
+<div class="card sev-high">
+  <div class="t"><span class="tag">高 · 数据正确性</span> 指纹函数未跳过保留命名空间，与扫描器口径不一致</div>
+  <p><code>packages/engine/src/fingerprint.ts</code> 的 <code>fingerprintLines()</code> 遍历库根时<b>没有</b> <code>isReservedLibraryName()</code> 跳过，会把 <code>.gs-index.bin</code>、<code>.gs.db</code>、<code>.gs.db-wal/-shm</code> 全部算进 <code>files</code> 计数与指纹。</p>
+  <p class="src">证据：fingerprint.ts <code>walk()</code> 循环里只有 <code>if (!e.isFile()) continue</code>，随后直接 <code>lines.push(...)</code>、<code>counts.files++</code>——无任何保留名判断。</p>
+  <p>而同一仓库里另一处「素材摘要」<code>main/library-rebuild.ts</code> 的 <code>materialDigest()</code> <b>有</b> <code>isReservedLibraryName</code> 跳过。两者是「同一概念的两种实现」（违反其自身 P1），且结果不一致：</p>
+  <ul>
+    <li><code>engine.ts</code> 的 <code>doScan()</code> 用 <code>fingerprintV1(root)</code> 返回 <code>fingerprint</code> 与 <code>filesTotal</code>——它会把索引/WAL 变化算成「库被改过」，<b>索引一重建，库指纹就变</b>，与扫描本身的 diff（那里有跳过）自相矛盾。</li>
+    <li>这正是 U11 刚修过的「把 .gs.db 当素材」问题的<b>复发形态</b>：修在了 scanner / materialDigest，漏了 fingerprint。</li>
+  </ul>
+  <div class="fix"><b>建议：</b>在 <code>fingerprintLines</code> 的 walk 里补 <code>isReservedLibraryName(e.name)</code> 跳过（与 scanner / materialDigest 同一判据），并加一条「指纹文件数 == 扫描器素材文件数」的机械断言。</div>
+</div>
+
+<div class="card sev-high">
+  <div class="t"><span class="tag">高 · 数据正确性</span> <code>num()/text()</code> 静默把 bigint 降级成 0</div>
+  <p><code>apps/desktop/src/main/app-db.ts</code> 里 <code>const num = (v) => (typeof v === 'number' ? v : 0)</code>。而同一层的 <code>db/sqlite-adapter.ts</code> 明确允许 <code>bigint</code> 作为 <code>SqlValue</code> 透出（注释还写了 <code>changes</code>/<code>lastInsertRowid</code>「可能是 bigint」）。</p>
+  <p>一旦 node:sqlite 升级、或某处打开 <code>readBigInts</code>，<code>enabled</code>/<code>sort_order</code>/<code>schema_version</code> 会<b>静默变成 0</b>——库被悄悄「停用」、迁移版本被读成 0，而<b>没有任何报错</b>。这与适配层自己写的「<code>narrowValue</code> 判不出来就抛、绝不静默返回 null」直接冲突：适配层防静默，行映射器却在静默。</p>
+  <div class="fix"><b>建议：</b>行映射器改用与适配层同源的值收窄（bigint → <code>Number()</code> 且校验 <code>Number.isSafeInteger</code>），或把 <code>num()</code> 改成「非 number/bigint 即抛」，与 <code>narrowValue</code> 口径统一。</div>
+</div>
+
+<div class="card sev-med">
+  <div class="t"><span class="tag">中 · 安全</span> <code>Math.random</code> 生成 jobId，违反自身「用 nanoid」纪律</div>
+  <p><code>packages/engine/src/engine.ts:613</code>：<code>const jobId = 'j-' + Math.random().toString(16).slice(2, 6)</code>。仅 4 位 hex = 65536 种可能，且非加密随机。</p>
+  <p>取件（<code>doCollect</code>）是并发可重复触发的路径，jobId 一旦碰撞会把两次取件记成同一个 job；AGENTS 明写「ID 新增处一律用 nanoid，不自己拼随机」，这里却用了最弱的拼接。</p>
+  <div class="fix"><b>建议：</b><code>crypto.randomUUID()</code> 或 nanoid；引擎已依赖 <code>node:crypto</code>（uid.ts / index.ts 都在用），成本为零。</div>
+</div>
+
+<div class="card sev-med">
+  <div class="t"><span class="tag">中 · 健壮性</span> 缩略图缓存写入非原子，截断文件会被永久缓存</div>
+  <p><code>apps/desktop/src/main/thumb-cache.ts</code> 的 <code>writeCachedThumb()</code> 用 <code>fs.writeFileSync(cachePath, bytes)</code> 直接落目标名。进程中途被杀会留下<b>非零但截断</b>的 JPEG。</p>
+  <p><code>readCachedThumb()</code> 只判了「0 字节算未命中」，但<b>截断的非零文件</b>会被当作命中永久返回给界面（缓存从不校验、从不失效），结果是一张永远坏掉的图。对比同仓库 <code>index-file.ts</code> 的索引写入是「临时名 → fsync → 校验 → rename」，这里却退化成了裸写。</p>
+  <div class="fix"><b>建议：</b>复用「临时名 + rename」的原子写入模式（索引侧已有现成范式），或至少写入前先判 JPEG 尾部 EOI 标记（FF D9）再决定是否重算。</div>
+</div>
+
+<div class="card sev-med">
+  <div class="t"><span class="tag">中 · 健壮性</span> 未捕获异常/拒绝只记日志不退出</div>
+  <p><code>apps/desktop/src/main/index.ts</code> 末尾：<code>process.on('uncaughtException', (e) =&gt; log(...))</code> 与 <code>unhandledRejection</code> 同样只记日志。uncaughtException 之后进程可能处于<b>半初始化/半写状态</b>，继续运行会让「引擎没装配完、库打开一半」这类状态被当成正常。</p>
+  <p>对本项目「最怕静默」的哲学而言，这与它自己的纪律矛盾：一个兜不住的异常应当<b>响亮地退出</b>（或至少标记全局「不健康」），而不是只写一行日志让应用继续。</p>
+  <div class="fix"><b>建议：</b>uncaughtException 记日志后 <code>app.exit(1)</code>；unhandledRejection 按错误来源决定「退出 or 标记不健康」。至少要把「出过未捕获异常」暴露到诊断面板。</div>
+</div>
+
+<div class="card sev-low">
+  <div class="t"><span class="tag">低 · 安全</span> 生产态保留 DevTools + F12 快捷键</div>
+  <p><code>main/index.ts</code> 建窗时 <code>devTools: true</code>，且 <code>before-input-event</code> 里写死 F12 切 DevTools。注释说「本机自用工具」，但这是一个要「分发给别人」的产品（SPEC 定位）。保留 DevTools 等于给任意拿到安装包的人一个调试后门，且与「渲染进程无 Node、preload 只暴露三键」的安全姿态不匹配。</p>
+  <div class="fix"><b>建议：</b>至少做成配置开关，默认关闭；或保留 DevTools 但去掉 F12 快捷键，改由显式环境变量开启。</div>
+</div>
+
+<div class="card sev-low">
+  <div class="t"><span class="tag">低 · 健壮性</span> 路径解析的 TOCTOU 与「祖先 realpath 失败静默放行」</div>
+  <p><code>packages/engine/src/library.ts</code> 的 <code>resolveInLibrary()</code>：目标不存在时，找最深已存在祖先做 realpath 校验；但 <code>catch { return target }</code> ——realpath 失败时<b>直接放行未经校验的路径</b>。虽然调用方多是「先 existsSync 再 realpath」，但这条 catch 分支把「校验失败」静默等价成了「校验通过」。</p>
+  <div class="fix"><b>建议：</b>realpath 失败应 <code>fail(PATH_ESCAPES_LIB)</code>（或至少明确区分「拿不到结论」），不要 <code>return target</code>。</div>
+</div>
+
+<!-- ============ 二、技术债务 ============ -->
+<h2 id="s2"><span class="no">02</span>技术债务 <span style="font-size:13px;color:var(--faint)">—— 会影响后续开发速度与正确性的负债</span></h2>
+
+<div class="card debt">
+  <div class="t"><span class="tag">债务</span> row-types.ts 残留引用已删除表的死 SQL</div>
+  <p><code>apps/desktop/src/main/db/row-types.ts</code> 仍保留 <code>ITEM_INSERT_SQL</code>、<code>ITEM_UPSERT_SQL</code>、<code>ITEM_FIELD_COLUMNS</code>（18 字段宽表 <code>items</code>）、<code>sqlRowToItemRecord()</code>——而绿地 schema 已经把 <code>items</code>/<code>library</code> 表删了。这些 SQL 生成器现在<b>指向不存在的表</b>，是 S2 重写后没清干净的遗留。</p>
+  <p><code>parseItemRecord()</code>（源 items.json 的 18 字段解析）仍被 <code>import.ts</code> 使用，所以文件不能整体删——但 <code>ITEM_INSERT_SQL</code>/<code>ITEM_UPSERT_SQL</code>/<code>sqlRowToItemRecord</code> 三段是纯死代码。</p>
+  <div class="fix"><b>建议：</b>删除死 SQL 与 <code>sqlRowToItemRecord</code>，只保留源格式解析（parseItemRecord）与新的 <code>joinedRowToItemRecord</code>。</div>
+</div>
+
+<div class="card debt">
+  <div class="t"><span class="tag">债务</span> 引擎保留 6 个「收益为零」的诚实桩</div>
+  <p><code>packages/engine/src/engine.ts</code> 的 <code>UNIMPLEMENTED_METHODS</code>（ingest/mutate/transactions/indexStart/indexCancel/indexResume）在 IPC 契约里已删除，但引擎侧仍生成这些方法、<code>fake.ts</code> 仍为其提供假实现。注释承认「删它们收益为零」，但这意味着：</p>
+  <ul>
+    <li>一个「不会被调用的 API 面」长期存在，新人会误以为它可用；</li>
+    <li>每次改 <code>engine.ts</code> 的 <code>api</code> 对象都要绕着这 6 个生成方法走。</li>
+  </ul>
+  <div class="fix"><b>建议：</b>要么真正删掉（连带 fake.ts 的对应键），要么在类型层把「已下线方法」与「可用方法」分开表达，别让不可达 API 与真实 API 同处一个对象。</div>
+</div>
+
+<div class="card debt">
+  <div class="t"><span class="tag">债务</span> 索引布局「旧/新」双轨并存</div>
+  <p><code>resolveIndexLocation()</code>（index-layout.ts）与 <code>storage-ports.ts</code> 仍然要同时认「旧布局 <code>&lt;dataDir&gt;/libraries/&lt;id&gt;/index.bin</code>」和「新布局 <code>&lt;库根&gt;/.gs-index.bin</code>」，每一次索引读取都走 fallback 决策。这是迁移期的必要成本，但它是<b>有明确寿命的债</b>——迁移完成后旧布局应退役，否则「读索引」永远有两套路径要同时维护、同时测。</p>
+  <div class="fix"><b>建议：</b>给旧布局设一个退役时间点/版本门槛（例如库注册表已完全迁移后，旧布局只读不再写），并在 SPEC 记明。</div>
+</div>
+
+<div class="card debt">
+  <div class="t"><span class="tag">债务</span> CSS 双轨：手写 renderer.css（114 条）与 Tailwind 并存</div>
+  <p><code>renderer.css</code> 头注释自认「两层并存是过渡态，迁移进度约 9.5%」。手写层刻意排在 Tailwind 之后以保留覆盖能力——但这条 import 顺序本身就是债：一旦有人「顺手」把顺序理顺，现有外观会静默改变（注释自己都警告了）。</p>
+  <div class="fix"><b>建议：</b>设一个「renderer.css 归零」的目标卡，逐族迁移（Button/Chip 已迁完，继续 Panel/PhotoCard/Metric），否则每次改样式都要在两套体系里思考。</div>
+</div>
+
+<div class="card debt">
+  <div class="t"><span class="tag">债务</span> 配置来源五路并存</div>
+  <p>「库从哪来」有 4 条路（<code>GEMMA_LIB_ROOT</code> env → userData 注册表 → config.json → 索引自举），「模型从哪来」有 4 位（用户指定 → 程序目录 → userData → model-cache）。这些都是历史兼容的产物，但<b>每一路都要各自测、各自在日志里解释</b>，且 <code>config.json</code> 的 <code>onnx_model_dir</code> 字段目前没有任何设置界面可填（设置页不存在），等于一条只有老用户知道的隐式配置。</p>
+  <div class="fix"><b>建议：</b>做设置中心后，把「用户指定」的来源从 config.json 迁到 app.db，逐步让 env/config.json 只保留「开发期覆盖」的语义。</div>
+</div>
+
+<div class="card debt">
+  <div class="t"><span class="tag">债务</span> BANDS 阈值仍是「暂定值」</div>
+  <p><code>packages/engine/src/engine.ts</code> 的 <code>BANDS</code>（text 0.72/0.65、image 0.90/0.80）注释明写「暂定，需按真实查询集复核后再冻结」。这是会直接影响「结果档位」的用户可见行为，却尚未有质量证据支撑。</p>
+  <div class="fix"><b>建议：</b>P2 阶段做真查询集标注后回填阈值；在此之前，界面应弱化「高/中/低」档的确定性（或标注为试验性）。</div>
+</div>
+
+<!-- ============ 三、函数/方法缺陷 ============ -->
+<h2 id="s3"><span class="no">03</span>函数 / 方法级缺陷 <span style="font-size:13px;color:var(--faint)">—— 具体到函数</span></h2>
+
+<table>
+  <tr><th style="width:34%">位置</th><th>缺陷</th><th style="width:22%">影响</th></tr>
+  <tr>
+    <td class="mono">encoder.ts · readImageAny()</td>
+    <td>为嗅探前 2 字节「BM」魔数，<code>fs.readFileSync(absPath)</code> 把<b>整张图</b>读进内存；BMP 回退路径还会再读一次。对几 MB 的大图是纯浪费。</td>
+    <td>性能（低）</td>
+  </tr>
+  <tr>
+    <td class="mono">transactions/executor.ts · checkSpace()</td>
+    <td><code>const need = g.staged + Number(extraBytes) || g.staged</code> 用 <code>||</code> 表达「为空则回退」，当 <code>staged+extra</code> 为 0 时语义混乱；<code>Number(extraBytes) || 0</code> 把 NaN 也吞成 0。</td>
+    <td>可读性 / 边界</td>
+  </tr>
+  <tr>
+    <td class="mono">engine.ts · pickEmbedding（last_hidden_state 池化）</td>
+    <td>均值池化路径未防御 <code>T===0</code>（除零 → NaN，随后被归一化掩盖）；虽不影响排序，但会静默产出全 NaN 向量。</td>
+    <td>健壮性（低）</td>
+  </tr>
+  <tr>
+    <td class="mono">app-db.ts · setDefaultCollectDir()</td>
+    <td>用 <code>db.exec('BEGIN IMMEDIATE')</code> 手工开事务，而 <code>withAppDb()</code> 每次调用是「打开→用→关」。当前单连接同步模型下正确，但一旦将来并发/多连接，手写 BEGIN/COMMIT 没有重入与嵌套保护。</td>
+    <td>潜在并发</td>
+  </tr>
+  <tr>
+    <td class="mono">index.ts · engineMethod()</td>
+    <td><code>eng as unknown as Record&lt;string, unknown&gt;</code> 强转访问动态方法名，绕过了类型系统；这是「运行时方法名」场景的无奈，但让「引擎少暴露一个方法」这类错误只能靠运行时抓到。</td>
+    <td>类型安全（低）</td>
+  </tr>
+  <tr>
+    <td class="mono">index.ts（readIndexBin）</td>
+    <td><code>footLen</code> 读出来后被 <code>subarray</code> 截到 EOF，但没显式校验 <code>footLen</code> 是否合理——损坏文件里一个 4GB 的 footLen 会报「footer 解析失败」而非「footer 长度非法」，误导排障。</td>
+    <td>可诊断性（低）</td>
+  </tr>
+  <tr>
+    <td class="mono">library.ts · resolveInLibrary()</td>
+    <td>「目标不存在 → 找最深已存在祖先」分支里 realpath 失败时 <code>catch { return target }</code>，把「校验失败」静默等价成「校验通过」（见漏洞 L1）。</td>
+    <td>安全（中低）</td>
+  </tr>
+</table>
+
+<!-- ============ 四、行业编程规范 ============ -->
+<h2 id="s4"><span class="no">04</span>行业编程规范对照 <span style="font-size:13px;color:var(--faint)">—— 符合 vs 偏离</span></h2>
+
+<h3>4.1 明显高于行业主流的做法 ✅</h3>
+<ul>
+  <li><b>契约即类型 + 运行时校验</b>：<code>shared/ipc.ts</code> 一份 zod 同时产出方法白名单、参数校验、编译期类型——比主流「TS 接口 + 手写校验」高一个段位。</li>
+  <li><b>错误信封、永不抛给调用方</b>：<code>envelope()</code> + <code>normalizeError()</code> 让调用点只有「判 <code>ok</code>」一种写法，消灭了 try/catch 兜底文案的复制。</li>
+  <li><b>原子写入 + 写前校验</b>：索引写入「临时名 → fsync → 五道校验 → rename」是教科书级做法，很多生产项目都做不到。</li>
+  <li><b>write-ahead 事务日志</b>：<code>executor.ts</code> 七步状态机 + 8 个故障注入点 + 恢复判定表，是「写路径可恢复」的正确实现，且有真杀进程的测试。</li>
+  <li><b>零依赖引擎 + 依赖注入</b>：引擎不 import electron/fs 之外的第三方，端口全注入，可脱离 Electron 单测——这是可测试性的最佳实践。</li>
+  <li><b>错误码集中、按 code 分支绝不按 message 分支</b>：<code>errors.ts</code> 28 码 + 文案表，界面不自算文案。</li>
+</ul>
+
+<h3>4.2 与主流/自身纪律不符的做法 ⚠️</h3>
+<table>
+  <tr><th>项</th><th>现状</th><th>行业标准 / 自身承诺</th></tr>
+  <tr>
+    <td>ESLint + Prettier</td>
+    <td class="mono">package.json devDeps <b>无</b> eslint/prettier；T-09 未勾</td>
+    <td>AGENTS §1 明确列「已选定 eslint + prettier（开发依赖）」；N18 标 P1。当前仓库完全依赖 tsc + 测试做静态约束，缺未用变量/import 顺序/一致性这类检查。</td>
+  </tr>
+  <tr>
+    <td>ID 生成</td>
+    <td class="mono">engine.ts:613 用 Math.random</td>
+    <td>自身 AGENTS「ID 新增处一律用 nanoid，不自己拼随机」；行业用 crypto.randomUUID。</td>
+  </tr>
+  <tr>
+    <td>静默类型降级</td>
+    <td class="mono">app-db.ts num()/text() 返回 0/''</td>
+    <td>自身适配层「narrowValue 判不出就抛」；行业「fail loud, never coerce silently」。</td>
+  </tr>
+  <tr>
+    <td>注释风格</td>
+    <td>几乎每个函数 10–30 行注释，写满「为什么」</td>
+    <td>「写为什么」是对的，但当前注释:代码比偏高，部分注释成了「决策日志」；业界更倾向「代码自解释 + 关键决策留档」的平衡。</td>
+  </tr>
+  <tr>
+    <td>renderer console.log</td>
+    <td>store/hooks 里散落 <code>console.log('[ui] …')</code>（经 console-message 转发到日志）</td>
+    <td>可接受，但更规范的是注入一个统一 logger（主进程已有 log()，渲染层却各写各的 console）。</td>
+  </tr>
+  <tr>
+    <td>错误处理边界</td>
+    <td>uncaughtException 只记日志</td>
+    <td>主流桌面应用要么退出、要么进入安全模式；只记日志继续跑是少数「带病运行」的选择。</td>
+  </tr>
+</table>
+
+<!-- ============ 五、修复路线 ============ -->
+<h2 id="s5"><span class="no">05</span>建议的修复路线 <span style="font-size:13px;color:var(--faint)">—— 按投入产出排序</span></h2>
+<table>
+  <tr><th style="width:46px">优先</th><th>动作</th><th>预期收益</th></tr>
+  <tr><td><span class="pill high">P0</span></td><td>修 <code>fingerprintLines</code> 漏跳保留命名空间（补 <code>isReservedLibraryName</code> + 一致性断言）。</td><td>消除「索引重建 ⇒ 库指纹漂移」的数据正确性隐患，收敛两套摘要。</td></tr>
+  <tr><td><span class="pill high">P0</span></td><td>修 <code>app-db.ts</code> 的 <code>num()/text()</code> 静默降级。</td><td>堵住未来 node:sqlite 升级引发的大范围静默数据损坏。</td></tr>
+  <tr><td><span class="pill med">P1</span></td><td><code>Math.random</code> jobId → <code>crypto.randomUUID()</code>；<code>writeCachedThumb</code> → 临时名 + rename。</td><td>两处都是几行改动，消除 ID 碰撞与缓存截断两类问题。</td></tr>
+  <tr><td><span class="pill med">P1</span></td><td>删除 row-types.ts 死 SQL + 引擎 6 个下线桩。</td><td>减少「不可达 API」造成的误导，缩小维护面。</td></tr>
+  <tr><td><span class="pill med">P1</span></td><td>落地 ESLint + Prettier（T-09）。</td><td>兑现 AGENTS 的承诺，补上类型/测试之外的第三道静态门禁。</td></tr>
+  <tr><td><span class="pill low">P2</span></td><td>uncaughtException 退出策略、生产态 DevTools 开关、TOCTOU 分支、readImageAny 只读头。</td><td>安全姿态与健壮性收尾。</td></tr>
+</table>
+
+<div class="footer">
+  <p>本报告基于对仓库源码的实际逐文件阅读与针对性检索（<code>grep</code> 残留标记 / 随机数 / console / 环境变量等），所有结论均附 <span class="mono">文件:行号</span> 或直接代码引用，并区分「代码事实」与「专业判断」。评分与建议为审查者独立意见。</p>
+  <p>主要证据来源：<code>packages/engine/src/fingerprint.ts</code> · <code>engine.ts:613</code> · <code>apps/desktop/src/main/app-db.ts</code> · <code>thumb-cache.ts</code> · <code>db/row-types.ts</code> · <code>db/sqlite-adapter.ts</code> · <code>transactions/executor.ts</code> · <code>library.ts</code> · <code>package.json</code>。</p>
+</div>
+
+</div>
+</body>
+</html>

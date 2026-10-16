@@ -43,12 +43,10 @@ fixtures/
 # Prettier 会重排 Markdown（换行、表格对齐），那是「改文档」而不是「格式化代码」。
 *.md
 
-# ---------- 设计稿 / 研究页（T-09 裁定：不在本卡 writeScopes） ----------
+# ---------- 设计稿 / 研究页 ----------
+# `prototypes/` 已在 2026-10-16 **入库**（是设计决策文件，不是源码）⇒ 仍不格式化；
+# 4 个审查/研究 HTML 已移入 `reports/2026-10-15-review/` ⇒ 由上面 `reports/` 一条覆盖。
 # 这 13 个文件是**别的工作流**留下的未跟踪产物（prototypes/ 设计稿 + 4 个根 html 研究页），
 # 时间戳 2026-10-15 10:55–14:09。重排别人的设计稿属于跨范围写入，故排除；
 # 它们仍留在工作区、未被删除也未被入库（归属由所有者另行决定）。
 prototypes/
-review.html
-review-dev.html
-ui-redesign.html
-ui-benchmark-research.html

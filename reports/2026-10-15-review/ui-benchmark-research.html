@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>同类项目界面做法调研 · gemma-search UI 对标报告</title>
+<style>
+  :root {
+    --bg:#0e1014; --panel:#161920; --panel2:#1c202b; --line:#2a3040;
+    --ink:#e7eaf0; --muted:#97a0b0; --faint:#6b7386;
+    --acc:#54a7ff; --good:#34c759; --warn:#ff9f0a; --bad:#ff453a;
+    --violet:#a78bfa; --cyan:#22d3ee;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI","Microsoft YaHei",sans-serif; line-height:1.65; font-size:15px; }
+  .wrap { max-width:1080px; margin:0 auto; padding:40px 28px 120px; }
+  header.hero { border:1px solid var(--line); border-radius:18px; padding:34px 40px; background:linear-gradient(160deg,var(--panel2),var(--panel)); margin-bottom:32px; }
+  .eyebrow { color:var(--acc); font-size:12px; letter-spacing:.16em; font-weight:700; text-transform:uppercase; }
+  h1 { font-size:27px; margin:10px 0 6px; letter-spacing:-.02em; }
+  .sub { color:var(--muted); max-width:760px; }
+  h2 { font-size:21px; margin:46px 0 6px; }
+  h2 .no { color:var(--acc); margin-right:10px; }
+  h3 { font-size:16px; margin:22px 0 6px; }
+  a { color:var(--acc); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  code { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12.5px; background:var(--panel2); padding:1px 6px; border-radius:6px; color:#c8d3e4; }
+  .mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12.5px; color:#c8d3e4; }
+  table { width:100%; border-collapse:collapse; margin:14px 0; font-size:13.5px; }
+  th,td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-size:11.5px; letter-spacing:.05em; text-transform:uppercase; background:var(--panel); }
+  .card { border:1px solid var(--line); border-radius:14px; padding:16px 18px; margin:12px 0; background:var(--panel); }
+  .card .t { font-weight:700; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .tag { font-size:10.5px; font-weight:700; border-radius:999px; padding:1px 9px; }
+  .tag.done { background:rgba(52,199,89,.15); color:#5ad87c; }
+  .tag.todo { background:rgba(255,159,10,.15); color:#f0b34d; }
+  .tag.new { background:rgba(84,167,255,.15); color:#54a7ff; }
+  .proj { display:flex; gap:14px; align-items:flex-start; padding:12px 0; border-bottom:1px solid var(--line); }
+  .proj .p-dot { width:34px; height:34px; border-radius:9px; flex:none; display:grid; place-items:center; font-weight:800; font-size:13px; color:#fff; }
+  .proj .p-name { font-weight:700; font-size:14.5px; }
+  .proj .p-name a { color:var(--ink); }
+  .proj .p-desc { font-size:13px; color:var(--muted); }
+  .footer { margin-top:56px; padding-top:18px; border-top:1px solid var(--line); color:var(--faint); font-size:12.5px; }
+  ul { padding-left:22px; } li { margin:4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">UI/UX Benchmark Research</div>
+  <h1>同类项目界面做法调研</h1>
+  <div class="sub">基于网络搜索与 GitHub 源码阅读，梳理「本地素材库 / 语义图像检索」这一品类的主流界面做法，并映射到 gemma-search 的重设计方案。</div>
+</header>
+
+<h2><span class="no">01</span>对标项目清单</h2>
+
+<div class="proj"><div class="p-dot" style="background:#8b5cf6">E</div><div><div class="p-name"><a href="https://cn.eagle.cool/">Eagle</a> · 素材管理标杆</div><div class="p-desc">同品类最成熟的商业产品。刚发布的 <b>AI Search 插件</b>与本项目几乎同构：以图找图 + 自然语言搜索 + 全程离线。界面 = 侧栏（文件夹/智能文件夹/标签）+ 工具栏 + 检查器（右侧详情）+ 图片列表 + 筛选器 + 主题皮肤。</div></div></div>
+
+<div class="proj"><div class="p-dot" style="background:#059669">I</div><div><div class="p-name"><a href="https://immich.app/">Immich</a> · 自托管相册</div><div class="p-desc">开源照片管理 + CLIP 语义搜索。Smart Search（自然语言）+ Advanced Search Filters（AND/OR 组合筛选）。v3.2 重写了搜索 UI 与搜索 API。</div></div></div>
+
+<div class="proj"><div class="p-dot" style="background:#2563eb">L</div><div><div class="p-name"><a href="https://github.com/ak-asu/Local-Image-Finder">Local-Image-Finder</a> · Electron</div><div class="p-desc">Electron 30 + React 18 + Tailwind + shadcn + CLIP，<b>与本项目技术栈几乎一致</b>。特色：Chat 式搜索 + 会话历史、Library 页展示历史会话网格、搜索框内嵌模型质量档选择器。</div></div></div>
+
+<div class="proj"><div class="p-dot" style="background:#7c3aed">T</div><div><div class="p-name"><a href="https://github.com/iftekhar-ifat/tics">tics</a> · Electron + Python</div><div class="p-desc">Electron + electron-vite + shadcn + TanStack Router + Python sidecar，<b>架构最接近本项目</b>。四步首启向导（选库→硬件→模型→索引）、侧栏目录树 + 索引进度 + 硬件信息面板、结果卡相似度徽标。</div></div></div>
+
+<div class="proj"><div class="p-dot" style="background:#db2777">Z</div><div><div class="p-name"><a href="https://github.com/feihongxu0824/zvec-electron-image-search">zvec-image-search</a> · 极简</div><div class="p-desc">最简 Electron + CLIP 实现：一个搜索框 + 结果网格 + 余弦分数 + 灯箱预览 + 复制。可作为「最小可用」参考。</div></div></div>
+
+<div class="proj"><div class="p-dot" style="background:#0891b2">V</div><div><div class="p-name"><a href="https://github.com/opoeci6/VBLIS-vlm-based-local-image-search">VBLIS</a> 等</div><div class="p-desc">VBLIS / Clip-Image-Search / scene / Find / Nimbus / eidetic / image-indexer：本地 VLM 图像检索，多为核心功能验证型，UI 偏简。</div></div></div>
+
+<h2><span class="no">02</span>十条主流界面做法（含代码证据）</h2>
+
+<div class="card"><div class="t">① 搜索框即中心 <span class="tag new">主流</span></div>
+<p>几乎所有同类项目把搜索框放在<b>顶栏或首屏中央</b>作为第一入口。Eagle 的 AI Search 入口在搜索栏右侧；Local-Image-Finder 的 <code>EnhancedSearchInput</code> 直接放进 <code>TopBar</code>；tics 用 chat-input 占据主屏。</p></div>
+
+<div class="card"><div class="t">② 多模态合一输入框（不是「文字/图片」切换）<span class="tag new">趋势</span></div>
+<p>主流做法是把「打字 + 粘贴图片 + 拖拽图片 + 选图按钮」<b>合并进同一个输入框</b>，而不是切换模式。<code>tics/chat-input.tsx</code> 支持 paste/drag/file-picker 三合一；<code>Local-Image-Finder/EnhancedSearchInput.tsx</code> 是「文字框 + 图片上传按钮 + 模型选择器 + 提交按钮」一行排开，选中图片后图片按钮高亮、文字框出现清空(X)。</p>
+<p class="mono">证据：EnhancedSearchInput.tsx —— text input + Image button + Select(Default/Fast/Accurate) + submit，一处含 X 清空。</p></div>
+
+<div class="card"><div class="t">③ 结果卡 = 缩略图 + 相似度徽标 + 名称底部渐变 <span class="tag new">主流</span></div>
+<p><code>tics/image-gallery.tsx</code> 的卡片：右上角 <code>Badge</code>「Similarity: XX%」、底部黑色渐变 scrim 压文件名、hover 淡入操作层、懒加载缩略图。这是「一眼看到分数与名字」的标准形态。</p></div>
+
+<div class="card"><div class="t">④ 悬浮操作 + 右键菜单 <span class="tag done">本项目已做</span></div>
+<p>tics 的 <code>GalleryCard</code> hover 显示「查看/复制」按钮，右键 <code>ContextMenu</code> 提供「Copy / Open」。桌面应用标准交互，gemma-search 原型已有 hover「定位/取件」，但<b>缺右键菜单</b>。</p></div>
+
+<div class="card"><div class="t">⑤ 侧栏 = 导航 + 索引进度 + 目录树 + 硬件状态(底部) <span class="tag new">值得借鉴</span></div>
+<p>tics 的 <code>app-sidebar.tsx</code>：顶部 Logo → Home/Settings 导航 → <code>IndexingStatusPanel</code>（索引进度）→ <code>FolderTree</code>（库目录树）→ 底部 <code>HardwareInfoPanel</code>（GPU/CPU 状态）。把「设备、索引进度」常驻侧栏，比藏在设置里更符合「状态可见」原则。</p></div>
+
+<div class="card"><div class="t">⑥ 分步首启向导（含硬件检测与索引步骤）<span class="tag todo">本项目部分</span></div>
+<p>tics 四步：<code>step-01-library → step-02-hardware → step-03-model → step-04-index</code>。Local-Image-Finder 三阶段自动完成（下载模型→样例→建索引），带进度条。gemma-search 现有向导只有「选库→模型→文档」，<b>缺「设备检测」与「建索引进度」两步</b>。</p></div>
+
+<div class="card"><div class="t">⑦ 设置页按功能分区 <span class="tag done">本项目已做</span></div>
+<p>tics 的 settings 分 <code>folder-settings / indexing-settings / model-settings / search-defaults / about</code> 五个区；Local-Image-Finder 的 Settings 有 watched folders、模型质量档、相似度阈值、结果数、主题。gemma-search 原型已分区（模型/取件/外观/快捷键/诊断），方向一致。</p></div>
+
+<div class="card"><div class="t">⑧ 搜索会话历史 / Chat 式搜索 <span class="tag new">差异化机会</span></div>
+<p>Local-Image-Finder 用 <code>Chat.tsx</code> 做「对话式搜索」并把每次查询存成会话，<code>Library.tsx</code> 用网格展示历史会话（每次查询 + 结果预览）。这是本地检索应用里较新的差异化方向，值得 gemma-search 考虑「最近查询/历史」。</p></div>
+
+<div class="card"><div class="t">⑨ 模型质量档选择器放搜索框 <span class="tag new">实用</span></div>
+<p>Local-Image-Finder 在搜索框里放 <code>Default / Fast / Accurate</code> 三档模型选择。对应 gemma-search 的 seq / 精度档，可把「设备/档位」做成顶栏可见的 chip 而非隐藏配置。</p></div>
+
+<div class="card"><div class="t">⑩ 懒加载 + 分页 / Load more / 虚拟滚动 <span class="tag done">本项目已做</span></div>
+<p>tics 用 <code>pageSize=20</code> 的 Load More 分页 + 缩略图懒加载；gemma-search 用 <code>@tanstack/react-virtual</code> 虚拟滚动，是更高级的解法，保留即可。</p></div>
+
+<h2><span class="no">03</span>对 gemma-search 重设计的落地建议</h2>
+
+<table>
+  <tr><th>建议</th><th>状态</th><th>说明</th></tr>
+  <tr><td>合并「文字 + 以图搜图」为一个输入框（粘贴/拖拽/选图三合一）</td><td><span class="tag todo">需改</span></td><td>当前原型用「文字/以图搜图」切换；主流是合一输入框 + 图片按钮，更省一步。这是与 Eagle AI Search 对齐的关键改动。</td></tr>
+  <tr><td>结果卡加「相似度 % 徽标 + 文件名底部渐变」</td><td><span class="tag todo">需改</span></td><td>当前有分数条，但缺右上角 % 徽标和底部渐变压字（tics 做法）。</td></tr>
+  <tr><td>侧栏底部加「索引进度 + 硬件状态」两个 panel</td><td><span class="tag todo">需改</span></td><td>当前只有 model-status 一行；参考 tics 的 IndexingStatusPanel + HardwareInfoPanel。</td></tr>
+  <tr><td>首启向导补「设备检测」与「建索引进度」两步</td><td><span class="tag todo">需改</span></td><td>参考 tics 四步向导。</td></tr>
+  <tr><td>右键菜单（复制 / 打开 / 定位 / 取件）</td><td><span class="tag new">新增</span></td><td>桌面应用标配，当前缺。</td></tr>
+  <tr><td>搜索历史 / 最近查询</td><td><span class="tag new">新增</span></td><td>Local-Image-Finder 的 Library 会话网格是差异化点。</td></tr>
+  <tr><td>库列表 + 库详情管理</td><td><span class="tag done">已补</span></td><td>上轮已加入「素材库管理 + 库详情」两屏。</td></tr>
+  <tr><td>命令面板 ⌘K、批量选择、深/浅色、HIG</td><td><span class="tag done">已做</span></td><td>已在前版原型落地。</td></tr>
+</table>
+
+<div class="footer">
+  <p>数据来源：网络搜索（Eagle 官方文档与博客、Immich 文档）+ GitHub 源码阅读（Local-Image-Finder、tics、zvec-electron-image-search 等仓库的 renderer 组件源码）。检索日期 2026-10-15。Eagle AI Search 与本项目是同一「离线语义素材检索」品类，是最值得逐屏对齐的参照物。</p>
+</div>
+
+</div>
+</body>
+</html>

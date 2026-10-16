@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>字段设计 · 索引状态与用户元数据（对照建表用）</title>
+<!--
+  ============================================================================
+  字段设计文档（**提案**，不碰代码）
+
+  用途：完整到可以直接照着写 migrations 的程度。三部分：
+    ① 逐表字段（类型 / 约束 / 为什么）
+    ② 状态派生公式（哪些字段是算出来的，一个字都不存）
+    ③ 持久性分类（重建元数据时保留谁 —— 这是上一轮那个真缺陷的解药）
+
+  设计来源：Immich 的真实 schema（GitHub API 取回、本地解码），
+  取其两条模式：**「存上次成功的时刻」而不是状态枚举**、**每个关注点一张表**。
+  ============================================================================
+-->
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+:root {
+  --line: #2c2c2e; --line-strong: #3a3a3c;
+  --surface: #161618; --raised: #1d1d1f; --hover: rgba(255,255,255,.055);
+  --text: #f5f5f7; --text-2: #a1a1a6; --text-3: #86868b;
+  --accent: #0d6fdb; --accent-text: #4da3ff; --accent-soft: rgba(77,163,255,.18);
+  --ok-text: #30d158; --warn-text: #ff9f0a; --crit-text: #ff685f;
+  --ok-soft: rgba(48,209,88,.22); --warn-soft: rgba(255,159,10,.22); --crit-soft: rgba(255,69,58,.22);
+  --r-panel: 18px; --r-block: 22px; --r-pill: 999px;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --line: #e5e5ea; --line-strong: #d2d2d7;
+    --surface: #fff; --raised: #fff; --hover: rgba(0,0,0,.045);
+    --text: #1d1d1f; --text-2: #6e6e73; --text-3: #707078;
+    --accent: #0071e3; --accent-text: #2b6fd4; --accent-soft: rgba(0,113,227,.10);
+    --ok-text: #217f3a; --warn-text: #a06406; --crit-text: #cd0014;
+    --ok-soft: rgba(52,199,89,.14); --warn-soft: rgba(255,159,10,.09); --crit-soft: rgba(255,59,48,.14);
+  }
+}
+body {
+  margin: 0; padding: 44px 32px 120px; font-size: 14px; line-height: 1.45;
+  background: #000; color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Hiragino Sans GB", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+@media (prefers-color-scheme: light) { body { background: #fff; } }
+.wrap { max-width: 1180px; margin: 0 auto; }
+h1 { font-size: 27px; font-weight: 680; letter-spacing: -.022em; margin: 0 0 6px; }
+h2 { font-size: 20px; font-weight: 660; letter-spacing: -.018em; margin: 52px 0 6px;
+     padding-top: 20px; border-top: 1px solid var(--line); }
+h2:first-of-type { border-top: 0; margin-top: 34px; }
+h3 { font-size: 15px; font-weight: 640; margin: 0; }
+p { margin: 0; }
+.mono, code { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.lede { color: var(--text-2); font-size: 15px; max-width: 76ch; }
+.sub { color: var(--text-3); font-size: 12.5px; margin-top: 5px; max-width: 82ch; }
+.muted { color: var(--text-2); }
+.faint { color: var(--text-3); }
+
+/* ---- 表卡片 ---- */
+.tbl { border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface);
+       margin-top: 16px; overflow: hidden; }
+.tbl-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+         padding: 14px 18px; border-bottom: 1px solid var(--line);
+         background: color-mix(in srgb, var(--text) 3%, transparent); }
+.tbl-h h3 { font-family: var(--mono); font-size: 14px; letter-spacing: -.01em; }
+.tbl-h .why { flex-basis: 100%; font-size: 12.5px; color: var(--text-2); line-height: 1.55; }
+.tbl table { width: 100%; border-collapse: collapse; }
+.tbl th, .tbl td { text-align: left; padding: 9px 18px; border-top: 1px solid var(--line); vertical-align: top; }
+.tbl thead th { border-top: 0; font-size: 10.5px; font-weight: 620; letter-spacing: .05em;
+                text-transform: uppercase; color: var(--text-3); padding-top: 11px; padding-bottom: 7px; }
+.tbl td.f { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+.tbl td.t { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); white-space: nowrap; }
+.tbl td.c { white-space: nowrap; }
+.tbl td.d { font-size: 12.5px; color: var(--text-2); min-width: 22ch; }
+
+/* ---- 约束/标签胶囊 ---- */
+.pill { display: inline-block; padding: 1px 6px; margin: 1px 3px 1px 0; border-radius: 5px;
+        font-size: 10px; font-weight: 620; letter-spacing: .02em; white-space: nowrap; }
+.p-pk  { background: var(--accent-soft); color: var(--accent-text); }
+.p-fk  { background: rgba(120,120,255,.16); color: #9b9bff; }
+.p-nn  { background: var(--hover); color: var(--text-2); }
+.p-idx { background: var(--ok-soft); color: var(--ok-text); }
+.p-ck  { background: var(--warn-soft); color: var(--warn-text); }
+.p-new { background: var(--ok-soft); color: var(--ok-text); }
+.p-old { background: var(--hover); color: var(--text-3); }
+
+/* ---- 说明块 ---- */
+.note { display: flex; gap: 10px; padding: 12px 15px; border-radius: 11px; margin-top: 14px;
+        background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+        font-size: 12.5px; line-height: 1.6; }
+.note svg { width: 15px; height: 15px; flex: none; margin-top: 2px; color: var(--accent-text); }
+.note.warn { background: var(--warn-soft); border-color: color-mix(in srgb, #ff9f0a 30%, transparent); color: var(--warn-text); }
+.note.warn svg { color: var(--warn-text); }
+.note.crit { background: var(--crit-soft); border-color: color-mix(in srgb, #ff685f 30%, transparent); color: var(--crit-text); }
+.note.crit svg { color: var(--crit-text); }
+.note.ok { background: var(--ok-soft); border-color: color-mix(in srgb, #30d158 30%, transparent); color: var(--ok-text); }
+.note.ok svg { color: var(--ok-text); }
+.note b { font-weight: 660; }
+
+/* ---- 关系图 ---- */
+.er { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 16px; }
+.er .box { border: 1px solid var(--line); border-radius: 14px; padding: 13px 15px; background: var(--surface); }
+.er .box .n { font-family: var(--mono); font-size: 13px; font-weight: 620; }
+.er .box ul { margin: 8px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--text-2); }
+.er .box li { padding: 2px 0; }
+.er .box li b { color: var(--text); font-weight: 580; }
+
+/* ---- 代码块 ---- */
+pre { margin: 14px 0 0; padding: 15px 17px; border-radius: 13px; overflow-x: auto;
+      background: #0d0d0f; border: 1px solid var(--line);
+      font-family: var(--mono); font-size: 12px; line-height: 1.7; color: #e8e8ea; }
+@media (prefers-color-scheme: light) { pre { background: #f6f6f8; color: #1d1d1f; } }
+pre .c { color: #86868b; }
+pre .k { color: #ff9f0a; }
+pre .s { color: #7fd6a0; }
+
+/* ---- 徽标 ---- */
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px;
+         border-radius: var(--r-pill); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.b-ok { background: var(--ok-soft); color: var(--ok-text); }
+.b-warn { background: var(--warn-soft); color: var(--warn-text); }
+.b-crit { background: var(--crit-soft); color: var(--crit-text); }
+.b-neutral { background: var(--hover); color: var(--text-2); }
+
+/* ---- 步骤 ---- */
+.steps { counter-reset: s; margin-top: 14px; }
+.steps .st { display: flex; gap: 14px; padding: 12px 0; border-top: 1px solid var(--line); }
+.steps .st:first-child { border-top: 0; }
+.steps .st .no { flex: none; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent-text); font-size: 12px; font-weight: 660;
+  display: grid; place-items: center; }
+.steps .st .bd { min-width: 0; }
+.steps .st .bd .t { font-size: 13.5px; font-weight: 620; }
+.steps .st .bd .d { font-size: 12.5px; color: var(--text-2); margin-top: 2px; line-height: 1.55; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>字段设计 · 索引状态与用户元数据</h1>
+  <p class="lede">完整到可以照着写 migrations。来源：Immich 真实 schema（取其两条模式），
+    并对齐本项目已有的 <span class="mono">items</span> 表与写入不变式。</p>
+
+  <!-- ================= 决策摘要 ================= -->
+  <h2>三条核心决定</h2>
+  <div class="tbl">
+    <table>
+      <thead><tr><th style="width:26px">#</th><th style="width:230px">决定</th><th>为什么</th></tr></thead>
+      <tbody>
+        <tr><td class="t">1</td>
+          <td><b>状态不落库，只存"上次成功的时刻"</b></td>
+          <td class="d">抄 Immich <span class="mono">asset_job_status</span>：整张表只有 nullable timestamp。
+            <b>「待重编码」是算出来的</b>（<span class="mono">encoded_at &lt; 文件 mtime</span>），不是存出来的。
+            存了就要维护，维护就会漂移。</td></tr>
+        <tr><td class="t">2</td>
+          <td><b>每个关注点一张表，不堆宽表</b></td>
+          <td class="d"><span class="mono">items</span> 已经是 18 列的宽表，它的语义是
+            <b>"扫描出来的文件事实"</b>。用户字段塞进去会污染语义，也会让"重建时保留谁"变得无法表达。</td></tr>
+        <tr><td class="t">3</td>
+          <td><b>所有新表都是"持久"类，重建时必须保留</b></td>
+          <td class="d">这是上一轮那个真缺陷的解药：现在 <span class="mono">libraryRebuild</span> 删整个文件，
+            <span class="mono">doc_dirs</span>、<span class="mono">health_*</span> 已经会被抹掉。
+            新表进来之前，先把"保留谁"这条规则定死。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ================= 关系总览 ================= -->
+  <h2>关系总览</h2>
+  <p class="sub">虚线以上是已有表，以下是本次新增。所有外键一律 <span class="mono">ON DELETE CASCADE</span>——
+  素材没了，挂在它身上的标注也就没有存在的意义。</p>
+  <div class="er">
+    <div class="box">
+      <div class="n">library <span class="pill p-old">已有</span></div>
+      <ul>
+        <li><b>lib_id</b> PK</li>
+        <li>root · compat · item_count …</li>
+        <li class="faint">1 ──&lt; items</li>
+      </ul>
+    </div>
+    <div class="box">
+      <div class="n">items <span class="pill p-old">已有</span></div>
+      <ul>
+        <li><b>uid</b> PK</li>
+        <li>rel_path · image_size · image_mtime · vector_row …</li>
+        <li class="faint">1 ──1 item_index_status</li>
+        <li class="faint">1 ──1 item_user_meta</li>
+      </ul>
+    </div>
+    <div class="box">
+      <div class="n">item_index_status <span class="pill p-new">新增</span></div>
+      <ul>
+        <li><b>uid</b> PK · FK → items</li>
+        <li>encoded_at · compat_key</li>
+        <li>encode_error · encode_attempts</li>
+        <li>excluded_at · checked_at</li>
+      </ul>
+    </div>
+    <div class="box">
+      <div class="n">item_user_meta <span class="pill p-new">新增</span></div>
+      <ul>
+        <li><b>uid</b> PK · FK → items</li>
+        <li>rating · note · use_state</li>
+        <li>updated_at</li>
+      </ul>
+    </div>
+    <div class="box">
+      <div class="n">tag <span class="pill p-new">新增</span></div>
+      <ul>
+        <li><b>tag_id</b> PK</li>
+        <li>name (UNIQUE) · created_at</li>
+        <li class="faint">N ──&lt; item_tag &gt;── N items</li>
+      </ul>
+    </div>
+    <div class="box">
+      <div class="n">collection <span class="pill p-new">新增</span></div>
+      <ul>
+        <li><b>collection_id</b> PK</li>
+        <li>name · note · created_at</li>
+        <li class="faint">N ──&lt; collection_item &gt;── N items</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= 逐表字段 ================= -->
+  <h2>① item_index_status —— 索引状态</h2>
+  <div class="tbl">
+    <div class="tbl-h">
+      <h3>item_index_status</h3>
+      <span class="badge b-ok"><span class="dot"></span>新增</span>
+      <span class="pill p-old">持久类</span>
+      <span class="why">1:1 于 <span class="mono">items</span>，主键即外键。独立成表而不是加列到
+        <span class="mono">items</span>：它的写入者是索引任务、读取者是界面，生命周期和热表不同。</span>
+    </div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:120px">类型</th><th style="width:190px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">uid</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-pk">PK</span><span class="pill p-fk">FK items.uid</span></td>
+          <td class="d">条目稳定标识。1:1 关系靠"主键即外键"表达，不需要额外的关联表。</td></tr>
+        <tr><td class="f">encoded_at</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d"><b>编码成功时刻</b>（Unix ms）。<span class="mono">NULL</span> = 从未成功编码。
+            <b>这一列是整套状态的地基</b>——「已编码 / 待编码 / 待重编码」全由它算出来。</td></tr>
+        <tr><td class="f">compat_key</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">编码时用的 8 段兼容键。<span class="mono">compat_key != 库当前 compat</span> ⇒
+            <b>模型/参数换了，向量已不在同一语义空间</b> ⇒ 待重编码。
+            这是"换模型必须全量重建"这条规格在字段层的落点。</td></tr>
+        <tr><td class="f">encode_error</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">上次失败原因，<b>存人话不存错误码</b>（如"文件不是可用图片"）。
+            <span class="mono">NULL</span> = 没失败过。直接显示给用户，不需要前端再翻译一次。</td></tr>
+        <tr><td class="f">encode_error_at</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">上次失败时刻。<b>与 <span class="mono">encoded_at</span> 并存是合法的</b>：
+            "三天前编码成功过、今天重编码失败了" 是真实存在的状态。</td></tr>
+        <tr><td class="f">encode_attempts</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">DEFAULT 0</span></td>
+          <td class="d">累计尝试次数。用途：<b>失败 3 次后不再自动重试</b>，避免一个坏文件每次建索引都拖慢一遍。
+            也让你在界面上能说"已试过 3 次"。</td></tr>
+        <tr><td class="f">excluded_at</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">用户手动排除索引的时刻。<b>这是本表唯一"不可再生"的字段</b>——
+            其余列重跑一遍编码就能重建，这一列丢了就真没了。
+            它也是判定优先级最高的那一档：你的选择不该被任何系统推断覆盖。</td></tr>
+        <tr><td class="f">checked_at</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">上次<b>差分扫描</b>（"检查变更"）的时刻。用途：判断界面上显示的状态
+            <b>是否已经过期</b>。超过阈值未扫描就在状态行上给一条提示——
+            避免"库里显示的状态其实是三个月前的"这种静默错误。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note ok">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+    <div><b>刻意没有的东西。</b>没有 <span class="mono">state</span> 枚举列，没有 <span class="mono">vector_row</span> 列
+      （<span class="mono">items</span> 已经有了，再来一份就是双份真相），
+      没有 <span class="mono">is_stale</span> 布尔列（它是算出来的）。</div>
+  </div>
+
+  <div class="note">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8.2v.1"/></svg>
+    <div><b>为什么整表算"持久"（尽管大部分列可再生）。</b>分类规则是
+      <b>「一张表只要有任何一个不可再生的字段，整张表就是持久的」</b>。
+      <span class="mono">excluded_at</span> 满足这个条件，所以整表保留。
+      重建时只做一件事：把文件已变过的行的 <span class="mono">encoded_at</span> 置空（它们确实需要重编码）。</div>
+  </div>
+
+  <!-- ================= item_user_meta ================= -->
+  <h2>② item_user_meta —— 评分 / 备注 / 使用状态</h2>
+  <div class="tbl">
+    <div class="tbl-h">
+      <h3>item_user_meta</h3>
+      <span class="badge b-ok"><span class="dot"></span>新增</span>
+      <span class="pill p-old">持久类</span>
+      <span class="why">用户手写的标量字段。**刻意不加进 <span class="mono">items</span>**：
+        items 的语义是"扫描出来的文件事实"，而这些是"人写的"。</span>
+    </div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:120px">类型</th><th style="width:190px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">uid</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-pk">PK</span><span class="pill p-fk">FK items.uid</span></td>
+          <td class="d">1:1。没有这一行 = 这条素材还没被标注过（合法状态，不是缺失）。</td></tr>
+        <tr><td class="f">rating</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span><span class="pill p-ck">CHECK 1..5</span></td>
+          <td class="d">评分。<b>用 <span class="mono">NULL</span> 表示"未评分"，不用 0</b>——
+            0 会让你分不清"没评"和"评了零分"，而后者在语义上不存在。
+            范围写进 CHECK，坏数据进不了库。</td></tr>
+        <tr><td class="f">note</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">自由备注（"客户要求再来两个变体"）。不设长度上限——
+            截断是界面的事，不是存储的事。</td></tr>
+        <tr><td class="f">use_state</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span><span class="pill p-ck">CHECK 三选一</span></td>
+          <td class="d"><span class="mono">'unused' | 'delivered' | 'archived'</span>。
+            <b>只有三个</b>——每多一个状态就要多一套筛选与图标，
+            而"避免重复交付同一件"这个真实需求三个就够。用 CHECK 约束而不是无约束文本。</td></tr>
+        <tr><td class="f">updated_at</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">最后编辑时刻。用于"最近标注过"排序与冲突提示。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ================= tag ================= -->
+  <h2>③ tag / item_tag —— 标签</h2>
+  <div class="tbl">
+    <div class="tbl-h">
+      <h3>tag</h3>
+      <span class="badge b-ok"><span class="dot"></span>新增</span>
+      <span class="pill p-old">持久类</span>
+      <span class="why">抄 Immich 的 <span class="mono">tag</span> 表形态：<b>标签是实体，不是逗号分隔的字符串</b>。
+        去掉了它里面单用户用不到的和没 UI 的字段。</span>
+    </div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:120px">类型</th><th style="width:190px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">tag_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-pk">PK</span></td>
+          <td class="d">nanoid。<b>不用自增整数</b>：将来若要跨库合并标签，自增 id 会撞。</td></tr>
+        <tr><td class="f">name</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-idx">UNIQUE</span></td>
+          <td class="d">标签名。<b>单用户 ⇒ 唯一约束只到 name</b>，不需要 Immich 的
+            <span class="mono">(userId, value)</span> 复合唯一（那是多用户产品才需要的）。</td></tr>
+        <tr><td class="f">created_at</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">创建时刻。用于"最近用的标签"排序——那比字母序有用得多。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h">
+      <h3>item_tag</h3>
+      <span class="badge b-ok"><span class="dot"></span>新增</span>
+      <span class="pill p-old">持久类</span>
+      <span class="why">多对多关联表。</span>
+    </div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:120px">类型</th><th style="width:190px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">uid</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-fk">FK items.uid</span><span class="pill p-pk">PK(1/2)</span></td>
+          <td class="d">条目。与 <span class="mono">tag_id</span> 组成复合主键，
+            <b>天然防止同一标签重复贴在同一条上</b>。</td></tr>
+        <tr><td class="f">tag_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-fk">FK tag.tag_id</span><span class="pill p-pk">PK(2/2)</span></td>
+          <td class="d">标签。</td></tr>
+        <tr><td class="f">added_at</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">贴上时刻。</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th style="width:170px">索引</th><th>覆盖什么查询</th></tr></thead>
+      <tbody>
+        <tr><td class="f">PRIMARY KEY (uid, tag_id)</td>
+          <td class="d">「这条素材有哪些标签」——列表页每行都要查，必须最快。</td></tr>
+        <tr><td class="f">idx_item_tag_tag (tag_id)</td>
+          <td class="d"><b>反向查询需要单独建索引</b>：「这个标签下有哪些素材」。
+            复合主键对反向查询**没用**——这是最常见的一个索引疏漏。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ================= collection ================= -->
+  <h2>④ collection / collection_item —— 集合</h2>
+  <div class="tbl">
+    <div class="tbl-h">
+      <h3>collection</h3>
+      <span class="badge b-ok"><span class="dot"></span>新增</span>
+      <span class="pill p-old">持久类</span>
+      <span class="why">交付与提案需要临时分组（F6 依赖它）。与"标签"的区别：
+        <b>标签是多对多且扁平的描述，集合是有意的、有名字的、一次性的打包</b>。</span>
+    </div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:120px">类型</th><th style="width:190px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">collection_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-pk">PK</span></td>
+          <td class="d">nanoid。</td></tr>
+        <tr><td class="f">name</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">集合名（"2026-10 甲方A 提案"）。<b>不加 UNIQUE</b>——
+            同名集合是合理的（去年的提案和今年的可以同名）。</td></tr>
+        <tr><td class="f">note</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">集合级备注。</td></tr>
+        <tr><td class="f">created_at / updated_at</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">创建 / 最后修改时刻。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h">
+      <h3>collection_item</h3>
+      <span class="badge b-ok"><span class="dot"></span>新增</span>
+      <span class="pill p-old">持久类</span>
+      <span class="why">集合↔条目。<b>刻意不做集合内排序</b>——
+        排序是"交付时按什么顺序给对方"的问题，先按 <span class="mono">added_at</span> 就够。</span>
+    </div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:120px">类型</th><th style="width:190px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">collection_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-fk">FK collection</span><span class="pill p-pk">PK(1/2)</span></td>
+          <td class="d">集合。</td></tr>
+        <tr><td class="f">uid</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-fk">FK items.uid</span><span class="pill p-pk">PK(2/2)</span></td>
+          <td class="d">条目。</td></tr>
+        <tr><td class="f">added_at</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">加入时刻，也是默认排序键。</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th style="width:170px">索引</th><th>覆盖什么查询</th></tr></thead>
+      <tbody>
+        <tr><td class="f">PRIMARY KEY (collection_id, uid)</td>
+          <td class="d">「这个集合里有哪些」+ 防重复加入。</td></tr>
+        <tr><td class="f">idx_collection_item_uid (uid)</td>
+          <td class="d">「这条素材被哪些集合收了」——详情页要显示它，反向索引必需。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ================= 状态派生 ================= -->
+  <h2>状态派生公式（一个字都不存）</h2>
+  <p class="sub">按下表顺序判定，第一条命中即为结果。<b>顺序即优先级</b>，不要改。</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th style="width:34px">#</th><th style="width:130px">档</th><th style="width:170px">徽标</th><th>判定条件</th></tr></thead>
+      <tbody>
+        <tr><td class="t">1</td><td><b>图片丢失</b></td>
+          <td><span class="badge b-crit"><span class="dot"></span>图片丢失</span></td>
+          <td class="d mono" style="font-size:11.5px">items 里查不到这条 uid　<b>或</b>　磁盘上预览图已不存在</td></tr>
+        <tr><td class="t">2</td><td><b>已排除</b></td>
+          <td><span class="badge b-neutral"><span class="dot"></span>已排除</span></td>
+          <td class="d mono" style="font-size:11.5px">excluded_at IS NOT NULL</td></tr>
+        <tr><td class="t">3</td><td><b>编码失败</b></td>
+          <td><span class="badge b-crit"><span class="dot"></span>编码失败</span></td>
+          <td class="d mono" style="font-size:11.5px">encoded_at IS NULL AND encode_error_at IS NOT NULL</td></tr>
+        <tr><td class="t">4</td><td><b>编码中</b></td>
+          <td><span class="badge b-warn"><span class="dot"></span>编码中 38%</span></td>
+          <td class="d mono" style="font-size:11.5px">索引任务的当前批次包含该 uid　<span class="faint">（来自任务态，不读库）</span></td></tr>
+        <tr><td class="t">5</td><td><b>待编码</b></td>
+          <td><span class="badge b-warn"><span class="dot"></span>待编码</span></td>
+          <td class="d mono" style="font-size:11.5px">encoded_at IS NULL AND encode_error_at IS NULL</td></tr>
+        <tr><td class="t">6</td><td><b>待重编码</b><span class="faint">（文件改过）</span></td>
+          <td><span class="badge b-warn"><span class="dot"></span>待重编码</span></td>
+          <td class="d mono" style="font-size:11.5px">encoded_at &lt; items.image_mtime</td></tr>
+        <tr><td class="t">7</td><td><b>待重编码</b><span class="faint">（模型换了）</span></td>
+          <td><span class="badge b-warn"><span class="dot"></span>待重编码</span></td>
+          <td class="d mono" style="font-size:11.5px">compat_key IS NOT current_compat</td></tr>
+        <tr><td class="t">8</td><td><b>已编码</b></td>
+          <td><span class="badge b-ok"><span class="dot"></span>已编码</span></td>
+          <td class="d mono" style="font-size:11.5px">其余情况</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8.2v.1"/></svg>
+    <div><b>为什么"编码中"不读库。</b>它是<b>任务态</b>，不是数据态——
+      任务一结束这个状态就消失了。把它写进库，就会出现"库里说编码中、其实任务早挂了"的僵尸状态。
+      所以第 4 档由界面把「库里的数据」与「当前任务」合成得出，与现有
+      <span class="mono">utils/index-state.ts</span> 里"派生而非引擎字段"的纪律一致。</div>
+  </div>
+
+  <div class="note warn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 9v5M12 17.5v.1"/><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <div><b>第 6、7 档需要一次差分扫描才能判准。</b>没有扫描过时，界面显示的是
+      <b>上次已知</b>的状态。所以 <span class="mono">checked_at</span> 必须显示出来
+      （"状态基于 2026-10-15 09:12 的检查"），并提供"检查变更"这个动作。
+      不这样做的话，"库里显示已编码、其实文件早被换过"就是一次静默的错误答案。</div>
+  </div>
+
+  <!-- ================= 持久性分类 ================= -->
+  <h2>持久性分类（重建元数据时保留谁）</h2>
+  <p class="sub">规则一句话：<b>一张表只要有任何一个不可再生的字段，整张表就是"持久"的。</b>
+    这条规则要写进代码里**一处**，并由测试钉住，否则迟早漂移。</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th style="width:130px">类别</th><th style="width:300px">表</th><th>重建时的行为</th></tr></thead>
+      <tbody>
+        <tr><td class="c"><span class="pill p-old">派生</span></td>
+          <td class="d mono" style="font-size:12px">items · documents · doc_chunks · library</td>
+          <td class="d"><b>删掉重建</b>。全部可从扫描文件系统 / 重新抽取 / 注册表算出来。</td></tr>
+        <tr><td class="c"><span class="pill p-new">持久</span></td>
+          <td class="d mono" style="font-size:12px">doc_dirs · health_runs · health_ledger<br>
+            item_index_status · item_user_meta<br>tag · item_tag · collection · collection_item</td>
+          <td class="d"><b>必须保留</b>。重建流程要先读出来、重建派生表、再写回去。
+            <span class="mono">doc_dirs</span> 与 <span class="mono">health_*</span> <b>今天已经在丢</b>——
+            这次一并修掉。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note crit">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.1"/></svg>
+    <div><b>已确认的现有缺陷（我查过代码，不是推测）。</b>
+      <span class="mono">library-rebuild.ts</span> 第 ① 步是
+      <span class="mono">removeGsDbFiles(dbPath)</span> —— <b>删整个文件</b>；
+      之后只从 <span class="mono">items.json</span> 导回 <span class="mono">items</span> 与
+      <span class="mono">library</span>。而 <span class="mono">import.ts</span> 里
+      <span class="mono">doc_dirs / health_runs / health_ledger</span> <b>一次都没出现</b>。
+      ⇒ 现在点一次"重建元数据"，你注册过的文档目录和体检历史就没了。
+      今天没暴露，只因为文档检索是门控项、还没有任何 <span class="mono">doc_dirs</span> 行。</div>
+  </div>
+
+  <!-- ================= 刻意不做 ================= -->
+  <h2>刻意不做的（对照 Immich）</h2>
+  <div class="tbl">
+    <table>
+      <thead><tr><th style="width:250px">Immich 有，我不抄</th><th>为什么</th></tr></thead>
+      <tbody>
+        <tr><td class="f">tag_closure 闭包表<br><span class="faint">（层级标签）</span></td>
+          <td class="d">你现在 <b>0 个标签</b>。层级是"标签多到需要分组"才需要的功能——
+            提前建闭包表意味着每次增删标签都要维护一张额外的表，而收益为零。</td></tr>
+        <tr><td class="f">tag.parentId</td>
+          <td class="d">同上。留一个<b>没有 UI 的列</b>会让人以为支持层级。
+            真要做时加一个 nullable 自引用列是廉价迁移。</td></tr>
+        <tr><td class="f">tag.color</td>
+          <td class="d">同上一条的理由，<b>为保持一致性也不加</b>。颜色是装饰，
+            不做 UI 就不该占字段。加了不用，就是"看起来支持但其实没有"。</td></tr>
+        <tr><td class="f">每实体一张 *-audit 表</td>
+          <td class="d">与 <span class="mono">health_ledger</span> + 操作记录页<b>重复</b>。
+            违反"同一概念不许两份实现"。</td></tr>
+        <tr><td class="f">updateId 同步列</td>
+          <td class="d">那是给移动端多端同步用的。<b>本项目单机单用户</b>，用不到。</td></tr>
+        <tr><td class="f">asset 拆成 asset-exif / asset-file / …</td>
+          <td class="d">Immich 拆是因为它有 EXIF、多文件（原图+缩略图+转码）、多模态。
+            我们的 <span class="mono">items</span> 只有图+包两种文件，
+            <b>为拆而拆只会让每次查询多一次 JOIN</b>。</td></tr>
+        <tr><td class="f">smart-search 表（保存的搜索）</td>
+          <td class="d">不在本轮范围。等"重复找同一批东西"变成真痛点再说。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ================= 迁移 ================= -->
+  <h2>迁移计划</h2>
+  <div class="steps">
+    <div class="st"><span class="no">3</span><span class="bd">
+      <span class="t">新增迁移 <span class="mono">user-metadata</span>（现有已到 2）</span>
+      <span class="d">创建上面 6 张新表与其索引。<b>纯新增，不改任何现有表</b>——
+        迁移只做加法，回滚就是 DROP 这 6 张表。</span></span></div>
+    <div class="st"><span class="no">4</span><span class="bd">
+      <span class="t">修 <span class="mono">libraryRebuild</span>：从"删文件"改为"只重建派生表"</span>
+      <span class="d">① 读出持久表 → ② 删文件重建 → ③ 从 items.json 导入派生 → ④ 写回持久表。
+        并在确认框里对<b>真损坏</b>的情况如实说明"持久数据救不回来"。
+        <b>这一步必须先于新表上线</b>，否则第一次重建就把新数据抹了。</span></span></div>
+    <div class="st"><span class="no">5</span><span class="bd">
+      <span class="t">把"派生 / 持久"分类写成一处常量 + 一条单测</span>
+      <span class="d">单测断言：迁移里建的表，必须每一张都出现在"派生"或"持久"列表里。
+        新增表却忘了分类 ⇒ 测试变红。这是防漂移的唯一机械手段。</span></span></div>
+    <div class="st"><span class="no">6</span><span class="bd">
+      <span class="t">用户元数据导出 / 导入</span>
+      <span class="d">把 6 张新表导成一份 JSON（或 CSV）。用途：重建前的兜底、
+        换机器、以及"我手滑删了标注"的后悔药。</span></span></div>
+  </div>
+
+  <!-- ================= 对 SPEC 的影响 ================= -->
+  <h2>对 SPEC 的影响</h2>
+  <div class="tbl">
+    <table>
+      <thead><tr><th style="width:150px">文档</th><th style="width:190px">改哪一节</th><th>改什么</th></tr></thead>
+      <tbody>
+        <tr><td class="d">SPEC.md</td><td class="mono" style="font-size:12px">§2 存储布局</td>
+          <td class="d">说明 <span class="mono">.gs.db</span> 内同时含<b>派生表</b>与<b>持久表</b>；
+            "可删除重建"这句话要限缩为"<b>派生表可重建</b>"。
+            <span class="pill p-old">无需新文件</span></td></tr>
+        <tr><td class="d">SPEC.md</td><td class="mono" style="font-size:12px">§1.1 / §1.2 数据模型</td>
+          <td class="d">补 6 张新表的字段表（就是这份文档的内容）。</td></tr>
+        <tr><td class="d">SPEC.md</td><td class="mono" style="font-size:12px">§3 F1 / F2</td>
+          <td class="d">补「索引状态可见 + 可按状态筛选」与「元数据可编辑」。</td></tr>
+        <tr><td class="d">SPEC.md</td><td class="mono" style="font-size:12px">§5 契约</td>
+          <td class="d">新增元数据读写方法（tag / rating / note / collection / exclude）。
+            <span class="pill p-old">形状待定，先落字段</span></td></tr>
+        <tr><td class="d">SPEC.md</td><td class="mono" style="font-size:12px">§7 验收</td>
+          <td class="d">补一条 A14：<b>重建元数据前后，持久表的内容必须完全一致</b>（机械断言）。</td></tr>
+        <tr><td class="d">AGENTS.md</td><td class="mono" style="font-size:12px">§1 依赖表</td>
+          <td class="d"><b>不改</b>。这套设计不需要任何新依赖——纯 SQL 加表。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn" style="margin-top:22px">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 9v5M12 17.5v.1"/><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <div><b>这份设计会改需求。</b> 6 张新表 + 索引状态可见 + 元数据可编辑，
+      要动 <span class="mono">SPEC.md</span> 的 §1 / §2 / §3 / §5 / §7。
+      按项目纪律「改规格 = 改需求」，<b>需要你明确同意后我才动代码</b>。
+      本文件只改提案，未碰任何源码。</div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,1446 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schema v1（绿地） · 不向后兼容的完整表设计</title>
+<!--
+  ============================================================================
+  绿地 schema 设计（提案，不碰代码）
+
+  前提（所有者 2026-10-15 定）：**全新数据表系统，不需要与当前兼容。**
+  ⇒ 不再受"加列式迁移"约束，可以修掉之前的四处妥协，而不是绕过它们。
+
+  本文件**取代** PROPOSAL-fields.html —— 那份的前提是"在现有表上增量加东西"，
+  在这个新前提下那个前提已经不成立。
+
+  设计来源：Immich 真实 schema（GitHub API 取回、本地解码）。
+  取其两条：**「存上次成功的时刻」**、**「每个关注点一张表」**。
+  ============================================================================
+-->
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+:root {
+  --line: #2c2c2e; --line-strong: #3a3a3c;
+  --surface: #161618; --raised: #1d1d1f; --hover: rgba(255,255,255,.055);
+  --text: #f5f5f7; --text-2: #a1a1a6; --text-3: #86868b;
+  --accent: #0d6fdb; --accent-text: #4da3ff; --accent-soft: rgba(77,163,255,.18);
+  --ok-text: #30d158; --warn-text: #ff9f0a; --crit-text: #ff685f;
+  --ok-soft: rgba(48,209,88,.22); --warn-soft: rgba(255,159,10,.22); --crit-soft: rgba(255,69,58,.22);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --r-panel: 18px; --r-pill: 999px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --line: #e5e5ea; --line-strong: #d2d2d7;
+    --surface: #fff; --raised: #fff; --hover: rgba(0,0,0,.045);
+    --text: #1d1d1f; --text-2: #6e6e73; --text-3: #707078;
+    --accent: #0071e3; --accent-text: #2b6fd4; --accent-soft: rgba(0,113,227,.10);
+    --ok-text: #217f3a; --warn-text: #a06406; --crit-text: #cd0014;
+    --ok-soft: rgba(52,199,89,.14); --warn-soft: rgba(255,159,10,.09); --crit-soft: rgba(255,59,48,.14);
+  }
+}
+body {
+  margin: 0; padding: 44px 32px 120px; font-size: 14px; line-height: 1.45;
+  background: #000; color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Hiragino Sans GB", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+@media (prefers-color-scheme: light) { body { background: #fff; } }
+.wrap { max-width: 1240px; margin: 0 auto; }
+h1 { font-size: 27px; font-weight: 680; letter-spacing: -.022em; margin: 0 0 6px; }
+h2 { font-size: 20px; font-weight: 660; letter-spacing: -.018em; margin: 54px 0 6px;
+     padding-top: 22px; border-top: 1px solid var(--line); }
+h2:first-of-type { border-top: 0; margin-top: 34px; }
+h3 { font-size: 15px; font-weight: 640; margin: 0; }
+h4 { font-size: 13px; font-weight: 640; margin: 0; }
+p { margin: 0; }
+.mono, code { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.lede { color: var(--text-2); font-size: 15px; max-width: 78ch; }
+.sub { color: var(--text-3); font-size: 12.5px; margin-top: 5px; max-width: 84ch; }
+.muted { color: var(--text-2); } .faint { color: var(--text-3); }
+
+/* 分层色带 */
+.band { display: flex; align-items: center; gap: 10px; margin: 26px 0 10px; }
+.band .tag { font-size: 11px; font-weight: 660; letter-spacing: .05em; text-transform: uppercase;
+  padding: 3px 10px; border-radius: var(--r-pill); }
+.b-fact { background: rgba(120,120,255,.16); color: #9b9bff; }
+.b-proc { background: var(--warn-soft); color: var(--warn-text); }
+.b-intent { background: var(--ok-soft); color: var(--ok-text); }
+.b-app { background: var(--accent-soft); color: var(--accent-text); }
+.band .ln { flex: 1; height: 1px; background: var(--line); }
+.band .note { font-size: 12px; color: var(--text-3); }
+
+.tbl { border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface);
+       margin-top: 14px; overflow: hidden; }
+.tbl-h { display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+         padding: 13px 18px; border-bottom: 1px solid var(--line);
+         background: color-mix(in srgb, var(--text) 3%, transparent); }
+.tbl-h h3 { font-family: var(--mono); font-size: 14px; letter-spacing: -.01em; }
+.tbl-h .why { flex-basis: 100%; font-size: 12.5px; color: var(--text-2); line-height: 1.6; }
+.tbl table { width: 100%; border-collapse: collapse; }
+.tbl th, .tbl td { text-align: left; padding: 8px 18px; border-top: 1px solid var(--line); vertical-align: top; }
+.tbl thead th { border-top: 0; font-size: 10.5px; font-weight: 620; letter-spacing: .05em;
+                text-transform: uppercase; color: var(--text-3); padding-top: 10px; padding-bottom: 6px; }
+.tbl td.f { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+.tbl td.t { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); white-space: nowrap; }
+.tbl td.c { white-space: nowrap; }
+.tbl td.d { font-size: 12.5px; color: var(--text-2); }
+
+.pill { display: inline-block; padding: 1px 6px; margin: 1px 3px 1px 0; border-radius: 5px;
+        font-size: 10px; font-weight: 620; letter-spacing: .02em; white-space: nowrap; }
+.p-pk { background: var(--accent-soft); color: var(--accent-text); }
+.p-fk { background: rgba(120,120,255,.16); color: #9b9bff; }
+.p-nn { background: var(--hover); color: var(--text-2); }
+.p-idx { background: var(--ok-soft); color: var(--ok-text); }
+.p-ck { background: var(--warn-soft); color: var(--warn-text); }
+.p-new { background: var(--ok-soft); color: var(--ok-text); }
+.p-now { background: var(--accent-soft); color: var(--accent-text); }
+.p-later { background: var(--hover); color: var(--text-3); }
+
+.note { display: flex; gap: 10px; padding: 12px 15px; border-radius: 11px; margin-top: 14px;
+        background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+        font-size: 12.5px; line-height: 1.6; }
+.note svg { width: 15px; height: 15px; flex: none; margin-top: 2px; color: var(--accent-text); }
+.note.warn { background: var(--warn-soft); border-color: color-mix(in srgb, #ff9f0a 30%, transparent); color: var(--warn-text); }
+.note.warn svg { color: var(--warn-text); }
+.note.crit { background: var(--crit-soft); border-color: color-mix(in srgb, #ff685f 30%, transparent); color: var(--crit-text); }
+.note.crit svg { color: var(--crit-text); }
+.note.ok { background: var(--ok-soft); border-color: color-mix(in srgb, #30d158 30%, transparent); color: var(--ok-text); }
+.note.ok svg { color: var(--ok-text); }
+.note b { font-weight: 660; }
+
+pre { margin: 14px 0 0; padding: 15px 17px; border-radius: 13px; overflow-x: auto;
+      background: #0d0d0f; border: 1px solid var(--line);
+      font-family: var(--mono); font-size: 12px; line-height: 1.75; color: #e8e8ea; }
+@media (prefers-color-scheme: light) { pre { background: #f6f6f8; color: #1d1d1f; } }
+pre .c { color: #86868b; } pre .k { color: #ff9f0a; } pre .s { color: #7fd6a0; }
+
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px;
+         border-radius: var(--r-pill); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.b-ok { background: var(--ok-soft); color: var(--ok-text); }
+.b-warn { background: var(--warn-soft); color: var(--warn-text); }
+.b-crit { background: var(--crit-soft); color: var(--crit-text); }
+.b-neutral { background: var(--hover); color: var(--text-2); }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 14px; }
+.box { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; background: var(--surface); }
+.box .n { font-family: var(--mono); font-size: 13px; font-weight: 620; }
+.box ul { margin: 8px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--text-2); }
+.box li { padding: 2px 0; } .box li b { color: var(--text); font-weight: 580; }
+
+.steps { margin-top: 12px; }
+.steps .st { display: flex; gap: 14px; padding: 11px 0; border-top: 1px solid var(--line); }
+.steps .st:first-child { border-top: 0; }
+.steps .st .no { flex: none; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent-text); font-size: 12px; font-weight: 660;
+  display: grid; place-items: center; }
+.steps .st .bd .t { font-size: 13.5px; font-weight: 620; }
+.steps .st .bd .d { font-size: 12.5px; color: var(--text-2); margin-top: 2px; line-height: 1.55; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Schema v1（绿地） · 完整表设计</h1>
+  <p class="lede">前提：<b>全新数据表系统，不向后兼容。</b>
+    ⇒ 不受"加列式迁移"约束，四处旧的妥协可以真正修掉，而不是绕过。
+    本文件取代 <span class="mono">PROPOSAL-fields.html</span>（那份的前提是"在现有表上增量加"，已不成立）。</p>
+  <p class="sub" style="margin-top:10px">
+    <b>v1.2 补齐（2026-10-15）</b>：所有者指出"说得比做得多"，我把上一轮列出的 8 条缺口全部补上了
+    ——<b>新增 6 张表</b>（<span class="mono">job</span> · <span class="mono">activity</span> ·
+    <span class="mono">app_setting</span> · <span class="mono">recent_query</span> ·
+    <span class="mono">recent_view</span> · <span class="mono">health_run/finding</span>）、
+    改名 1 张（<span class="mono">asset_delivery</span> → <span class="mono">asset_export</span>，
+    覆盖取件）、补 1 张（<span class="mono">library_registry.sort_order</span> + 移除库语义）、
+    并补上<b>元数据导出/导入</b>与<b>逐表持久性分类</b>。现共 <b>18 张表</b>。</p>
+  <p class="sub" style="margin-top:8px">
+    <b>v1.1 修订</b>：字段层对照 Immich 真实 <span class="mono">asset</span> 表
+    （27 字段，GitHub API 取回并解码）重做了一轮。新增 6 条之前漏掉的规则，<b>其中一条验证了"改名丢标注"这个致命缺口</b>。
+    见 <a href="#mainstream" style="color:var(--accent-text)">下方「主流对照」</a>。</p>
+
+  <!-- ============ 主流对照 ============ -->
+  <a id="mainstream"></a>
+  <h2>主流对照：Immich <span class="mono">asset</span> 表的 12 条模式</h2>
+  <p class="sub">以下全部来自真实源码（<span class="mono">server/src/schema/tables/asset.table.ts</span>），不是文档或教程。</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th style="width:34px">#</th><th style="width:210px">模式</th>
+        <th style="width:250px">证据（真实字段）</th><th>对我们的意义</th></tr></thead>
+      <tbody>
+        <tr><td class="t">1</td><td><b>软删除</b>是一等公民</td>
+          <td class="d mono" style="font-size:11.5px">@DeleteDateColumn()<br>deletedAt: Timestamp | null</td>
+          <td class="d">验证了我 v1 的 <span class="mono">deleted_at_ms</span>。回收站必须靠"标记"而不是"删行"。</td></tr>
+        <tr><td class="t">2</td><td><b>哈希必须带算法</b></td>
+          <td class="d mono" style="font-size:11.5px">checksum: Buffer<br>checksumAlgorithm: enum</td>
+          <td class="d"><b>我之前只写了一个 <span class="mono">content_sha1</span> —— 不够。</b>
+            一个裸哈希在换算法后无法解释。必须成对：<span class="mono">kind</span> + <span class="mono">value</span>。</td></tr>
+        <tr><td class="t">3</td><td>路径与文件名<b>分列</b></td>
+          <td class="d mono" style="font-size:11.5px">originalPath<br>originalFileName（各自建索引）</td>
+          <td class="d">我 v1 已有 <span class="mono">rel_dir</span> + <span class="mono">stem</span>/<span class="mono">name</span>，方向对。
+            但 <b>文件名要能模糊搜</b>（见第 8 条）。</td></tr>
+        <tr><td class="t">4</td><td><b>id 是生成的，与路径无关</b></td>
+          <td class="d mono" style="font-size:11.5px">@PrimaryGeneratedColumn() id</td>
+          <td class="d"><b>这条验证了我上一轮发现的致命缺口。</b>
+            Immich 的 id 不随文件改名变化 ⇒ 它天然没有"改名丢标注"这个问题。
+            我们必须照做。</td></tr>
+        <tr><td class="t">5</td><td><b>三个时间语义分开</b></td>
+          <td class="d mono" style="font-size:11.5px">fileCreatedAt（内容时间）<br>fileModifiedAt（mtime）<br>localDateTime（展示时区）</td>
+          <td class="d"><b>我只有 mtime 一个时间。</b>
+            "这张图是什么时候拍的/做的"与"文件什么时候被改过"是两件事——
+            前者用于浏览排序，后者用于判过期。<b>混成一个就会错。</b></td></tr>
+        <tr><td class="t">6</td><td>收藏是<b>一列布尔</b></td>
+          <td class="d mono" style="font-size:11.5px">isFavorite: boolean default false</td>
+          <td class="d">不是关联表。<b>比特级的用户意图直接落列</b>，因为"筛收藏"是高频查询。
+            我们归到意图层（见下）。</td></tr>
+        <tr><td class="t">7</td><td>可空 scope 的唯一约束 → <b>两条偏唯一索引</b></td>
+          <td class="d mono" style="font-size:11.5px">(ownerId, checksum)<br>&nbsp;&nbsp;WHERE libraryId IS NULL<br>(ownerId, libraryId, checksum)<br>&nbsp;&nbsp;WHERE libraryId IS NOT NULL</td>
+          <td class="d"><b>SQL 里 UNIQUE 对 NULL 的处理是坑</b>（多个 NULL 不冲突）。
+            Immich 用两条偏索引绕开它。我们要防"同一文件被重复登记"，正好用得上。</td></tr>
+        <tr><td class="t">8</td><td>文件名<b>模糊搜索</b></td>
+          <td class="d mono" style="font-size:11.5px">using:'gin'<br>expression: f_unaccent(<br>&nbsp;&nbsp;"originalFileName")<br>&nbsp;&nbsp;gin_trgm_ops</td>
+          <td class="d"><b>我之前说"本应用是语义搜索不需要关键词"——那是错的。</b>
+            "按文件名找"是管理场景的基本需求，且语义搜索答不了（你说不出那段描述）。
+            SQLite 对应物：<b>FTS5 <span class="mono">trigram</span> 分词器</b>。</td></tr>
+        <tr><td class="t">9</td><td>存<b>缩略图占位哈希</b></td>
+          <td class="d mono" style="font-size:11.5px">thumbhash: Buffer | null</td>
+          <td class="d"><b>~25 字节就能让整个网格秒出模糊占位</b>，不必等缩略图加载。
+            对我们的瀑布流是直接收益——先画出色块，再渐进换真图。</td></tr>
+        <tr><td class="t">10</td><td>分辨率是<b>两个整数列</b></td>
+          <td class="d mono" style="font-size:11.5px">width: integer | null<br>height: integer | null</td>
+          <td class="d"><b>我 v1 把分辨率留成了展示字符串 <span class="mono">1920 × 1440</span>。</b>
+            字符串<b>不能排序、不能筛"≥4K"</b>。必须拆成两个整数。</td></tr>
+        <tr><td class="t">11</td><td>可见性是<b>枚举</b>，不是一个布尔</td>
+          <td class="d mono" style="font-size:11.5px">visibility: enum<br>default Timeline</td>
+          <td class="d">"隐藏/归档/锁定"是多态维度。<b>用多个布尔会产出 2ⁿ 个非法组合。</b>
+            我们暂不需要，但要知道这条纪律。</td></tr>
+        <tr><td class="t">12</td><td>重复项<b>分组靠一个 id</b></td>
+          <td class="d mono" style="font-size:11.5px">duplicateId: uuid | null<br>（indexed）</td>
+          <td class="d">同一 <span class="mono">duplicateId</span> 的行互为重复。
+            我们 F5 的"重复 / 疑似重复"需要这个——否则每次体检都要重算全库两两比较。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note crit">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.1"/></svg>
+    <div><b>第 4 条把上一轮的致命缺口钉实了。</b>我们的
+      <span class="mono">uid = sha1(lib_id | rel_dir | stem).slice(0,12)</span>
+      是路径的纯函数 ⇒ <b>改名即丢全部标注</b>。
+      Immich 的做法是 <span class="mono">@PrimaryGeneratedColumn() id</span>——生成一次，永不变，路径只是属性。
+      <b>必须照抄这条</b>，否则这套 schema 撑不起"管理系统"这个定位。</div>
+  </div>
+
+  <!-- ============ 解锁了什么 ============ -->
+  <h2>这个前提解锁了什么</h2>
+  <div class="tbl">
+    <table>
+      <thead><tr><th style="width:270px">旧的妥协</th><th>绿地下的解法</th></tr></thead>
+      <tbody>
+        <tr><td class="d"><span class="mono">items</span> 是 18 列宽表，缺包时压缩包的
+          6 个字段全是 <span class="mono">NULL</span></td>
+          <td class="d">拆出 <span class="mono">asset_file</span>，一行一个文件角色。
+            <b>缺包 = 少一行，而不是一个 NULL 块</b>。将来加"缩略图/预览视频"也只是多一种 role。</td></tr>
+        <tr><td class="d">mtime 有三种舍入口径并存
+          （<span class="mono">Math.floor</span> / <span class="mono">Math.round</span> / BigInt 截断）</td>
+          <td class="d">定义<b>唯一口径</b>并写进字段名：<span class="mono">mtime_ms</span>。
+            单位出现在名字里 ⇒ <b>"秒 vs 毫秒"在类型层面不可能搞混</b>。全部数值字段同此约定。</td></tr>
+        <tr><td class="d">删除靠 <span class="mono">ON DELETE CASCADE</span>，
+          与"移入回收站、可恢复"直接矛盾</td>
+          <td class="d">第一天就 <b>soft delete</b>：<span class="mono">asset.deleted_at_ms</span>。
+            行不删，元数据永不跟着消失；<b>恢复出来的条目标签评分完好</b>。</td></tr>
+        <tr><td class="d">状态派生 ⇒ 无法索引，我硬扛着 6 个筛选芯片</td>
+          <td class="d">只对<b>真正跨表比较的那一档</b>做最小物化：一个由扫描器顺手维护的布尔列
+            + <b>偏索引</b>。其余档位仍然纯派生且天然可索引。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ 分层原则 ============ -->
+  <h2>分层原则：按「谁拥有它」和「能不能算回来」分</h2>
+  <p class="sub">这张表是整份设计的地基。每一张表先回答两个问题：
+    <b>谁写它？</b> <b>删掉能不能算回来？</b></p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th style="width:120px">层</th><th style="width:150px">谁写</th>
+        <th style="width:120px">可算回来吗</th><th>含义与后果</th></tr></thead>
+      <tbody>
+        <tr><td class="c"><span class="band" style="margin:0"><span class="tag b-fact">事实</span></span></td>
+          <td class="d">扫描器（stat 文件系统）</td>
+          <td class="c"><span class="badge b-ok"><span class="dot"></span>可以</span></td>
+          <td class="d">素材的文件事实。<b>删掉重建即可，零风险</b>。重建时整层丢弃。</td></tr>
+        <tr><td class="c"><span class="band" style="margin:0"><span class="tag b-proc">处理</span></span></td>
+          <td class="d">索引任务 / 体检</td>
+          <td class="c"><span class="badge b-warn"><span class="dot"></span>昂贵</span></td>
+          <td class="d">重跑一遍能得到，但 3594 条要 ~11 分钟、几万条要几小时。
+            <b>尽量保留</b>——重建它的代价是时间和电。</td></tr>
+        <tr><td class="c"><span class="band" style="margin:0"><span class="tag b-intent">意图</span></span></td>
+          <td class="d">用户（你）</td>
+          <td class="c"><span class="badge b-crit"><span class="dot"></span>不能</span></td>
+          <td class="d">标签 / 评分 / 备注 / 排除 / 交付历史。
+            <b>丢了就是真丢了</b>。重建流程必须原样保留，且要能导出备份。</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8.2v.1"/></svg>
+    <div><b>"能不能算回来"决定重建行为，而不是"哪张表"。</b>
+      所以重建的规则一句话：<b>丢事实层、留处理层与意图层</b>。
+      这条规则写进代码一处，再由单测钉住（新表忘了分类 ⇒ 测试变红）。</div>
+  </div>
+
+  <h3 style="margin-top:26px">逐表分类（v1.2 · 18 张表全部落位）</h3>
+  <p class="sub">新增表必须出现在这张表里。单测断言：<b>迁移建出的每一张表，都必须在下面四组之一里被点名</b>。</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th style="width:150px">组</th><th style="width:110px">重建时</th><th>表</th></tr></thead>
+      <tbody>
+        <tr><td class="c"><span class="band" style="margin:0"><span class="tag b-fact">事实层</span></span></td>
+          <td class="d"><b>丢弃重建</b></td>
+          <td class="d mono" style="font-size:12px">
+            <b>asset</b> · <b>asset_file</b> · asset_name_fts（虚表，随 asset 重建）<br>
+            <span class="faint">加上随功能上线的 document · doc_chunk</span></td></tr>
+        <tr><td class="c"><span class="band" style="margin:0"><span class="tag b-proc">过程层</span></span></td>
+          <td class="d"><b>尽量保留</b><br><span class="faint">丢了要重跑</span></td>
+          <td class="d mono" style="font-size:12px">
+            <b>asset_index_state</b> · <b>job</b> · <b>health_run</b> · <b>health_finding</b> ·
+            <b>recent_view</b> · <b>recent_query</b> · <b>activity</b><br>
+            <span class="faint">保留它们不花钱；丢了要重跑 11 分钟索引或重扫一遍</span></td></tr>
+        <tr><td class="c"><span class="band" style="margin:0"><span class="tag b-intent">意图层</span></span></td>
+          <td class="d" style="color:var(--crit-text)"><b>必须原样保留</b><br><span class="faint">丢了就是真丢了</span></td>
+          <td class="d mono" style="font-size:12px">
+            <b>asset_user_meta</b> · <b>tag</b> · <b>asset_tag</b> ·
+            <b>collection</b> · <b>collection_item</b> · <b>asset_export</b> · <b>collect_dir</b><br>
+            <span class="faint">加上随功能上线的 doc_dir</span></td></tr>
+        <tr><td class="c"><span class="band" style="margin:0"><span class="tag b-app">应用层</span></span></td>
+          <td class="d"><b>不参与</b><br><span class="faint">独立 DB</span></td>
+          <td class="d mono" style="font-size:12px">
+            <b>app_meta</b> · <b>library_registry</b> · <b>app_setting</b><br>
+            <span class="faint">重建库级 DB 碰不到它们</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note ok">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+    <div><b>两个数据库的划分顺手解决了一半问题。</b>
+      应用层的四张表在<b>另一个文件</b>里，所以"重建某个库的元数据"<b>结构上就碰不到</b>
+      <span class="mono">library_registry</span> 与 <span class="mono">app_setting</span>。
+      剩下要小心的只有库级那三组——而它们按上面的规则分好了。</div>
+  </div>
+
+  <div class="note crit">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.1"/></svg>
+    <div><b>我修正了上一版的一个分类错误。</b> v1 里我把 <span class="mono">health_*</span>
+      归成"持久（不可再生）"，并据此说它"已经在丢"是个缺陷。
+      <b>那是错的</b>——体检结果<b>重跑一遍就有</b>，属于过程层。
+      它现在会随重建消失<b>不是数据丢失，只是要重跑</b>。</div>
+  </div>
+
+  <!-- ============ 命名约定 ============ -->
+  <h2>命名约定：把单位写进字段名</h2>
+  <div class="grid2">
+    <div class="box">
+      <div class="n">时间</div>
+      <ul>
+        <li><b>*_at_ms</b> — Unix 毫秒整数</li>
+        <li><b>*_ms</b> — 时长/时刻，毫秒</li>
+        <li>规范来源：<span class="mono">BigInt mtimeNs / 1_000_000n</span>（截断）</li>
+        <li class="faint">不用浮点、不用秒</li>
+      </ul>
+    </div>
+    <div class="box">
+      <div class="n">体积</div>
+      <ul>
+        <li><b>*_bytes</b> — 字节整数</li>
+        <li>不存 <span class="mono">"2.4 MB"</span> 这种字符串</li>
+        <li class="faint">格式化是界面的事</li>
+      </ul>
+    </div>
+    <div class="box">
+      <div class="n">布尔</div>
+      <ul>
+        <li><b>INTEGER + CHECK (x IN (0,1))</b></li>
+        <li class="faint">SQLite 没有真布尔；用 CHECK 约束把坏值挡在门外</li>
+      </ul>
+    </div>
+    <div class="box">
+      <div class="n">标识</div>
+      <ul>
+        <li><b>uid</b> — 12 位小写 hex，全局唯一</li>
+        <li><b>*_id</b> — nanoid，<b>不用自增整数</b></li>
+        <li class="faint">自增 id 在跨库合表时会撞</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ 两个数据库 ============ -->
+  <h2>两个数据库，不是一个</h2>
+  <p class="sub">绿地前提下可以把这个划清楚。现状是"库注册表放 userData JSON、其余放库根 SQL"——
+  那是对的，但没被明确成原则。</p>
+  <div class="grid2">
+    <div class="box">
+      <div class="n">userData/app.db <span class="pill p-now">应用级 · 4 张表</span></div>
+      <ul>
+        <li><b>app_meta</b> — 版本与迁移</li>
+        <li><b>library_registry</b> — 库注册表（含 sort_order）</li>
+        <li><b>app_setting</b> — 设置（外观/模型目录/快捷键）</li>
+        <li><b>collect_dir</b> — 取件白名单（安全边界）</li>
+        <li><b>activity</b> — 操作记录</li>
+        <li><b>recent_query</b> — 搜索历史</li>
+        <li class="faint">为什么必须独立：<b>一个库里的数据库存不了"有哪些库"</b>——
+          鸡生蛋问题。这条在现有代码里已经存在（<span class="mono">library-registry.json</span>），只是没用 SQL。</li>
+      </ul>
+    </div>
+    <div class="box">
+      <div class="n">&lt;库根&gt;/.gs.db <span class="pill p-now">库级 · 12 张表</span></div>
+      <ul>
+        <li><b>事实层</b> — asset · asset_file · asset_name_fts</li>
+        <li><b>过程层</b> — asset_index_state · job · health_run · health_finding · recent_view</li>
+        <li><b>意图层</b> — asset_user_meta · tag · asset_tag · collection · collection_item · asset_export</li>
+        <li class="faint">跟着库走：拷库即带走全部标注。<b>模型不在库内</b>，换机器仍需自备模型。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ 应用级表 ============ -->
+  <h2>应用级表（userData/app.db）</h2>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>app_meta</h3><span class="pill p-now">本轮</span>
+      <span class="bg"></span>
+      <span class="why">单行表，和现有 <span class="mono">schema_version</span> 一样的手法：
+        <span class="mono">CHECK (id = 1)</span> 让"只能有一行"变成数据库层面的约束，而不是靠约定。</span></div>
+    <table>
+      <thead><tr><th style="width:150px">字段</th><th style="width:110px">类型</th><th style="width:180px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">id</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-pk">PK</span><span class="pill p-ck">CHECK id=1</span></td>
+          <td class="d">单行守卫。</td></tr>
+        <tr><td class="f">schema_version</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">迁移版本。版本不符 ⇒ 重建（绿地模型明确接受这件事）。</td></tr>
+        <tr><td class="f">created_at_ms / updated_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">建立 / 最后迁移时刻。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>library_registry</h3><span class="pill p-now">本轮</span>
+      <span class="why">哪些文件夹被登记为素材库。<b>不可再生</b>——扫文件系统扫不出"你把哪个目录当库"。</span></div>
+    <table>
+      <thead><tr><th style="width:150px">字段</th><th style="width:110px">类型</th><th style="width:180px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">lib_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-pk">PK</span><span class="pill p-ck">格式 1–32 字符</span></td>
+          <td class="d">库标识，写进 uid 的派生公式 ⇒ <b>一旦分配不可改</b>。</td></tr>
+        <tr><td class="f">root</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-idx">UNIQUE</span></td>
+          <td class="d">库根绝对路径。<b>UNIQUE</b> 防止同一个目录被登记两次。</td></tr>
+        <tr><td class="f">display_name</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">界面显示名。与 <span class="mono">root</span> 分开——名字是你的，路径是事实。</td></tr>
+        <tr><td class="f">enabled</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">CHECK 0/1</span><span class="pill p-ck">DEFAULT 1</span></td>
+          <td class="d">是否参与检索与入库。停用不动任何文件。</td></tr>
+        <tr><td class="f">compat_key</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">这个库的索引是用哪套 8 段兼容键建的。<b>不兼容的库不能合并检索</b>。</td></tr>
+        <tr><td class="f">sort_order</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">DEFAULT 0</span><span class="pill p-idx">INDEX</span></td>
+          <td class="d"><b>v1.2 新增。</b>侧栏库列表的顺序。
+            <b>顺序是你的，不该由路径字母序或登记时间决定</b>——
+            你有 4 个库时，"常用的排前面"是真实需求。同值时按 <span class="mono">lib_id</span> 兜底保证稳定。</td></tr>
+        <tr><td class="f">registered_at_ms / updated_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">登记 / 修改时刻。</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th style="width:190px">移除库的三种语义</th><th>行为（<b>这是产品决定，不是实现细节</b>）</th></tr></thead>
+      <tbody>
+        <tr><td class="f">① 仅取消登记<br><span class="faint">（默认）</span></td>
+          <td class="d">删注册表行。<b>库根下所有 <span class="mono">.gs-*</span> 文件原样保留</b>——
+            下次登记回来立刻能用，标注全在。这是默认，因为它<b>完全可逆</b>。</td></tr>
+        <tr><td class="f">② 取消登记并删除本库数据库</td>
+          <td class="d">删 <span class="mono">.gs-index.bin</span> + <span class="mono">.gs.db</span>。
+            <b>必须两段式确认，且明确写出会丢什么</b>（标注条目数 / 集合数 / 排除数）。
+            确认框里给"先导出一份"的入口（见下方导出节）。</td></tr>
+        <tr><td class="f">③ 删除素材文件本身</td>
+          <td class="d"><b>不提供。</b>与写入不变式冲突——软件永不删素材。
+            要删素材请到文件管理器里删，软件只负责发现它不见了。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 9v5M12 17.5v.1"/><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <div><b>为什么"移除库"必须写清是三种里的哪一种。</b>
+      界面上一个"移除"按钮，用户理解成①（取消登记）还是②（连数据一起删），
+      差别是<b>几百条标注</b>。这种歧义不能靠用户猜——只能把三种都摆出来，默认选可逆的那个。</div>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>collect_dir</h3><span class="pill p-now">本轮</span>
+      <span class="why">取件白名单目录。<b>不可再生</b>——这是安全边界，不能猜。</span></div>
+    <table>
+      <thead><tr><th style="width:150px">字段</th><th style="width:110px">类型</th><th style="width:180px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">dir_id</td><td class="t">TEXT</td><td class="c"><span class="pill p-pk">PK</span></td><td class="d">nanoid。</td></tr>
+        <tr><td class="f">label</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-idx">UNIQUE</span></td>
+          <td class="d">目录名（"素材待用" / "移出素材"）。</td></tr>
+        <tr><td class="f">abs_path</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">绝对路径。<b>取件只允许写进这些目录</b>，其余一律拒绝。</td></tr>
+        <tr><td class="f">is_default</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">CHECK 0/1</span><span class="pill p-ck">DEFAULT 0</span></td>
+          <td class="d">默认取件目标。界面只应允许一个为 1。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>app_setting</h3><span class="pill p-new">v1.2 新增</span>
+      <span class="why">设置页要存的东西（外观 / 模型目录 / 取件目标 / 快捷键 / 诊断开关）。
+        <b>我之前描述应用级 DB 时写了"设置"，却没建这张表</b>——说得比做得多。</span></div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:110px">类型</th><th style="width:180px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">key</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-pk">PK</span></td>
+          <td class="d">设置键。形如 <span class="mono">theme</span> / <span class="mono">model.dir</span> / <span class="mono">collect.default</span>。</td></tr>
+        <tr><td class="f">value_json</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">值，<b>统一存 JSON</b>（字符串也是 JSON 字符串）。
+            这样布尔/数组/对象不必各开一列，<b>加设置不需要迁移</b>。</td></tr>
+        <tr><td class="f">updated_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">最后修改时刻。</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th style="width:190px">纪律</th><th>为什么</th></tr></thead>
+      <tbody>
+        <tr><td class="f">键与类型<b>只有一个定义处</b></td>
+          <td class="d">形状用 zod 定义在 <span class="mono">shared/ipc.ts</span>（契约唯一来源），
+            本表只负责存。<b>不许在界面里各写一份默认值</b>——那就是第二份定义（P1）。</td></tr>
+        <tr><td class="f">类型化取值走一个 helper</td>
+          <td class="d">读设置时用 zod 解析。<b>解析失败退回默认值并记一条警告，不要让整个界面崩</b>——
+            手改过 DB 或跨版本降级都会走到这条路径。</td></tr>
+        <tr><td class="f">不存可从别处推导的东西</td>
+          <td class="d">例如"当前库"是运行时状态，不该存成设置。
+            <b>设置只装"用户显式表达过的偏好"。</b></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>activity</h3><span class="pill p-new">v1.2 新增</span>
+      <span class="why">操作记录页的存储。它跟 <span class="mono">asset_export</span> <b>不是重复</b>：
+        一次"批量交付 12 条" = <b>这里 1 行 + asset_export 12 行</b>。
+        这张表答"<b>谁在什么时候做了什么</b>"，那张表答"<b>哪些条目被导到哪里</b>"。</span></div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:110px">类型</th><th style="width:200px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">activity_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-pk">PK</span></td>
+          <td class="d">nanoid。也是批量操作的 <span class="mono">batch_id</span>（一族操作归一个 id）。</td></tr>
+        <tr><td class="f">at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-idx">INDEX DESC</span></td>
+          <td class="d">发生时刻。倒序索引 ⇒ 列表页第一屏是索引扫描。</td></tr>
+        <tr><td class="f">kind</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">CHECK 枚举</span></td>
+          <td class="d"><span class="mono">collect / deliver / trash / restore / purge /
+            tag.add / tag.remove / collection.add / index.exclude / index.include /
+            library.add / library.remove / library.toggle / index.rebuild</span>。
+            <b>用 CHECK 而不是自由文本</b>，否则筛选与统计无从下手。</td></tr>
+        <tr><td class="f">subject_kind</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">CHECK 枚举</span></td>
+          <td class="d"><span class="mono">asset / library / tag / collection / app</span>。</td></tr>
+        <tr><td class="f">subject_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">对象 id（uid / lib_id / tag_id …）。批量操作时为空，明细在 <span class="mono">detail_json</span>。</td></tr>
+        <tr><td class="f">lib_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">涉及哪个库。<b>可空</b>——因为有些操作（登记库）不属于任何库。</td></tr>
+        <tr><td class="f">result</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-ck">CHECK ok/skipped/failed</span></td>
+          <td class="d">与 <span class="mono">asset_export.result</span> 同一套词。</td></tr>
+        <tr><td class="f">detail_json</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d"><b>结构化参数，不存渲染好的文字。</b>
+            理由见下。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8.2v.1"/></svg>
+    <div><b>为什么 <span class="mono">activity</span> 不存"人话那一行"。</b>
+      直觉做法是存一条渲染好的文案（"已把 12 条移入回收站"），省得前端再拼。
+      但本项目的纪律是<b>「用户文案兜底只允许一份」</b>——
+      一旦把渲染结果写进库，同一句话就有了<b>两个来源</b>（历史的与现在的），
+      改一次措辞就会出现新旧两种说法混在同一个列表里。
+      ⇒ 存 <span class="mono">kind</span> + <span class="mono">detail_json</span>，
+      <b>由 Adapter 渲染</b>（唯一文案处）。</div>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>recent_query</h3><span class="pill p-new">v1.2 新增</span>
+      <span class="why">搜索历史。<b>与</b> <span class="mono">recent_view</span> <b>分开</b>：
+        前者是"我搜过什么"（跨库），后者是"我看过哪条"（属某个库的某条素材）。</span></div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:110px">类型</th><th style="width:200px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">query_id</td><td class="t">TEXT</td><td class="c"><span class="pill p-pk">PK</span></td><td class="d">nanoid。</td></tr>
+        <tr><td class="f">kind</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-ck">CHECK text/image</span></td>
+          <td class="d">文字搜 / 以图搜图。<b>两者要分开记</b>，否则重跑时不知道该拿什么当输入。</td></tr>
+        <tr><td class="f">text</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">查询文本（<span class="mono">kind='text'</span> 时非空）。</td></tr>
+        <tr><td class="f">image_ref</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">以图搜图时的参考图 uid（<span class="mono">kind='image'</span> 时非空）。
+            <b>存 uid 不存绝对路径</b>——路径会变，uid 不会。</td></tr>
+        <tr><td class="f">scope_lib_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">当时的检索范围。<span class="mono">NULL</span> = 全部库。
+            <b>重跑时必须还原当时的范围</b>，否则结果对不上，用户会以为索引坏了。</td></tr>
+        <tr><td class="f">result_count</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">当时命中数。用于显示与"结果变少了"的对照。</td></tr>
+        <tr><td class="f">at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-idx">INDEX DESC</span></td>
+          <td class="d">查询时刻。</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th style="width:190px">纪律</th><th>为什么</th></tr></thead>
+      <tbody>
+        <tr><td class="f">保留上限（如最近 200 条）</td>
+          <td class="d">插入时修剪。<b>历史表不设上限就会无限长</b>，而它只服务"接着上次"这一个用途。</td></tr>
+        <tr><td class="f">同一文本重复搜 → 更新时间戳<br>而不是新增行</td>
+          <td class="d">否则搜十次同样的词就占十行，把真正不同的历史挤掉。
+            <span class="mono">UNIQUE (kind, text, scope_lib_id)</span> + upsert。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ 库级 - 事实层 ============ -->
+  <h2>库级表 · 事实层（&lt;库根&gt;/.gs.db）</h2>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>asset</h3><span class="pill p-now">本轮</span>
+      <span class="why"><b>只有"条目"这个概念本身</b>，不再带任何文件字段。
+        对比现状：从 18 列缩到 9 列，且缺包不再是一堆 NULL。</span></div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:110px">类型</th><th style="width:190px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">uid</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-pk">PK</span><span class="pill p-ck">12 位小写 hex</span></td>
+          <td class="d"><b>v1.1 改动：生成一次，永不变</b>（对齐 Immich 的
+            <span class="mono">@PrimaryGeneratedColumn() id</span>）。
+            <span style="color:var(--crit-text)">不再是</span>
+            <span class="mono" style="text-decoration:line-through">sha1(lib_id|rel_dir|stem)</span> ——
+            那个公式让<b>改名/移动 = 丢掉全部标注</b>。
+            现在的规则：扫描时先按 <span class="mono">(lib_id, rel_path)</span> 匹配，
+            匹配不上再按 <span class="mono">content_hash</span> 或
+            <span class="mono">(size_bytes, mtime_ms)</span> 认领，<b>命中则保留原 uid，只更新路径</b>。</td></tr>
+        <tr><td class="f">lib_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-idx">INDEX</span></td>
+          <td class="d">所属库。虽然每个库一个文件，仍显式带上——
+            便于将来把多库的体检结果并起来看。</td></tr>
+        <tr><td class="f">folder</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">一级分类目录（CR / VR / CR+VR / 其他）。</td></tr>
+        <tr><td class="f">stem</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">文件名主干。参与配对（找同名压缩包）。<b>改名时更新它，但不动 uid。</b></td></tr>
+        <tr><td class="f">display_name</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">界面显示名。<b>与 <span class="mono">stem</span> 分开</b>（对齐 Immich 的
+            <span class="mono">originalFileName</span>）：你可以只改显示名而不动磁盘上的文件。</td></tr>
+        <tr><td class="f">rel_dir</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">相对库根的目录（不含文件名）。
+            <b>索引以相对路径为准 ⇒ 库整体搬盘后索引仍可用。</b></td></tr>
+        <tr><td class="f">content_created_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span><span class="pill p-idx">INDEX</span></td>
+          <td class="d"><b>v1.1 新增</b>（对齐 Immich 的 <span class="mono">fileCreatedAt</span>）。
+            <b>"这张图是什么时候做的"</b>——用于按内容时间浏览排序。
+            取不到就 NULL（很多素材没有 EXIF）。<b>与 <span class="mono">mtime_ms</span> 是两件事</b>：
+            前者是内容时间，后者是文件被改过的时间。</td></tr>
+        <tr><td class="f">deleted_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span><span class="pill p-idx">偏索引</span></td>
+          <td class="d"><b>软删除</b>（对齐 Immich 的 <span class="mono">@DeleteDateColumn</span>）。
+            <span class="mono">NULL</span> = 在用；非空 = 已移入回收站。
+            所有常规查询默认 <span class="mono">WHERE deleted_at_ms IS NULL</span>。</td></tr>
+        <tr><td class="f">dup_group_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span><span class="pill p-idx">INDEX</span></td>
+          <td class="d"><b>v1.1 新增</b>（对齐 Immich 的 <span class="mono">duplicateId</span>）。
+            同一 id 的行互为重复，由体检填写。
+            <b>不存它就是每次体检都要重算全库两两比较</b>——几千条能跑，几万条跑不动。</td></tr>
+        <tr><td class="f">discovered_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">首次被发现时刻。用于"最近入库"。</td></tr>
+        <tr><td class="f">updated_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">本行最后修改时刻。</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th style="width:280px">索引 / 约束</th><th>覆盖什么（含 v1.1 新增）</th></tr></thead>
+      <tbody>
+        <tr><td class="f">PRIMARY KEY (uid)</td><td class="d">按 uid 取单条。</td></tr>
+        <tr><td class="f">UNIQUE (lib_id, rel_path)</td>
+          <td class="d"><b>v1.1 新增</b>：防止同一个文件被登记两次。
+            因为 uid 不再由路径派生，<b>路径的唯一性必须自己声明</b>——
+            这是"id 与路径解耦"必须付的代价。</td></tr>
+        <tr><td class="f">idx_asset_live (lib_id, folder) WHERE deleted_at_ms IS NULL</td>
+          <td class="d"><b>偏索引</b>：库页按分类浏览（最常用）。排除回收站行 ⇒ 索引更小更快。</td></tr>
+        <tr><td class="f">idx_asset_trash (deleted_at_ms) WHERE deleted_at_ms IS NOT NULL</td>
+          <td class="d">回收站列表。<b>只索引已删除的那几十行</b>。</td></tr>
+        <tr><td class="f">idx_asset_stem (stem)</td><td class="d">配对与按名查。</td></tr>
+        <tr><td class="f">idx_asset_created (content_created_at_ms)</td>
+          <td class="d"><b>v1.1 新增</b>：按内容时间排序（"按拍摄/制作时间浏览"）。</td></tr>
+        <tr><td class="f">idx_asset_dup (dup_group_id) WHERE dup_group_id IS NOT NULL</td>
+          <td class="d"><b>v1.1 新增</b>：只看有重复的那些。偏索引避免索引几万行 NULL。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8.2v.1"/></svg>
+    <div><b>为什么分辨率不在 <span class="mono">asset</span> 上。</b>
+      Immich 把它放在 <span class="mono">asset</span>（因为它的 asset 就是一个主文件）。
+      我们一个条目有<b>两个</b>文件（图 + 包），宽度高度属于<b>那个图</b>——
+      所以放 <span class="mono">asset_file</span>，别放在条目上。</div>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>asset_file</h3><span class="pill p-now">本轮</span>
+      <span class="why"><b>绿地设计里最重要的一张新表。</b>
+        一行一个文件角色 —— 把现状那 11 个"图/包各一套"的列压成 6 个通用列。</span></div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:110px">类型</th><th style="width:190px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">uid</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-fk">FK asset.uid</span><span class="pill p-pk">PK(1/2)</span><span class="pill p-ck">CASCADE</span></td>
+          <td class="d">条目。</td></tr>
+        <tr><td class="f">role</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-pk">PK(2/2)</span><span class="pill p-ck">CHECK image/archive</span></td>
+          <td class="d"><b>文件角色。</b>缺包 = <b>没有 role='archive' 的行</b>。
+            将来加"预览视频/许可证 PDF"只是扩 CHECK 列表。</td></tr>
+        <tr><td class="f">rel_path</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-idx">INDEX</span></td>
+          <td class="d">相对库根路径。索引与定位都以它为准。</td></tr>
+        <tr><td class="f">ext</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">扩展名（小写，不含点）。</td></tr>
+        <tr><td class="f">size_bytes</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">字节数。<b>单位在名字里</b>。</td></tr>
+        <tr><td class="f">mtime_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d"><b>唯一口径的修改时刻</b>：<span class="mono">BigInt mtimeNs / 1_000_000n</span>（截断）。
+            判"文件被外部改过"就比它。
+            <b>注意它与 <span class="mono">asset.content_created_at_ms</span> 是两件事</b>——
+            这个用于判过期，那个用于按内容时间浏览。</td></tr>
+        <tr><td class="f">width / height</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span><span class="pill p-idx">INDEX(w)</span></td>
+          <td class="d"><b>v1.1 新增</b>（对齐 Immich 的 <span class="mono">width</span>/<span class="mono">height</span>）。
+            只对 <span class="mono">role='image'</span> 有值。
+            <b>必须是整数，不能是 <span class="mono">"1920 × 1440"</span> 字符串</b>——
+            字符串不能排序、不能筛"≥4K"。原型的那个 <span class="mono">px</span> 字符串是错的。</td></tr>
+        <tr><td class="f">thumb_hash</td><td class="t">BLOB</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d"><b>v1.1 新增</b>（对齐 Immich 的 <span class="mono">thumbhash</span>）。
+            <b>约 25 字节的占位图哈希</b>（只对 <span class="mono">role='image'</span>）。
+            网格先用它画出模糊色块、再渐进换真图 ⇒
+            <b>瀑布流首屏不用等任何缩略图</b>。对几千张图的首屏观感是直接收益。</td></tr>
+        <tr><td class="f">content_hash_kind</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span><span class="pill p-ck">CHECK sha1/sha256</span></td>
+          <td class="d"><b>v1.1 新增，成对出现</b>（对齐 Immich 的
+            <span class="mono">checksumAlgorithm</span>）。
+            <b>一个裸哈希在换算法后无法解释</b>——你必须知道它是怎么算出来的。</td></tr>
+        <tr><td class="f">content_hash_value</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span><span class="pill p-idx">偏索引</span></td>
+          <td class="d">内容哈希值。<b>惰性计算</b>——只在体检查重复时算，不扫描时算。
+            全库算一遍要读几十 GB，不能塞进日常路径。
+            <b>与 <span class="mono">kind</span> 是一对，缺一不可。</b></td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th style="width:280px">索引 / 约束</th><th>覆盖什么</th></tr></thead>
+      <tbody>
+        <tr><td class="f">PRIMARY KEY (uid, role)</td>
+          <td class="d">一行一个文件角色；天然防止同一条目出现两个 <span class="mono">role='image'</span>。</td></tr>
+        <tr><td class="f">idx_asset_file_path (rel_path)</td>
+          <td class="d">按路径反查条目（扫描时用来匹配已有行）。</td></tr>
+        <tr><td class="f">idx_asset_file_hash (content_hash_kind, content_hash_value)<br>WHERE content_hash_value IS NOT NULL</td>
+          <td class="d"><b>v1.1 新增</b>：体检查"完全相同"的重复项。<b>偏索引</b>——
+            绝大多数文件还没算过哈希，不该被索引。</td></tr>
+        <tr><td class="f">idx_asset_file_dims (width, height) WHERE role='image'</td>
+          <td class="d"><b>v1.1 新增</b>：筛"分辨率 ≥ 4K"这类条件。<b>偏索引</b>只覆盖图片角色。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>asset_name_fts</h3><span class="pill p-now">本轮</span>
+      <span class="why"><b>v1.1 新增。</b>我之前说"本应用是语义搜索，不需要关键词检索"——
+        那是错的。<b>"按文件名找"是管理场景的基本需求，而语义搜索答不了它</b>
+        （你说得出"金属质感头盔"，说不出"那个叫 bracket_131 的文件"）。
+        对齐 Immich 的 <span class="mono">gin_trgm_ops</span> 文件名索引。</span></div>
+    <table>
+      <thead><tr><th style="width:190px">定义</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">FTS5 虚表<br>tokenize='trigram'</td>
+          <td class="d">SQLite 的 FTS5 自带 <b>trigram 分词器</b>（3.34+），
+            等价于 Postgres 的 <span class="mono">pg_trgm</span>：
+            <b>支持子串匹配</b>（搜 <span class="mono">bracket</span> 能命中
+            <span class="mono">bracket_131</span>），而普通全文索引做不到子串。</td></tr>
+        <tr><td class="f">external content<br>= asset</td>
+          <td class="d">用外部内容表模式，<b>不重复存正文</b>，只存索引。
+            用触发器与 <span class="mono">asset</span> 保持同步——
+            <b>比"每次改完记得重建索引"可靠</b>。</td></tr>
+        <tr><td class="f">索引列</td>
+          <td class="d"><span class="mono">display_name</span> · <span class="mono">stem</span> ·
+            <span class="mono">rel_dir</span>（来自 asset）+ <span class="mono">note</span>、标签名（来自意图层）。
+            <b>备注和标签也要能搜</b>，否则"我记过一条关于它的备注"就白记了。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 9v5M12 17.5v.1"/><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <div><b>FTS 和语义检索是两条不同的路，不要混。</b>
+      语义搜索（向量）回答"<b>意思相近的东西</b>"，关键词/子串搜索回答"<b>名字里有这个词的东西</b>"。
+      界面要分别给出，不能把两种分数排在一个列表里——<b>分数不可比</b>。
+      这也正是项目原有纪律里"不得跨模态比分数"的延伸。</div>
+  </div>
+
+  <div class="note ok">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+    <div><b>这张表顺手修掉一个既有缺陷。</b>现状 <span class="mono">engine.ts</span> 用
+      <span class="mono">Number(st.mtimeNs / 1_000_000n)</span>，
+      而 <span class="mono">build_index_onnx.ts</span> 用 <span class="mono">Math.floor(st.mtimeMs)</span>，
+      测试里又有 <span class="mono">Math.round(st.mtimeMs)</span> ——
+      <b>同一个文件走不同路径会得到不同的 mtime</b>，而 engine 拿它做相等比较判"改过没有"。
+      绿地模型下 <span class="mono">asset_file.mtime_ms</span> 是<b>唯一写入口</b>，
+      口径由它定义，别处只读。</div>
+  </div>
+
+  <!-- ============ 处理层 ============ -->
+  <h2>库级表 · 处理层</h2>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>asset_index_state</h3><span class="pill p-now">本轮</span>
+      <span class="why">1:1 于 asset，主键即外键。<b>抄 Immich <span class="mono">asset_job_status</span> 的"存时刻不存枚举"</b>。
+        但比它多一个物化标志，理由见下。</span></div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:110px">类型</th><th style="width:190px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">uid</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-pk">PK</span><span class="pill p-fk">FK asset.uid</span><span class="pill p-ck">CASCADE</span></td>
+          <td class="d">1:1。主键即外键，不需要额外关联表。</td></tr>
+        <tr><td class="f">encoded_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span><span class="pill p-idx">偏索引</span></td>
+          <td class="d"><b>编码成功时刻。</b><span class="mono">NULL</span> = 从未成功。
+            <b>偏索引 <span class="mono">WHERE encoded_at_ms IS NULL</span></b> ⇒ "待编码/失败"筛选是索引查找而非全表扫。</td></tr>
+        <tr><td class="f">encoded_mtime_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d"><b>编码那一刻该文件的 mtime 快照。</b>
+            这是判"文件改过没有"的基准 —— <b>存快照，不存布尔</b>，因为快照还能回答"何时改的"。</td></tr>
+        <tr><td class="f">compat_key</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">编码时用的 8 段兼容键。与库当前 compat 不等 ⇒ <b>模型换了，向量不在同一语义空间</b>。</td></tr>
+        <tr><td class="f">needs_reencode</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">CHECK 0/1</span><span class="pill p-ck">DEFAULT 0</span><span class="pill p-idx">偏索引</span></td>
+          <td class="d"><b>唯一一处物化。</b>由扫描器顺手维护（它本来就要 stat 每个文件）。
+            <b>偏索引 <span class="mono">WHERE needs_reencode = 1</span></b> ⇒ 只索引异常的那几十行。</td></tr>
+        <tr><td class="f">attempt_count</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">DEFAULT 0</span></td>
+          <td class="d">累计尝试次数。<b>失败 3 次后不再自动重试</b>——避免一个坏文件每次建索引都拖慢一遍。</td></tr>
+        <tr><td class="f">last_error</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">上次失败原因，<b>存人话不存错误码</b>。直接显示给用户，前端不再翻译一次。</td></tr>
+        <tr><td class="f">last_error_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">上次失败时刻。<b>与 <span class="mono">encoded_at_ms</span> 并存合法</b>：
+            "三天前成功过、今天重编码失败"是真实状态。</td></tr>
+        <tr><td class="f">excluded_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span><span class="pill p-idx">偏索引</span></td>
+          <td class="d"><b>用户手动排除索引的时刻。</b>本表唯一完全不可再生的字段。
+            判定优先级最高——你的选择不该被任何系统推断覆盖。</td></tr>
+        <tr><td class="f">checked_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">上次<b>差分扫描</b>的时刻。界面据此显示"这个状态基于何时"，
+            避免"库里显示已编码、其实文件三个月前就被换过"这种静默错误。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8.2+0 .1"/></svg>
+    <div><b>为什么只有 <span class="mono">needs_reencode</span> 一个物化列，而不是整张 state 表。</b>
+      状态里只有<b>一档</b>是跨表比较（<span class="mono">encoded_mtime_ms ≠ 当前 mtime_ms</span>），
+      其余全是<span class="mono">IS NULL</span>判断——<b>本身就可索引</b>。
+      全量物化一个 <span class="mono">state</span> 列会引入"缓存漂移"这个新故障，而我们只需要修那一档。
+      ⇒ <b>最小物化 + 偏索引</b>，代价与风险都最小。</div>
+  </div>
+
+  <div class="note warn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 9v5M12 17.5v.1"/><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <div><b><span class="mono">needs_reencode</span> 是缓存，不是真相。</b>
+      真相是"<span class="mono">encoded_mtime_ms</span> 与当前 <span class="mono">mtime_ms</span> 相不相等"。
+      所以体检里要有一项：<b>重算全库的 <span class="mono">needs_reencode</span>，与库里存的值比对</b>，
+      不一致就报出来并修正。这是可机械断言的对账，把"缓存漂移"变成能被发现的问题。</div>
+  </div>
+
+  <!-- ============ 任务层 ============ -->
+  <h2>库级表 · 任务层（v1.2 新增）</h2>
+  <p class="sub"><b>这是最要紧的一处补齐。</b>在此之前所有任务（扫描 / 索引 / 体检 / 重建 / 入库）
+    的进度只活在内存里——<b>进程一崩就什么都不知道了</b>，而且无法断点续跑。
+    规格明确要求"进度必须单调且不静默"，内存里的进度两条都做不到。</p>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>job</h3><span class="pill p-new">v1.2 新增</span>
+      <span class="why">一条任务一行。<b>用状态枚举 + 时刻</b>，不是纯"时刻模式"——
+        因为任务有生命周期（排队→运行→结束），一条时刻列表达不了"现在正在跑"。</span></div>
+    <table>
+      <thead><tr><th style="width:180px">字段</th><th style="width:110px">类型</th><th style="width:210px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">job_id</td><td class="t">TEXT</td><td class="c"><span class="pill p-pk">PK</span></td><td class="d">nanoid。</td></tr>
+        <tr><td class="f">kind</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">CHECK 枚举</span></td>
+          <td class="d"><span class="mono">scan / index / health / rebuild / ingest</span>。</td></tr>
+        <tr><td class="f">state</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">CHECK 枚举</span><span class="pill p-idx">偏索引</span></td>
+          <td class="d"><span class="mono">queued / running / done / failed / cancelled</span>。</td></tr>
+        <tr><td class="f">progress_done</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">DEFAULT 0</span></td>
+          <td class="d">已完成数。<b>只增不减</b>——"进度单调"这条规格在字段层的落点。</td></tr>
+        <tr><td class="f">progress_total</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">总数。可空：扫描前还不知道有多少，<b>不要为了显示百分比编一个</b>。</td></tr>
+        <tr><td class="f">phase</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">当前子阶段（"统计文件" / "编码第 3 批"）。
+            <b>"不静默"的意思是这条会变</b>，而不是只有一个转圈。</td></tr>
+        <tr><td class="f">cursor_json</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d"><b>断点续跑位置</b>（如最后处理成功的 <span class="mono">rel_path</span>）。
+            崩溃后重启从这继续，而不是从头再来一遍 3594 条。</td></tr>
+        <tr><td class="f">heartbeat_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d"><b>崩溃检测的关键。</b>运行中定期刷新。
+            启动时把"<span class="mono">running</span> 但心跳已过期"的任务判为
+            <span class="mono">failed</span>——<b>否则它会永远卡在"运行中"</b>，
+            界面永远显示一个不存在的进度。</td></tr>
+        <tr><td class="f">summary_json</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">结束时的统计（新增 / 缺失 / 失败各多少）。</td></tr>
+        <tr><td class="f">error</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">失败原因。<b>存人话</b>，直接可显示。</td></tr>
+        <tr><td class="f">queued_at_ms / started_at_ms / finished_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">三个时刻。<span class="mono">finished - started</span> 就是实际耗时，用于"还要多久"的估算。</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th style="width:300px">索引 / 约束</th><th>覆盖什么</th></tr></thead>
+      <tbody>
+        <tr><td class="f">idx_job_active (state)<br>WHERE state IN ('queued','running')</td>
+          <td class="d"><b>偏索引</b>：启动时找活跃任务、界面轮询进度。
+            历史任务不进索引 ⇒ 跑过几百次后索引也不膨胀。</td></tr>
+        <tr><td class="f">idx_job_recent (queued_at_ms)</td>
+          <td class="d">任务历史列表。</td></tr>
+        <tr><td class="f">至多一个活跃任务</td>
+          <td class="d">项目已有 <span class="mono">p-queue</span> 与 <span class="mono">single-flight.ts</span> 做串行化，
+            但<b>那是内存里的保证，进程重启就没了</b>。
+            期望用一条偏唯一索引把它变成数据库层保证：
+            <span class="mono">UNIQUE ON job((1)) WHERE state IN ('queued','running')</span>。
+            <span class="badge b-warn"><span class="dot"></span>需在 SQLite 上实测</span>
+            常量表达式偏唯一索引是否被接受——不行就退回"单测断言"。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>health_run / health_finding</h3><span class="pill p-new">v1.2 新增</span>
+      <span class="why">体检台账。<b>修正我上一版的分类</b>：我当时把 <span class="mono">health_*</span>
+        归成"持久（不可再生）"是错的——<b>体检结果重跑一遍就有</b>，属于过程层。
+        它现在会随重建丢失<b>不是数据丢失，只是要重跑</b>。</span></div>
+    <table>
+      <thead><tr><th style="width:200px">health_run</th><th style="width:110px">类型</th><th style="width:200px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">run_id</td><td class="t">TEXT</td><td class="c"><span class="pill p-pk">PK</span></td><td class="d">nanoid。</td></tr>
+        <tr><td class="f">job_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-fk">FK job</span><span class="pill p-nn">NULL</span></td>
+          <td class="d">关联任务 ⇒ 体检的进度与取消复用同一套任务机制，<b>不另写一份</b>（P1）。</td></tr>
+        <tr><td class="f">state</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-ck">CHECK 枚举</span></td>
+          <td class="d"><span class="mono">running / done / failed / cancelled</span>。</td></tr>
+        <tr><td class="f">started_at_ms / finished_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td><td class="d">起止时刻。</td></tr>
+        <tr><td class="f">summary_json</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">各检查的计数（用于体检页的概览与图表）。</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th style="width:200px">health_finding</th><th style="width:110px">类型</th><th style="width:200px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">finding_id</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-pk">PK</span><span class="pill p-ck">AUTOINCREMENT</span></td>
+          <td class="d">自增。这条流水<b>不需要跨库唯一</b>，用整数最省（与条目 id 不同）。</td></tr>
+        <tr><td class="f">run_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-fk">FK health_run</span><span class="pill p-ck">CASCADE</span></td>
+          <td class="d">哪一次体检发现的。</td></tr>
+        <tr><td class="f">check_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d"><span class="mono">missing-archive / dup-exact / ext-mismatch /
+            state-cache-drift / excluded-stale / zero-byte</span> 等。
+            <b><span class="mono">state-cache-drift</span> 就是我上一版承诺的对账检查</b>——
+            重算全库 <span class="mono">needs_reencode</span> 与库中值比对。</td></tr>
+        <tr><td class="f">severity</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-ck">CHECK info/warn/error</span></td>
+          <td class="d">严重度。<b>与索引状态的语气体同一套词</b>，不另造一套。</td></tr>
+        <tr><td class="f">target_uid</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">涉及哪条素材（如果是一条）。</td></tr>
+        <tr><td class="f">target_rel_path</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">涉及哪个路径（如果不成条目，例如孤儿压缩包）。</td></tr>
+        <tr><td class="f">detail</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d"><b>人话说明</b>，直接显示（与 <span class="mono">activity</span> 相反：
+            这里是引擎给的诊断结论，本身就是唯一来源，不存在"第二份渲染"）。</td></tr>
+        <tr><td class="f">detail_json</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">结构化明细，用于导出 CSV 与"跳转到该条"。</td></tr>
+        <tr><td class="f">created_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">发现时刻。</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th style="width:300px">索引</th><th>覆盖什么</th></tr></thead>
+      <tbody>
+        <tr><td class="f">idx_health_finding_run (run_id, check_id)</td>
+          <td class="d">按检查项分组看本轮结果（体检页的主视图）。</td></tr>
+        <tr><td class="f">idx_health_finding_uid (target_uid)<br>WHERE target_uid IS NOT NULL</td>
+          <td class="d">详情页显示"这条素材有哪些体检问题"。<b>偏索引</b>排除路径类发现。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>recent_view</h3><span class="pill p-new">v1.2 新增</span>
+      <span class="why">"最近查看"（原型首页已有这一栏，但之前没有存储）。
+        <b>放在库级</b>：查看的是具体条目，要 join <span class="mono">asset</span>。</span></div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:110px">类型</th><th style="width:200px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">uid</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-pk">PK</span><span class="pill p-fk">FK asset.uid</span><span class="pill p-ck">CASCADE</span></td>
+          <td class="d"><b>uid 就是主键</b>——同一条看多次只保留最后一次，天然去重，不需要额外的唯一约束或清理逻辑。</td></tr>
+        <tr><td class="f">viewed_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-idx">INDEX DESC</span></td>
+          <td class="d">最后查看时刻。</td></tr>
+        <tr><td class="f">view_count</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">DEFAULT 1</span></td>
+          <td class="d">看了几次。用于把"反复看的"排前面——
+            <b>这比单纯按时间排更有用</b>。</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th style="width:190px">纪律</th><th>为什么</th></tr></thead>
+      <tbody>
+        <tr><td class="f">保留上限（如最近 100 条）</td>
+          <td class="d">插入时修剪最旧的。<b>否则这张表会跟着你逛的时间无限长</b>，而它只服务首页一栏。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ 意图层 ============ -->
+  <h2>库级表 · 意图层（不可再生）</h2>
+  <p class="sub">这一层是<b>重建元数据时必须原样保留</b>的东西，也是需要导出备份的东西。</p>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>asset_user_meta</h3><span class="pill p-now">本轮</span>
+      <span class="why">用户手写的标量。<b>刻意不并进 <span class="mono">asset</span></b>：
+        那张表的语义是"扫描出来的文件事实"，而这是"人写的"，两者持久性根本不同。</span></div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:110px">类型</th><th style="width:190px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">uid</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-pk">PK</span><span class="pill p-fk">FK asset.uid</span><span class="pill p-ck">CASCADE</span></td>
+          <td class="d">1:1。没有行 = 还没被标注过（合法状态，不是缺失）。</td></tr>
+        <tr><td class="f">rating</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NULL</span><span class="pill p-ck">CHECK 1..5</span></td>
+          <td class="d"><b>用 <span class="mono">NULL</span> 表示未评分，不用 0</b>——
+            0 会让你分不清"没评"和"评了零分"，而后者语义上不存在。范围写进 CHECK。</td></tr>
+        <tr><td class="f">note</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td>
+          <td class="d">自由备注。不设长度上限——截断是界面的事，不是存储的事。</td></tr>
+        <tr><td class="f">updated_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">最后编辑时刻。</td></tr>
+        <tr><td class="f">is_favorite</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">CHECK 0/1</span><span class="pill p-ck">DEFAULT 0</span><span class="pill p-idx">偏索引</span></td>
+          <td class="d"><b>v1.1 新增</b>（对齐 Immich 的 <span class="mono">isFavorite</span>）。
+            <b>收藏是一列布尔，不是一张关联表</b>——它是比特级的用户意图，而"筛收藏"是高频查询。
+            偏索引 <span class="mono">WHERE is_favorite = 1</span>。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note crit">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.1"/></svg>
+    <div><b>我砍掉了上一版编造的那个字段。</b>上一版 <span class="mono">use_state</span>
+      （<span class="mono">unused/delivered/archived</span>）<b>是我凭常识编的，没有任何依据</b>。
+      绿地设计里改用下面那张 <b>交付事件表</b> ——
+      它记录"交付给谁、什么时候、结果如何"，而"已交付/未使用"可以从事件<b>算出来</b>，
+      而且它正面满足 SPEC §3 F6 要求的"已复制 / 已跳过 / 失败"三分类。
+      <b>用有依据的事件表，替代我编的状态字段。</b></div>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>asset_export</h3><span class="pill p-new">v1.2 改名</span>
+      <span class="why"><b>原来叫 <span class="mono">asset_delivery</span>，只覆盖了交付、漏了取件</b>——
+        而取件（F1）和交付（F6）是同一类动作（把文件复制到白名单目录），
+        差别只在 <span class="mono">kind</span>。<b>拆成两张表就是同一概念的两份实现（P1）</b>，所以合成一张。</span></div>
+    <table>
+      <thead><tr><th style="width:180px">字段</th><th style="width:110px">类型</th><th style="width:210px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">export_id</td><td class="t">TEXT</td><td class="c"><span class="pill p-pk">PK</span></td><td class="d">nanoid。</td></tr>
+        <tr><td class="f">kind</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-ck">CHECK collect/deliver</span></td>
+          <td class="d"><b>取件 vs 交付。</b>两者共用同一张表，因为它们的结果分类、目标目录语义、
+            "跳过原因"结构完全相同。</td></tr>
+        <tr><td class="f">uid</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span><span class="pill p-fk">FK asset.uid</span><span class="pill p-ck">SET NULL</span></td>
+          <td class="d"><b>可空 + SET NULL，不是 NO CASCADE。</b>
+            条目被彻底删除后置空——<b>"我导出过它"这件事仍然成立</b>，
+            但也不该留着外键挡住建素材的删除。</td></tr>
+        <tr><td class="f">asset_name</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d"><b>导出那一刻的名字快照。</b>
+            这是"历史记录表"的标准做法：<b>反范式存快照</b>，
+            这样条目改名或被删后，历史里看到的仍是当时的名字，而不会变成一个空 uid。</td></tr>
+        <tr><td class="f">batch_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span><span class="pill p-idx">偏索引</span></td>
+          <td class="d">同一次批量操作的 id（复用 <span class="mono">activity.activity_id</span>）。
+            用于"撤销上一次批量导出"与把 12 行归成一条历史。
+            <b>不能建外键</b>——<span class="mono">activity</span> 在应用级 DB，跨库无外键。</td></tr>
+        <tr><td class="f">target_dir</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">导出到哪个白名单目录。</td></tr>
+        <tr><td class="f">result</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-ck">CHECK copied/skipped/failed</span></td>
+          <td class="d"><b>SPEC §3 F6 要的三分类</b>。取件也共用这套词——
+            "已存在所以跳过"在两种动作里都是同一件事。</td></tr>
+        <tr><td class="f">reason</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NULL</span></td><td class="d">跳过/失败的具体原因，人话。</td></tr>
+        <tr><td class="f">at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">发生时刻。</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th style="width:300px">索引</th><th>覆盖什么</th></tr></thead>
+      <tbody>
+        <tr><td class="f">idx_export_uid (uid, at_ms DESC)</td>
+          <td class="d">详情页显示"这条被导出过几次、最近一次何时"，
+            也是"是否已交付"的推导来源。</td></tr>
+        <tr><td class="f">idx_export_batch (batch_id)<br>WHERE batch_id IS NOT NULL</td>
+          <td class="d"><b>偏索引</b>：按批次查（撤销、历史详情）。
+            非批量导出不进索引。</td></tr>
+        <tr><td class="f">idx_export_recent (at_ms)</td><td class="d">导出历史列表。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8.2v.1"/></svg>
+    <div><b>为什么必须有 <span class="mono">batch_id</span>。</b>
+      批量交付 12 条会产生 12 行。"撤销刚才那次交付"要能一次找回这 12 行——
+      只看时间戳猜是猜不准的（用户可能在 3 秒内做了两次操作）。
+      <b>显式分组 id 是唯一可靠的做法。</b></div>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>tag</h3><span class="pill p-now">本轮</span>
+      <span class="why">抄 Immich：<b>标签是实体，不是逗号分隔的字符串</b>。
+        去掉了它里面多用户与无 UI 的部分。</span></div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:110px">类型</th><th style="width:190px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">tag_id</td><td class="t">TEXT</td><td class="c"><span class="pill p-pk">PK</span></td>
+          <td class="d">nanoid。<b>不用自增</b>：跨库合并标签时会撞。</td></tr>
+        <tr><td class="f">name</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span><span class="pill p-idx">UNIQUE</span></td>
+          <td class="d"><b>单用户 ⇒ 唯一约束只到 name</b>，
+            不需要 Immich 的 <span class="mono">(userId, value)</span> 复合唯一。</td></tr>
+        <tr><td class="f">created_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d">用于"最近用的标签"排序——比字母序有用得多。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>asset_tag</h3><span class="pill p-now">本轮</span>
+      <span class="why">多对多关联。<b>「级联」在这里是递归的</b>——条目删了关联跟着删。</span></div>
+    <table>
+      <thead><tr><th style="width:170px">字段</th><th style="width:110px">类型</th><th style="width:190px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">uid</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-fk">FK asset.uid</span><span class="pill p-pk">PK(1/2)</span><span class="pill p-ck">CASCADE</span></td>
+          <td class="d">与 <span class="mono">tag_id</span> 组成复合主键 ⇒ <b>天然防止同一标签重复贴在同一条上</b>。</td></tr>
+        <tr><td class="f">tag_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-fk">FK tag</span><span class="pill p-pk">PK(2/2)</span><span class="pill p-ck">CASCADE</span></td>
+          <td class="d">标签。</td></tr>
+        <tr><td class="f">added_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">贴上时刻。</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th style="width:250px">索引</th><th>覆盖什么查询</th></tr></thead>
+      <tbody>
+        <tr><td class="f">PRIMARY KEY (uid, tag_id)</td>
+          <td class="d">「这条素材有哪些标签」——列表页每行都查，必须最快。</td></tr>
+        <tr><td class="f">idx_asset_tag_tag (tag_id)</td>
+          <td class="d"><b>反向查询要单独建索引</b>：「这个标签下有哪些素材」。
+            复合主键对反向查询**没用** —— 这是最常见的索引疏漏。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>collection / collection_item</h3><span class="pill p-now">本轮</span>
+      <span class="why">交付与提案需要的分组。与标签的区别：
+        <b>标签是扁平的描述，集合是有名字的、一次性的打包</b>。</span></div>
+    <table>
+      <thead><tr><th style="width:190px">collection</th><th style="width:110px">类型</th><th style="width:190px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">collection_id</td><td class="t">TEXT</td><td class="c"><span class="pill p-pk">PK</span></td><td class="d">nanoid。</td></tr>
+        <tr><td class="f">name</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NOT NULL</span></td>
+          <td class="d"><b>不加 UNIQUE</b>——同名集合合理（去年与今年的提案可以同名）。</td></tr>
+        <tr><td class="f">note</td><td class="t">TEXT</td><td class="c"><span class="pill p-nn">NULL</span></td><td class="d">集合级备注。</td></tr>
+        <tr><td class="f">created_at_ms / updated_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">创建 / 修改时刻。</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th style="width:190px">collection_item</th><th style="width:110px">类型</th><th style="width:190px">约束</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="f">collection_id</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-fk">FK collection</span><span class="pill p-pk">PK(1/2)</span><span class="pill p-ck">CASCADE</span></td><td class="d">集合。</td></tr>
+        <tr><td class="f">uid</td><td class="t">TEXT</td>
+          <td class="c"><span class="pill p-fk">FK asset.uid</span><span class="pill p-pk">PK(2/2)</span><span class="pill p-ck">CASCADE</span></td><td class="d">条目。</td></tr>
+        <tr><td class="f">added_at_ms</td><td class="t">INTEGER</td>
+          <td class="c"><span class="pill p-nn">NOT NULL</span></td><td class="d">加入时刻，也是默认排序键。</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th style="width:250px">索引</th><th>覆盖什么查询</th></tr></thead>
+      <tbody>
+        <tr><td class="f">PRIMARY KEY (collection_id, uid)</td><td class="d">「集合里有哪些」+ 防重复加入。</td></tr>
+        <tr><td class="f">idx_collection_item_uid (uid)</td><td class="d">「这条被哪些集合收了」——详情页要显示它。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ 随功能 ============ -->
+  <h2>元数据导出 / 导入（v1.2 新增）</h2>
+  <p class="sub">上一版只在"落地顺序"里提了一句，<b>没有表、没有格式</b>。这里补上——
+    它是"重建前兜底 / 换机器 / 手滑删了标注"三种场景的唯一后悔药。</p>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>导出格式（版本化 JSON）</h3><span class="pill p-new">v1.2</span>
+      <span class="why">只导<b>意图层</b>。事实层与过程层不导——它们能算回来，导了也是噪音。</span></div>
+    <pre>{
+  <span class="s">"format"</span>: <span class="s">"gemma-search.metadata"</span>,   <span class="c">// 固定串，用来识别"这是我们的导出"</span>
+  <span class="s">"version"</span>: 1,                            <span class="c">// 格式版本；导入端必须能判断</span>
+  <span class="s">"exported_at_ms"</span>: 1760500000000,
+  <span class="s">"library"</span>: { <span class="s">"lib_id"</span>: <span class="s">"L1"</span>, <span class="s">"root"</span>: <span class="s">"G:\\model"</span> },  <span class="c">// 仅作参照，不作为对齐键</span>
+
+  <span class="s">"tags"</span>:            [ { <span class="s">"tag_id"</span>, <span class="s">"name"</span>, <span class="s">"created_at_ms"</span> } ],
+  <span class="s">"asset_user_meta"</span>: [ { <span class="s">"uid"</span>, <span class="s">"rating"</span>, <span class="s">"note"</span>,
+                          <span class="s">"is_favorite"</span>, <span class="s">"updated_at_ms"</span> } ],
+  <span class="s">"asset_tag"</span>:       [ { <span class="s">"uid"</span>, <span class="s">"tag_id"</span>, <span class="s">"added_at_ms"</span> } ],
+  <span class="s">"collections"</span>:     [ { <span class="s">"collection_id"</span>, <span class="s">"name"</span>, <span class="s">"note"</span>,
+                          <span class="s">"created_at_ms"</span> } ],
+  <span class="s">"collection_item"</span>: [ { <span class="s">"collection_id"</span>, <span class="s">"uid"</span>, <span class="s">"added_at_ms"</span> } ],
+  <span class="s">"index_exclusions"</span>: [ { <span class="s">"uid"</span>, <span class="s">"excluded_at_ms"</span> } ],
+  <span class="s">"asset_export"</span>:    [ { <span class="s">"export_id"</span>, <span class="s">"uid"</span>, <span class="s">"asset_name"</span>,
+                          <span class="s">"kind"</span>, <span class="s">"target_dir"</span>, <span class="s">"result"</span>,
+                          <span class="s">"reason"</span>, <span class="s">"at_ms"</span> } ]
+}</pre>
+  </div>
+
+  <div class="tbl">
+    <div class="tbl-h"><h3>六条设计决定</h3></div>
+    <table>
+      <thead><tr><th style="width:170px">决定</th><th>为什么</th></tr></thead>
+      <tbody>
+        <tr><td class="f"><b>按 uid 对齐</b>，不按路径</td>
+          <td class="d">uid 稳定（v1.1 已改成生成式）⇒ <b>换机器、搬库、改名之后导入仍能对上</b>。
+            若按路径对齐，用户整理过一次目录，整份导出就全废了。</td></tr>
+        <tr><td class="f">必带 version</td>
+          <td class="d">格式一定会变。<b>没有版本号的文件，导入端只能猜。</b>
+            识别到更高版本 ⇒ 明确拒绝并说明，不要半懂不懂地导进去。</td></tr>
+        <tr><td class="f">只导意图层</td>
+          <td class="d">事实层能扫回来，过程层能重跑。导出它们会让文件臃肿几十倍而无收益。</td></tr>
+        <tr><td class="f">导入三策略，默认"合并"</td>
+          <td class="d"><b>合并</b>（默认，以 uid 为键，冲突时取 <span class="mono">updated_at_ms</span> 较新者）/
+            <b>仅补空缺</b>（只填当前为空的值，不覆盖任何已有标注）/
+            <b>覆盖</b>（危险，两段式确认）。<b>默认必须是可逆的那个。</b></td></tr>
+        <tr><td class="f">导入前先自动备份当前状态</td>
+          <td class="d">导入是批量写。写之前先把现状导出一份到
+            <span class="mono">&lt;库根&gt;/.gs-backup/</span>（保留命名空间内）。
+            <b>这样"导入错了"也还有回头路。</b></td></tr>
+        <tr><td class="f">不含素材文件</td>
+          <td class="d">只导标注。<b>导出/导入永远不碰素材目录</b>——与写入不变式一致。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 9v5M12 17.5v.1"/><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <div><b>导出文件里出现"孤儿 uid"是正常的，不要当成错误。</b>
+      导出之后你删了几条素材，再导入时那些 uid 在库里已经不存在。
+      正确处理是<b>跳过并计数</b>（"12 条标注的目标已不存在"），
+      <b>而不是整个导入失败</b>——否则一份备份会因为一条被删的素材而永远导不回来。</div>
+  </div>
+
+  <h2>随功能上线的表（本轮不建）</h2>
+  <div class="tbl">
+    <table>
+      <thead><tr><th style="width:200px">表</th><th style="width:130px">跟哪个功能</th><th>为什么现在不建</th></tr></thead>
+      <tbody>
+        <tr><td class="f">doc_dir</td><td class="d">F7 文档检索 <span class="pill p-later">门控</span></td>
+          <td class="d">进入条件是"先拿 10–30 份真实文档"。<b>现在建表就是建一个永远空着的表。</b>
+            它是<b>意图层</b>（你加过哪些文档目录，扫不出来）——
+            现状 <span class="mono">doc_dirs</span> 会被重建抹掉，<b>这条才是真缺陷</b>，随它一起修。</td></tr>
+        <tr><td class="f">document / doc_chunk</td><td class="d">F7 <span class="pill p-later">门控</span></td>
+          <td class="d">同上，属事实层。分块参数（600–900 字符 / 12% 重叠）还没实测校准过。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note ok">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+    <div><b>v1.2 把这张表里的三项挪进了"本轮"。</b>
+      <span class="mono">health_run / health_finding</span>（体检台账，属过程层，随 F5 落地）、
+      <span class="mono">asset_name_fts</span>（关键词搜索，我上一版判断错了）、
+      以及<b>元数据导出/导入</b>（它不是表，是必须有的机制）。</div>
+  </div>
+
+  <!-- ============ 绿地也解决不了的 ============ -->
+  <h2>这个前提<b>也</b>解决不了的</h2>
+  <div class="note warn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 9v5M12 17.5v.1"/><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <div><b>schema 不是唯一要改的东西。</b> 三种 mtime 口径的分歧在
+      <span class="mono">packages/indexer</span> 与 <span class="mono">packages/engine</span> 的<b>代码</b>里，
+      不在表里。改 schema 定义不了"谁来写这个值"。
+      ⇒ 必须同时改生产者，而这按 <span class="mono">AGENTS.md</span> 的编码护栏
+      <b>要求先有基线证据</b>（全库 min/中位余弦 + top10 对照），改完重跑同一基线对比。</div>
+  </div>
+  <div class="note crit">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.1"/></svg>
+    <div><b>"不兼容"不等于"可以丢数据"。</b> 现有 <span class="mono">items.json</span> 与
+      <span class="mono">.gs-index.bin</span>（3594×768，12.4 MB）是<b>唯一能证明检索质量没退化的基线</b>。
+      绿地重建 schema 时：<b>索引文件格式与 items.json 都要保留可读</b>，
+      否则你无法回答"重建前后检索结果是否一致"。这也正是 P-0 编码护栏存在的理由。</div>
+  </div>
+
+  <!-- ============ 落地顺序 ============ -->
+  <h2>落地顺序（顺序本身是设计的一部分）</h2>
+  <div class="steps">
+    <div class="st"><span class="no">0</span><span class="bd">
+      <span class="t">先留基线，再动任何编码/索引路径</span>
+      <span class="d">全库 min 与中位余弦 + 若干查询的 top10 对照，归档到
+        <span class="mono">reports/</span>。<b>没有这份基线，后面每一步都无法证明没退化。</b>
+        这条是 <span class="mono">AGENTS.md</span> 的硬性护栏，不是我加的。</span></span></div>
+    <div class="st"><span class="no">1</span><span class="bd">
+      <span class="t">统一 mtime 口径（改生产者代码）</span>
+      <span class="d">定义 <span class="mono">mtime_ms</span> 的唯一公式，改
+        <span class="mono">indexer</span> / <span class="mono">engine</span> / 主进程三处；
+        加一条单测断言"同一文件经三条路径得到同一个值"。<b>先于 schema 落地</b>——
+        否则新表装进去的就是不一致的数据。</span></span></div>
+    <div class="st"><span class="no">2</span><span class="bd">
+      <span class="t">写绿地 migrations（应用级 4 张 + 库级 14 张）</span>
+      <span class="d">作为 <b>v1</b> 一次性建立，不是增量。现有 <span class="mono">.gs.db</span> 与
+        <span class="mono">app</span> 侧一律<b>丢弃重建</b>（绿地前提明确接受）。
+        索引文件不动。<b>应用级与库级是两套独立迁移</b>——
+        它们版本可以不同步（应用升级不该强制重建所有库）。</span></span></div>
+    <div class="st"><span class="no">3</span><span class="bd">
+      <span class="t">写"层"分类常量 + 单测</span>
+      <span class="d"><b>18 张表</b>按事实 / 过程 / 意图 / 应用四组写在一处；
+        单测断言"迁移里建的表必须每一张都被分类"。
+        新增表却忘了分类 ⇒ <b>测试变红</b>。这是防漂移的唯一机械手段。</span></span></div>
+    <div class="st"><span class="no">4</span><span class="bd">
+      <span class="t">任务表接线：心跳、断点续跑、崩溃恢复</span>
+      <span class="d">扫描 / 索引 / 体检 / 重建 / 入库全部改成写 <span class="mono">job</span> 表。
+        启动时把"<span class="mono">running</span> 但心跳过期"的任务判为失败，
+        <b>否则界面会永远显示一个不存在的进度</b>。
+        体检改为挂在 <span class="mono">job</span> 上，不另写一套任务机制（P1）。</span></span></div>
+    <div class="st"><span class="no">5</span><span class="bd">
+      <span class="t">重建流程重写：丢事实层、留过程层与意图层</span>
+      <span class="d">现在 <span class="mono">removeGsDbFiles</span> 是<b>删整个文件</b>，
+        <span class="mono">doc_dirs</span>（意图层，<b>扫不出来、真会丢</b>）就这样没了；
+        <span class="mono">asset_index_state</span> 里的排除名单同理。
+        新流程：读过程层与意图层 → 重建 → 写回。真损坏时如实告知"救不回来"。
+        <b>注意 <span class="mono">health_*</span> 是过程层</b>——它丢了只是要重跑，不算数据丢失。</span></span></div>
+    <div class="st"><span class="no">6</span><span class="bd">
+      <span class="t">元数据导出 / 导入</span>
+      <span class="d">只导意图层，版本化 JSON，按 uid 对齐。
+        它必须<b>先于重建流程改好</b>——否则第一次重建就没有兜底。
+        也要接进"移除库"的确认框（"先导出一份"）。</span></span></div>
+    <div class="st"><span class="no">7</span><span class="bd">
+      <span class="t">清空重建：老 schema 的一次性迁移</span>
+      <span class="d">启动时发现旧版本 <span class="mono">.gs.db</span> ⇒ 丢弃重建（绿地前提）。
+        但要做两件事：<b>① 先把意图层能读的都读出来做一次导出</b>
+        （老库里 <span class="mono">doc_dirs</span> 可能真有数据）；
+        <b>② 明确告知用户发生了什么</b>，不要静默重建。</span></span></div>
+  </div>
+
+  <!-- ============ 对 SPEC 的影响 ============ -->
+  <h2>对文档的影响</h2>
+  <div class="tbl">
+    <table>
+      <thead><tr><th style="width:150px">文档</th><th style="width:190px">改哪节</th><th>改什么</th></tr></thead>
+      <tbody>
+        <tr><td class="d">SPEC.md</td><td class="mono" style="font-size:12px">§1 数据模型</td>
+          <td class="d"><b>整节重写</b>：三张新表（asset / asset_file / asset_index_state）+ 意图层六张。
+            <span class="mono">items</span> 的 18 字段表作废。</td></tr>
+        <tr><td class="d">SPEC.md</td><td class="mono" style="font-size:12px">§2 存储布局</td>
+          <td class="d">明确<b>两个数据库</b>（应用级 / 库级）与三层分类；
+            "可删除重建"限缩为"<b>事实层可重建</b>"。</td></tr>
+        <tr><td class="d">SPEC.md</td><td class="mono" style="font-size:12px">§2.1 写入不变式</td>
+          <td class="d">补：<b>软删除的条目在磁盘上仍在原位</b>（移入 <span class="mono">.gs-trash/</span>），
+            DB 里只标记。素材目录仍然只读。</td></tr>
+        <tr><td class="d">SPEC.md</td><td class="mono" style="font-size:12px">§3 F5 / F6</td>
+          <td class="d">F5 补"<span class="mono">needs_reencode</span> 对账"这一检查项；
+            F6 的结果三分类落到 <span class="mono">asset_export.result</span>。</td></tr>
+        <tr><td class="d">SPEC.md</td><td class="mono" style="font-size:12px">§7 验收</td>
+          <td class="d">补 <b>A14</b>：重建元数据前后<b>意图层内容完全一致</b>（机械断言）；
+            <b>A15</b>：同一文件经三条代码路径得到<b>同一个 <span class="mono">mtime_ms</span></b>。</td></tr>
+        <tr><td class="d">AGENTS.md</td><td class="mono" style="font-size:12px">§5 状态与持久化</td>
+          <td class="d">把"三层 + 两个数据库"写成规范。<b>§1 依赖表不改</b>——纯 SQL，无新依赖。</td></tr>
+        <tr><td class="d">PLAN.md</td><td class="mono" style="font-size:12px">§4 阶段</td>
+          <td class="d">P1 数据与索引这一阶段的范围要重写（绿地建表 + 统一 mtime）。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn" style="margin-top:22px">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 9v5M12 17.5v.1"/><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <div><b>这是改需求，不只是改表。</b> 要动 <span class="mono">SPEC.md</span> 的 §1/§2/§3/§7 与
+      <span class="mono">AGENTS.md</span> 的 §5。按纪律「改规格 = 改需求」，需要你明确同意。
+      <b>本文件只改提案，未碰任何源码。</b></div>
+  </div>
+
+</div>
+</body>
+</html>

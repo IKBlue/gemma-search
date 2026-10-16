@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>字段地图 · 哪个字段用在哪一块、能操作什么、有什么用</title>
+<!--
+  ============================================================================
+  字段地图（**提案**，不碰代码）
+
+  为什么要这份：schema 文档是按【表】组织的（写迁移的人需要），
+  但所有者需要的是按【屏】组织 —— "我能做什么、在哪做、动了哪些字段、有什么用"。
+  这是两种视角，缺的是中间那张地图。本文件就是那张地图。
+
+  内容来源：
+    · 12 屏与操作钩子：从 prototypes/apple-style-redesign.html 实际提取（不是回忆）
+    · 字段名：来自 PROPOSAL-schema-v1.html（v1.2，18 张表）
+  ============================================================================
+-->
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+:root {
+  --line: #2c2c2e; --line-strong: #3a3a3c;
+  --surface: #161618; --raised: #1d1d1f; --hover: rgba(255,255,255,.055);
+  --text: #f5f5f7; --text-2: #a1a1a6; --text-3: #86868b;
+  --accent: #0d6fdb; --accent-text: #4da3ff; --accent-soft: rgba(77,163,255,.18);
+  --ok-text: #30d158; --warn-text: #ff9f0a; --crit-text: #ff685f; --purple-text: #9b9bff;
+  --ok-soft: rgba(48,209,88,.22); --warn-soft: rgba(255,159,10,.22);
+  --crit-soft: rgba(255,69,58,.22); --purple-soft: rgba(120,120,255,.16);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --r-panel: 18px; --r-pill: 999px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --line: #e5e5ea; --line-strong: #d2d2d7;
+    --surface: #fff; --raised: #fff; --hover: rgba(0,0,0,.045);
+    --text: #1d1d1f; --text-2: #6e6e73; --text-3: #707078;
+    --accent: #0071e3; --accent-text: #2b6fd4; --accent-soft: rgba(0,113,227,.10);
+    --ok-text: #217f3a; --warn-text: #a06406; --crit-text: #cd0014; --purple-text: #4b4bd6;
+    --ok-soft: rgba(52,199,89,.14); --warn-soft: rgba(255,159,10,.09);
+    --crit-soft: rgba(255,59,48,.14); --purple-soft: rgba(90,90,220,.10);
+  }
+}
+body {
+  margin: 0; padding: 44px 30px 120px; font-size: 14px; line-height: 1.45;
+  background: #000; color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Hiragino Sans GB", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+@media (prefers-color-scheme: light) { body { background: #fff; } }
+.wrap { max-width: 1340px; margin: 0 auto; }
+h1 { font-size: 27px; font-weight: 680; letter-spacing: -.022em; margin: 0 0 6px; }
+h2 { font-size: 20px; font-weight: 660; letter-spacing: -.018em; margin: 50px 0 6px;
+     padding-top: 22px; border-top: 1px solid var(--line); }
+h2:first-of-type { border-top: 0; margin-top: 32px; }
+h3 { font-size: 15px; font-weight: 640; margin: 0; }
+p { margin: 0; }
+.mono, code { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.lede { color: var(--text-2); font-size: 15px; max-width: 78ch; }
+.sub { color: var(--text-3); font-size: 12.5px; margin-top: 5px; max-width: 86ch; }
+.faint { color: var(--text-3); } .muted { color: var(--text-2); }
+
+/* ---- 四类字段大卡 ---- */
+.cats { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px; margin-top: 16px; }
+.cat { border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface); padding: 16px 18px; }
+.cat .hd { display: flex; align-items: center; gap: 9px; }
+.cat .lv { font-size: 11px; font-weight: 660; letter-spacing: .05em; padding: 3px 9px; border-radius: var(--r-pill); }
+.cat h3 { font-size: 14.5px; }
+.cat .you { font-size: 11.5px; margin-top: 10px; font-weight: 620; }
+.cat ul { margin: 8px 0 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--text-2); }
+.cat li { padding: 3px 0 3px 14px; position: relative; }
+.cat li::before { content: ''; position: absolute; left: 2px; top: 9px;
+  width: 4px; height: 4px; border-radius: 50%; background: var(--text-3); }
+.cat .eg { font-family: var(--mono); font-size: 11.5px; color: var(--text); }
+.lv-a { background: var(--ok-soft); color: var(--ok-text); }
+.lv-b { background: var(--purple-soft); color: var(--purple-text); }
+.lv-c { background: var(--warn-soft); color: var(--warn-text); }
+.lv-d { background: var(--hover); color: var(--text-3); }
+
+/* ---- 屏幕卡 ---- */
+.scr { border: 1px solid var(--line); border-radius: 22px; background: var(--surface);
+       margin-top: 18px; overflow: hidden; }
+.scr-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+         padding: 14px 20px; border-bottom: 1px solid var(--line);
+         background: color-mix(in srgb, var(--text) 3.5%, transparent); }
+.scr-h .nm { font-size: 16px; font-weight: 660; letter-spacing: -.01em; }
+.scr-h .sid { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); }
+.scr-h .job { flex-basis: 100%; font-size: 12.5px; color: var(--text-2); line-height: 1.55; }
+.scr table { width: 100%; border-collapse: collapse; }
+.scr th, .scr td { text-align: left; padding: 9px 20px; border-top: 1px solid var(--line); vertical-align: top; }
+.scr thead th { border-top: 0; font-size: 10.5px; font-weight: 620; letter-spacing: .05em;
+                text-transform: uppercase; color: var(--text-3); padding-top: 11px; padding-bottom: 7px; }
+.scr td.op { font-size: 13px; font-weight: 580; white-space: nowrap; }
+.scr td.trig { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); white-space: nowrap; }
+.scr td.fl { font-size: 12px; }
+.scr td.ef { font-size: 12.5px; color: var(--text-2); }
+.w { color: var(--ok-text); } .r { color: var(--purple-text); }
+.f-name { font-family: var(--mono); font-size: 11.5px; }
+.f-name.w { color: var(--ok-text); } .f-name.r { color: var(--purple-text); }
+.f-name.wr { color: var(--warn-text); }
+.tag { display: inline-block; padding: 0 6px; margin: 1px 3px 1px 0; border-radius: 5px;
+       font-size: 10px; font-weight: 620; }
+.t-you { background: var(--ok-soft); color: var(--ok-text); }
+.t-sys { background: var(--purple-soft); color: var(--purple-text); }
+.t-job { background: var(--warn-soft); color: var(--warn-text); }
+.t-log { background: var(--hover); color: var(--text-3); }
+.t-ui { background: var(--accent-soft); color: var(--accent-text); }
+
+/* ---- 反查表 ---- */
+.rev { border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface);
+       margin-top: 14px; overflow: hidden; }
+.rev table { width: 100%; border-collapse: collapse; }
+.rev th, .rev td { text-align: left; padding: 8px 16px; border-top: 1px solid var(--line); vertical-align: top; }
+.rev thead th { border-top: 0; font-size: 10.5px; font-weight: 620; letter-spacing: .05em;
+                text-transform: uppercase; color: var(--text-3); padding-top: 10px; padding-bottom: 6px; }
+.rev td.tb { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); white-space: nowrap; }
+.rev td.f  { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.rev td.u  { font-size: 12.5px; color: var(--text-2); }
+.rev td.a  { font-size: 12px; white-space: nowrap; }
+
+.note { display: flex; gap: 10px; padding: 12px 15px; border-radius: 11px; margin-top: 14px;
+        background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+        font-size: 12.5px; line-height: 1.6; }
+.note svg { width: 15px; height: 15px; flex: none; margin-top: 2px; color: var(--accent-text); }
+.note.ok { background: var(--ok-soft); border-color: color-mix(in srgb, #30d158 30%, transparent); color: var(--ok-text); }
+.note.ok svg { color: var(--ok-text); }
+.note.warn { background: var(--warn-soft); border-color: color-mix(in srgb, #ff9f0a 30%, transparent); color: var(--warn-text); }
+.note.warn svg { color: var(--warn-text); }
+.note b { font-weight: 660; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>字段地图 · 哪个字段用在哪一块</h1>
+  <p class="lede">schema 文档是按<b>表</b>组织的——那是给写迁移的人看的。
+    这份按<b>屏</b>组织，回答你的问题：<b>能操作什么 · 在哪操作 · 动了哪些字段 · 有什么用。</b></p>
+  <p class="sub">屏幕与操作钩子是从 <span class="mono">prototypes/apple-style-redesign.html</span>
+    <b>实际提取</b>的（12 屏），不是回忆。</p>
+
+  <!-- ================= 先解决"我看不清哪块是干嘛的" ================= -->
+  <h2>先分清：字段其实只有四类，你只需要主动管第一类</h2>
+  <p class="sub">你觉得"看不清哪个字段用在哪"，根因是 18 张表混在一起看。
+    但按<b>谁写它</b>分，只有四类——<b>其中三类你根本不用管</b>。</p>
+  <div class="cats">
+    <div class="cat">
+      <div class="hd"><span class="lv lv-a">A</span><h3>你填的</h3></div>
+      <div class="you" style="color:var(--ok-text)">✅ 你直接编辑 · 丢了就没有了</div>
+      <ul>
+        <li><span class="eg">asset_user_meta</span> — 评分 · 备注 · 收藏</li>
+        <li><span class="eg">tag / asset_tag</span> — 标签</li>
+        <li><span class="eg">collection / collection_item</span> — 集合</li>
+        <li><span class="eg">asset_index_state.excluded_at_ms</span> — 排除索引</li>
+        <li><span class="eg">collect_dir</span> — 取件白名单目录</li>
+        <li><span class="eg">library_registry</span> — 库名 · 顺序 · 启停</li>
+      </ul>
+    </div>
+    <div class="cat">
+      <div class="hd"><span class="lv lv-b">B</span><h3>系统看出来的</h3></div>
+      <div class="you" style="color:var(--purple-text)">🔒 只读 · 你改不了，也不该改</div>
+      <ul>
+        <li><span class="eg">asset</span> — 名称 · 目录 · 分类</li>
+        <li><span class="eg">asset_file</span> — 路径 · 大小 · 修改时间 · 宽高</li>
+        <li class="faint" style="padding-left:0">改它们的唯一办法是改磁盘上的文件，
+          然后<b>扫描一遍</b>。</li>
+      </ul>
+    </div>
+    <div class="cat">
+      <div class="hd"><span class="lv lv-c">C</span><h3>系统跑出来的</h3></div>
+      <div class="you" style="color:var(--warn-text)">⚠️ 你只能"触发重跑"，不能直接改</div>
+      <ul>
+        <li><span class="eg">asset_index_state</span> — 索引状态（8 档）</li>
+        <li><span class="eg">job</span> — 任务进度</li>
+        <li><span class="eg">health_run / health_finding</span> — 体检结果</li>
+        <li class="faint" style="padding-left:0">想让它变，只有一条路：<b>重新编码 / 重新体检</b>。</li>
+      </ul>
+    </div>
+    <div class="cat">
+      <div class="hd"><span class="lv lv-d">D</span><h3>系统记的流水</h3></div>
+      <div class="you" style="color:var(--text-3)">📋 只读 · 你做的事留下的痕迹</div>
+      <ul>
+        <li><span class="eg">asset_export</span> — 取件 / 交付历史</li>
+        <li><span class="eg">activity</span> — 操作记录</li>
+        <li><span class="eg">recent_view / recent_query</span> — 最近查看 / 搜索</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="note ok">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+    <div><b>所以"哪个字段用在哪一块"的答案是：</b>
+      B / C / D 三类<b>你不操作，只看结果</b>；真正需要你关心的是 <b>A 类那 6 组</b>，
+      它们分别出现在下面五个地方：<b>条目详情页</b>（评分/备注/标签/集合/排除）、
+      <b>设置页</b>（取件目录）、<b>首页与库页</b>（库名/顺序/启停）、
+      <b>卡片与列表</b>（收藏）、以及<b>交付流程</b>。</div>
+  </div>
+
+  <!-- ================= 按屏的操作地图 ================= -->
+  <h2>一、按屏看：在哪能做什么</h2>
+  <p class="sub">每一屏一张卡。<b>写入</b> = 这个操作会改哪些字段；<b>读取</b> = 它靠哪些字段显示。
+    带 <span class="tag t-ui">界面态</span> 表示<b>不落库</b>（只是当前这一刻的界面选择）。</p>
+
+  <!-- ---------- 首页 ---------- -->
+  <div class="scr">
+    <div class="scr-h"><span class="nm">首页 · 全部库</span><span class="sid">screen-home</span>
+      <span class="job">材料墙 + 库卡片列表。这是"找"的入口，也是<b>库的登记与管理入口</b>。</span></div>
+    <table>
+      <thead><tr><th style="width:200px">操作</th><th style="width:150px">触发</th>
+        <th style="width:290px">写入字段</th><th style="width:220px">读取字段</th><th>你会看到什么</th></tr></thead>
+      <tbody>
+        <tr><td class="op">看全部库的素材</td><td class="trig">默认</td>
+          <td class="fl"><span class="tag t-ui">界面态</span> 当前范围</td>
+          <td class="fl"><span class="f-name r">asset</span> · <span class="f-name r">asset_file</span></td>
+          <td class="ef">跨库的瀑布流。只显示<b>兼容</b>的库——不兼容的会列出并说明原因。</td></tr>
+        <tr><td class="op">登记一个新库</td><td class="trig">addLibBtn</td>
+          <td class="fl"><span class="f-name w">library_registry</span>（lib_id, root, display_name, enabled, sort_order）</td>
+          <td class="fl">—</td>
+          <td class="ef">新库出现在卡片列表。此时<b>还没扫描</b>，条目数是 0。</td></tr>
+        <tr><td class="op">打开某个库</td><td class="trig">libcard</td>
+          <td class="fl"><span class="tag t-ui">界面态</span> currentLib</td>
+          <td class="fl"><span class="f-name r">asset</span> · <span class="f-name r">asset_index_state</span></td>
+          <td class="ef">进到该库的条目页。<b>库卡片本身只显示状态，不在这里管理</b>。</td></tr>
+        <tr><td class="op">调整库的顺序</td><td class="trig">拖动卡片</td>
+          <td class="fl"><span class="f-name w">library_registry.sort_order</span></td>
+          <td class="fl"><span class="f-name r">library_registry.sort_order</span></td>
+          <td class="ef">顺序固定下来。<b>否则每次重启顺序会变，你会找不到库。</b></td></tr>
+        <tr><td class="op">看"最近查看"</td><td class="trig">—</td>
+          <td class="fl"><span class="f-name w">recent_view</span>（查看时写）</td>
+          <td class="fl"><span class="f-name r">recent_view.viewed_at_ms</span></td>
+          <td class="ef">接着上次接着看。<b>反复看的排前面</b>（用 view_count）。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ---------- 库条目页 ---------- -->
+  <div class="scr">
+    <div class="scr-h"><span class="nm">库条目页</span><span class="sid">screen-lib</span>
+      <span class="job">一个库里的全部条目。<b>管理的主战场</b>——筛、排、选、批量操作。</span></div>
+    <table>
+      <thead><tr><th style="width:200px">操作</th><th style="width:150px">触发</th>
+        <th style="width:290px">写入字段</th><th style="width:220px">读取字段</th><th>你会看到什么</th></tr></thead>
+      <tbody>
+        <tr><td class="op">扫描这个库</td><td class="trig">libPageScan</td>
+          <td class="fl"><span class="f-name wr">job</span>(kind=scan, progress, heartbeat, cursor)<br>
+            <span class="f-name r">asset</span> · <span class="f-name r">asset_file</span>（新增/更新）</td>
+          <td class="fl"><span class="f-name r">asset_file.mtime_ms</span>（判是否改过）</td>
+          <td class="ef">发现新素材、发现丢失的。<b>进度来自 job 表，不是内存</b>——崩了能续。</td></tr>
+        <tr><td class="op">体检</td><td class="trig">libPageHealth</td>
+          <td class="fl"><span class="f-name wr">job</span>(kind=health)<br>
+            <span class="f-name wr">health_run</span> + <span class="f-name wr">health_finding</span></td>
+          <td class="fl"><span class="f-name r">asset</span> · <span class="f-name r">asset_file</span> ·
+            <span class="f-name r">asset_index_state</span></td>
+          <td class="ef">列出问题：缺包 / 完全重复 / 扩展名不符 / <b>索引状态缓存漂移</b>。</td></tr>
+        <tr><td class="op">加条目（放素材进去）</td><td class="trig">libPageAdd</td>
+          <td class="fl"><span class="f-name wr">job</span>(kind=ingest)<br>
+            <span class="f-name r">asset</span> · <span class="f-name r">asset_file</span></td>
+          <td class="fl">—</td>
+          <td class="ef">新素材入库并排队编码。<b>软件不删也不改素材，只读。</b></td></tr>
+        <tr><td class="op">重建索引</td><td class="trig">⋯ → rebuild</td>
+          <td class="fl"><span class="f-name wr">job</span>(kind=rebuild)<br>
+            <span class="f-name w">asset_index_state</span>（重置 encoded_at）</td>
+          <td class="fl"><span class="f-name r">library_registry.compat_key</span></td>
+          <td class="ef"><b>模型换了就必须做这一步</b>，否则新旧向量不在同一语义空间。</td></tr>
+        <tr><td class="op">停用 / 启用库</td><td class="trig">⋯ → toggle</td>
+          <td class="fl"><span class="f-name w">library_registry.enabled</span></td>
+          <td class="fl"><span class="f-name r">library_registry.enabled</span></td>
+          <td class="ef">它退出检索范围，<b>但一个文件都不动、标注也不动</b>。可逆。</td></tr>
+        <tr><td class="op">在文件管理器里打开</td><td class="trig">⋯ → reveal</td>
+          <td class="fl">—</td><td class="fl"><span class="f-name r">library_registry.root</span></td>
+          <td class="ef">打开资源管理器定位到库根。</td></tr>
+        <tr><td class="op">导出这个库的元数据</td><td class="trig">⋯ → export</td>
+          <td class="fl">（写文件，不写库）</td>
+          <td class="fl"><b>A 类全部</b>：标签 · 评分 · 备注 · 收藏 · 集合 · 排除 · 导出历史</td>
+          <td class="ef">得到一份版本化 JSON。<b>重建前 / 换机器前的后悔药。</b></td></tr>
+        <tr><td class="op">从列表移除库</td><td class="trig">⋯ → remove</td>
+          <td class="fl"><b>删</b> <span class="f-name w">library_registry</span> 行</td>
+          <td class="fl">—</td>
+          <td class="ef"><b>默认只是取消登记</b>，库根下的文件与标注原样保留。另两档要单独确认。</td></tr>
+        <tr><td class="op">筛选：全部 / 缺包</td><td class="trig">libfilter</td>
+          <td class="fl"><span class="tag t-ui">界面态</span></td>
+          <td class="fl"><span class="f-name r">asset_file</span>（有没有 role=archive 行）</td>
+          <td class="ef">只剩缺压缩包的。<b>芯片上的数字与结果必须一致</b>。</td></tr>
+        <tr><td class="op" style="color:var(--accent-text)">筛选：按索引状态 <span class="tag t-you">v1.2 新</span></td>
+          <td class="trig">新芯片</td>
+          <td class="fl"><span class="tag t-ui">界面态</span></td>
+          <td class="fl"><span class="f-name r">asset_index_state</span>（encoded_at / last_error /
+            excluded_at_ms / needs_reencode / compat_key）</td>
+          <td class="ef"><b>这是你现在完全没有的能力</b>：一眼找出"还没编码的 / 编码失败的 / 文件被外部改过的"。</td></tr>
+        <tr><td class="op">排序：名称 / 大小 / 时间</td><td class="trig">sort</td>
+          <td class="fl"><span class="tag t-ui">界面态</span></td>
+          <td class="fl"><span class="f-name r">asset.display_name</span> ·
+            <span class="f-name r">asset_file.size_bytes</span> ·
+            <span class="f-name r">asset_file.mtime_ms</span></td>
+          <td class="ef">列表按所选列排。索引状态那一列也可以排（把异常顶到前面）。</td></tr>
+        <tr><td class="op">切视图：列表 / 瀑布流</td><td class="trig">libview</td>
+          <td class="fl"><span class="tag t-ui">界面态</span></td>
+          <td class="fl"><span class="f-name r">asset_file.thumb_hash</span>（占位图）</td>
+          <td class="ef">列表适合<b>管理</b>（扫名字、多选），瀑布流适合<b>浏览</b>。<b>选择在切换时不丢。</b></td></tr>
+        <tr><td class="op">全选本页 / 单选</td><td class="trig">row-check</td>
+          <td class="fl"><span class="tag t-ui">界面态</span> selection</td><td class="fl">—</td>
+          <td class="ef">勾选。批量条随之出现。</td></tr>
+        <tr><td class="op">加载更多</td><td class="trig">libLoadMore</td>
+          <td class="fl">—</td><td class="fl"><span class="f-name r">asset</span>（分页）</td>
+          <td class="ef">40 → 80 → 全部。<b>不加载更多就等于剩下的条目够不着。</b></td></tr>
+        <tr><td class="op">批量取件</td><td class="trig">batchCollect</td>
+          <td class="fl"><span class="f-name w">asset_export</span>(kind=collect, batch_id, result)<br>
+            <span class="f-name w">activity</span></td>
+          <td class="fl"><span class="f-name r">asset_file.rel_path</span> · <span class="f-name r">collect_dir</span></td>
+          <td class="ef">压缩包被复制到白名单目录。<b>结果三分类：已复制 / 已跳过 / 失败。</b></td></tr>
+        <tr><td class="op">加入交付</td><td class="trig">batchDeliver</td>
+          <td class="fl"><span class="tag t-ui">界面态</span> 交付草稿</td><td class="fl">—</td>
+          <td class="ef">只是排队，还没导出。<b>到"交付"页才真正开始。</b></td></tr>
+        <tr><td class="op">批量移入回收站</td><td class="trig">batchDelete</td>
+          <td class="fl"><span class="f-name w">asset.deleted_at_ms</span><br>
+            <span class="f-name w">activity</span></td>
+          <td class="fl">—</td>
+          <td class="ef">两段式确认（条数 / 总大小 / 涉及哪些库 / 去哪）。<b>可恢复，标注不丢。</b></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ---------- 条目详情页 ---------- -->
+  <div class="scr">
+    <div class="scr-h"><span class="nm">条目详情页</span><span class="sid">screen-item</span>
+      <span class="job">一条素材的全部信息与操作。<b>A 类字段（你填的那些）主要在这里编辑。</b></span></div>
+    <table>
+      <thead><tr><th style="width:200px">操作</th><th style="width:150px">触发</th>
+        <th style="width:290px">写入字段</th><th style="width:220px">读取字段</th><th>你会看到什么</th></tr></thead>
+      <tbody>
+        <tr><td class="op">看这条的索引状态</td><td class="trig">自动</td>
+          <td class="fl">—</td>
+          <td class="fl"><span class="f-name r">asset_index_state</span> 全部时刻字段</td>
+          <td class="ef">面板第一块。<b>异常时换脸</b>：给原因（"文件被外部改过"）+ 一键修。</td></tr>
+        <tr><td class="op">取件（单条）</td><td class="trig">itemCollect</td>
+          <td class="fl"><span class="f-name w">asset_export</span>(kind=collect)<br><span class="f-name w">activity</span></td>
+          <td class="fl"><span class="f-name r">asset_file.rel_path</span> · <span class="f-name r">collect_dir.abs_path</span></td>
+          <td class="ef">复制到白名单目录。<b>不在白名单里的目录会被拒绝</b>——这是安全边界。</td></tr>
+        <tr><td class="op">定位</td><td class="trig">itemReveal</td>
+          <td class="fl">—</td><td class="fl"><span class="f-name r">asset_file.rel_path</span></td>
+          <td class="ef">在文件管理器里选中它。</td></tr>
+        <tr><td class="op">加入交付</td><td class="trig">itemAddBatch</td>
+          <td class="fl"><span class="tag t-ui">界面态</span></td><td class="fl">—</td>
+          <td class="ef">进交付草稿。</td></tr>
+        <tr><td class="op">重新编码这一条</td><td class="trig">—</td>
+          <td class="fl"><span class="f-name wr">job</span>(kind=index)<br><span class="f-name w">asset_index_state</span></td>
+          <td class="fl"><span class="f-name r">asset_file.mtime_ms</span></td>
+          <td class="ef">只重编这一条。<b>"待重编码"的那一条修好。</b></td></tr>
+        <tr><td class="op" style="color:var(--ok-text)">打标签 <span class="tag t-you">A 类</span></td>
+          <td class="trig">—</td>
+          <td class="fl"><span class="f-name w">tag</span>（新建时）· <span class="f-name w">asset_tag</span><br>
+            <span class="f-name w">activity</span></td>
+          <td class="fl"><span class="f-name r">tag.name</span> · <span class="f-name r">asset_tag</span></td>
+          <td class="ef">跨分类组织素材的唯一自由方式。<b>标签是实体，不是文本</b>——
+            改名一处、处处更新，且能反查"这个标签下有哪些"。</td></tr>
+        <tr><td class="op" style="color:var(--ok-text)">评分 <span class="tag t-you">A 类</span></td>
+          <td class="trig">—</td>
+          <td class="fl"><span class="f-name w">asset_user_meta.rating</span></td>
+          <td class="fl"><span class="f-name r">asset_user_meta.rating</span></td>
+          <td class="ef">挑东西时最省时间的判断。<b>未评是 NULL，不是 0</b>——
+            否则分不清"没评"和"零分"。</td></tr>
+        <tr><td class="op" style="color:var(--ok-text)">备注 <span class="tag t-you">A 类</span></td>
+          <td class="trig">—</td>
+          <td class="fl"><span class="f-name w">asset_user_meta.note</span></td>
+          <td class="fl"><span class="f-name r">asset_user_meta.note</span></td>
+          <td class="ef">"客户要求再来两个变体"这类上下文。<b>也会进关键词搜索</b>。</td></tr>
+        <tr><td class="op" style="color:var(--ok-text)">收藏 <span class="tag t-you">A 类</span></td>
+          <td class="trig">—</td>
+          <td class="fl"><span class="f-name w">asset_user_meta.is_favorite</span></td>
+          <td class="fl"><span class="f-name r">asset_user_meta.is_favorite</span></td>
+          <td class="ef">卡片与列表上可直接标。<b>比特级意图，单独一列</b>——筛收藏是高频查询。</td></tr>
+        <tr><td class="op" style="color:var(--ok-text)">加入集合 <span class="tag t-you">A 类</span></td>
+          <td class="trig">—</td>
+          <td class="fl"><span class="f-name w">collection</span>（新建时）· <span class="f-name w">collection_item</span><br>
+            <span class="f-name w">activity</span></td>
+          <td class="fl"><span class="f-name r">collection.name</span></td>
+          <td class="ef">为交付/提案临时打包。<b>与标签的区别：集合有名字、是一次性的</b>。</td></tr>
+        <tr><td class="op" style="color:var(--ok-text)">排除索引 <span class="tag t-you">A 类</span></td>
+          <td class="trig">危险区</td>
+          <td class="fl"><span class="f-name w">asset_index_state.excluded_at_ms</span><br>
+            <span class="f-name w">activity</span></td>
+          <td class="fl"><span class="f-name r">asset_index_state.excluded_at_ms</span></td>
+          <td class="ef">它不再参与检索，<b>体检也不再报它</b>。
+            <b>这是优先级最高的判定</b>——你的选择不会被任何系统推断覆盖。</td></tr>
+        <tr><td class="op">移入回收站</td><td class="trig">危险区</td>
+          <td class="fl"><span class="f-name w">asset.deleted_at_ms</span> · <span class="f-name w">activity</span></td>
+          <td class="fl">—</td>
+          <td class="ef">两段式确认。<b>标注全部保留</b>，恢复后还在。</td></tr>
+        <tr><td class="op">看是否导出过</td><td class="trig">自动</td>
+          <td class="fl">—</td>
+          <td class="fl"><span class="f-name r">asset_export</span>（uid + at_ms）</td>
+          <td class="ef">"这条交付过几次、最近一次什么时候"。<b>避免重复交付同一件。</b></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ---------- 找 ---------- -->
+  <div class="scr">
+    <div class="scr-h"><span class="nm">找（搜索）</span><span class="sid">screen-find</span>
+      <span class="job">语义搜索 + 以图搜图。走的是<b>向量索引</b>，不是数据库表。</span></div>
+    <table>
+      <thead><tr><th style="width:200px">操作</th><th style="width:150px">触发</th>
+        <th style="width:290px">写入字段</th><th style="width:220px">读取字段</th><th>你会看到什么</th></tr></thead>
+      <tbody>
+        <tr><td class="op">文字搜</td><td class="trig">bigSearch</td>
+          <td class="fl"><span class="f-name w">recent_query</span>(kind=text, text, scope_lib_id, result_count)</td>
+          <td class="fl">向量索引 + <span class="f-name r">asset</span></td>
+          <td class="ef">按意思找。<b>只搜 compat 相同的库</b>；不兼容的会列出并说明。</td></tr>
+        <tr><td class="op">以图搜图</td><td class="trig">imgBtn</td>
+          <td class="fl"><span class="f-name w">recent_query</span>(kind=image, image_ref=uid)</td>
+          <td class="fl">向量索引</td>
+          <td class="ef">拿一张图找相似的。<b>存 uid 不存路径</b>——路径会变。</td></tr>
+        <tr><td class="op" style="color:var(--accent-text)">按文件名找 <span class="tag t-you">v1.2 新</span></td>
+          <td class="trig">—</td>
+          <td class="fl">—</td>
+          <td class="fl"><span class="f-name r">asset_name_fts</span>(trigram) ·
+            <span class="f-name r">asset.display_name</span></td>
+          <td class="ef"><b>语义搜索答不了这个</b>：你说得出"金属质感头盔"，
+            说不出"那个叫 bracket_131 的文件"。<b>两条路要分开给结果，分数不可比。</b></td></tr>
+        <tr><td class="op">筛选 / 排序</td><td class="trig">filterChips · sortScore</td>
+          <td class="fl"><span class="tag t-ui">界面态</span></td><td class="fl">—</td>
+          <td class="ef">按分类 / 评分档筛。排序用引擎给的 band，<b>界面不自算阈值</b>。</td></tr>
+        <tr><td class="op">清除</td><td class="trig">clearSearchBtn</td>
+          <td class="fl">—</td><td class="fl">—</td>
+          <td class="ef">回到"逛"（空搜索 = 浏览全部）。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ---------- 收 / 交付 ---------- -->
+  <div class="scr">
+    <div class="scr-h"><span class="nm">收（取件）与 交付</span>
+      <span class="sid">screen-collect · screen-deliver</span>
+      <span class="job">两个"把文件复制出去"的流程。<b>它们共用同一张历史表</b>，靠 kind 区分。</span></div>
+    <table>
+      <thead><tr><th style="width:200px">操作</th><th style="width:150px">触发</th>
+        <th style="width:290px">写入字段</th><th style="width:220px">读取字段</th><th>你会看到什么</th></tr></thead>
+      <tbody>
+        <tr><td class="op">选目标目录</td><td class="trig">collectTargetHint</td>
+          <td class="fl"><span class="f-name w">collect_dir.is_default</span>（改默认时）</td>
+          <td class="fl"><span class="f-name r">collect_dir</span>(label, abs_path)</td>
+          <td class="ef">只能选白名单里的目录。<b>白名单外的一律拒绝</b>，这是硬边界。</td></tr>
+        <tr><td class="op">开始取件</td><td class="trig">act=collect</td>
+          <td class="fl"><span class="f-name w">asset_export</span>(kind=collect, batch_id, result, reason)<br>
+            <span class="f-name w">activity</span> · <span class="f-name wr">job</span></td>
+          <td class="fl"><span class="f-name r">asset_file.rel_path</span></td>
+          <td class="ef">逐条显示结果。<b>三分类必须有</b>：已复制 / 已跳过 / 失败——
+            没有"跳过"这一档，用户会以为文件丢了。</td></tr>
+        <tr><td class="op">开始交付</td><td class="trig">deliverStart</td>
+          <td class="fl"><span class="f-name w">asset_export</span>(kind=deliver)<br>
+            <span class="f-name w">activity</span> · <span class="f-name wr">job</span></td>
+          <td class="fl"><span class="f-name r">asset_file</span> · <span class="f-name r">collection_item</span></td>
+          <td class="ef">复制压缩包 + 预览图到目标，给出汇总。<b>同名不同内容必须报告冲突</b>，不静默覆盖。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ---------- 回收站 ---------- -->
+  <div class="scr">
+    <div class="scr-h"><span class="nm">回收站</span><span class="sid">screen-trash</span>
+      <span class="job">软删除的条目。<b>这是"删除"唯一的默认终点</b>——因为可逆。</span></div>
+    <table>
+      <thead><tr><th style="width:200px">操作</th><th style="width:150px">触发</th>
+        <th style="width:290px">写入字段</th><th style="width:220px">读取字段</th><th>你会看到什么</th></tr></thead>
+      <tbody>
+        <tr><td class="op">看回收站</td><td class="trig">默认</td>
+          <td class="fl">—</td>
+          <td class="fl"><span class="f-name r">asset.deleted_at_ms</span>（非空）</td>
+          <td class="ef">只列出软删除的。<b>用偏索引，只索引那几十行。</b></td></tr>
+        <tr><td class="op">恢复（单条 / 全部）</td><td class="trig">restore · trashRestoreAll</td>
+          <td class="fl"><span class="f-name w">asset.deleted_at_ms = NULL</span><br><span class="f-name w">activity</span></td>
+          <td class="fl">—</td>
+          <td class="ef"><b>标签、评分、备注、集合全部还在</b>——
+            因为删除只是标记，元数据的行一直没动。</td></tr>
+        <tr><td class="op">彻底清空</td><td class="trig">trashPurge</td>
+          <td class="fl"><b>删</b> <span class="f-name w">asset</span> 行（CASCADE 到 asset_file / asset_tag /
+            asset_user_meta / collection_item / asset_index_state）<br><span class="f-name w">activity</span></td>
+          <td class="fl">—</td>
+          <td class="ef">两段式确认，明确写"不可恢复"。<b>导出历史不跟着删</b>（uid 置空）——
+            "我交付过它"这件事仍然成立。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ---------- 体检 / 任务 ---------- -->
+  <div class="scr">
+    <div class="scr-h"><span class="nm">体检 与 任务</span>
+      <span class="sid">screen-health · screen-tasks</span>
+      <span class="job">体检是"发现问题"，任务是"正在跑什么"。<b>两者共用 job 表</b>，不各写一套。</span></div>
+    <table>
+      <thead><tr><th style="width:200px">操作</th><th style="width:150px">触发</th>
+        <th style="width:290px">写入字段</th><th style="width:220px">读取字段</th><th>你会看到什么</th></tr></thead>
+      <tbody>
+        <tr><td class="op">重新体检</td><td class="trig">rescanBtn</td>
+          <td class="fl"><span class="f-name wr">job</span>(kind=health) · <span class="f-name wr">health_run</span> ·
+            <span class="f-name wr">health_finding</span></td>
+          <td class="fl"><span class="f-name r">asset</span> · <span class="f-name r">asset_file</span> ·
+            <span class="f-name r">asset_index_state</span></td>
+          <td class="ef">列出问题并可按检查项分组。</td></tr>
+        <tr><td class="op" style="color:var(--accent-text)">状态缓存对账 <span class="tag t-you">v1.2 新</span></td>
+          <td class="trig">体检项</td>
+          <td class="fl"><span class="f-name w">health_finding</span>(check_id=<span class="mono">state-cache-drift</span>)
+            <br>并修正 <span class="f-name w">asset_index_state.needs_reencode</span></td>
+          <td class="fl"><span class="f-name r">asset_file.mtime_ms</span> 对
+            <span class="f-name r">asset_index_state.encoded_mtime_ms</span></td>
+          <td class="ef"><b>把"缓存漂移"变成能被发现的问题</b>——
+            <span class="mono">needs_reencode</span> 是缓存不是真相，所以要有对账。</td></tr>
+        <tr><td class="op">重建元数据</td><td class="trig">rebuildBtn</td>
+          <td class="fl"><span class="f-name w">asset_index_state</span> 保留 · <span class="f-name r">asset</span> 重建<br>
+            <span class="f-name w">asset_user_meta / tag / collection / asset_export</span> <b>保留</b></td>
+          <td class="fl">—</td>
+          <td class="ef">只重建<b>事实层</b>。<b>你填的东西一个字都不动</b>——
+            这条是 v1.2 修掉的真缺陷（现状会连 <span class="mono">doc_dirs</span> 一起抹掉）。</td></tr>
+        <tr><td class="op">看任务进度</td><td class="trig">tasks 页</td>
+          <td class="fl">—</td>
+          <td class="fl"><span class="f-name r">job</span>(progress_done, progress_total, phase, heartbeat_at_ms)</td>
+          <td class="ef"><b>进度只增不减</b>，且显示当前子阶段。
+            <b>进程崩了重启，任务不会永远卡在"运行中"</b>（靠心跳过期判定）。</td></tr>
+        <tr><td class="op">取消任务</td><td class="trig">taskCancel</td>
+          <td class="fl"><span class="f-name w">job.state = cancelled</span></td>
+          <td class="fl"><span class="f-name r">job.job_id</span></td>
+          <td class="ef">停下。<b>下次可以从 cursor_json 继续</b>，不用从头来。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ---------- 设置 ---------- -->
+  <div class="scr">
+    <div class="scr-h"><span class="nm">设置 与 诊断</span><span class="sid">screen-settings · screen-diag</span>
+      <span class="job">外观、模型目录、取件目标、快捷键。<b>全部落在 app_setting 的键值里。</b></span></div>
+    <table>
+      <thead><tr><th style="width:200px">操作</th><th style="width:150px">触发</th>
+        <th style="width:290px">写入字段</th><th style="width:220px">读取字段</th><th>你会看到什么</th></tr></thead>
+      <tbody>
+        <tr><td class="op">改外观（深/浅/跟随）</td><td class="trig">theme</td>
+          <td class="fl"><span class="f-name w">app_setting</span>(key=<span class="mono">theme</span>)</td>
+          <td class="fl"><span class="f-name r">app_setting</span></td>
+          <td class="ef">立即生效并记住。<b>形状由 <span class="mono">shared/ipc.ts</span> 的 zod 定义</b>，
+            界面不许另写一份默认值。</td></tr>
+        <tr><td class="op">改模型目录</td><td class="trig">—</td>
+          <td class="fl"><span class="f-name w">app_setting</span>(key=<span class="mono">model.dir</span>)</td>
+          <td class="fl"><span class="f-name r">app_setting</span></td>
+          <td class="ef"><b>模型不进库</b>——它属于程序侧，换机器要自备。</td></tr>
+        <tr><td class="op">改取件白名单目录</td><td class="trig">—</td>
+          <td class="fl"><span class="f-name w">collect_dir</span>(label, abs_path, is_default)</td>
+          <td class="fl"><span class="f-name r">collect_dir</span></td>
+          <td class="ef"><b>这是安全边界，不是普通设置</b>——
+            所以单独一张表，改它应该比改外观更"重"。</td></tr>
+        <tr><td class="op">看诊断</td><td class="trig">diag</td>
+          <td class="fl">—</td>
+          <td class="fl"><span class="f-name r">app_meta</span> · <span class="f-name r">job</span> ·
+            <span class="f-name r">library_registry.compat_key</span></td>
+          <td class="ef">版本、设备、性能、以及每个库的 compat。<b>排障时一眼看清"库是从哪来的"。</b></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ================= 反查 ================= -->
+  <h2>二、反过来查：这个字段出现在哪</h2>
+  <p class="sub">你在 schema 文档里看到一个字段名、不知道它是干嘛的，就查这张表。</p>
+  <div class="rev">
+    <table>
+      <thead><tr><th style="width:150px">表</th><th style="width:230px">字段</th>
+        <th style="width:100px">类别</th><th style="width:250px">出现在哪一屏</th><th>作用</th></tr></thead>
+      <tbody>
+        <tr><td class="tb">asset</td><td class="f">display_name</td><td class="a"><span class="tag t-sys">B</span></td>
+          <td class="u">首页 · 库页列表 · 详情页标题</td><td class="u">显示名。<b>可与磁盘文件名不同</b>——只改显示名不动文件。</td></tr>
+        <tr><td class="tb">asset</td><td class="f">deleted_at_ms</td><td class="a"><span class="tag t-sys">B</span></td>
+          <td class="u">回收站（列表）· 各处"移入回收站"（写入）</td>
+          <td class="u"><b>回收站全靠它。</b>非空 = 在回收站。恢复 = 置回 NULL。</td></tr>
+        <tr><td class="tb">asset</td><td class="f">content_created_at_ms</td><td class="a"><span class="tag t-sys">B</span></td>
+          <td class="u">排序"按内容时间"</td>
+          <td class="u">"这张图什么时候做的"。<b>与 mtime 是两件事</b>——后者是文件被改过的时间。</td></tr>
+        <tr><td class="tb">asset</td><td class="f">dup_group_id</td><td class="a"><span class="tag t-job">C</span></td>
+          <td class="u">体检页 · 详情页"有重复"提示</td>
+          <td class="u">同一 id 的行互为重复。<b>不存它就得每次体检重算全库两两比较。</b></td></tr>
+        <tr><td class="tb">asset_file</td><td class="f">size_bytes</td><td class="a"><span class="tag t-sys">B</span></td>
+          <td class="u">列表"大小"列 · 排序</td><td class="u">体积。<b>单位在名字里</b>，界面负责格式化成 MB。</td></tr>
+        <tr><td class="tb">asset_file</td><td class="f">mtime_ms</td><td class="a"><span class="tag t-sys">B</span></td>
+          <td class="u">列表"修改时间"列 · <b>判"待重编码"</b></td>
+          <td class="u">与编码时的快照比，就得出"文件被外部改过没有"。<b>全库唯一口径。</b></td></tr>
+        <tr><td class="tb">asset_file</td><td class="f">width / height</td><td class="a"><span class="tag t-sys">B</span></td>
+          <td class="u">列表"分辨率"列 · 筛"≥4K"</td>
+          <td class="u">整数。<b>用字符串就不能排序、不能筛</b>——原型里的 <span class="mono">px</span> 字符串要换掉。</td></tr>
+        <tr><td class="tb">asset_file</td><td class="f">thumb_hash</td><td class="a"><span class="tag t-sys">B</span></td>
+          <td class="u">瀑布流首屏 · 列表缩略图</td>
+          <td class="u"><b>约 25 字节，让网格秒出模糊占位</b>，不必等缩略图加载。</td></tr>
+        <tr><td class="tb">asset_file</td><td class="f">content_hash_kind / value</td><td class="a"><span class="tag t-job">C</span></td>
+          <td class="u">体检"完全重复"检查</td>
+          <td class="u"><b>必须成对</b>：裸哈希换算法后无法解释。</td></tr>
+        <tr><td class="tb">asset_index_state</td><td class="f">encoded_at_ms</td><td class="a"><span class="tag t-job">C</span></td>
+          <td class="u">详情页索引状态块 · 库页状态筛选</td>
+          <td class="u">编码成功时刻。NULL = 从未成功 → <b>"待编码"或"编码失败"</b>。</td></tr>
+        <tr><td class="tb">asset_index_state</td><td class="f">encoded_mtime_ms</td><td class="a"><span class="tag t-job">C</span></td>
+          <td class="u">间接：决定"待重编码"</td>
+          <td class="u">编码那一刻的文件 mtime 快照。<b>有它才能回答"何时被改的"</b>，而不只是"改过"。</td></tr>
+        <tr><td class="tb">asset_index_state</td><td class="f">last_error</td><td class="a"><span class="tag t-job">C</span></td>
+          <td class="u">详情页"编码失败"的说明文字</td>
+          <td class="u">人话，直接显示。<b>不存它，用户只知道"失败"不知道为什么。</b></td></tr>
+        <tr><td class="tb">asset_index_state</td><td class="f">excluded_at_ms</td><td class="a"><span class="tag t-you">A</span></td>
+          <td class="u">详情页危险区 · 库页"已排除"筛选</td>
+          <td class="u"><b>你唯一不可再生的索引字段。</b>体检不再报它，重建必须保留。</td></tr>
+        <tr><td class="tb">asset_index_state</td><td class="f">needs_reencode</td><td class="a"><span class="tag t-job">C</span></td>
+          <td class="u">库页状态筛选（索引列）</td>
+          <td class="u"><b>唯一的物化缓存</b>，由扫描器顺手维护。体检有对账项防漂移。</td></tr>
+        <tr><td class="tb">job</td><td class="f">progress_done / total</td><td class="a"><span class="tag t-job">C</span></td>
+          <td class="u">任务页 · 各处进度条</td>
+          <td class="u"><b>进度单调</b>：只增不减。没扫完 <span class="mono">total</span> 就是 NULL，不编百分比。</td></tr>
+        <tr><td class="tb">job</td><td class="f">heartbeat_at_ms</td><td class="a"><span class="tag t-job">C</span></td>
+          <td class="u">间接：任务页不再显示"僵尸运行中"</td>
+          <td class="u"><b>崩溃检测。</b>没有它，进程死了任务永远卡在"运行中"。</td></tr>
+        <tr><td class="tb">job</td><td class="f">cursor_json</td><td class="a"><span class="tag t-job">C</span></td>
+          <td class="u">间接：取消后"继续"</td>
+          <td class="u">断点续跑位置。<b>没有它，取消 = 白干。</b></td></tr>
+        <tr><td class="tb">asset_user_meta</td><td class="f">rating</td><td class="a"><span class="tag t-you">A</span></td>
+          <td class="u">详情页 · 卡片 · 搜索筛选</td><td class="u">评分 1–5。<b>未评是 NULL 不是 0。</b></td></tr>
+        <tr><td class="tb">asset_user_meta</td><td class="f">note</td><td class="a"><span class="tag t-you">A</span></td>
+          <td class="u">详情页 · 关键词搜索</td><td class="u">备注。进 FTS，可搜。</td></tr>
+        <tr><td class="tb">asset_user_meta</td><td class="f">is_favorite</td><td class="a"><span class="tag t-you">A</span></td>
+          <td class="u">卡片角标 · 列表列 · 筛收藏</td><td class="u">收藏。<b>一列布尔，不是关联表。</b></td></tr>
+        <tr><td class="tb">tag / asset_tag</td><td class="f">name / tag_id</td><td class="a"><span class="tag t-you">A</span></td>
+          <td class="u">详情页"组织"块 · 标签反查</td><td class="u">标签。<b>实体化 ⇒ 改名一处生效、能反查。</b></td></tr>
+        <tr><td class="tb">collection / _item</td><td class="f">name / collection_id</td><td class="a"><span class="tag t-you">A</span></td>
+          <td class="u">详情页 · 交付页选集合</td><td class="u">集合。<b>有名字的一次性打包</b>，与标签不同。</td></tr>
+        <tr><td class="tb">asset_export</td><td class="f">kind / result / reason</td><td class="a"><span class="tag t-log">D</span></td>
+          <td class="u">详情页"导出过几次" · 交付结果页 · 操作记录</td>
+          <td class="u">取件与交付共用。<b>三分类必须有"已跳过"</b>，否则用户以为文件丢了。</td></tr>
+        <tr><td class="tb">asset_export</td><td class="f">batch_id</td><td class="a"><span class="tag t-log">D</span></td>
+          <td class="u">"撤销上一次批量" · 历史详情</td><td class="u">把一次批量的 12 行归成一组。<b>靠时间戳猜是不准的。</b></td></tr>
+        <tr><td class="tb">activity</td><td class="f">kind / subject_*</td><td class="a"><span class="tag t-log">D</span></td>
+          <td class="u">操作记录页</td><td class="u">谁在什么时候做了什么。<b>不存渲染好的文案</b>，由 Adapter 渲染。</td></tr>
+        <tr><td class="tb">recent_view</td><td class="f">viewed_at_ms / view_count</td><td class="a"><span class="tag t-log">D</span></td>
+          <td class="u">首页"最近查看"</td><td class="u"><b>反复看的排前面</b>——比单纯按时间有用。</td></tr>
+        <tr><td class="tb">recent_query</td><td class="f">text / scope_lib_id</td><td class="a"><span class="tag t-log">D</span></td>
+          <td class="u">搜索框历史</td><td class="u">重跑时<b>必须还原当时的范围</b>，否则结果对不上。</td></tr>
+        <tr><td class="tb">library_registry</td><td class="f">display_name / sort_order / enabled</td>
+          <td class="a"><span class="tag t-you">A</span></td>
+          <td class="u">首页库卡片 · 侧栏范围选择器 · 库页标题</td>
+          <td class="u">库名 / 顺序 / 启停。<b>停用只是退出检索，不动文件。</b></td></tr>
+        <tr><td class="tb">library_registry</td><td class="f">compat_key</td><td class="a"><span class="tag t-sys">B</span></td>
+          <td class="u">范围选择器（哪些库能一起搜）· 诊断页</td>
+          <td class="u"><b>只有 compat 相同的库能合并检索</b>；不兼容的必须列出来并说明原因。</td></tr>
+        <tr><td class="tb">collect_dir</td><td class="f">label / abs_path / is_default</td>
+          <td class="a"><span class="tag t-you">A</span></td>
+          <td class="u">取件页目标选择 · 设置页</td>
+          <td class="u"><b>安全边界</b>：只有这些目录可以被写入。</td></tr>
+        <tr><td class="tb">app_setting</td><td class="f">key / value_json</td><td class="a"><span class="tag t-you">A</span></td>
+          <td class="u">设置页全部</td><td class="u">外观 / 模型目录 / 快捷键。<b>加设置不需要迁移。</b></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ================= 三类"你没看到的" ================= -->
+  <h2>三、哪些字段你看不到，但决定了你看到什么</h2>
+  <div class="note">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8.2v.1"/></svg>
+    <div><b>这几个字段从不出现在界面上，但少一个界面就是错的：</b>
+      <ul style="margin:8px 0 0; padding-left:18px">
+        <li><span class="mono">asset_index_state.checked_at_ms</span> —— 界面上"这个状态是何时检查的"。
+          <b>没有它，库里显示的可能是一个月前的状态而你不知道。</b></li>
+        <li><span class="mono">asset_file.content_hash_kind</span> —— 单独看不出用处，
+          但<b>没有它，换哈希算法后旧哈希无法解释</b>。</li>
+        <li><span class="mono">job.job_id</span> 与 <span class="mono">health_run.job_id</span> ——
+          让体检复用同一套任务机制。<b>没有这条关联，取消/进度/续跑就得写第二份。</b></li>
+        <li><span class="mono">asset_export.asset_name</span> —— 历史快照。
+          <b>没有它，条目改名后历史记录里就只剩一个看不懂的 uid。</b></li>
+        <li><span class="mono">library_registry.sort_order</span> ——
+          <b>没有它，每次重启库的顺序都可能变。</b></li>
+      </ul></div>
+  </div>
+
+  <div class="note warn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 9v5M12 17.5v.1"/><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <div><b>这份地图里有两处是"提案新增、原型还没有"的</b>，我在表里标成
+      <span class="tag t-you">v1.2 新</span>：<b>按索引状态筛选</b>（库页新芯片）与
+      <b>按文件名找</b>（搜索页关键词那条路）。其余操作都是原型里已经有的钩子。
+      ⇒ 也就是说，<b>这套 schema 能支撑的比你当前界面能做的多</b>，那两处是明确的下一步。</div>
+  </div>
+
+</div>
+</body>
+</html>

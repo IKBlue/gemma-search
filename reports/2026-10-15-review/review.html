@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gemma-search 项目专业审查报告</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1d212b;
+    --ink: #e8eaf0;
+    --ink-muted: #9aa3b2;
+    --ink-faint: #6b7383;
+    --line: #2a2f3a;
+    --accent: #4da3ff;
+    --accent-soft: rgba(77,163,255,.12);
+    --good: #34c759;
+    --good-text: #57d97a;
+    --warn: #ff9f0a;
+    --warn-text: #f0b34d;
+    --bad: #ff453a;
+    --bad-text: #ff7a72;
+    --purple: #b48cff;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+      "Hiragino Sans GB", "Segoe UI", "Microsoft YaHei", sans-serif;
+    line-height: 1.65;
+    font-size: 15px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 28px 120px; }
+  header.hero {
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 40px 44px;
+    background: linear-gradient(160deg, var(--panel-2), var(--panel));
+    margin-bottom: 36px;
+  }
+  .eyebrow { color: var(--accent); font-size: 12px; letter-spacing: .16em; font-weight: 700; text-transform: uppercase; }
+  h1 { font-size: 30px; margin: 10px 0 8px; letter-spacing: -.02em; }
+  .sub { color: var(--ink-muted); font-size: 15px; max-width: 720px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+  .meta span { border: 1px solid var(--line); border-radius: 999px; padding: 5px 13px; font-size: 12px; color: var(--ink-muted); }
+  .meta b { color: var(--ink); font-weight: 600; }
+
+  h2 { font-size: 22px; margin: 52px 0 6px; padding-top: 6px; letter-spacing: -.01em; }
+  h2 .no { color: var(--accent); margin-right: 10px; font-variant-numeric: tabular-nums; }
+  h2 + p.lead { color: var(--ink-muted); margin-top: 0; margin-bottom: 22px; }
+  h3 { font-size: 16px; margin: 26px 0 8px; }
+  p { margin: 10px 0; }
+  a { color: var(--accent); text-decoration: none; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px;
+         background: var(--panel-2); padding: 1px 6px; border-radius: 6px; color: #c7d2e2; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; color: #c7d2e2; }
+
+  /* scorecard */
+  .score-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 24px 0; }
+  .score-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 18px 16px; }
+  .score-card .dim { font-size: 13px; color: var(--ink-muted); }
+  .score-card .num { font-size: 30px; font-weight: 800; letter-spacing: -.02em; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+  .score-card .note { font-size: 12px; color: var(--ink-faint); }
+  .bar { height: 6px; border-radius: 999px; background: var(--panel-2); overflow: hidden; margin-top: 10px; }
+  .bar > i { display: block; height: 100%; border-radius: 999px; }
+  .s-good { color: var(--good-text); } .s-warn { color: var(--warn-text); } .s-bad { color: var(--bad-text); }
+
+  .verdict {
+    border-left: 4px solid var(--accent);
+    background: var(--accent-soft);
+    border-radius: 0 12px 12px 0;
+    padding: 18px 22px;
+    margin: 26px 0;
+  }
+  .verdict b { color: var(--ink); }
+
+  .callout { border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin: 14px 0; background: var(--panel); }
+  .callout.good { border-left: 4px solid var(--good); }
+  .callout.warn { border-left: 4px solid var(--warn); }
+  .callout.bad { border-left: 4px solid var(--bad); }
+  .callout .t { font-weight: 700; margin-bottom: 4px; }
+  .callout.good .t { color: var(--good-text); }
+  .callout.warn .t { color: var(--warn-text); }
+  .callout.bad .t { color: var(--bad-text); }
+
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--ink-muted); font-weight: 600; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; background: var(--panel); }
+  tr:hover td { background: rgba(255,255,255,.015); }
+  .pill { display: inline-block; border-radius: 999px; padding: 1px 10px; font-size: 12px; font-weight: 600; }
+  .pill.done { background: rgba(52,199,89,.14); color: var(--good-text); }
+  .pill.part { background: rgba(255,159,10,.14); color: var(--warn-text); }
+  .pill.stub { background: rgba(255,69,58,.14); color: var(--bad-text); }
+  .pill.miss { background: rgba(255,69,58,.1); color: var(--bad-text); border: 1px dashed rgba(255,69,58,.4); }
+
+  .kv { display: grid; grid-template-columns: 150px 1fr; gap: 6px 16px; font-size: 13.5px; }
+  .kv dt { color: var(--ink-muted); }
+  .kv dd { margin: 0; }
+  .num-big { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .risk { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .risk .sev { flex: none; width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; font-weight: 800; font-size: 13px; }
+  .sev.high { background: rgba(255,69,58,.15); color: var(--bad-text); }
+  .sev.med { background: rgba(255,159,10,.15); color: var(--warn-text); }
+  .sev.low { background: rgba(52,199,89,.15); color: var(--good-text); }
+  .footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--ink-faint); font-size: 12.5px; }
+  .toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 8px; }
+  .toc a { border: 1px solid var(--line); border-radius: 999px; padding: 4px 14px; font-size: 12.5px; color: var(--ink-muted); }
+  .toc a:hover { border-color: var(--accent); color: var(--accent); }
+  @media (max-width: 640px) {
+    .wrap { padding: 20px 16px 80px; }
+    header.hero { padding: 26px 22px; }
+    h1 { font-size: 24px; }
+    .kv { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Independent Technical &amp; Product Review</div>
+  <h1>gemma-search 项目审查报告</h1>
+  <div class="sub">
+    以产品经理、开发者、架构师、数据表设计师与主流工程实践的独立视角，对「本地素材库语义检索桌面应用」的框架、完整度、界面、交互与数据设计做一次外部的、不依赖项目自身规范的评估。
+  </div>
+  <div class="meta">
+    <span>审查对象：<b>gemma-search</b>（Electron 桌面应用）</span>
+    <span>审查日期：<b>2026-10-15</b></span>
+    <span>代码规模：<b>约 16,500 行 TS</b>（引擎 4.2k / 主进程 7.6k / 渲染 4.7k）</span>
+    <span>测试：<b>51 个单测文件 · 16 个 E2E 规格</b></span>
+  </div>
+  <div class="toc">
+    <a href="#s0">执行摘要</a>
+    <a href="#s1">框架审查</a>
+    <a href="#s2">完整度审查</a>
+    <a href="#s3">界面设计</a>
+    <a href="#s4">交互方式</a>
+    <a href="#s5">数据表设计</a>
+    <a href="#s6">主流做法对比</a>
+    <a href="#s7">风险清单</a>
+    <a href="#s8">改进建议</a>
+  </div>
+</header>
+
+<!-- ==================== 评分卡 ==================== -->
+<h2 id="s0"><span class="no">◎</span>总评分卡</h2>
+<p class="lead">按五个维度独立打分（10 分制）。评分基准是「一个要分发给真实用户、且承诺七条工作流的桌面产品」，而非「一个工程实验」。</p>
+
+<div class="score-grid">
+  <div class="score-card">
+    <div class="dim">架构与工程质量</div>
+    <div class="num s-good">9.0</div>
+    <div class="note">分层、契约、安全、可测性均为一流水准</div>
+    <div class="bar"><i style="width:90%;background:var(--good)"></i></div>
+  </div>
+  <div class="score-card">
+    <div class="dim">数据表设计</div>
+    <div class="num s-good">8.5</div>
+    <div class="note">6 表 + 四层持久性 + 唯一写入口，设计成熟</div>
+    <div class="bar"><i style="width:85%;background:var(--good)"></i></div>
+  </div>
+  <div class="score-card">
+    <div class="dim">产品完整度</div>
+    <div class="num s-bad">3.5</div>
+    <div class="note">7 条工作流仅 1 条可用，核心建索引仍是桩</div>
+    <div class="bar"><i style="width:35%;background:var(--bad)"></i></div>
+  </div>
+  <div class="score-card">
+    <div class="dim">界面设计</div>
+    <div class="num s-warn">5.5</div>
+    <div class="note">令牌体系严谨，但视觉质感与文案一致性不足</div>
+    <div class="bar"><i style="width:55%;background:var(--warn)"></i></div>
+  </div>
+  <div class="score-card">
+    <div class="dim">交互方式</div>
+    <div class="num s-warn">4.5</div>
+    <div class="note">确认式交互严谨，但快捷键/命令面板/批量均缺位</div>
+    <div class="bar"><i style="width:45%;background:var(--warn)"></i></div>
+  </div>
+</div>
+
+<div class="verdict">
+  <b>一句话结论：</b>这是一座<b>地基打得极好、但尚未盖到能住人</b>的房子。工程纪律、分层架构、契约设计与数据建模都达到了同规模项目里罕见的成熟度；然而对照任务书承诺的「七条工作流」，当前<b>只有「找→取」一条真正可用</b>，而这条链路还依赖一个用户必须自备、且动辄上 GB 的 ONNX 模型。产品完整度、界面质感与交互完备度，与工程投入的深度严重不成比例——这是一个<b>「重工程、轻产品」</b>的典型形态。
+</div>
+
+<!-- ==================== 一、框架 ==================== -->
+<h2 id="s1"><span class="no">01</span>项目框架审查 <span style="font-size:13px;color:var(--ink-faint)">—— 架构师 &amp; 开发者视角</span></h2>
+
+<h3>1.1 技术栈选型评估</h3>
+<table>
+  <tr><th>层</th><th>选定</th><th>评估</th></tr>
+  <tr><td>外壳</td><td>Electron 44</td><td>合理。本地桌面、离线、要跑 ONNX，Electron 是最稳妥的选择；「不换 Tauri」的判断成立，因为已有原生模块与打包经验沉淀。</td></tr>
+  <tr><td>运行时</td><td>Node 24 + node:sqlite</td><td><span class="pill part">有风险</span> node:sqlite 仍是实验性 API，好在被薄适配层隔离（全仓仅 1 处 import），这是教科书式的风险隔离。</td></tr>
+  <tr><td>界面</td><td>React 19 + TS strict + Tailwind 4 + shadcn/ui</td><td>主流且正确。严格 TS + 类型门禁「必须能红」是亮点。</td></tr>
+  <tr><td>状态</td><td>Zustand</td><td>轻量合适；「只放状态与编排、不持久化」的边界清晰。</td></tr>
+  <tr><td>契约</td><td>zod（单一来源 shared/ipc.ts）</td><td><b>本项目最值得称道的决策之一</b>：一份 schema 同时产出运行时校验 + 方法白名单 + 编译期类型，杜绝了「白名单是口号」。</td></tr>
+  <tr><td>引擎</td><td>零第三方依赖、传输无关</td><td>极强。引擎可脱离 Electron 用 node:test 直接测，这是「引擎即纯函数」的正确形态。</td></tr>
+</table>
+
+<h3>1.2 四层架构的执行落地</h3>
+<div class="callout good">
+  <div class="t">架构分层不是纸上谈兵，而是有机械断言钉住</div>
+  <p class="mono">UI → Operation → Adapter → Data</p>
+  <p>仓库里有 <code>layering.test.mjs</code>、<code>dom-validity.test.mjs</code>、<code>style-contract.test.mjs</code> 等守卫，<b>注入违例能让测试变红</b>（如 UI 层碰 window.api、渲染出嵌套交互元素、写死色值）。「唯一 Adapter 入口」「UI 零 window.api」「文案兜底只一份」都不是口号，是可执行的断言。这是我见过的对「架构漂移」最到位的对抗手段之一。</p>
+</div>
+
+<h3>1.3 安全姿态</h3>
+<ul>
+  <li>preload 只暴露 3 个成员；<code>sandbox:true</code> + <code>contextIsolation:true</code>。</li>
+  <li>IPC 只开 2 条通道；未登记方法一律拒绝；渲染进程传不进绝对路径（唯一例外 <code>queryImagePath</code> 有扩展名白名单）。</li>
+  <li><code>thumb://</code> 自定义协议只接受 <code>libId + uid@size</code>，路径由「注册表 + 索引」反查再校验包含；失败状态码映射 400/403/404/415/503/500 语义清晰。</li>
+  <li>取件白名单（<code>collect_dir</code> 表）构成结构性安全边界——渲染进程连「传一个白名单外的路径」都做不到。</li>
+</ul>
+<div class="callout warn">
+  <div class="t">框架层面唯一的「反主流」决策需要警惕</div>
+  <p>「<b>单一外部里程碑 M1，期间不发布可用版本</b>」是偏瀑布的姿态。PLAN 里明确写「对外只有一个 M1」「期间不发布」。对一个桌面工具类产品，这会让「最贵的部分最后才被验证」——好在 M0 薄切片（找→取端到端）已经部分对冲了这个风险，但它被显式标注为「不是发布」。工程上没问题，产品节奏上是隐患。</p>
+</div>
+
+<!-- ==================== 二、完整度 ==================== -->
+<h2 id="s2"><span class="no">02</span>项目完整度审查 <span style="font-size:13px;color:var(--ink-faint)">—— 对照任务书 TASKS.md</span></h2>
+
+<p class="lead">把 TASKS.md 的任务状态与代码实际行为逐条对账，得到下表。关键结论：<b>任务书的 ☑ 勾选严重滞后于代码现实</b>——大量已完成项（Tailwind/shadcn 接入、IPC 契约重列、体检/重建）在 TASKS.md 里仍无勾，而真正未完成的是「建索引」「事务」「交付」这些写路径。</p>
+
+<table>
+  <tr><th>能力</th><th>真实状态</th><th>说明</th></tr>
+  <tr><td>启动 → 找到库 → 语义/图像检索 → 详情 → 定位 → 取件</td><td><span class="pill done">可用</span></td><td>M0 已过（e2e 62+ 条通过）。唯一完整闭环。</td></tr>
+  <tr><td>库配置（选目录 / 登记 / 切换 / 停用）</td><td><span class="pill done">可用</span></td><td>libraryList/Add/PickDir/SetEnabled 等均实现。</td></tr>
+  <tr><td>体检 + 一键重建元数据</td><td><span class="pill done">可用</span></td><td>libraryHealth / libraryRebuild 实现完整，诊断页可点。</td></tr>
+  <tr><td>浏览整库（F2）</td><td><span class="pill part">UI 已建，数据未通</span></td><td>BrowsePage + 虚拟滚动 + 筛选排序全部写完，但读路径 <code>items</code> 方法未落地，页面<b>永远返回错误</b>（fetcher 写死 ITEMS_NOT_WIRED）。</td></tr>
+  <tr><td>建索引（indexStart/Cancel/Resume）</td><td><span class="pill stub">诚实桩</span></td><td>契约已删、job 表未建。意味着<b>干净机器无法从零建索引</b>——这是硬缺口。</td></tr>
+  <tr><td>收（入库 ingest / 事务）</td><td><span class="pill stub">诚实桩</span></td><td>四步事务机制在引擎里有，但无 job 表、无 IPC 暴露。</td></tr>
+  <tr><td>交付（F6 复制包+预览图）</td><td><span class="pill stub">未实现</span></td><td>只有单条「取件」，批量交付未做。</td></tr>
+  <tr><td>文档检索（F7）· 多库合并（F4）</td><td><span class="pill miss">门控中</span></td><td>进入条件不满足（无语料/无第二库），合理但未交付。</td></tr>
+  <tr><td>设置中心（N4 · P0）</td><td><span class="pill miss">缺失</span></td><td>路由表无 /settings。所有可配置值（模型路径、主题、快捷键）无 UI 入口。</td></tr>
+  <tr><td>命令面板 / 快捷键 / 批量多选（N3/N15 · P0）</td><td><span class="pill miss">缺失</span></td><td>cmdk 依赖已装但无页面；方向键/Enter/Space/Ctrl+K 未见接线。</td></tr>
+  <tr><td>单实例锁 + 窗口记忆（N6/T-10）</td><td><span class="pill part">部分</span></td><td>window-state.ts 存在；单实例锁 T-10 未勾。</td></tr>
+</table>
+
+<div class="callout bad">
+  <div class="t">完整度的核心矛盾：工程投入与可交付能力脱节</div>
+  <p>仓库里有 <b>51 个单测文件、16 个 E2E 规格、约 16,500 行 TS、几十份归档证据</b>——但一个真实用户装上去，能用的只有「对已建好索引的库做检索 + 取件」。<b>建索引</b>（产品的立足之本）是桩，<b>浏览</b>页永远报错，<b>设置</b>页不存在。这是「工程完善度」与「产品完整度」严重错配的典型样本。</p>
+</div>
+
+<div class="callout warn">
+  <div class="t">值得警惕的工作顺序：界面先于数据层</div>
+  <p>BrowsePage 是「把整个 UI（网格、虚拟滚动、筛选、空态三分类）写完，但数据读路径 <code>items</code> 还没实现，页面诚实地报错」。这种「先做界面骨架、后补契约」的顺序，对于一个把「契约是唯一来源」奉为圭臬的团队，恰好反证了契约设计没有先覆盖全屏面的数据流——<code>items</code>（U24）是在派工前才被 Lead 发现「F2 没有读路径」的。这说明<b>上游设计阶段缺了一次「每个页面需要哪些方法」的端到端遍历</b>。</p>
+</div>
+
+<!-- ==================== 三、界面 ==================== -->
+<h2 id="s3"><span class="no">03</span>界面设计审查 <span style="font-size:13px;color:var(--ink-faint)">—— 产品经理 &amp; 设计师视角</span></h2>
+
+<h3>3.1 设计系统：严谨，是加分项</h3>
+<ul>
+  <li>视觉令牌单一来源（<code>tokens.css</code>），组件不写死色值，派生色用 <code>color-mix()</code>，这是正确做法。</li>
+  <li>对比度被<b>逐值计算</b>：正文 ≥4.5:1、非文字图形 ≥3:1，且把「填充色 vs 正文色」拆成两个令牌（<code>--color-success</code> vs <code>--color-success-text</code>）——很多产品团队根本意识不到这个坑。</li>
+  <li>深浅色双块、reduced-motion / reduced-transparency 尊重、焦点环、44px 命中区，HIG 基线落地扎实。</li>
+  <li>危险操作两段式确认 + <code>alertdialog</code> 焦点陷阱，无障碍语义正确。</li>
+</ul>
+
+<h3>3.2 实际渲染质感：功能性偏「原型」，离「精致」有距离</h3>
+<div class="callout warn">
+  <div class="t">图标体系是最大的视觉短板</div>
+  <p>按钮里大量使用 Unicode 字符充当图标：<code>↻</code>（刷新）、<code>?</code>（帮助）、<code>◫</code>（以图搜图）、<code>←</code>（返回）、<code>✓/✕</code>（体检项）。依赖里明明有 <code>lucide-react@1.56.0</code>，但界面里几乎没看到它被用起来。<b>Unicode 图标在不同平台/字号下字形不一致、无法着色、语义模糊</b>，是「能用但显粗糙」的直接来源。一个以「Apple HIG」为视觉基线的产品，按钮里出现 <code>◫</code> 这种符号，观感落差明显。</p>
+</div>
+<ul>
+  <li><b>语言混用</b>：eyebrow 是英文（<code>LOCAL · PRIVATE · SEMANTIC</code>、<code>LOCAL IMAGE INTELLIGENCE</code>、<code>BROWSE</code>、<code>DIAGNOSTICS</code>），正文是中文。对一个面向中文用户（素材库、渲染器分类、取件）的产品，这种「英文当装饰、中文当正文」的混搭显得不统一。品牌副标题「LOCAL IMAGE INTELLIGENCE」更偏向开发者自我表达，而非用户价值。</li>
+  <li><b>死按钮暴露在首页</b>：搜索页标题区有「＋ 添加图库」「↻ 更新索引」两个按钮，点了只弹 toast「还没实现」；帮助按钮弹「帮助中心将在正式版本中提供」。一个产品首页长期挂着若干点了无反应的入口，是完整度与诚意的双重扣分。</li>
+  <li><b>信息密度偏低</b>：结果卡只有缩略图 + 文件名 + 分类 tag + 分数；没有尺寸、有无包、时间等关键元信息的即时呈现（这些在详情页才有）。检索场景下用户通常需要「一眼看出哪个是带包的、哪个多大」。</li>
+</ul>
+
+<h3>3.3 空态与错误态设计：值得表扬</h3>
+<p>浏览页把空态拆成「库是空的 / 筛没了 / 读不出来」三种，并各自给出不同指引；诊断页把「重建修得好 / 重建修不好」区分开；任务页宁可用「该功能等数据表上线」的诚实占位也不用灰色假按钮。这套「<b>不把 0 当没事、不把没做当做了</b>」的哲学，在 B 端工具里是稀缺品质。</p>
+
+<!-- ==================== 四、交互 ==================== -->
+<h2 id="s4"><span class="no">04</span>交互方式审查 <span style="font-size:13px;color:var(--ink-faint)">—— UX 视角</span></h2>
+
+<h3>4.1 做对的部分</h3>
+<ul>
+  <li><b>破坏性操作两段式 + 取消零 IPC</b>：取件、重建元数据都走「请求→确认」，取消路径有 store 级断言「一个 IPC 都不发」，连点只发一次。这是写路径交互的正确范式。</li>
+  <li><b>结果卡标题是链接而非整卡包链接</b>：避免了「链接套按钮」的嵌套交互元素（HTML 规范禁止、读屏会乱）。细节到位。</li>
+  <li><b>详情页四分区动作 + 「需重编码/不重编码」角标</b>：把领域判断直接标在按钮上，降低误操作。</li>
+  <li><b>诚实文案</b>：定位按钮只说「已请求在资源管理器中定位（系统未回报结果）」，不假装成功——这种对系统边界的诚实很难得。</li>
+</ul>
+
+<h3>4.2 缺失的关键交互（对桌面产品是硬伤）</h3>
+<table>
+  <tr><th>能力</th><th>优先级（任务书）</th><th>现状</th><th>影响</th></tr>
+  <tr><td>命令面板（Ctrl/Cmd+K）</td><td>P0</td><td>缺失（cmdk 已装未用）</td><td>跳页/切库/跑体检全靠鼠标，桌面应用失去最大效率杠杆。</td></tr>
+  <tr><td>快捷键全流程</td><td>P0</td><td>缺失</td><td>方向键移动、Enter 定位、Space 预览、Esc 清空均未见接线。</td></tr>
+  <tr><td>批量多选 + 批量动作</td><td>P0</td><td>缺失</td><td>取件/交付只能单条，3594 条的库无法批量操作。</td></tr>
+  <tr><td>拖拽导入 / 粘图搜</td><td>P0</td><td>缺失</td><td>最高频入口，SPEC 里自己都承认「比找菜单快十倍」。</td></tr>
+  <tr><td>设置中心</td><td>P0</td><td>缺失</td><td>模型路径、主题、快捷键、日志导出全无可配置入口。</td></tr>
+</table>
+
+<div class="callout warn">
+  <div class="t">交互完备度与「P0 必须要有」的自我定位严重不符</div>
+  <p>SPEC §9 自己把命令面板、快捷键、拖拽、批量、设置中心都标为 <b>P0（第一版必须有）</b>，但实际一个都没做。也就是说：<b>团队对「第一版长什么样」有一份自己都没兑现的清单</b>。这既说明规划是诚实的（知道什么重要），也说明执行距离那份规划还很远。</p>
+</div>
+
+<!-- ==================== 五、数据表 ==================== -->
+<h2 id="s5"><span class="no">05</span>数据表设计审查 <span style="font-size:13px;color:var(--ink-faint)">—— 数据库设计师视角</span></h2>
+
+<h3>5.1 设计本身：成熟、克制、有层次</h3>
+<p>「<b>两个数据库 · 6 张表 · 四层持久性</b>」是一个相当成熟的设计：</p>
+<div class="kv">
+  <dt>库级 <code>.gs.db</code></dt><dd><code>asset</code>（条目）· <code>asset_file</code>（文件角色，缺包=少一行而非 NULL 块）· <code>asset_index_state</code>（索引进度，存时刻不存枚举）</dd>
+  <dt>应用级 <code>app.db</code></dt><dd><code>app_meta</code>（兼迁移账本，单行守卫 id=1）· <code>library_registry</code>（库注册表）· <code>collect_dir</code>（取件白名单=安全边界）</dd>
+</div>
+<ul>
+  <li><b>四层持久性</b>（事实/过程/意图/应用）直接回答了「重建时什么可丢、什么必须留」——这是很多团队在建表时根本不会思考的问题。</li>
+  <li><b>唯一写入口</b>：每张表都锁死「谁能写」（asset/asset_file 只有扫描器写，asset_index_state 只有索引任务写），并有静态测试抓「调用方自己写 SQL」。</li>
+  <li><b>克制</b>：刻意不加 <code>deleted_at_ms</code>、<code>thumb_hash</code>、<code>needs_reencode</code> 等「迟早要用」的列，加列=一条迁移。拒绝过度设计。</li>
+  <li><b>正确面对约束</b>：明确承认「跨库外键不存在」（SQLite 无此能力），<code>asset.lib_id</code> 是普通 TEXT 不做 REFERENCES；Windows 路径规范化（大小写/8.3 短名）在写入方处理而非靠 UNIQUE 文本比较。</li>
+  <li><b>从 DDL 派生清单</b>：应有表清单由 DDL 反推，双向断言「迁移建出的每张表都必须在四层里被点名」——加表漏分类会被测试逼出来。</li>
+</ul>
+
+<h3>5.2 需要关注的取舍</h3>
+<div class="callout warn">
+  <div class="t">「6 张表」是范围收窄，不是最终形态</div>
+  <p>第二批还有 <b>14 张表</b>未建（job、health_run、collection、tag、activity、doc_chunk 等）。这意味着当前 6 表只能支撑「检索 + 取件 + 体检」这一薄层；任务、交付、收藏、文档检索全部在等第二批。<b>数据建模是分层的、有远见的，但当前落地的表覆盖不了产品的核心写路径</b>——「job」表的缺席正是「建索引是桩」的数据层根因。</p>
+</div>
+<ul>
+  <li><b>vector_row 的补充</b>：asset_index_state 里 <code>vector_row</code> 是「绿地修正」补上的——因为它对应稠密矩阵的行号。这说明最初设计时对「索引行 ↔ 条目」的映射关系有过一次遗漏，好在被下游前置核查抓出。好事，但也是一次「设计基线不够完整」的信号。</li>
+  <li><b>FTS5 未建</b>：文件名全文检索（asset_name_fts）在第二批，当前纯按文件名 <code>LIKE</code> 或向量检索，缺少「按文件名模糊找」这条最朴素也最常用的路径。</li>
+</ul>
+
+<!-- ==================== 六、主流做法对比 ==================== -->
+<h2 id="s6"><span class="no">06</span>与当前主流做法对比</h2>
+
+<h3>6.1 方向正确性：踩在趋势上</h3>
+<table>
+  <tr><th>主题</th><th>主流实践</th><th>本项目</th><th>判断</th></tr>
+  <tr><td>本地优先 / 离线 AI</td><td>2025-2026 年「on-device embedding + 本地向量检索」是明确趋势（如 AnythingLLM、private-gpt、桌面 RAG 工具）。</td><td>全离线、不上传、单进程内检索。</td><td>✅ 方向正确，且「只定位、不生成」的克制（不做 LLM 幻觉）是加分。</td></tr>
+  <tr><td>嵌入模型</td><td>主流是 sentence-transformers / ONNX 量化模型，普遍选 int8/q4 以控制体积与内存。</td><td>EmbeddingGemma-2 ONNX <b>fp32</b>（GB 级，2.28 GiB 内存峰值）。</td><td>⚠️ <b>fp32 未量化是明显偏离</b>：768 维、单一素材库（&lt;10 万块）场景，int8/q4 通常能换回数倍体积与内存收益，精度损失可测可控。2.28 GiB 峰值对 8GB 机器是重负担。</td></tr>
+  <tr><td>检索加速</td><td>&lt;10 万向量时主流用 NumPy/纯 JS 暴力点积即可，本项目判断正确（不引 sqlite-vec/hnswlib）。</td><td>纯 Float32Array 点积，文本 P50 52ms。</td><td>✅ 合理。规模没到，ANN 是过度设计。</td></tr>
+  <tr><td>数据层</td><td>桌面应用普遍 better-sqlite3；Node 内置 node:sqlite 是新兴选项。</td><td>node:sqlite + 薄适配层。</td><td>✅/⚠️ 用内置省去原生编译地狱，但实验 API 是分发的隐性风险；适配层隔离做得好。</td></tr>
+  <tr><td>UI 组件</td><td>shadcn/ui + Radix + Tailwind 是 React 侧当前事实标准。</td><td>同款（含统一 radix-ui 包）。</td><td>✅ 与主流一致。</td></tr>
+  <tr><td>测试策略</td><td>桌面应用普遍轻测试；本项目是「机械断言 + 证据归档」的重工程。</td><td>51 单测 + 16 E2E + 每结论必附证据。</td><td>✅ 质量文化远超主流，但需注意「证据仪式」本身成为时间黑洞（见风险 R7）。</td></tr>
+</table>
+
+<h3>6.2 与主流「桌面生产力工具」的用户预期差距</h3>
+<p>主流桌面工具（如本地图库管理器、RAG 客户端）的第一版通常会优先交付：<b>可用的浏览 + 可用的建索引 + 可用的批量操作 + 一个设置页</b>，再谈检索质量。本项目反其道而行——把「检索质量、安全边界、工程纪律」做到极致，却把「浏览、建索引、设置」留在后面。<b>从用户价值排序看，这是本末倒置的</b>：用户装上去的第一件事是「导入库并建索引」，而这恰好是桩。</p>
+
+<!-- ==================== 七、风险 ==================== -->
+<h2 id="s7"><span class="no">07</span>风险清单（按严重度排序）</h2>
+
+<div class="risk"><div class="sev high">高</div><div><b>R1 · 产品核心价值依赖用户自备 GB 级模型 + GPU</b>。干净机器装上后：无模型 → 只能看指引不能检索；无独显 → 图像检索 P50 1.48s（文本的 28 倍）。而「一键下载模型」是 P8 的「推荐项」，尚未实现。这意味着<b>产品的差异化能力（语义/以图搜图）在目标用户中最常见的「普通笔记本」上体验堪忧</b>。</div></div>
+
+<div class="risk"><div class="sev high">R2 · 建索引是桩，产品无法冷启动</b>。indexStart/Cancel/Resume 契约已删、job 表未建。一个全新用户<b>连索引都建不起来</b>，而「建索引」是产品立足之本。这比「缺模型」更根本——缺模型是自备问题，建索引是产品能力缺失。</div></div>
+
+<div class="risk"><div class="sev high">R3 · 检索质量结论无凭据 + 分数阈值是暂定值</b>。旧的质量证据（v2 PASS）已随旧文档体系清除，新的基线只有「编码路径一致性」（top10 逐位一致），<b>没有「检索结果是否真的好」的标注质量评估</b>。BANDS 阈值（text 0.72/0.65、image 0.90/0.80）被注释明说是「暂定」。核心价值「找得到」的质量承诺当前无实质证据。</div></div>
+
+<div class="risk"><div class="sev med">M4 · 内存峰值 2.28 GiB</b>。fp32 模型 + 3594×768 向量驻留主进程，8GB 机器上接近上限。未量化是主因。</div></div>
+
+<div class="risk"><div class="sev med">M5 · node:sqlite 实验性 API</b>。适配层隔离到位，但分发到旧 Windows/异常环境时行为未知，需真机矩阵验证（SPEC 自己标注「主进程内仍需复验」）。</div></div>
+
+<div class="risk"><div class="sev med">M6 · 单一里程碑 + 串行推进</b>。PLAN 规定串行（共享写入面），一个对外里程碑。进度风险高，且「多库合并、文档检索」被门控后可能永远排不上。</div></div>
+
+<div class="risk"><div class="sev low">L7 · 工程仪式的时间成本</b>。四份互锁文档 + 每结论必归档 + 机械断言 + 双向「能红」验证，是极强的质量文化，但也会让「改一行文案」级别的任务背负不成比例的开销。团队已在 TASKS 纪律里记了 15 条「踩坑复盘」，侧面说明协调成本不低。</div></div>
+
+<!-- ==================== 八、建议 ==================== -->
+<h2 id="s8"><span class="no">08</span>改进建议（优先级排序）</h2>
+
+<h3>P0 —— 先让产品「能用」，再谈「好用」</h3>
+<table>
+  <tr><th>#</th><th>建议</th><th>理由</th></tr>
+  <tr><td>1</td><td><b>补上建索引</b>（job 表 + indexStart/Cancel/Resume + 进度事件接线）。</td><td>没有它，产品无法冷启动，其余一切白搭。这是完整度的第一缺口。</td></tr>
+  <tr><td>2</td><td><b>落地 <code>items</code> 读路径，让浏览页真正工作</b>（S8 已排期，建议提前并作为硬验收）。</td><td>当前浏览页是「写完 UI 但永远报错」的半成品，比没有更尴尬。</td></tr>
+  <tr><td>3</td><td><b>补设置中心（至少：模型路径、主题、取件目录、日志导出）</b>。</td><td>SPEC 自标 P0，且「所有可配置值唯一入口」是团队自己的规范。</td></tr>
+  <tr><td>4</td><td><b>用 lucide-react 替换全部 Unicode 图标</b>。</td><td>视觉质感最大、成本最低的单点提升。</td></tr>
+  <tr><td>5</td><td><b>清理首页死按钮</b>：把「添加图库 / 更新索引」做成真功能，或至少在未实现时给禁用态 + 原因，而非可点后弹 toast。</td><td>团队自己规范里就写「未实现功能显式占位，不许点了只弹 toast」（N17），首页两个按钮正好违反。</td></tr>
+</table>
+
+<h3>P1 —— 让产品「好用」</h3>
+<table>
+  <tr><th>#</th><th>建议</th><th>理由</th></tr>
+  <tr><td>6</td><td>命令面板（Ctrl/Cmd+K）+ 核心快捷键（方向键/Enter/Space/Esc）。</td><td>cmdk 已装，接线成本低，桌面应用效率杠杆最大。</td></tr>
+  <tr><td>7</td><td>批量多选 + 批量取件/交付。</td><td>单条操作在 3594 条库上不可用。</td></tr>
+  <tr><td>8</td><td>结果卡增加关键元信息（有无包/尺寸/时间）。</td><td>检索场景的决策信息密度。</td></tr>
+  <tr><td>9</td><td>文案语言统一（eyebrow 中文或全英文，二选一）；品牌副标题改为用户价值表述。</td><td>消除「英文当装饰」的割裂感。</td></tr>
+  <tr><td>10</td><td>评估 int8/q4 量化，压内存峰值、缩模型体积。</td><td>2.28 GiB 峰值对 8GB 机器是真实负担；量化收益需与精度损失一起实测。</td></tr>
+</table>
+
+<h3>P2 —— 产品健康度</h3>
+<ul>
+  <li>建立<b>检索质量标注基准</b>（真查询集 + 人工相关性判断），把 BANDS 阈值从「暂定」变「有据」。</li>
+  <li>真机矩阵验证：node:sqlite 在主进程、无独显回退、干净机器首启、NSIS 安装器。</li>
+  <li>对「工程仪式」做一次成本收益复盘，看哪些断言/证据流程可以合并降噪，避免流程吃掉产出。</li>
+</ul>
+
+<div class="verdict">
+  <b>给所有者的最终建议：</b>这个项目的<b>底子是一流的</b>——架构、契约、数据建模、安全、质量文化，任何一项拎出来都值得行业参考。但当前它更像一个「被精心打磨的地基」，而非「能交付的产品」。下一步资源投入的优先级应当是：<b>建索引 → 浏览读路径 → 设置中心 → 图标与文案 → 快捷键/批量</b>，把「找→取」这唯一能用的闭环扩成「导入→建索引→浏览→检索→取件→交付」的最小可用产品，再回来谈多库合并与文档检索这些门控功能。工程已经赢了，现在缺的是把工程兑现成产品的那一段。
+</div>
+
+<div class="footer">
+  <p>本报告基于对仓库源码、四份核心文档（AGENTS/PLAN/SPEC/TASKS）与 reports/ 证据的实际阅读。区分了「代码事实」（标注 <code>文件:行号</code> 或直接引用）与「专业判断」（标注【判断】）。评分与建议为审查者的独立专业意见，不代表项目团队立场。</p>
+  <p>关键代码事实来源：<code>apps/desktop/src/shared/ipc.ts</code>（20 个方法、无 items）· <code>packages/engine/src/engine.ts</code>（UNIMPLEMENTED_METHODS=6 个桩）· <code>apps/desktop/src/renderer/src/pages/BrowsePage.tsx</code>（fetcher 恒返回 ITEMS_NOT_WIRED）· <code>apps/desktop/src/renderer/src/router/paths.ts</code>（6 路由，无 /settings /docs）· <code>apps/desktop/src/main/db/migrations.ts</code> + <code>app-migrations.ts</code>（6 表 DDL）· <code>reports/2026-10-15-wave3/19.txt</code>（性能基线，引用 SPEC §6）。</p>
+</div>
+
+</div>
+</body>
+</html>

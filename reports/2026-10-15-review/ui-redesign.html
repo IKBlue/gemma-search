@@ -1,0 +1,1489 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gemma Search · 素材库语义检索</title>
+<style>
+/* ============================================================
+   设计令牌 · 唯一来源
+   ============================================================ */
+:root {
+  --bg: #0c0e12;
+  --surface: #14171d;
+  --surface-2: #1b1f27;
+  --surface-3: #222734;
+  --border: #262c37;
+  --border-strong: #333a47;
+  --text: #e9ecf1;
+  --text-2: #9aa3b2;
+  --text-3: #6b7386;
+  --accent: #6b83ff;
+  --accent-ink: #a8b8ff;
+  --accent-soft: rgba(107,131,255,.13);
+  --good: #34d399;
+  --good-soft: rgba(52,211,153,.14);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251,191,36,.14);
+  --bad: #f87171;
+  --bad-soft: rgba(248,113,113,.14);
+  --violet: #a78bfa;
+  --cyan: #22d3ee;
+  --radius-sm: 8px; --radius: 10px; --radius-lg: 14px; --radius-xl: 18px;
+  --shadow-float: 0 18px 50px -12px rgba(0,0,0,.55), 0 4px 18px rgba(0,0,0,.3);
+  --shadow-panel: 0 1px 2px rgba(0,0,0,.2);
+  --sidebar-w: 232px;
+  --topbar-h: 58px;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Segoe UI", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+[data-theme="light"] {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f0f1f5;
+  --surface-3: #e8eaef;
+  --border: #e6e8ee;
+  --border-strong: #d4d8e0;
+  --text: #16181d;
+  --text-2: #5a606a;
+  --text-3: #8a909a;
+  --accent: #4f6bff;
+  --accent-ink: #3a52d6;
+  --accent-soft: #eef1ff;
+  --good: #16a34a;
+  --good-soft: #e7f7ee;
+  --warn: #b45309;
+  --warn-soft: #fdf3e3;
+  --bad: #dc2626;
+  --bad-soft: #fdecec;
+  --violet: #7c3aed;
+  --cyan: #0891b2;
+  --shadow-float: 0 18px 50px -12px rgba(16,24,40,.22), 0 4px 18px rgba(16,24,40,.08);
+  --shadow-panel: 0 1px 2px rgba(16,24,40,.05);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+.mono { font-family: var(--mono); font-size: 12px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); background-clip: content-box; }
+::selection { background: var(--accent-soft); }
+.icon { width: 18px; height: 18px; flex: none; }
+button { font-family: inherit; }
+
+/* ============================================================
+   布局骨架
+   ============================================================ */
+#app { display: grid; grid-template-columns: var(--sidebar-w) 1fr; height: 100vh; }
+
+/* ---------- 侧栏 ---------- */
+.sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  padding: 14px 12px;
+  gap: 6px;
+}
+.brand { display: flex; align-items: center; gap: 11px; padding: 6px 10px 14px; }
+.brand .logo {
+  width: 34px; height: 34px; border-radius: 10px; flex: none;
+  background: linear-gradient(140deg, var(--accent), #8b5cf6 90%);
+  display: grid; place-items: center; color: #fff;
+  box-shadow: 0 4px 12px -2px rgba(107,131,255,.5);
+}
+.brand .logo .icon { width: 19px; height: 19px; }
+.brand-name { font-weight: 700; font-size: 14.5px; letter-spacing: -.01em; }
+.brand-sub { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+
+.lib-switch {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 7px 10px; margin: 0 2px 10px; cursor: pointer;
+  background: var(--surface-2);
+}
+.lib-switch .icon { color: var(--text-3); }
+.lib-switch .lib-name { font-weight: 600; font-size: 13px; }
+.lib-switch .lib-count { font-size: 11px; color: var(--text-3); margin-left: auto; }
+.lib-switch .chev { color: var(--text-3); }
+
+.nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
+.nav-label { font-size: 10.5px; letter-spacing: .12em; color: var(--text-3); font-weight: 700; padding: 12px 12px 6px; text-transform: uppercase; }
+.nav-item {
+  display: flex; align-items: center; gap: 11px;
+  padding: 8px 11px; border-radius: var(--radius-sm);
+  color: var(--text-2); cursor: pointer; border: none; background: none;
+  font-size: 13.5px; width: 100%; text-align: left;
+  transition: background .12s, color .12s;
+  position: relative;
+}
+.nav-item:hover { background: var(--surface-2); color: var(--text); }
+.nav-item.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.nav-item.active::before {
+  content: ""; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 3px;
+  border-radius: 0 3px 3px 0; background: var(--accent);
+}
+.nav-item .icon { opacity: .85; }
+.nav-item .badge { margin-left: auto; font-size: 10.5px; background: var(--surface-3); color: var(--text-3); border-radius: 999px; padding: 1px 7px; font-weight: 600; }
+.nav-item .kbd { margin-left: auto; font-size: 10px; color: var(--text-3); font-family: var(--mono); }
+
+.sidebar-foot { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 2px; }
+.model-status {
+  display: flex; align-items: center; gap: 9px; padding: 8px 11px;
+  border-radius: var(--radius-sm); background: var(--surface-2);
+  margin-bottom: 6px;
+}
+.model-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; box-shadow: 0 0 0 3px var(--good-soft); }
+.model-status .ms-text { font-size: 12px; }
+.model-status .ms-text b { display: block; font-size: 12.5px; }
+.model-status .ms-text span { color: var(--text-3); font-size: 11px; }
+
+/* ---------- 主区 ---------- */
+.main-col { display: flex; flex-direction: column; min-width: 0; height: 100vh; }
+.topbar {
+  height: var(--topbar-h); flex: none;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.crumb { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-3); white-space: nowrap; }
+.crumb b { color: var(--text); font-weight: 600; }
+.crumb .sep { opacity: .5; }
+
+.top-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 5px 12px; font-size: 12px; color: var(--text-2);
+  background: var(--surface); cursor: pointer; white-space: nowrap;
+  transition: border-color .12s;
+}
+.chip:hover { border-color: var(--border-strong); color: var(--text); }
+.chip .icon { width: 14px; height: 14px; }
+.chip.device.gpu { color: var(--good); border-color: rgba(52,211,153,.35); }
+.chip.device.cpu { color: var(--warn); border-color: rgba(251,191,36,.35); }
+
+.content { flex: 1; overflow-y: auto; padding: 22px 26px 60px; }
+.screen { display: none; max-width: 1440px; margin: 0 auto; }
+.screen.active { display: block; animation: fade .18s ease; }
+@keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ---------- 通用控件 ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--surface); color: var(--text);
+  padding: 7px 14px; font-size: 13px; font-weight: 500; cursor: pointer;
+  transition: all .13s; white-space: nowrap;
+}
+.btn:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+.btn.ghost:hover { background: var(--surface-2); color: var(--text); }
+.btn.danger { color: var(--bad); border-color: var(--bad-soft); }
+.btn.danger:hover { background: var(--bad-soft); }
+.btn.icon-btn { padding: 7px; width: 34px; height: 34px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn .icon { width: 16px; height: 16px; }
+
+.input {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text);
+  padding: 8px 12px; font-size: 13.5px; font-family: inherit;
+  width: 100%; outline: none; transition: border-color .13s;
+}
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.kbd-key {
+  display: inline-block; min-width: 20px; padding: 1px 6px; text-align: center;
+  border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 6px;
+  font-family: var(--mono); font-size: 11px; color: var(--text-2); background: var(--surface-2);
+}
+
+/* ---------- 页面标题 ---------- */
+.page-head { margin-bottom: 18px; }
+.page-head .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .12em; color: var(--accent); text-transform: uppercase; }
+.page-head h1 { font-size: 24px; font-weight: 700; letter-spacing: -.02em; margin: 3px 0 4px; }
+.page-head p { color: var(--text-2); font-size: 13.5px; margin: 0; }
+
+/* ============================================================
+   搜索页
+   ============================================================ */
+.search-hero { position: relative; margin-bottom: 18px; }
+.search-box {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 6px 8px 6px 16px;
+  box-shadow: var(--shadow-panel); transition: border-color .15s, box-shadow .15s;
+}
+.search-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.search-box .icon { color: var(--text-3); }
+.search-box input {
+  flex: 1; border: none; outline: none; background: transparent; color: var(--text);
+  font-size: 16px; font-family: inherit; min-width: 0;
+}
+.search-box input::placeholder { color: var(--text-3); }
+.search-box .mode-toggle { display: flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; flex: none; }
+.mode-toggle button {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: none; background: none; color: var(--text-3); cursor: pointer;
+  padding: 7px 12px; font-size: 12.5px; font-family: inherit;
+}
+.mode-toggle button.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.mode-toggle button .icon { width: 15px; height: 15px; }
+
+.suggest-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-3); }
+.suggest { border: 1px solid var(--border); border-radius: 999px; padding: 3px 12px; cursor: pointer; font-size: 12px; color: var(--text-2); background: var(--surface); }
+.suggest:hover { border-color: var(--accent); color: var(--accent-ink); }
+
+/* 指标行 */
+.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
+.metric {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 13px 15px; display: flex; align-items: center; gap: 12px;
+}
+.metric .m-ico { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); flex: none; }
+.metric .m-ico.green { background: var(--good-soft); color: var(--good); }
+.metric .m-ico.amber { background: var(--warn-soft); color: var(--warn); }
+.metric .m-v { font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+.metric .m-l { font-size: 11.5px; color: var(--text-3); }
+
+/* 筛选条 */
+.filterbar { display: flex; align-items: center; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
+.filterbar .f-label { font-size: 12px; color: var(--text-3); margin-right: 2px; }
+.chip.f { cursor: pointer; }
+.chip.f.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+
+/* 结果网格 */
+.section-title { display: flex; align-items: baseline; gap: 8px; margin: 18px 0 12px; }
+.section-title b { font-size: 15px; }
+.section-title span { font-size: 12px; color: var(--text-3); }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(236px, 1fr)); gap: 14px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; cursor: pointer; position: relative;
+  transition: border-color .13s, transform .13s, box-shadow .13s;
+}
+.card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-panel); }
+.card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.card .thumb {
+  position: relative; aspect-ratio: 4/3; overflow: hidden;
+  display: grid; place-items: center;
+}
+.card .thumb .ph { font-size: 30px; font-weight: 800; color: rgba(255,255,255,.85); text-shadow: 0 2px 10px rgba(0,0,0,.25); }
+.card .thumb .folder-tag {
+  position: absolute; top: 8px; left: 8px; font-size: 10.5px; font-weight: 700;
+  padding: 2px 8px; border-radius: 6px; background: rgba(0,0,0,.55); color: #fff; backdrop-filter: blur(6px);
+}
+.card .thumb .arc-badge {
+  position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10.5px; padding: 2px 7px; border-radius: 6px; background: rgba(0,0,0,.55); color: #fff; backdrop-filter: blur(6px);
+}
+.card .thumb .arc-badge.no-arc { color: #ffd0c9; }
+.card .acts {
+  position: absolute; right: 8px; bottom: 8px; display: flex; gap: 6px;
+  opacity: 0; transform: translateY(3px); transition: all .15s;
+}
+.card:hover .acts { opacity: 1; transform: none; }
+.card .acts .mini {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(20,24,32,.82); color: #fff; border: 1px solid rgba(255,255,255,.14);
+  border-radius: 7px; padding: 4px 9px; font-size: 11.5px; cursor: pointer; backdrop-filter: blur(8px);
+}
+.card .acts .mini:hover { background: rgba(107,131,255,.9); }
+.card .acts .mini .icon { width: 13px; height: 13px; }
+.card .check {
+  position: absolute; top: 8px; left: 8px; width: 20px; height: 20px; border-radius: 6px;
+  background: rgba(0,0,0,.5); border: 1.5px solid rgba(255,255,255,.4); cursor: pointer;
+  display: none; place-items: center; color: #fff; backdrop-filter: blur(4px);
+}
+.batch-mode .card .check { display: grid; }
+.batch-mode .card .folder-tag { display: none; }
+.card .check.checked { background: var(--accent); border-color: var(--accent); }
+.card .info { padding: 10px 12px 12px; }
+.card .title { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .meta { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+.card .meta .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-3); }
+.card .score { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.card .score .bar { flex: 1; height: 4px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.card .score .bar i { display: block; height: 100%; border-radius: 999px; }
+.card .score .val { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.band-high { color: var(--good); } .band-high.bar i { background: var(--good); }
+.band-mid { color: var(--warn); } .band-mid.bar i { background: var(--warn); }
+.band-low { color: var(--text-3); } .band-low.bar i { background: var(--text-3); }
+
+/* 批量选择浮动条 */
+.batch-bar {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--surface-3); border: 1px solid var(--border-strong);
+  border-radius: 14px; padding: 8px 12px; display: none; align-items: center; gap: 10px;
+  box-shadow: var(--shadow-float); z-index: 60; backdrop-filter: blur(12px);
+}
+.batch-bar.show { display: flex; }
+.batch-bar .count { font-weight: 700; font-size: 13px; padding: 0 6px; }
+
+/* 空态 / 错误态 */
+.state {
+  background: var(--surface); border: 1px dashed var(--border-strong); border-radius: var(--radius-lg);
+  padding: 44px 24px; text-align: center; color: var(--text-2);
+}
+.state .big { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.state .icon { width: 30px; height: 30px; color: var(--text-3); margin-bottom: 10px; }
+
+/* 提示条 */
+.kbd-hint {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin-top: 18px; padding: 10px 14px; border-radius: var(--radius);
+  background: var(--surface-2); border: 1px solid var(--border);
+  font-size: 12px; color: var(--text-3);
+}
+.kbd-hint .hint { display: inline-flex; align-items: center; gap: 5px; }
+
+/* ============================================================
+   浏览页 / 详情 / 健康 / 设置
+   ============================================================ */
+.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.toolbar .grow { flex: 1; }
+.select {
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
+  color: var(--text); padding: 6px 10px; font-size: 13px; font-family: inherit; outline: none; cursor: pointer;
+}
+.select:focus { border-color: var(--accent); }
+
+/* 详情页 */
+.detail { display: grid; grid-template-columns: 1.15fr .85fr; gap: 16px; }
+.detail .preview {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 18px; display: flex; flex-direction: column;
+}
+.detail .preview .stage { flex: 1; min-height: 380px; border-radius: var(--radius); display: grid; place-items: center; position: relative; }
+.detail .preview .stage .ph { font-size: 56px; font-weight: 800; color: rgba(255,255,255,.9); text-shadow: 0 6px 24px rgba(0,0,0,.3); }
+.detail .preview .stage .fit { position: absolute; bottom: 10px; right: 10px; }
+.detail .meta-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px; }
+.meta-row { display: flex; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.meta-row:last-child { border-bottom: none; }
+.meta-row .k { width: 88px; flex: none; color: var(--text-3); }
+.meta-row .v { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.meta-row .v.mono { font-family: var(--mono); font-size: 12px; }
+.state-pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 2px 11px; font-size: 12px; font-weight: 600; }
+.state-pill.ok { background: var(--good-soft); color: var(--good); }
+.state-pill.warn { background: var(--warn-soft); color: var(--warn); }
+.action-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+.action-group { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+.action-group .ag-title { font-weight: 600; font-size: 13.5px; margin-bottom: 3px; }
+.action-group .ag-note { font-size: 12px; color: var(--text-3); margin-bottom: 10px; }
+.action-group .ag-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* 健康检查 */
+.check-list { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.check-item { display: flex; gap: 12px; padding: 13px 18px; border-bottom: 1px solid var(--border); align-items: flex-start; }
+.check-item:last-child { border-bottom: none; }
+.check-item .status { width: 20px; height: 20px; border-radius: 50%; flex: none; display: grid; place-items: center; margin-top: 1px; }
+.check-item .status.ok { background: var(--good-soft); color: var(--good); }
+.check-item .status.bad { background: var(--bad-soft); color: var(--bad); }
+.check-item .ci-title { font-weight: 600; font-size: 13.5px; display: flex; align-items: center; gap: 8px; }
+.check-item .ci-title .code { font-family: var(--mono); font-size: 11px; color: var(--text-3); font-weight: 400; }
+.check-item .ci-reason { font-size: 12.5px; color: var(--text-2); margin-top: 2px; }
+
+/* 设置 */
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+.setting-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px; }
+.setting-card h3 { margin: 0 0 3px; font-size: 14.5px; }
+.setting-card .desc { font-size: 12.5px; color: var(--text-3); margin-bottom: 14px; }
+.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.setting-row:last-child { border-bottom: none; }
+.setting-row .sr-label { font-size: 13px; }
+.setting-row .sr-label small { display: block; color: var(--text-3); font-size: 11.5px; }
+.path-box { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.path-box .input { font-family: var(--mono); font-size: 12px; }
+
+/* toggle switch */
+.switch { position: relative; width: 40px; height: 22px; flex: none; cursor: pointer; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .slider { position: absolute; inset: 0; background: var(--surface-3); border-radius: 999px; transition: .18s; }
+.switch .slider::before { content: ""; position: absolute; width: 18px; height: 18px; left: 2px; top: 2px; background: #fff; border-radius: 50%; transition: .18s; }
+.switch input:checked + .slider { background: var(--accent); }
+.switch input:checked + .slider::before { transform: translateX(18px); }
+
+/* ============================================================
+   命令面板
+   ============================================================ */
+.palette {
+  position: fixed; inset: 0; z-index: 100; display: none;
+  background: rgba(0,0,0,.5); backdrop-filter: blur(3px);
+}
+.palette.show { display: block; }
+.palette .panel {
+  position: absolute; top: 16%; left: 50%; transform: translateX(-50%);
+  width: 560px; max-width: calc(100vw - 40px);
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-float);
+  overflow: hidden;
+}
+.palette .p-input { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.palette .p-input input { flex: 1; border: none; outline: none; background: none; color: var(--text); font-size: 15px; font-family: inherit; }
+.palette .p-list { max-height: 360px; overflow-y: auto; padding: 6px; }
+.palette .p-item {
+  display: flex; align-items: center; gap: 11px; padding: 9px 11px; border-radius: 8px; cursor: pointer;
+  font-size: 13.5px;
+}
+.palette .p-item .icon { color: var(--text-3); }
+.palette .p-item.active { background: var(--accent-soft); color: var(--accent-ink); }
+.palette .p-item .p-sub { color: var(--text-3); font-size: 12px; margin-left: auto; }
+.palette .p-group { font-size: 10.5px; letter-spacing: .1em; color: var(--text-3); font-weight: 700; text-transform: uppercase; padding: 10px 12px 4px; }
+
+/* ============================================================
+   首启向导
+   ============================================================ */
+.wizard {
+  position: fixed; inset: 0; z-index: 90; display: none;
+  background: var(--bg); align-items: center; justify-content: center; padding: 24px;
+}
+.wizard.show { display: flex; }
+.wizard .w-card {
+  width: 560px; max-width: 100%; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-xl);
+  padding: 30px 32px; box-shadow: var(--shadow-float);
+}
+.wizard .w-title { font-size: 21px; font-weight: 700; letter-spacing: -.01em; }
+.wizard .w-lede { color: var(--text-2); font-size: 13.5px; margin: 8px 0 20px; }
+.w-step { display: flex; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 10px; }
+.w-step .num { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 700; flex: none; }
+.w-step .ws-title { font-weight: 600; font-size: 13.5px; }
+.w-step .ws-hint { font-size: 12.5px; color: var(--text-3); }
+
+/* toast */
+.toast {
+  position: fixed; right: 22px; bottom: 22px; z-index: 110;
+  background: var(--surface-3); color: var(--text); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); padding: 11px 16px; font-size: 13px;
+  box-shadow: var(--shadow-float); display: none; align-items: center; gap: 9px;
+  max-width: 380px;
+}
+.toast.show { display: flex; animation: toastin .2s ease; }
+.toast.err { border-color: var(--bad); }
+@keyframes toastin { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* 响应式 */
+@media (max-width: 900px) {
+  #app { grid-template-columns: 64px 1fr; }
+  .brand-name, .brand-sub, .nav-item span:not(.badge):not(.kbd), .nav-label, .lib-switch .lib-name, .lib-switch .lib-count, .model-status .ms-text, .nav-item .badge { display: none; }
+  .nav-item { justify-content: center; }
+  .metrics { grid-template-columns: repeat(2, 1fr); }
+  .detail { grid-template-columns: 1fr; }
+  .action-groups { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* ============ 库管理 ============ */
+.lib-list { display: flex; flex-direction: column; gap: 10px; }
+.lib-row { display: flex; align-items: center; gap: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 13px 16px; cursor: pointer; transition: border-color .13s, box-shadow .13s; }
+.lib-row:hover { border-color: var(--border-strong); }
+.lib-row.chosen { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.lib-avatar { width: 42px; height: 42px; border-radius: 11px; display: grid; place-items: center; font-weight: 700; font-size: 13px; flex: none; background: var(--accent-soft); color: var(--accent-ink); }
+.lib-main { flex: 1; min-width: 0; }
+.lib-name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.lib-name .tag-current { font-size: 10px; background: var(--accent-soft); color: var(--accent-ink); border-radius: 5px; padding: 1px 7px; font-weight: 600; }
+.lib-root { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+.lib-stats { display: flex; align-items: center; gap: 18px; flex: none; }
+.lib-stats .ls { display: flex; flex-direction: column; align-items: center; min-width: 44px; }
+.lib-stats .ls b { font-size: 15px; color: var(--text); font-weight: 700; }
+.lib-stats .ls span { font-size: 10.5px; color: var(--text-3); }
+.lib-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.state-pill.neutral { background: var(--surface-3); color: var(--text-2); }
+.state-pill.bad { background: var(--bad-soft); color: var(--bad); }
+.notice { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--warn-soft); background: var(--warn-soft); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px; color: var(--text-2); font-size: 13px; }
+.notice .icon { width: 18px; height: 18px; flex: none; margin-top: 1px; color: var(--warn); }
+.notice b { color: var(--warn); }
+.notice .mono { display: block; margin-top: 4px; color: var(--text-3); word-break: break-all; }
+@media (max-width: 900px) { .lib-stats { display: none; } }
+
+/* ============ 合一搜索框 ============ */
+.q-image { display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--accent); border-radius: 999px; padding: 3px 8px 3px 10px; font-size: 12px; flex: none; }
+.q-image .q-image-x { border: none; background: none; color: var(--accent-ink); cursor: pointer; display: grid; place-items: center; padding: 0; }
+.suggest-sep { color: var(--text-3); opacity: .5; }
+
+/* 结果卡：相似度徽标 + 名称底部渐变 */
+.sim-badge { position: absolute; top: 8px; right: 8px; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 6px; background: rgba(0,0,0,.55); backdrop-filter: blur(6px); color: #fff; font-variant-numeric: tabular-nums; }
+.sim-badge.high { color: #5ad87c; } .sim-badge.mid { color: #f0b34d; } .sim-badge.low { color: #b8c0cc; }
+.name-overlay { position: absolute; left: 0; right: 0; bottom: 0; padding: 20px 10px 8px; background: linear-gradient(to top, rgba(0,0,0,.72), transparent); color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 侧栏：索引进度 + 硬件状态 */
+.idx-status { padding: 8px 11px; border-radius: var(--radius-sm); background: var(--surface-2); margin-bottom: 6px; }
+.idx-status .idx-head { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-2); font-weight: 600; }
+.idx-status .idx-head span { color: var(--good); }
+.idx-status .idx-bar { height: 4px; border-radius: 999px; background: var(--surface-3); overflow: hidden; margin: 5px 0; }
+.idx-status .idx-bar i { display: block; height: 100%; background: var(--good); border-radius: 999px; }
+.idx-status .idx-sub { font-size: 10.5px; color: var(--text-3); }
+.hw-status { display: flex; justify-content: space-between; padding: 4px 11px 8px; font-size: 11px; color: var(--text-3); }
+
+/* 右键菜单 */
+.ctx-menu { position: fixed; z-index: 120; min-width: 180px; background: var(--surface-3); border: 1px solid var(--border-strong); border-radius: 10px; padding: 5px; box-shadow: var(--shadow-float); display: none; }
+.ctx-menu.show { display: block; }
+.ctx-item { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 7px; font-size: 13px; cursor: pointer; color: var(--text); }
+.ctx-item:hover { background: var(--accent-soft); color: var(--accent-ink); }
+.ctx-item .icon { width: 15px; height: 15px; color: var(--text-3); }
+.ctx-item:hover .icon { color: var(--accent-ink); }
+.ctx-sep { height: 1px; background: var(--border); margin: 4px 6px; }
+</style>
+</head>
+<body>
+
+<!-- ==================== SVG 图标库 ==================== -->
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.8" cy="9.6" r="1.7"/><path d="m21 16-4.5-4.5L6 22"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5-9 5-9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3.5 2"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3.4 1-4.5 2.5C10.9 4 9.3 3 7.5 3A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7z"/><path d="M3.5 12h5l1.5-3 2 5 1.5-2h5"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+  <symbol id="i-cmd" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 6.7 3L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.7-3L3 16"/><path d="M3 21v-5h5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-chev-r" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-chev-d" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-package" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+  <symbol id="i-locate" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="2"/><path d="m14.5 15.5 2.5 2.5"/><path d="M2 12h20"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2.2" fill="var(--surface)"/><circle cx="15" cy="12" r="2.2" fill="var(--surface)"/><circle cx="7" cy="18" r="2.2" fill="var(--surface)"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+  <symbol id="i-hdd" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="8" width="20" height="8" rx="2"/><path d="M6 8V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2"/><path d="M6 12h.01M10 12h.01"/></symbol>
+  <symbol id="i-arrow-up-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/></symbol>
+</svg>
+
+<div id="app">
+  <!-- ==================== 侧栏 ==================== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo"><svg class="icon"><use href="#i-sparkles"/></svg></div>
+      <div>
+        <div class="brand-name">Gemma Search</div>
+        <div class="brand-sub">本地素材库 · 语义检索</div>
+      </div>
+    </div>
+
+    <div class="lib-switch" id="lib-switch" title="管理素材库">
+      <svg class="icon"><use href="#i-db"/></svg>
+      <span class="lib-name">主素材库</span>
+      <span class="lib-count">3594 条</span>
+      <svg class="icon chev" style="width:14px;height:14px"><use href="#i-chev-d"/></svg>
+    </div>
+
+    <nav class="nav">
+      <div class="nav-label">工作区</div>
+      <button class="nav-item active" data-screen="search"><svg class="icon"><use href="#i-search"/></svg><span>语义搜索</span><span class="kbd">1</span></button>
+      <button class="nav-item" data-screen="browse"><svg class="icon"><use href="#i-grid"/></svg><span>浏览图库</span><span class="kbd">2</span></button>
+      <button class="nav-item" data-screen="docs" data-disabled="1"><svg class="icon"><use href="#i-file"/></svg><span>文档检索</span><span class="badge">待语料</span></button>
+      <button class="nav-item" data-screen="tasks"><svg class="icon"><use href="#i-layers"/></svg><span>索引任务</span></button>
+      <button class="nav-item" data-screen="activity"><svg class="icon"><use href="#i-history"/></svg><span>操作记录</span></button>
+
+      <div class="nav-label">系统</div>
+      <button class="nav-item" data-screen="libraries"><svg class="icon"><use href="#i-db"/></svg><span>素材库</span><span class="kbd">3</span></button>
+      <button class="nav-item" data-screen="health"><svg class="icon"><use href="#i-heart"/></svg><span>体检与诊断</span></button>
+      <button class="nav-item" data-screen="settings"><svg class="icon"><use href="#i-settings"/></svg><span>设置</span><span class="kbd">,</span></button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="model-status">
+        <span class="dot"></span>
+        <div class="ms-text">
+          <b>模型已就绪</b>
+          <span>WebGPU · 载入 2.7s</span>
+        </div>
+      </div>
+      <div class="idx-status">
+        <div class="idx-head">索引状态 <span>100%</span></div>
+        <div class="idx-bar"><i style="width:100%"></i></div>
+        <div class="idx-sub">3594 / 3594 条已编码</div>
+      </div>
+      <div class="hw-status"><span>GPU · WebGPU</span><span>内存 2.3 GB</span></div>
+      <button class="nav-item" id="theme-toggle"><svg class="icon"><use href="#i-moon"/></svg><span>深色 / 浅色</span></button>
+    </div>
+  </aside>
+
+  <!-- ==================== 主区 ==================== -->
+  <div class="main-col">
+    <header class="topbar">
+      <div class="crumb">
+        <span>工作区</span><span class="sep">/</span><b id="crumb-name">语义搜索</b>
+      </div>
+      <div class="top-actions">
+        <button class="chip" id="cmd-trigger" title="打开命令面板">
+          <svg class="icon"><use href="#i-cmd"/></svg>
+          <span>命令面板</span>
+          <span class="kbd-key">⌘ K</span>
+        </button>
+        <button class="chip device gpu" id="device-chip" title="编码设备">
+          <svg class="icon"><use href="#i-cpu"/></svg>
+          <span>GPU · WebGPU</span>
+        </button>
+        <button class="chip" id="lib-chip" title="素材库管理">
+          <svg class="icon"><use href="#i-db"/></svg>
+          <span>L1 · 3594 条</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="content" id="content">
+
+      <!-- ============ 语义搜索 ============ -->
+      <section class="screen active" data-screen="search">
+        <div class="page-head">
+          <div class="eyebrow">语义搜索</div>
+          <h1>找到你想要的那张图</h1>
+          <p>用自然语言描述画面，或拖入一张参考图。检索全程在本机完成，不上传任何数据。</p>
+        </div>
+
+        <div class="search-hero">
+          <div class="search-box" id="search-box">
+            <svg class="icon"><use href="#i-search"/></svg>
+            <input id="search-input" type="text" placeholder="描述画面，或拖入 / 粘贴一张参考图…" />
+            <span class="q-image" id="q-image" style="display:none">
+              <svg class="icon" style="width:14px;height:14px"><use href="#i-image"/></svg>
+              <span id="q-image-name">参考图</span>
+              <button type="button" class="q-image-x" id="q-image-x" title="移除参考图"><svg class="icon" style="width:13px;height:13px"><use href="#i-x"/></svg></button>
+            </span>
+            <button class="btn icon-btn" id="img-pick-btn" title="以图搜图：粘贴、拖拽或选择参考图"><svg class="icon"><use href="#i-image"/></svg></button>
+            <button class="btn primary" id="search-btn">搜索<svg class="icon"><use href="#i-arrow-up-right"/></svg></button>
+            <input type="file" id="img-file" accept="image/*" style="display:none" />
+          </div>
+          <div class="suggest-row">
+            推荐：<span class="suggest">玻璃球多头吊灯</span><span class="suggest">中古风木质吸顶灯</span><span class="suggest">花卉图案装饰画</span><span class="suggest">轻奢大理石茶几</span><span class="suggest-sep">·</span><span class="suggest">⌘V 粘贴图片</span>
+          </div>
+          <div class="suggest-row" id="recent-row" style="display:none">
+            最近：<span id="recent-chips"></span>
+          </div>
+        </div>
+
+        <div class="metrics">
+          <div class="metric"><div class="m-ico"><svg class="icon"><use href="#i-db"/></svg></div><div><div class="m-v">3594</div><div class="m-l">已索引条目</div></div></div>
+          <div class="metric"><div class="m-ico green"><svg class="icon"><use href="#i-cpu"/></svg></div><div><div class="m-v">WebGPU</div><div class="m-l">编码设备</div></div></div>
+          <div class="metric"><div class="m-ico"><svg class="icon"><use href="#i-monitor"/></svg></div><div><div class="m-v">768 维</div><div class="m-l">向量空间 · seq140</div></div></div>
+          <div class="metric"><div class="m-ico amber"><svg class="icon"><use href="#i-hdd"/></svg></div><div><div class="m-v">52 ms</div><div class="m-l">文本检索 P50</div></div></div>
+        </div>
+
+        <div class="filterbar" id="search-filters">
+          <span class="f-label">分类</span>
+          <span class="chip f active" data-f="全部">全部</span>
+          <span class="chip f" data-f="VR">VR</span>
+          <span class="chip f" data-f="CR">CR</span>
+          <span class="chip f" data-f="CR+VR">CR+VR</span>
+          <span class="chip f" data-f="其他">其他</span>
+          <span style="flex:1"></span>
+          <span class="f-label">排序</span>
+          <select class="select" id="sort-select">
+            <option>相关度优先</option><option>文件名</option><option>体积</option><option>最近添加</option>
+          </select>
+          <button class="btn ghost" id="batch-toggle"><svg class="icon"><use href="#i-check"/></svg>批量选择</button>
+        </div>
+
+        <div class="section-title"><b>搜索结果</b><span id="result-count">8 套素材</span><span style="margin-left:auto;font-size:12px" id="search-meta">检索耗时 52 ms · 分数仅在本查询内可比</span></div>
+
+        <div class="grid" id="result-grid"></div>
+
+        <div class="kbd-hint">
+          <span class="hint"><span class="kbd-key">↑↓</span> 移动</span>
+          <span class="hint"><span class="kbd-key">Enter</span> 打开详情</span>
+          <span class="hint"><span class="kbd-key">Space</span> 预览大图</span>
+          <span class="hint"><span class="kbd-key">⌘ K</span> 命令面板</span>
+          <span class="hint"><span class="kbd-key">⌘ V</span> 粘贴图片搜索</span>
+          <span style="margin-left:auto">结果来自本机索引（L1 · 768 维）</span>
+        </div>
+      </section>
+
+      <!-- ============ 浏览图库 ============ -->
+      <section class="screen" data-screen="browse">
+        <div class="page-head">
+          <div class="eyebrow">浏览图库</div>
+          <h1>浏览整库</h1>
+          <p>按分类、扩展名、有无包筛选；名称 / 体积 / 时间排序。缩略图按需生成，全部在本机。</p>
+        </div>
+
+        <div class="toolbar">
+          <span class="f-label">分类</span>
+          <span class="chip f active" data-bf="全部">全部</span>
+          <span class="chip f" data-bf="VR">VR</span>
+          <span class="chip f" data-bf="CR">CR</span>
+          <span class="chip f" data-bf="CR+VR">CR+VR</span>
+          <span class="chip f" data-bf="其他">其他</span>
+          <span style="width:12px"></span>
+          <span class="f-label">有无包</span>
+          <select class="select"><option>全部</option><option>有包</option><option>缺包</option></select>
+          <span class="f-label">扩展名</span>
+          <select class="select"><option>全部</option><option>.jpg</option><option>.png</option><option>.webp</option></select>
+          <span style="flex:1"></span>
+          <span class="f-label">排序</span>
+          <select class="select"><option>名称</option><option>体积</option><option>时间</option></select>
+          <button class="btn"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button>
+        </div>
+
+        <div class="section-title"><b>全部素材</b><span>共 3594 条 · 已载入 60 条</span><span style="margin-left:auto;font-size:12px">滚动加载更多 · 虚拟滚动</span></div>
+        <div class="grid" id="browse-grid"></div>
+
+        <div class="kbd-hint"><span class="hint"><span class="kbd-key">点击</span> 打开详情</span><span class="hint"><span class="kbd-key">⌘ A</span> 全选</span><span class="hint"><span class="kbd-key">Esc</span> 清除筛选</span></div>
+      </section>
+
+      <!-- ============ 文档检索（占位） ============ -->
+      <section class="screen" data-screen="docs">
+        <div class="page-head">
+          <div class="eyebrow">文档检索</div>
+          <h1>检索本地文档</h1>
+          <p>登记本地文档目录后，可检索 PDF / DOCX / Markdown / TXT 的内容片段与出处。</p>
+        </div>
+        <div class="state">
+          <svg class="icon"><use href="#i-file"/></svg>
+          <div class="big">文档检索还未开启</div>
+          <p>需要先在「设置 → 文档目录」登记一个本地文档目录，并有足够语料后才会开启。这一步不阻塞图片检索。</p>
+          <button class="btn primary" data-goto="settings" style="margin-top:12px">去设置登记文档目录</button>
+        </div>
+      </section>
+
+      <!-- ============ 索引任务 ============ -->
+      <section class="screen" data-screen="tasks">
+        <div class="page-head">
+          <div class="eyebrow">索引任务</div>
+          <h1>索引任务</h1>
+          <p>建立与更新向量索引。支持开始、取消与断电续跑。</p>
+        </div>
+        <div class="state">
+          <svg class="icon"><use href="#i-layers"/></svg>
+          <div class="big">当前没有进行中的任务</div>
+          <p>索引任务需要 job 表支持（数据模型二期），届时这里会显示任务进度、失败明细与撤销入口。</p>
+        </div>
+      </section>
+
+      <!-- ============ 操作记录 ============ -->
+      <section class="screen" data-screen="activity">
+        <div class="page-head">
+          <div class="eyebrow">操作记录</div>
+          <h1>操作记录</h1>
+          <p>入库、交付与撤销的历史台账。</p>
+        </div>
+        <div class="state">
+          <svg class="icon"><use href="#i-history"/></svg>
+          <div class="big">还没有操作记录</div>
+          <p>事务台账表（数据模型二期）上线后，这里会如实展示每次入库与交付的来龙去脉。</p>
+        </div>
+      </section>
+
+      <!-- ============ 详情 ============ -->
+      <section class="screen" data-screen="item">
+        <div class="page-head" style="display:flex;align-items:center;gap:12px">
+          <button class="btn ghost icon-btn" data-back="search"><svg class="icon"><use href="#i-back"/></svg></button>
+          <div>
+            <div class="eyebrow">图片详情</div>
+            <h1 id="item-title" style="margin:0">玻璃球多头吊灯</h1>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <button class="btn"><svg class="icon"><use href="#i-refresh"/></svg>检查变更</button>
+            <button class="btn primary"><svg class="icon"><use href="#i-download"/></svg>取件</button>
+          </div>
+        </div>
+
+        <div class="detail">
+          <div class="preview">
+            <div class="stage" id="item-stage">
+              <span class="ph">玻璃球多头吊灯</span>
+              <button class="btn ghost icon-btn fit" title="适应窗口"><svg class="icon"><use href="#i-scan"/></svg></button>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button class="btn" style="flex:1"><svg class="icon"><use href="#i-package"/></svg>压缩包 · 3.2 MB</button>
+              <button class="btn" style="flex:1"><svg class="icon"><use href="#i-locate"/></svg>在文件夹中定位</button>
+            </div>
+          </div>
+
+          <div class="meta-panel">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+              <span class="state-pill ok">已编码</span>
+              <span class="state-pill ok">有包 · 在盘上</span>
+            </div>
+            <div class="meta-row"><span class="k">ID</span><span class="v">玻璃球多头吊灯</span></div>
+            <div class="meta-row"><span class="k">uid</span><span class="v mono">a3f8c2d1e4b7</span></div>
+            <div class="meta-row"><span class="k">分类</span><span class="v">VR</span></div>
+            <div class="meta-row"><span class="k">库</span><span class="v">主素材库（L1）</span></div>
+            <div class="meta-row"><span class="k">向量档</span><span class="v">native</span></div>
+            <div class="meta-row"><span class="k">预览图</span><span class="v">2.4 MB · 2400×1800</span></div>
+            <div class="meta-row"><span class="k">修改时间</span><span class="v">2026-09-28 14:32</span></div>
+            <div class="meta-row"><span class="k">图路径</span><span class="v mono">G:\model\VR\玻璃球多头吊灯.jpg</span></div>
+            <div class="meta-row"><span class="k">包路径</span><span class="v mono">G:\model\VR\玻璃球多头吊灯.rar</span></div>
+          </div>
+        </div>
+
+        <div class="action-groups">
+          <div class="action-group">
+            <div class="ag-title">取件</div>
+            <div class="ag-note">复制到取件白名单目录，素材库不被修改。</div>
+            <div class="ag-acts"><button class="btn primary"><svg class="icon"><use href="#i-download"/></svg>取件到默认目录</button></div>
+          </div>
+          <div class="action-group">
+            <div class="ag-title">维护</div>
+            <div class="ag-note">改名、换图等会标注是否需要重编码。</div>
+            <div class="ag-acts"><button class="btn" disabled>改名<span style="font-size:11px;color:var(--warn)">· 需重编码</span></button><button class="btn">复用向量</button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 体检与诊断 ============ -->
+      <section class="screen" data-screen="health">
+        <div class="page-head">
+          <div class="eyebrow">体检与诊断</div>
+          <h1>体检与诊断</h1>
+          <p>体检只读：读索引、只读打开元数据，不改任何文件。重建元数据会删掉 .gs.db 家族并重新导入——素材目录一个字不动。</p>
+        </div>
+
+        <div class="toolbar">
+          <span style="font-weight:600;font-size:13px">当前库：</span><span class="mono">L1 · G:\model</span>
+          <span style="flex:1"></span>
+          <button class="btn primary" id="run-health"><svg class="icon"><use href="#i-heart"/></svg>运行体检</button>
+          <button class="btn danger" id="rebuild-trigger"><svg class="icon"><use href="#i-refresh"/></svg>重建元数据…</button>
+        </div>
+
+        <div class="check-list">
+          <div class="check-item"><span class="status ok"><svg class="icon" style="width:13px;height:13px"><use href="#i-check"/></svg></span><div><div class="ci-title">库根 <span class="code">library-root</span></div><div class="ci-reason">库根是目录：G:\model</div></div></div>
+          <div class="check-item"><span class="status ok"><svg class="icon" style="width:13px;height:13px"><use href="#i-check"/></svg></span><div><div class="ci-title">索引 <span class="code">index</span></div><div class="ci-reason">通过五道校验：count=3594 · dim=768 · 12.4 MB</div></div></div>
+          <div class="check-item"><span class="status ok"><svg class="icon" style="width:13px;height:13px"><use href="#i-check"/></svg></span><div><div class="ci-title">元数据文件 <span class="code">db-file</span></div><div class="ci-reason">.gs.db 存在：G:\model\.gs.db（8.2 MB）</div></div></div>
+          <div class="check-item"><span class="status ok"><svg class="icon" style="width:13px;height:13px"><use href="#i-check"/></svg></span><div><div class="ci-title">只读打开 <span class="code">db-open</span></div><div class="ci-reason">只读打开成功（journal_mode=wal）</div></div></div>
+          <div class="check-item"><span class="status ok"><svg class="icon" style="width:13px;height:13px"><use href="#i-check"/></svg></span><div><div class="ci-title">完整性 <span class="code">db-integrity</span></div><div class="ci-reason">PRAGMA integrity_check = ok</div></div></div>
+          <div class="check-item"><span class="status bad"><svg class="icon" style="width:13px;height:13px"><use href="#i-x"/></svg></span><div><div class="ci-title">表结构 <span class="code">db-tables</span></div><div class="ci-reason">缺 1 张表：asset_name_fts —— 这一项可以由「重建元数据」修好</div></div></div>
+        </div>
+      </section>
+
+      <!-- ============ 设置 ============ -->
+      <section class="screen" data-screen="settings">
+        <div class="page-head">
+          <div class="eyebrow">设置</div>
+          <h1>设置</h1>
+          <p>所有可配置值的唯一入口。改动会即时保存到应用数据。</p>
+        </div>
+
+        <div class="settings-grid">
+          <div class="setting-card">
+            <h3>模型</h3>
+            <div class="desc">语义检索依赖自备的 EmbeddingGemma-2 ONNX 模型。</div>
+            <div class="path-box"><input class="input" value="D:\models\embeddinggemma-2\fp32" /><button class="btn">选择…</button></div>
+            <div class="setting-row"><div class="sr-label">编码设备<small>GPU 不可用时自动回退 CPU</small></div><select class="select"><option>WebGPU（自动）</option><option>CPU</option></select></div>
+            <div class="setting-row"><div class="sr-label">一键下载模型<small>校验 + 断点续传</small></div><button class="btn">下载…</button></div>
+          </div>
+
+          <div class="setting-card">
+            <h3>取件目录（白名单）</h3>
+            <div class="desc">取件只允许写进这些目录，其余一律拒绝。</div>
+            <div class="setting-row"><div class="sr-label">E:\素材待用<small>默认目标</small></div><span class="state-pill ok">默认</span></div>
+            <div class="setting-row"><div class="sr-label">E:\移出素材</div><button class="btn ghost icon-btn" title="设为默认"><svg class="icon"><use href="#i-check"/></svg></button></div>
+            <div style="margin-top:12px"><button class="btn"><svg class="icon"><use href="#i-plus"/></svg>添加目录</button></div>
+          </div>
+
+          <div class="setting-card">
+            <h3>外观</h3>
+            <div class="desc">主题与动效偏好。</div>
+            <div class="setting-row"><div class="sr-label">主题<small>跟随系统 / 手动</small></div><select class="select"><option>跟随系统</option><option>深色</option><option>浅色</option></select></div>
+            <div class="setting-row"><div class="sr-label">减少动效<small>尊重 prefers-reduced-motion</small></div><label class="switch"><input type="checkbox"><span class="slider"></span></label></div>
+          </div>
+
+          <div class="setting-card">
+            <h3>快捷键</h3>
+            <div class="desc">桌面应用的核心效率。</div>
+            <div class="setting-row"><div class="sr-label">命令面板<small></small></div><span class="kbd-key">⌘ K</span></div>
+            <div class="setting-row"><div class="sr-label">粘贴图片搜索<small></small></div><span class="kbd-key">⌘ V</span></div>
+            <div class="setting-row"><div class="sr-label">清空搜索<small></small></div><span class="kbd-key">Esc</span></div>
+          </div>
+
+          <div class="setting-card">
+            <h3>诊断</h3>
+            <div class="desc">版本、设备与日志。</div>
+            <div class="setting-row"><div class="sr-label">应用版本</div><span class="mono">0.1.0</span></div>
+            <div class="setting-row"><div class="sr-label">编码设备</div><span>WebGPU · 已验证</span></div>
+            <div class="setting-row"><div class="sr-label">导出日志包</div><button class="btn"><svg class="icon"><use href="#i-download"/></svg>导出</button></div>
+          </div>
+
+          <div class="setting-card">
+            <h3>重新运行向导</h3>
+            <div class="desc">重新选择素材库、模型目录与文档目录。</div>
+            <button class="btn" id="rerun-wizard">打开首启向导</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 素材库管理 ============ -->
+      <section class="screen" data-screen="libraries">
+        <div class="page-head" style="display:flex;align-items:flex-end;gap:12px">
+          <div style="flex:1">
+            <div class="eyebrow">素材库</div>
+            <h1>素材库管理</h1>
+            <p>登记、切换、停用与移除素材库。只有 compat 相同的库才能合并检索。</p>
+          </div>
+          <button class="btn primary" id="lib-add"><svg class="icon"><use href="#i-plus"/></svg>添加素材库</button>
+        </div>
+        <div class="lib-list" id="lib-list"></div>
+        <div class="kbd-hint">
+          <span class="hint">点击行进入库详情</span>
+          <span class="hint"><span class="kbd-key">开关</span> 启用/停用（不动任何文件）</span>
+          <span style="margin-left:auto">注册表：userData/app.db · library_registry</span>
+        </div>
+      </section>
+
+      <!-- ============ 库详情 ============ -->
+      <section class="screen" data-screen="libdetail">
+        <div class="page-head" style="display:flex;align-items:center;gap:12px">
+          <button class="btn ghost icon-btn" data-back="libraries"><svg class="icon"><use href="#i-back"/></svg></button>
+          <div>
+            <div class="eyebrow">库详情</div>
+            <h1 id="ld-title" style="margin:0">主素材库</h1>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <button class="btn" id="ld-scan-top"><svg class="icon"><use href="#i-refresh"/></svg>重新扫描</button>
+            <button class="btn primary" id="ld-current-top"><svg class="icon"><use href="#i-check"/></svg>设为当前</button>
+          </div>
+        </div>
+        <div id="ld-body"></div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 批量选择条 ==================== -->
+<div class="batch-bar" id="batch-bar">
+  <span class="count" id="batch-count">已选 0 项</span>
+  <button class="btn primary"><svg class="icon"><use href="#i-download"/></svg>取件</button>
+  <button class="btn"><svg class="icon"><use href="#i-package"/></svg>交付</button>
+  <button class="btn ghost icon-btn" id="batch-close"><svg class="icon"><use href="#i-x"/></svg></button>
+</div>
+
+<!-- ==================== 命令面板 ==================== -->
+<div class="palette" id="palette">
+  <div class="panel">
+    <div class="p-input">
+      <svg class="icon"><use href="#i-search"/></svg>
+      <input id="palette-input" type="text" placeholder="搜索命令、页面或素材…" />
+      <span class="kbd-key">Esc</span>
+    </div>
+    <div class="p-list" id="palette-list"></div>
+  </div>
+</div>
+
+<!-- ==================== 首启向导 ==================== -->
+<div class="wizard" id="wizard">
+  <div class="w-card">
+    <div class="w-title">欢迎使用 Gemma Search</div>
+    <div class="w-lede">五步完成初始化。应用只读取素材，不会移动、改名或删除任何东西。</div>
+
+    <div class="w-step"><span class="num">1</span><div><div class="ws-title">选择素材库根目录</div><div class="ws-hint">装着素材的文件夹，里面可以再分子目录。</div></div></div>
+    <div class="w-step"><span class="num">2</span><div><div class="ws-title">检测编码设备</div><div class="ws-hint">自动探测 GPU / CPU；GPU 不可用时回退 CPU 并明确提示。</div></div></div>
+    <div class="w-step"><span class="num">3</span><div><div class="ws-title">选择模型目录</div><div class="ws-hint">EmbeddingGemma-2 ONNX（fp32）。找不到就先一键下载。</div></div></div>
+    <div class="w-step"><span class="num">4</span><div><div class="ws-title">建立向量索引</div><div class="ws-hint">对素材库逐张编码并写入 .gs-index.bin，带进度与取消。</div></div></div>
+    <div class="w-step"><span class="num">5</span><div><div class="ws-title">登记文档目录（可选）</div><div class="ws-hint">PDF / DOCX / Markdown / TXT，用于文档检索。</div></div></div>
+
+    <div style="display:flex;gap:10px;margin-top:20px">
+      <button class="btn primary" id="wizard-start" style="flex:1">开始选择</button>
+      <button class="btn ghost" id="wizard-skip">跳过，直接进入</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 右键菜单 ==================== -->
+<div class="ctx-menu" id="ctx-menu">
+  <div class="ctx-item" data-cm="open"><svg class="icon"><use href="#i-image"/></svg>打开详情</div>
+  <div class="ctx-item" data-cm="locate"><svg class="icon"><use href="#i-locate"/></svg>在文件夹中定位</div>
+  <div class="ctx-item" data-cm="collect"><svg class="icon"><use href="#i-download"/></svg>取件</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-cm="copy"><svg class="icon"><use href="#i-image"/></svg>复制图片</div>
+</div>
+
+<!-- ==================== Toast ==================== -->
+<div class="toast" id="toast"><span id="toast-icon"></span><span id="toast-msg"></span></div>
+
+<script>
+/* ============================================================
+   样例数据
+   ============================================================ */
+const FOLDERS = ['VR', 'CR', 'CR+VR', '其他'];
+const GRADS = [
+  'linear-gradient(135deg,#4f6bff,#8b5cf6)',
+  'linear-gradient(135deg,#0891b2,#22d3ee)',
+  'linear-gradient(135deg,#7c3aed,#db2777)',
+  'linear-gradient(135deg,#059669,#34d399)',
+  'linear-gradient(135deg,#ea580c,#fbbf24)',
+  'linear-gradient(135deg,#4f46e5,#6366f1)',
+];
+const RESULTS = [
+  { name: '玻璃球多头吊灯', folder: 'VR', size: '3.2 MB', score: 92, hasArc: true, ext: '.rar' },
+  { name: '中古风木质吸顶灯', folder: 'VR', size: '1.8 MB', score: 87, hasArc: true, ext: '.zip' },
+  { name: '花卉图案装饰画', folder: 'CR', size: '5.6 MB', score: 84, hasArc: true, ext: '.rar' },
+  { name: '轻奢大理石茶几', folder: 'CR+VR', size: '2.9 MB', score: 81, hasArc: false, ext: '' },
+  { name: '黄铜壁灯 · 单头', folder: 'VR', size: '1.2 MB', score: 77, hasArc: true, ext: '.rar' },
+  { name: '北欧原木餐桌椅', folder: 'CR', size: '4.1 MB', score: 74, hasArc: true, ext: '.zip' },
+  { name: '复古藤编单椅', folder: '其他', size: '2.2 MB', score: 70, hasArc: false, ext: '' },
+  { name: '奶油风布艺沙发', folder: 'CR+VR', size: '3.8 MB', score: 66, hasArc: true, ext: '.rar' },
+];
+const BROWSE = [];
+const BROWSE_NAMES = ['玻璃球多头吊灯','中古风木质吸顶灯','花卉图案装饰画','轻奢大理石茶几','黄铜壁灯','北欧原木餐桌椅','复古藤编单椅','奶油风布艺沙发','现代简约落地灯','法式雕花床','工业风铁艺书架','日式榻榻米床','新中式玄关柜','意式极简沙发','美式实木书桌','ins风床头柜','轻奢水晶吊灯','原木电视柜','铁艺挂墙花架','布艺懒人沙发','大理石边几','藤编吊椅','陶瓷台灯','玻璃花瓶摆件','实木餐边柜','羊羔绒休闲椅','云朵造型沙发','金属落地镜','岩板餐桌','奶油风床尾凳','极简床头灯','复古地毯','抽象艺术挂画','绿植盆栽','香薰蜡烛摆件','几何拼接地毯','禅意茶台','藤编收纳篮','ins风落地镜','布艺窗帘','大理石壁炉','黄铜花洒','陶瓷浴缸','实木楼梯扶手','玻璃推拉门','金属屏风','仿古砖背景墙','水晶壁灯','香槟金吊灯','现代风餐椅','原木床','铁艺吧台椅','羊毛地毯','亚克力展示架','岩石纹理墙面','藤编屏风','全屋定制衣柜','大理石背景墙','实木护墙板','轻奢风床头背景'];
+for (let i = 0; i < 60; i++) {
+  BROWSE.push({
+    name: BROWSE_NAMES[i % BROWSE_NAMES.length] + (i >= BROWSE_NAMES.length ? ' ' + (Math.floor(i / BROWSE_NAMES.length) + 1) : ''),
+    folder: FOLDERS[i % 4],
+    size: (0.4 + (i * 1.7) % 5.5).toFixed(1) + ' MB',
+    hasArc: i % 3 !== 0,
+  });
+}
+
+/* ============================================================
+   图标辅助
+   ============================================================ */
+function icon(id) { return '<svg class="icon"><use href="#' + id + '"/></svg>'; }
+
+/* ============================================================
+   渲染
+   ============================================================ */
+const grid = document.getElementById('result-grid');
+function bandOf(s) { return s >= 85 ? 'high' : s >= 72 ? 'mid' : 'low'; }
+function renderResults(items) {
+  grid.innerHTML = items.map((r, idx) => {
+    const band = bandOf(r.score);
+    return `<article class="card" data-name="${r.name}" data-idx="${idx}">
+      <div class="thumb" style="background:${GRADS[idx % GRADS.length]}">
+        <span class="ph">${r.name.slice(0,1)}</span>
+        <span class="folder-tag">${r.folder}</span>
+        <span class="sim-badge ${band}">${r.score}%</span>
+        <div class="acts">
+          <span class="mini" data-act="locate">${icon('i-locate')}定位</span>
+          <span class="mini" data-act="collect">${icon('i-download')}取件</span>
+        </div>
+        <span class="name-overlay">${r.name}</span>
+        <span class="check" data-check>${icon('i-check').replace('class="icon"','class="icon" style="width:12px;height:12px"')}</span>
+      </div>
+      <div class="info">
+        <div class="meta"><span>${r.folder}</span><span class="dot"></span><span>${r.size}</span><span class="dot"></span><span>${r.hasArc ? '有包' : '缺包'}</span></div>
+        <div class="score">
+          <span class="bar ${band}"><i style="width:${r.score}%"></i></span>
+          <span class="val ${band}">${r.score}%</span>
+        </div>
+      </div>
+    </article>`;
+  }).join('');
+  document.getElementById('result-count').textContent = items.length + ' 套素材';
+}
+renderResults(RESULTS);
+
+const browseGrid = document.getElementById('browse-grid');
+browseGrid.innerHTML = BROWSE.map((r, idx) => `
+  <article class="card" data-name="${r.name}">
+    <div class="thumb" style="background:${GRADS[idx % GRADS.length]}">
+      <span class="ph">${r.name.slice(0,1)}</span>
+      <span class="folder-tag">${r.folder}</span>
+      ${r.hasArc ? `<span class="arc-badge">${icon('i-package').replace('class="icon"','class="icon" style="width:12px;height:12px"')}</span>` : `<span class="arc-badge no-arc">缺包</span>`}
+    </div>
+    <div class="info">
+      <div class="title">${r.name}</div>
+      <div class="meta"><span>${r.folder}</span><span class="dot"></span><span>${r.size}</span><span class="dot"></span><span>${r.hasArc ? '有包' : '缺包'}</span></div>
+    </div>
+  </article>`).join('');
+
+/* ============================================================
+   导航
+   ============================================================ */
+const screens = document.querySelectorAll('.screen');
+const navItems = document.querySelectorAll('.nav-item[data-screen]');
+const crumbName = document.getElementById('crumb-name');
+const SCREEN_LABELS = { search:'语义搜索', browse:'浏览图库', docs:'文档检索', tasks:'索引任务', activity:'操作记录', health:'体检与诊断', settings:'设置', item:'图片详情', libraries:'素材库', libdetail:'库详情' };
+
+function go(screen) {
+  screens.forEach(s => s.classList.remove('active'));
+  const target = document.querySelector('.screen[data-screen="' + screen + '"]');
+  if (target) target.classList.add('active');
+  navItems.forEach(n => n.classList.toggle('active', n.dataset.screen === screen));
+  crumbName.textContent = SCREEN_LABELS[screen] || screen;
+  document.title = (SCREEN_LABELS[screen] || screen) + ' · Gemma Search';
+  document.getElementById('content').scrollTop = 0;
+}
+navItems.forEach(n => {
+  n.addEventListener('click', () => {
+    if (n.dataset.disabled) { toast('该功能需要先在设置里登记文档目录', 'info'); return; }
+    go(n.dataset.screen);
+  });
+});
+
+/* 卡片点击 → 详情 */
+document.addEventListener('click', (e) => {
+  const card = e.target.closest('.card');
+  const act = e.target.closest('[data-act]');
+  if (act) { e.stopPropagation(); toast(act.dataset.act === 'locate' ? '已请求在资源管理器中定位（系统未回报结果）' : '已加入取件队列', 'info'); return; }
+  if (card && !e.target.closest('[data-check]') && !document.body.classList.contains('batch-mode')) {
+    document.getElementById('item-title').textContent = card.dataset.name || '未命名素材';
+    go('item');
+  }
+});
+document.querySelectorAll('[data-back]').forEach(b => b.addEventListener('click', () => go(b.dataset.back)));
+
+/* 批量选择 */
+let batchMode = false;
+const batchBar = document.getElementById('batch-bar');
+document.getElementById('batch-toggle').addEventListener('click', () => {
+  batchMode = !batchMode;
+  document.body.classList.toggle('batch-mode', batchMode);
+  document.getElementById('batch-toggle').innerHTML = batchMode ? icon('i-x') + '退出批量' : icon('i-check') + '批量选择';
+});
+document.getElementById('batch-close').addEventListener('click', () => {
+  batchMode = false;
+  document.body.classList.remove('batch-mode');
+  document.getElementById('batch-toggle').innerHTML = icon('i-check') + '批量选择';
+});
+function updateBatch() {
+  const n = document.querySelectorAll('.card .check.checked').length;
+  document.getElementById('batch-count').textContent = '已选 ' + n + ' 项';
+  batchBar.classList.toggle('show', n > 0);
+}
+document.addEventListener('click', (e) => {
+  const ck = e.target.closest('[data-check]');
+  if (ck) { e.stopPropagation(); ck.classList.toggle('checked'); updateBatch(); }
+});
+
+/* 搜索模拟 */
+const input = document.getElementById('search-input');
+document.getElementById('search-btn').addEventListener('click', runSearch);
+input.addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
+document.querySelectorAll('.suggest').forEach(s => s.addEventListener('click', () => { input.value = s.textContent; runSearch(); }));
+
+const searchHistory = [];
+function recordQuery(q) { if (q && !searchHistory.includes(q)) { searchHistory.unshift(q); if (searchHistory.length > 5) searchHistory.pop(); renderRecent(); } }
+function renderRecent() {
+  const row = document.getElementById('recent-row');
+  const chips = document.getElementById('recent-chips');
+  if (!searchHistory.length) { row.style.display = 'none'; return; }
+  row.style.display = 'flex';
+  chips.innerHTML = searchHistory.map(h => `<span class="suggest">${h}</span>`).join('');
+  chips.querySelectorAll('.suggest').forEach(s => s.addEventListener('click', () => { input.value = s.textContent; runSearch(); }));
+}
+
+let queryImage = null;
+function runSearch() {
+  const q = input.value.trim();
+  if (!q && !queryImage) { toast('请输入描述或选择一张参考图', 'info'); return; }
+  if (q) recordQuery(q);
+  const filtered = RESULTS.filter(r => r.name.includes(q) || q.length <= 2).slice(0, q ? 6 : 8);
+  renderResults(filtered.length ? filtered : RESULTS.slice(0, 3));
+  document.getElementById('search-meta').textContent = (queryImage ? '以图搜图 · ' : '') + '检索耗时 52 ms · 命中 ' + filtered.length + ' 条';
+}
+
+/* 合一搜索框：选图 / 粘贴 / 拖拽 */
+const imgPickBtn = document.getElementById('img-pick-btn');
+const imgFile = document.getElementById('img-file');
+const qImage = document.getElementById('q-image');
+const qImageName = document.getElementById('q-image-name');
+function setQueryImage(name) { queryImage = name; qImageName.textContent = name; qImage.style.display = 'inline-flex'; input.placeholder = '再输入补充描述（可选），回车搜索'; }
+function clearQueryImage() { queryImage = null; qImage.style.display = 'none'; input.placeholder = '描述画面，或拖入 / 粘贴一张参考图…'; }
+imgPickBtn.addEventListener('click', () => imgFile.click());
+imgFile.addEventListener('change', () => { if (imgFile.files && imgFile.files[0]) setQueryImage(imgFile.files[0].name); });
+document.getElementById('q-image-x').addEventListener('click', clearQueryImage);
+input.addEventListener('paste', (e) => {
+  const items = e.clipboardData && e.clipboardData.items ? Array.from(e.clipboardData.items) : [];
+  for (const it of items) if (it.type && it.type.startsWith('image/')) { e.preventDefault(); setQueryImage('剪贴板图片'); toast('已粘贴参考图（演示）', 'info'); return; }
+});
+input.addEventListener('dragover', (e) => e.preventDefault());
+input.addEventListener('drop', (e) => { e.preventDefault(); setQueryImage('拖入的图片'); toast('已拖入参考图（演示）', 'info'); });
+
+/* 右键菜单 */
+const ctxMenu = document.getElementById('ctx-menu');
+let ctxTarget = null;
+document.addEventListener('contextmenu', (e) => {
+  const card = e.target.closest('.card');
+  if (!card) return;
+  e.preventDefault();
+  ctxTarget = card;
+  ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
+  ctxMenu.style.top = Math.min(e.clientY, window.innerHeight - 170) + 'px';
+  ctxMenu.classList.add('show');
+});
+document.addEventListener('click', () => ctxMenu.classList.remove('show'));
+ctxMenu.addEventListener('click', (e) => {
+  const item = e.target.closest('[data-cm]');
+  if (!item) return;
+  ctxMenu.classList.remove('show');
+  const cm = item.dataset.cm;
+  if (cm === 'open' && ctxTarget) { document.getElementById('item-title').textContent = ctxTarget.dataset.name || '未命名素材'; go('item'); }
+  else if (cm === 'locate') toast('已请求在资源管理器中定位（系统未回报结果）', 'info');
+  else if (cm === 'collect') toast('已加入取件队列', 'info');
+  else if (cm === 'copy') toast('已复制图片到剪贴板（演示）', 'info');
+});
+
+/* 筛选 chip */
+document.querySelectorAll('#search-filters .chip.f').forEach(c => c.addEventListener('click', () => {
+  document.querySelectorAll('#search-filters .chip.f').forEach(x => x.classList.toggle('active', x === c));
+  toast('已筛选分类：' + c.dataset.f, 'info');
+}));
+document.querySelectorAll('.toolbar .chip.f').forEach(c => c.addEventListener('click', () => {
+  document.querySelectorAll('.toolbar .chip.f').forEach(x => x.classList.toggle('active', x === c));
+}));
+
+/* 主题切换 */
+const themeToggle = document.getElementById('theme-toggle');
+themeToggle.addEventListener('click', () => {
+  const cur = document.documentElement.dataset.theme;
+  document.documentElement.dataset.theme = cur === 'dark' ? 'light' : 'dark';
+  themeToggle.querySelector('use').setAttribute('href', cur === 'dark' ? '#i-sun' : '#i-moon');
+});
+
+/* ============================================================
+   命令面板
+   ============================================================ */
+const palette = document.getElementById('palette');
+const paletteInput = document.getElementById('palette-input');
+const paletteList = document.getElementById('palette-list');
+const PALETTE_CMDS = [
+  { group: '页面', icon: '#i-search', label: '语义搜索', sub: '跳到搜索页', screen: 'search' },
+  { group: '页面', icon: '#i-grid', label: '浏览图库', sub: '跳到浏览页', screen: 'browse' },
+  { group: '页面', icon: '#i-heart', label: '体检与诊断', sub: '跳到诊断页', screen: 'health' },
+  { group: '页面', icon: '#i-settings', label: '设置', sub: '跳到设置页', screen: 'settings' },
+  { group: '动作', icon: '#i-refresh', label: '运行体检', sub: '体检当前库', screen: 'health', act: 'health' },
+  { group: '动作', icon: '#i-refresh', label: '重新扫描库', sub: '检测素材变更', act: 'scan' },
+  { group: '动作', icon: '#i-download', label: '取件白名单', sub: '管理取件目录', screen: 'settings' },
+  { group: '动作', icon: '#i-moon', label: '切换主题', sub: '深色 / 浅色', act: 'theme' },
+];
+let palActive = 0;
+function renderPalette(q) {
+  const ql = q.toLowerCase();
+  const items = PALETTE_CMDS.filter(c => c.label.toLowerCase().includes(ql) || (c.sub||'').toLowerCase().includes(ql));
+  palActive = 0;
+  let html = ''; let lastGroup = '';
+  items.forEach((c, i) => {
+    if (c.group !== lastGroup) { html += '<div class="p-group">' + c.group + '</div>'; lastGroup = c.group; }
+    html += `<div class="p-item ${i===0?'active':''}" data-i="${i}"><svg class="icon"><use href="${c.icon}"/></svg><span>${c.label}</span><span class="p-sub">${c.sub||''}</span></div>`;
+  });
+  paletteList.innerHTML = html || '<div class="p-item" style="opacity:.6">没有匹配的命令</div>';
+  const idx = PALETTE_CMDS.indexOf(items[0]);
+}
+function openPalette() { palette.classList.add('show'); paletteInput.value = ''; renderPalette(''); setTimeout(() => paletteInput.focus(), 30); }
+function closePalette() { palette.classList.remove('show'); }
+function runPaletteItem() {
+  const items = [...paletteList.querySelectorAll('.p-item')].filter(el => !el.style.opacity);
+  if (!items.length) return;
+  const idx = parseInt(items[palActive]?.dataset.i ?? '0');
+  const cmd = PALETTE_CMDS.filter(c => true)[0]; // fallback
+  // 更精确：用渲染时的源数组
+  const all = [...paletteList.querySelectorAll('.p-item')];
+  const el = all[palActive]; if (!el) return;
+  const label = el.querySelector('span:not(.p-sub)')?.textContent;
+  const match = PALETTE_CMDS.find(c => c.label === label);
+  if (!match) return;
+  closePalette();
+  if (match.act === 'theme') themeToggle.click();
+  else if (match.act === 'health') { go('health'); document.getElementById('run-health').click(); }
+  else if (match.act === 'scan') toast('正在扫描素材变更…', 'info');
+  else if (match.screen) go(match.screen);
+}
+document.getElementById('cmd-trigger').addEventListener('click', openPalette);
+palette.addEventListener('click', (e) => { if (e.target === palette) closePalette(); });
+paletteInput.addEventListener('input', () => renderPalette(paletteInput.value));
+paletteInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closePalette();
+  if (e.key === 'ArrowDown') { e.preventDefault(); palActive = Math.min(palActive + 1, paletteList.querySelectorAll('.p-item').length - 1); syncPalActive(); }
+  if (e.key === 'ArrowUp') { e.preventDefault(); palActive = Math.max(palActive - 1, 0); syncPalActive(); }
+  if (e.key === 'Enter') runPaletteItem();
+});
+function syncPalActive() {
+  [...paletteList.querySelectorAll('.p-item')].forEach((el, i) => el.classList.toggle('active', i === palActive));
+}
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); palette.classList.contains('show') ? closePalette() : openPalette(); }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') { if (document.activeElement !== input) { e.preventDefault(); toast('已粘贴参考图（演示）', 'info'); } }
+  if (e.key === 'Escape' && palette.classList.contains('show')) closePalette();
+});
+
+/* ============================================================
+   体检 / 重建 / 向导 / Toast
+   ============================================================ */
+document.getElementById('run-health').addEventListener('click', () => {
+  const btn = document.getElementById('run-health');
+  btn.innerHTML = icon('i-refresh') + '正在体检…';
+  setTimeout(() => { btn.innerHTML = icon('i-heart') + '运行体检'; toast('体检完成：6 项通过 · 1 项需重建', 'info'); }, 900);
+});
+document.getElementById('rebuild-trigger').addEventListener('click', () => {
+  toast('重建元数据会删掉 .gs.db 家族并重新导入（素材不动）。这是不可撤销操作。', 'err');
+});
+document.getElementById('wizard-start').addEventListener('click', () => { document.getElementById('wizard').classList.remove('show'); toast('向导已开始（演示）', 'info'); });
+document.getElementById('wizard-skip').addEventListener('click', () => document.getElementById('wizard').classList.remove('show'));
+document.getElementById('rerun-wizard').addEventListener('click', () => document.getElementById('wizard').classList.add('show'));
+
+let toastTimer;
+function toast(msg, tone) {
+  const t = document.getElementById('toast');
+  document.getElementById('toast-msg').textContent = msg;
+  t.classList.toggle('err', tone === 'err');
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+/* 设置里跳转按钮 */
+document.querySelector('[data-goto="settings"]').addEventListener('click', () => go('settings'));
+
+/* ============================================================
+   素材库管理
+   ============================================================ */
+const LIBS = [
+  { id:'L1', name:'主素材库', root:'G:\\model', source:'注册表', enabled:true, chosen:true,
+    itemCount:3594, indexRows:3594, dim:768, seq:140,
+    compat:'embeddinggemma-2 | rev-2026-05 | fp32 | v2 | 140 | 768 | l2 | mean_soft_tokens',
+    builtAt:'2026-10-14 09:12', indexOk:true },
+  { id:'L2', name:'旧素材备份', root:'E:\\素材备份', source:'注册表', enabled:true, chosen:false,
+    itemCount:812, indexRows:812, dim:768, seq:280,
+    compat:'embeddinggemma-2 | rev-2025-01 | fp32 | v1 | 280 | 768 | l2 | mean_soft_tokens',
+    builtAt:'2025-11-02 18:40', indexOk:true },
+  { id:'L3', name:'外接盘素材', root:'D:\\assets', source:'环境变量', enabled:false, chosen:false,
+    itemCount:null, indexRows:null, dim:null, seq:null, compat:null, builtAt:null, indexOk:false },
+];
+let activeLibId = 'L1';
+
+function libStatus(l) {
+  if (!l.enabled) return { t:'停用', c:'neutral' };
+  if (l.compat && l.seq !== 140) return { t:'不兼容', c:'warn' };
+  if (l.indexOk) return { t:'可用', c:'ok' };
+  return { t:'无索引', c:'neutral' };
+}
+
+function renderLibList() {
+  const list = document.getElementById('lib-list');
+  list.innerHTML = LIBS.map(l => {
+    const st = libStatus(l);
+    return `<div class="lib-row ${l.chosen?'chosen':''}" data-lib="${l.id}">
+      <div class="lib-avatar">${l.id}</div>
+      <div class="lib-main">
+        <div class="lib-name">${l.name} ${l.chosen?'<span class="tag-current">当前</span>':''}</div>
+        <div class="lib-root">${l.root}</div>
+      </div>
+      <div class="lib-stats">
+        <div class="ls"><b>${l.itemCount ?? '—'}</b><span>条目</span></div>
+        <div class="ls"><b>${l.indexRows ?? '—'}</b><span>索引行</span></div>
+        <div class="ls"><b>${l.dim ?? '—'}</b><span>维度</span></div>
+      </div>
+      <span class="state-pill ${st.c}">${st.t}</span>
+      <div class="lib-actions">
+        <label class="switch" data-toggle="${l.id}" title="参与检索"><input type="checkbox" ${l.enabled?'checked':''}><span class="slider"></span></label>
+        <button class="btn ghost icon-btn" data-detail="${l.id}" title="详情">${icon('i-chev-r')}</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderLibDetail(id) {
+  const l = LIBS.find(x => x.id === id); if (!l) return;
+  activeLibId = id;
+  document.getElementById('ld-title').textContent = l.name;
+  const st = libStatus(l);
+  const compatWarn = (l.compat && l.seq !== 140)
+    ? `<div class="notice"><svg class="icon"><use href="#i-alert"/></svg><div><b>与当前库不兼容，无法合并检索</b><span class="mono">${l.compat}</span><span>seq 不一致（当前 140，此库 ${l.seq}）。需全量重建索引后才能合并检索。</span></div></div>`
+    : '';
+  document.getElementById('ld-body').innerHTML = `
+    <div class="toolbar" style="margin-bottom:14px">
+      <span class="state-pill ok">已登记</span>
+      ${l.chosen?'<span class="state-pill ok">当前库</span>':''}
+      <span class="state-pill ${st.c}">${st.t}</span>
+      <span style="flex:1"></span>
+      <span style="font-size:12px;color:var(--text-3)">来源：${l.source}</span>
+    </div>
+    ${compatWarn}
+    <div class="detail" style="grid-template-columns:1fr 1fr">
+      <div class="meta-panel">
+        <div style="font-weight:600;margin-bottom:8px">基本信息</div>
+        <div class="meta-row"><span class="k">库 ID</span><span class="v mono">${l.id}</span></div>
+        <div class="meta-row"><span class="k">显示名</span><span class="v">${l.name}</span></div>
+        <div class="meta-row"><span class="k">库根</span><span class="v mono">${l.root}</span></div>
+        <div class="meta-row"><span class="k">来源</span><span class="v">${l.source}</span></div>
+        <div class="meta-row"><span class="k">条目数</span><span class="v">${l.itemCount ?? '未扫描'}</span></div>
+        <div class="meta-row"><span class="k">索引行</span><span class="v">${l.indexRows ?? '—'}</span></div>
+        <div class="meta-row"><span class="k">维度</span><span class="v">${l.dim ?? '—'}</span></div>
+        <div class="meta-row"><span class="k">构建时间</span><span class="v">${l.builtAt ?? '—'}</span></div>
+      </div>
+      <div class="meta-panel">
+        <div style="font-weight:600;margin-bottom:8px">存储落点</div>
+        <div class="meta-row"><span class="k">索引</span><span class="v mono">${l.root}\\.gs-index.bin</span></div>
+        <div class="meta-row"><span class="k">元数据</span><span class="v mono">${l.root}\\.gs.db</span></div>
+        <div class="meta-row"><span class="k">事务日志</span><span class="v mono">${l.root}\\.gs-journal\\</span></div>
+        <div class="meta-row"><span class="k">暂存</span><span class="v mono">${l.root}\\…\\.gs-staging\\</span></div>
+        <div style="font-weight:600;margin:14px 0 8px">兼容键（compat）</div>
+        <div class="meta-row"><span class="k">compat</span><span class="v mono" style="word-break:break-all">${l.compat ?? '（未建索引）'}</span></div>
+      </div>
+    </div>
+    <div class="action-groups">
+      <div class="action-group">
+        <div class="ag-title">操作</div>
+        <div class="ag-note">停用不动任何文件；「设为当前」决定默认检索范围。</div>
+        <div class="ag-acts">
+          <button class="btn" data-ld-toggle="${l.id}">${l.enabled?'停用':'启用'}</button>
+          <button class="btn" data-ld-current="${l.id}">设为当前</button>
+          <button class="btn" data-ld-scan="${l.id}">重新扫描</button>
+        </div>
+      </div>
+      <div class="action-group">
+        <div class="ag-title">危险区</div>
+        <div class="ag-note">移除默认只取消登记；删除库内 .gs-* 需二次确认，绝不碰素材。</div>
+        <div class="ag-acts"><button class="btn danger" data-ld-remove="${l.id}">移除登记…</button></div>
+      </div>
+    </div>`;
+}
+
+document.getElementById('lib-switch').addEventListener('click', () => go('libraries'));
+document.getElementById('lib-chip').addEventListener('click', () => go('libraries'));
+document.getElementById('lib-add').addEventListener('click', () => toast('已打开系统文件夹选择器（演示）','info'));
+
+document.getElementById('lib-list').addEventListener('click', (e) => {
+  const t = e.target.closest('[data-toggle]');
+  if (t) { e.stopPropagation(); const l = LIBS.find(x=>x.id===t.dataset.toggle); l.enabled = !l.enabled; renderLibList(); toast(l.enabled?'已启用 '+l.name+'：参与检索':'已停用 '+l.name+'：不参与检索（文件不动）','info'); return; }
+  const d = e.target.closest('[data-detail]');
+  if (d) { e.stopPropagation(); renderLibDetail(d.dataset.detail); go('libdetail'); return; }
+  const row = e.target.closest('[data-lib]');
+  if (row) { renderLibDetail(row.dataset.lib); go('libdetail'); }
+});
+
+document.getElementById('ld-current-top').addEventListener('click', () => {
+  LIBS.forEach(x => x.chosen = x.id === activeLibId);
+  renderLibList(); renderLibDetail(activeLibId);
+  toast('已设为当前库：' + (LIBS.find(x=>x.id===activeLibId) || {}).name, 'info');
+});
+document.getElementById('ld-scan-top').addEventListener('click', () => {
+  toast('正在扫描 ' + (LIBS.find(x=>x.id===activeLibId) || {}).name + ' …（演示）', 'info');
+});
+
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-ld-toggle]');
+  if (t) { const l = LIBS.find(x=>x.id===t.dataset.ldToggle); l.enabled=!l.enabled; renderLibDetail(l.id); renderLibList(); toast(l.enabled?'已启用':'已停用','info'); return; }
+  const c = e.target.closest('[data-ld-current]');
+  if (c) { LIBS.forEach(x=>x.chosen=x.id===c.dataset.ldCurrent); renderLibList(); renderLibDetail(c.dataset.ldCurrent); toast('已设为当前库','info'); return; }
+  const s = e.target.closest('[data-ld-scan]');
+  if (s) { toast('正在扫描 ' + (LIBS.find(x=>x.id===s.dataset.ldScan) || {}).name + ' …（演示）', 'info'); return; }
+  const r = e.target.closest('[data-ld-remove]');
+  if (r) { toast('移除只取消登记，不删任何文件。删除库内 .gs-* 需在确认框里勾选。', 'err'); return; }
+});
+
+renderLibList();
+</script>
+</body>
+</html>

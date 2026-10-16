@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>提案 · 库卡片详细页 + 索引状态体系</title>
+<!--
+  ============================================================================
+  提案文件（**不是**原型的一部分，仅供评审）
+
+  用途：把"索引状态体系 + 条目详情页"这套方案摆出来看，等你点头再改原型/代码。
+  它复用原型的设计令牌，所以视觉语言一致；但它是**静态**的，不需要点。
+
+  三块内容：
+    ① 索引状态模型（8 档）—— 基于项目已有 utils/index-state.ts 的 4 档**扩展**
+    ② 列表视图里的索引状态（现在缺的那一环）
+    ③ 条目详情页的完整布局（检查器模式）
+  ============================================================================
+-->
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0; padding: 40px 32px 96px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Hiragino Sans GB", "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #000; color: #f5f5f7; font-size: 14px; line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+@media (prefers-color-scheme: light) {
+  body { background: #fff; color: #1d1d1f; }
+}
+.wrap { max-width: 1320px; margin: 0 auto; }
+h1 { font-size: 27px; font-weight: 680; letter-spacing: -.022em; margin: 0 0 6px; }
+h2 { font-size: 20px; font-weight: 660; letter-spacing: -.018em; margin: 48px 0 4px; }
+h3 { font-size: 15px; font-weight: 640; margin: 0 0 2px; }
+p { margin: 0; }
+.lede { color: #a1a1a6; font-size: 15px; max-width: 74ch; }
+@media (prefers-color-scheme: light) { .lede { color: #6e6e73; } }
+.sub { color: #86868b; font-size: 13px; margin-top: 4px; max-width: 78ch; }
+
+/* ---- 令牌（与原型一致；这里只列用到的） ---- */
+:root {
+  --line: #2c2c2e; --line-strong: #3a3a3c;
+  --surface: #161618; --raised: #1d1d1f; --hover: rgba(255,255,255,.055);
+  --text: #f5f5f7; --text-2: #a1a1a6; --text-3: #86868b;
+  --accent: #0d6fdb; --accent-text: #4da3ff; --accent-soft: rgba(77,163,255,.18);
+  --ok-text: #30d158; --warn-text: #ff9f0a; --crit-text: #ff685f;
+  --ok-soft: rgba(48,209,88,.22); --warn-soft: rgba(255,159,10,.22); --crit-soft: rgba(255,69,58,.22);
+  --canvas: linear-gradient(150deg, #232329, #17171b);
+  --r-card: 14px; --r-panel: 18px; --r-block: 22px; --r-pill: 999px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --line: #e5e5ea; --line-strong: #d2d2d7;
+    --surface: #fff; --raised: #fff; --hover: rgba(0,0,0,.045);
+    --text: #1d1d1f; --text-2: #6e6e73; --text-3: #707078;
+    --accent: #0071e3; --accent-text: #2b6fd4; --accent-soft: rgba(0,113,227,.10);
+    --ok-text: #217f3a; --warn-text: #a06406; --crit-text: #cd0014;
+    --ok-soft: rgba(52,199,89,.14); --warn-soft: rgba(255,159,10,.09); --crit-soft: rgba(255,59,48,.14);
+    --canvas: linear-gradient(150deg, #eceef4, #dfe3ea);
+  }
+}
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* ---- 状态徽标：**文字 + 圆点**，不靠颜色单独承载语义 ---- */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 22px; padding: 1px 8px; border-radius: var(--r-pill);
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+.b-ok   { background: var(--ok-soft);   color: var(--ok-text); }
+.b-warn { background: var(--warn-soft); color: var(--warn-text); }
+.b-crit { background: var(--crit-soft); color: var(--crit-text); }
+.b-neutral { background: var(--hover); color: var(--text-2); }
+
+/* ---- 表格 ---- */
+table { width: 100%; border-collapse: collapse; margin-top: 16px;
+  border: 1px solid var(--line); border-radius: var(--r-panel); overflow: hidden; }
+th, td { text-align: left; padding: 11px 14px; border-top: 1px solid var(--line); vertical-align: top; }
+thead th { border-top: 0; background: color-mix(in srgb, var(--text) 3%, transparent);
+  font-size: 11px; font-weight: 620; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); }
+td { font-size: 13px; }
+td.d { color: var(--text-2); }
+
+/* ---- 卡片/面板 ---- */
+.card { border: 1px solid var(--line); border-radius: var(--r-block); background: var(--surface); overflow: hidden; }
+.card-h { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+.card-b { padding: 16px 18px; }
+.note { display: flex; gap: 10px; padding: 12px 14px; border-radius: 10px;
+  background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  font-size: 12.5px; line-height: 1.55; }
+.note svg { width: 15px; height: 15px; flex: none; margin-top: 1px; color: var(--accent-text); }
+.note.warn { background: var(--warn-soft); border-color: color-mix(in srgb, #ff9f0a 30%, transparent); color: var(--warn-text); }
+.note.warn svg { color: var(--warn-text); }
+.muted { color: var(--text-2); }
+.faint { color: var(--text-3); }
+
+/* ---- 列表行（模拟缩放后的原型） ---- */
+.demo { border: 1px solid var(--line); border-radius: var(--r-block); overflow: hidden; background: var(--surface); margin-top: 16px; }
+.dhead { display: grid; grid-template-columns: 30px 56px minmax(0,1fr) 86px 168px 88px 92px 78px;
+  gap: 10px; padding: 9px 16px; border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+  font-size: 10.5px; font-weight: 620; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); }
+.drow { display: grid; grid-template-columns: 30px 56px minmax(0,1fr) 86px 168px 88px 92px 78px;
+  gap: 10px; align-items: center; padding: 8px 16px; border-top: 1px solid var(--line); }
+.drow:first-of-type { border-top: 0; }
+.drow .th { width: 56px; aspect-ratio: 4/3; border-radius: 7px; background: var(--canvas); position: relative; overflow: hidden; }
+.drow .th i { position: absolute; inset: 0; }
+.drow .ck { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--line-strong); }
+.drow .nm { display: block; font-size: 12.5px; font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drow .sb { display: block; font-size: 10.5px; color: var(--text-3); margin-top: 1px; }
+.drow .cl { font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rowsel { background: var(--accent-soft); }
+
+/* ---- 详情页三栏 ---- */
+.detail { display: grid; grid-template-columns: minmax(0,1fr) 400px; gap: 22px; margin-top: 16px; align-items: start; }
+.stage { position: relative; border-radius: var(--r-block); overflow: hidden;
+  background: var(--canvas); border: 1px solid var(--line); aspect-ratio: 4/3; }
+.stage .art { position: absolute; inset: 0; }
+.art .blob { position: absolute; border-radius: 50%; filter: blur(24px); opacity: .85; }
+.art .shape { position: absolute; opacity: .92; }
+.panel { border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface); }
+.panel + .panel { margin-top: 14px; }
+.panel-h { padding: 13px 16px 0; display: flex; align-items: center; gap: 8px; }
+.panel-h h3 { font-size: 13px; font-weight: 620; }
+.panel-b { padding: 13px 16px; }
+.panel-b + .panel-b { padding-top: 0; }
+.divider { height: 1px; background: var(--line); margin: 13px 0; }
+.kv { display: grid; grid-template-columns: 78px minmax(0,1fr); gap: 8px 12px; font-size: 12.5px; }
+.kv dt { color: var(--text-3); }
+.kv dd { margin: 0; color: var(--text); word-break: break-all; }
+
+/* ---- 状态行：详情页的"索引状态"大块 ---- */
+.idx { border-radius: 12px; padding: 14px; border: 1px solid var(--line); background: var(--raised); }
+.idx.warn { border-color: color-mix(in srgb, #ff9f0a 34%, transparent); }
+.idx.crit { border-color: color-mix(in srgb, #ff685f 34%, transparent); }
+.idx-top { display: flex; align-items: center; gap: 10px; }
+.idx-top .big { font-size: 15px; font-weight: 660; }
+.idx-why { margin-top: 8px; font-size: 12.5px; color: var(--text-2); line-height: 1.55; }
+.idx-acts { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---- 按钮 ---- */
+.btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 13px;
+  border-radius: 9px; border: 1px solid transparent; font-size: 12.5px; font-weight: 590;
+  cursor: default; white-space: nowrap; }
+.btn svg { width: 14px; height: 14px; }
+.pri { background: var(--accent); color: #fff; }
+.sec { background: var(--hover); color: var(--text); border-color: var(--line); }
+.ghost { background: transparent; color: var(--text-2); }
+.dgr { background: var(--crit-text); color: #fff; }
+
+/* ---- 分段/胶囊 ---- */
+.seg { display: inline-flex; padding: 2px; gap: 2px; background: var(--hover); border-radius: 9px; }
+.seg span { min-height: 26px; padding: 0 12px; display: inline-flex; align-items: center;
+  border-radius: 7px; font-size: 11.5px; font-weight: 560; color: var(--text-2); }
+.seg .on { background: var(--raised); color: var(--text); }
+.chips { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 12px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 11px;
+  border-radius: var(--r-pill); border: 1px solid var(--line); font-size: 11.5px; color: var(--text-2); }
+.chip .n { color: var(--text-3); }
+.chip.on { background: var(--hover); border-color: transparent; color: var(--text); font-weight: 620; }
+.star { color: var(--warn-text); letter-spacing: 1px; }
+.tag { display: inline-flex; align-items: center; min-height: 22px; padding: 0 9px;
+  border-radius: 6px; background: var(--hover); font-size: 11.5px; color: var(--text-2); }
+
+/* 场景切换标签（本提案内部用，表示"这是列表视图/详情视图"） */
+.scenes { display: flex; gap: 8px; margin: 14px 0 0; }
+.scene-tab { padding: 7px 14px; border-radius: 9px 9px 0 0; border: 1px solid var(--line);
+  border-bottom: 0; font-size: 12.5px; color: var(--text-2); background: transparent; }
+.scene-tab.on { background: var(--surface); color: var(--text); font-weight: 600; }
+.scene-body { border: 1px solid var(--line); border-radius: 0 var(--r-block) var(--r-block) var(--r-block);
+  background: var(--surface); padding: 18px; }
+.hr { height: 1px; background: var(--line); margin: 40px 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>提案 · 库卡片详细页 + 索引状态体系</h1>
+  <p class="lede">这是**方案**，不是已改好的界面。你看完给指令，我再动原型与代码。</p>
+
+  <!-- ============================================================
+       ① 索引状态模型
+       ============================================================ -->
+  <h2>① 索引状态模型：8 档</h2>
+  <p class="sub">
+    现有代码（<span class="mono">utils/index-state.ts</span>）已经定义了 <b>4 档</b>，且明确要求：
+    状态必须【派生】而不是引擎字段，且【不自动扫描】。我在这 4 档上扩展，不推翻：
+    「已编码 / 待编码 / 待重编码 / 已从索引移除」全部保留，只补 4 档。
+  </p>
+
+  <table>
+    <thead>
+      <tr><th style="width:150px">档位</th><th style="width:92px">徽标</th>
+          <th style="width:210px">什么情况下出现</th><th>用户此刻最该知道的一句话</th>
+          <th style="width:96px">能否检索</th><th style="width:90px">能否一键修</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>已编码</b><br><span class="faint mono">encoded</span></td>
+        <td><span class="badge b-ok"><span class="dot"></span>已编码</span></td>
+        <td class="d">向量已在索引里，且 compat 与当前模型一致</td>
+        <td class="d">可以参与语义检索。<span class="faint">（什么都别说，这不是要你操心的状态）</span></td>
+        <td class="d">是</td><td class="d">—</td>
+      </tr>
+      <tr>
+        <td><b>待编码</b><br><span class="faint mono">pending</span></td>
+        <td><span class="badge b-warn"><span class="dot"></span>待编码</span></td>
+        <td class="d">已发现这条素材，但还没编码</td>
+        <td class="d">它现在<b>搜不到</b>。入库任务会处理它。</td>
+        <td class="d">否</td><td class="d">排队即可</td>
+      </tr>
+      <tr>
+        <td><b>编码中</b><br><span class="faint mono">encoding</span></td>
+        <td><span class="badge b-warn"><span class="dot"></span>编码中 38%</span></td>
+        <td class="d">该条目正在被索引任务处理</td>
+        <td class="d">正在处理，等它一下。显示进度而不是转圈。</td>
+        <td class="d">否（稍后）</td><td class="d">—</td>
+      </tr>
+      <tr>
+        <td><b>待重编码</b><br><span class="faint mono">stale</span></td>
+        <td><span class="badge b-warn"><span class="dot"></span>待重编码</span></td>
+        <td class="d">文件被外部改过（size/mtime 变了）<br><span class="faint">需要一次差分扫描才知道</span></td>
+        <td class="d">当前向量<b>与文件内容已不对应</b>，搜索结果可能指错东西。</td>
+        <td class="d">能，但结果可能错</td><td class="d">是</td>
+      </tr>
+      <tr>
+        <td><b>编码失败</b><br><span class="faint mono">failed</span></td>
+        <td><span class="badge b-crit"><span class="dot"></span>编码失败</span></td>
+        <td class="d">尝试编码时报错（文件损坏 / 不是图片 / 显存不足…）</td>
+        <td class="d">它<b>永远搜不到</b>，重试也不会自己好。要看失败原因。</td>
+        <td class="d">否</td><td class="d">重试</td>
+      </tr>
+      <tr>
+        <td><b>图片丢失</b><br><span class="faint mono">imageMissing</span></td>
+        <td><span class="badge b-crit"><span class="dot"></span>图片丢失</span></td>
+        <td class="d">索引里有，但磁盘上的预览图不见了</td>
+        <td class="d">取件和定位都会失败。<b>压缩包可能还在。</b></td>
+        <td class="d">否</td><td class="d">重新扫描</td>
+      </tr>
+      <tr>
+        <td><b>已从索引移除</b><br><span class="faint mono">removed</span></td>
+        <td><span class="badge b-neutral"><span class="dot"></span>已移除</span></td>
+        <td class="d">索引里有、盘上整个条目都没了</td>
+        <td class="d">这是一条<b>残留记录</b>，清掉即可。</td>
+        <td class="d">否</td><td class="d">清理</td>
+      </tr>
+      <tr>
+        <td><b>已排除</b><br><span class="faint mono">excluded</span></td>
+        <td><span class="badge b-neutral"><span class="dot"></span>已排除</span></td>
+        <td class="d">你手动标记"不索引这条"</td>
+        <td class="d">是你自己的选择。<b>体检和告警都不该再吵它。</b></td>
+        <td class="d">否（你有意为之）</td><td class="d">恢复索引</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note warn" style="margin-top:16px">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 9v5M12 17.5v.1"/><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <div><b>为什么不直接照搬现在的 4 档？</b> 因为现在这 4 档里
+      <b>"待编码"和"待重编码"共用同一个语气体</b>，而它们的处置完全不同（一个排队、一个要重扫）；
+      更关键的是<b>没有"编码失败"</b>——一条永远搜不到的东西，界面若不说话，你会以为软件坏了。</div>
+  </div>
+
+  <div class="note" style="margin-top:12px">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8.2v.1"/></svg>
+    <div><b>尊重现有约束。</b> 这套模型仍然【派生】：<span class="mono">failed</span> 与
+      <span class="mono">excluded</span> 不能凭空编，需要索引任务把"上次失败原因"与"排除名单"记进
+      <span class="mono">.gs.db</span>（可重建的派生数据）。若这两项暂时拿不到，
+      界面上就显示"未知"而不是猜一个——这正是现有代码注释里强调的那条纪律。</div>
+  </div>
+
+  <!-- ============================================================
+       ② 列表视图里的索引状态
+       ============================================================ -->
+  <h2>② 列表视图：把索引状态变成一列</h2>
+  <p class="sub">这是你现在**完全缺失**的一环——列表里看不到任何索引状态。筛选栏也加上索引维度。</p>
+
+  <div class="chips">
+    <span class="chip on">全部 <span class="n">3,594</span></span>
+    <span class="chip">已编码 <span class="n">3,556</span></span>
+    <span class="chip">待编码 <span class="n">18</span></span>
+    <span class="chip">待重编码 <span class="n">9</span></span>
+    <span class="chip">编码失败 <span class="n">3</span></span>
+    <span class="chip">图片丢失 <span class="n">2</span></span>
+    <span class="chip">已移除 <span class="n">6</span></span>
+    <span class="chip">已排除 <span class="n">4</span></span>
+    <span class="chip">缺包 <span class="n">0</span></span>
+  </div>
+
+  <div class="demo">
+    <div class="dhead">
+      <span></span><span></span><span>名称</span><span>大小</span>
+      <span>索引状态 ↓</span><span>修改时间</span><span>分类</span><span>分辨率</span>
+    </div>
+    <div class="drow">
+      <span class="ck"></span>
+      <span class="th"><i style="background:linear-gradient(140deg,#5b8def,#8f6ae0)"></i></span>
+      <span><span class="nm">arch_hallway_013</span><span class="sb">建筑构件</span></span>
+      <span class="cl">86.2 MB</span>
+      <span><span class="badge b-ok"><span class="dot"></span>已编码</span></span>
+      <span class="cl">2025-11-03</span><span class="cl">CR</span><span class="cl">1920×1440</span>
+    </div>
+    <div class="drow">
+      <span class="ck"></span>
+      <span class="th"><i style="background:linear-gradient(140deg,#e0a06a,#d96a8f)"></i></span>
+      <span><span class="nm">turbine_casing_204</span><span class="sb">机械零件</span></span>
+      <span class="cl">124.9 MB</span>
+      <span><span class="badge b-warn"><span class="dot"></span>待重编码</span></span>
+      <span class="cl">2025-09-09</span><span class="cl">CR</span><span class="cl">3840×2160</span>
+    </div>
+    <div class="drow">
+      <span class="ck"></span>
+      <span class="th"><i style="background:linear-gradient(140deg,#6ad0a0,#4a90d9)"></i></span>
+      <span><span class="nm">panel_linen_317</span><span class="sb">室内立面</span></span>
+      <span class="cl">31.4 MB</span>
+      <span><span class="badge b-crit"><span class="dot"></span>编码失败</span></span>
+      <span class="cl">2025-08-21</span><span class="cl">VR</span><span class="cl">1024×1024</span>
+    </div>
+    <div class="drow">
+      <span class="ck"></span>
+      <span class="th"><i style="background:linear-gradient(140deg,#d9d06a,#e08f5b)"></i></span>
+      <span><span class="nm">gear_hub_455</span><span class="sb">刀具工具 · <span style="color:var(--warn-text)">缺包</span></span></span>
+      <span class="cl">52.8 MB</span>
+      <span><span class="badge b-warn"><span class="dot"></span>待编码</span></span>
+      <span class="cl">2025-07-30</span><span class="cl">其他</span><span class="cl">1600×1200</span>
+    </div>
+    <div class="drow rowsel">
+      <span class="ck" style="background:var(--accent);border-color:var(--accent)"></span>
+      <span class="th"><i style="background:linear-gradient(140deg,#8f6ae0,#4a90d9)"></i></span>
+      <span><span class="nm">sofa_modern_112</span><span class="sb">家具组件</span></span>
+      <span class="cl">98.1 MB</span>
+      <span><span class="badge b-crit"><span class="dot"></span>图片丢失</span></span>
+      <span class="cl">2025-06-14</span><span class="cl">CR+VR</span><span class="cl">2560×1920</span>
+    </div>
+    <div class="drow">
+      <span class="ck"></span>
+      <span class="th"><i style="background:linear-gradient(140deg,#4ad9c0,#6a8fe0)"></i></span>
+      <span><span class="nm">valve_body_220</span><span class="sb">管道法兰</span></span>
+      <span class="cl">44.2 MB</span>
+      <span><span class="badge b-neutral"><span class="dot"></span>已排除</span></span>
+      <span class="cl">2025-05-02</span><span class="cl">VR</span><span class="cl">1920×1440</span>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:16px">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8.2v.1"/></svg>
+    <div><b>为什么"已编码"也要显示？</b> 如果只显示异常档，那么"全部已编码"和"某些还没看"
+      在界面上长得一样——你会永远不知道是不是还有没编码的。显示它，是为了让
+      <b>"一眼扫过去全是绿的"本身成为一个可读的信号</b>。正常项用弱化的绿，不抢眼但看得见。</div>
+  </div>
+
+  <!-- ============================================================
+       ③ 条目详情页
+       ============================================================ -->
+  <h2>③ 条目详情页：检查器模式</h2>
+  <p class="sub">左大图 + 右检查器。索引状态是<b>右侧第一块</b>（在元数据之前），因为它是"这条东西能不能用"的前提。</p>
+
+  <div class="detail">
+    <!-- 左：大图 -->
+    <div>
+      <div class="stage">
+        <div class="art">
+          <span class="blob" style="width:58%;height:58%;left:-6%;top:-10%;background:hsl(258 62% 56%)"></span>
+          <span class="blob" style="width:48%;height:48%;right:-4%;bottom:-8%;background:hsl(210 66% 50%)"></span>
+          <span class="shape" style="left:24%;top:24%;width:44%;height:44%;border-radius:14px;background:rgba(255,255,255,.15);box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)"></span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <span class="th" style="width:68px;aspect-ratio:4/3;border-radius:8px;background:var(--canvas);border:2px solid var(--accent)"></span>
+        <span style="width:68px;aspect-ratio:4/3;border-radius:8px;background:var(--canvas);border:1px solid var(--line)"></span>
+        <span style="width:68px;aspect-ratio:4/3;border-radius:8px;background:var(--canvas);border:1px solid var(--line)"></span>
+        <span style="width:68px;aspect-ratio:4/3;border-radius:8px;background:var(--canvas);border:1px solid var(--line)"></span>
+      </div>
+    </div>
+
+    <!-- 右：检查器 -->
+    <div>
+      <div class="panel">
+        <div class="panel-h"><h3>索引状态</h3>
+          <span class="faint" style="font-size:11px;margin-left:auto">右侧这块**按状态换脸**，不是叠着显示</span>
+        </div>
+        <div class="panel-b">
+          <div class="faint" style="font-size:10.5px;font-weight:620;letter-spacing:.04em;text-transform:uppercase;margin-bottom:8px">
+            形态 A · 异常时（这才需要你动手）</div>
+          <div class="idx warn">
+            <div class="idx-top">
+              <span class="badge b-warn"><span class="dot"></span>待重编码</span>
+              <span class="faint" style="font-size:11.5px">上次编码 2025-09-09 14:02</span>
+            </div>
+            <div class="idx-why">
+              这个文件的 <span class="mono">大小 / 修改时间</span> 与索引里的记录不一致 ——
+              内容被外部改过了。<b>当前向量与文件已不对应</b>，语义检索可能把你指到错的东西上。
+            </div>
+            <div class="idx-acts">
+              <span class="btn pri">重新编码这一条</span>
+              <span class="btn sec">看差异明细</span>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="faint" style="font-size:10.5px;font-weight:620;letter-spacing:.04em;text-transform:uppercase;margin-bottom:8px">
+            形态 B · 正常时（弱化，不抢眼）</div>
+          <div class="kv">
+            <dt>当前状态</dt><dd><span class="badge b-ok"><span class="dot"></span>已编码</span>
+              <span class="faint" style="margin-left:6px">向量可用，可参与检索</span></dd>
+            <dt>向量行</dt><dd class="mono">row 1,204</dd>
+            <dt>模型 compat</dt><dd class="mono">seq140 · 与当前模型一致</dd>
+            <dt>编码耗时</dt><dd class="mono">312 ms</dd>
+          </div>
+        </div>
+      </div>
+
+      <!-- 标签/评分/备注 -->
+      <div class="panel">
+        <div class="panel-h"><h3>组织</h3></div>
+        <div class="panel-b">
+          <div class="kv">
+            <dt>标签</dt>
+            <dd style="display:flex;gap:6px;flex-wrap:wrap">
+              <span class="tag">室外</span><span class="tag">现代</span>
+              <span class="tag">混凝土</span><span class="tag faint">+ 添加</span>
+            </dd>
+            <dt>评分</dt><dd><span class="star">★★★★☆</span></dd>
+            <dt>集合</dt><dd>2026-10 甲方A 提案 · <span class="faint">加入…</span></dd>
+            <dt>备注</dt><dd class="muted">客户要求再来两个变体</dd>
+            <dt>使用状态</dt><dd>已交付 <span class="faint">· 2 次</span></dd>
+          </div>
+        </div>
+      </div>
+
+      <!-- 文件 -->
+      <div class="panel">
+        <div class="panel-h"><h3>文件</h3></div>
+        <div class="panel-b">
+          <div class="kv">
+            <dt>预览图</dt><dd class="mono">CR\建筑构件\arch_hallway_013.jpg<br>1920×1440 · 2.4 MB</dd>
+            <dt>压缩包</dt><dd class="mono">arch_hallway_013.rar<br>86.2 MB</dd>
+            <dt>条目 ID</dt><dd class="mono">a3f91c07b2e4</dd>
+          </div>
+          <div class="divider"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <span class="btn pri">取件</span>
+            <span class="btn sec">定位</span>
+            <span class="btn sec">版本历史</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 危险区 -->
+      <div class="panel">
+        <div class="panel-b">
+          <div class="faint" style="font-size:11px;font-weight:620;letter-spacing:.04em;text-transform:uppercase;margin-bottom:8px">危险区</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <span class="btn ghost">移入回收站</span>
+            <span class="btn ghost">排除索引</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:20px">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8.2v.1"/></svg>
+    <div><b>详情页的排序逻辑：能用的前提 → 我对它的加工 → 它是什么 → 危险动作。</b>
+      索引状态放最上不是因为重要，而是因为<b>它决定下面所有动作能不能成立</b>：
+      一条"图片丢失"的素材，"取件"必然失败——那就不该等点下去才告诉他。
+      这也是现有 <span class="mono">item-actions.ts</span> 已经在做的事（动作分组 + 为什么点不动），
+      我只是把它在视觉层级上落实。</div>
+  </div>
+
+  <hr class="hr">
+  <h2>需要你拍板的 6 件事</h2>
+  <table>
+    <thead><tr><th style="width:34px">#</th><th style="width:220px">决策点</th><th>我的建议</th><th style="width:230px">若你不同意</th></tr></thead>
+    <tbody>
+      <tr><td class="d">1</td><td><b>状态档数：4 → 8</b></td>
+        <td class="d">保留现有 4 档、新增「编码中 / 编码失败 / 图片丢失 / 已排除」。把"图片丢失"从"已移除"里拆出来——<b>压缩包还在</b>和<b>整条都没了</b>是两件事</td>
+        <td class="d">维持 4 档，代价是"编码失败"无法显示</td></tr>
+      <tr><td class="d">2</td><td><b>失败原因与排除名单存哪</b></td>
+        <td class="d">存 <span class="mono">.gs.db</span>（派生数据，可重建）。拿不到就显示"未知"，<b>不猜</b></td>
+        <td class="d">不存 ⇒ 这两档只能显示"未知"，等于少两档</td></tr>
+      <tr><td class="d">3</td><td><b>列表默认列哪些</b></td>
+        <td class="d">名称 / 大小 / <b>索引状态</b> / 修改时间 / 分类 / 分辨率。索引状态放在大小之后</td>
+        <td class="d">列太多会挤；可做成"列设置"让用户自己开</td></tr>
+      <tr><td class="d">4</td><td><b>"已编码"要不要显示</b></td>
+        <td class="d">要，但用<b>弱化的绿</b>。让"一片绿"本身成为可读信号</td>
+        <td class="d">只显示异常档 ⇒ 你永远不知道还有没有没索引的</td></tr>
+      <tr><td class="d">5</td><td><b>详情页要不要支持编辑元数据</b></td>
+        <td class="d">要。标签 / 评分 / 备注 / 集合是资产管理的核心——<b>只读的资产管理不算管理</b></td>
+        <td class="d">先只读展示，编辑放第二版</td></tr>
+      <tr><td class="d">6</td><td><b>新增字段存哪</b></td>
+        <td class="d">标签/评分/备注存 <span class="mono">.gs.db</span>。<b>绝不能写进素材目录</b>（写入不变式）</td>
+        <td class="d">无替代方案——这条是硬约束</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note warn" style="margin-top:20px">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 9v5M12 17.5v.1"/><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+    <div><b>这份提案会改到需求，不只是界面。</b> 新增 4 个状态档、新增可编辑元数据字段，
+      都要写进 <span class="mono">SPEC.md</span> 的 §3（F1/F2）与 §5（契约）。
+      按项目纪律「改规格 = 改需求」，需要你明确同意。</div>
+  </div>
+
+</div>
+</body>
+</html>
