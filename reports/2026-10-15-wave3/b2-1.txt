@@ -1,0 +1,99 @@
+================================================================================
+B2-1 证据 · `job` 任务台账（持久化 · 断点续跑 · 取消 · 崩溃恢复）
+任务板 id: task-91   执行: db-worker   日期: 2026-10-16
+边界（**本卡独占写入面**）：`main/db/migrations.ts` · `main/db/schema-layers.ts` + 新模块 `main/db/jobs.ts` + 相关测试 + 证据
+⚠️ 本卡**不含** `indexStart/Cancel/Resume` 三个契约方法（恢复它们 = 契约变更，需所有者批准）⇒ **没加任何 IPC 方法**，
+   因此 **SPEC §5.1 无需改动**（卡片第 4 件只在"新增方法"时触发）。
+===============================================================================
+
+【结论】
+· `job` 表落地（**11 个字段行 / 13 物理列**，照抄设计基线，没发明字段）+ 迁移 **v2** + 进**过程层** + 表数 6 → 7。
+· 四条承诺各有能红断言：**进度单调**（模块层 + 数据库 trigger 两层）· **总数可空**（不编数字）·
+  `phase` **会变** · **心跳过期 ⇒ 启动判定 failed**（不然界面永远显示一个不存在的进度）。
+· **能红实测 3 条**（去掉清理 / 去掉模块守卫 / 去掉数据库 trigger）—— 原文见 §4。
+· 门禁（截至本文件）：`npm run lint` **0** · `tsc node/web` **0** · `prettier --check .` **0** ·
+  受影响面单测 **104/104** · 本轮新增/改动单测 **23/23**。
+  `npm test` **全量待 Lead 放行**（纪律：同一时刻只有一个 npm test）。
+
+【1. 改前 → 改后 → 为何**不是放宽**】
+| # | 位置 | 改前 | 改后 | 为什么不是放宽 |
+|---|---|---|---|---|
+| 1 | `db/migrations.ts` | 库级只有 v1（3 张表），版本目标 = 1 | 加 **v2：`batch2-job-ledger`（T_JOB）**，目标版本 = 2（由 `targetVersionOf` 派生） | **加新迁移**而不是改 v1：改 v1 对已升级的库**静默不生效**（版本号没变 ⇒ 不再跑）—— 那是最难查的一类漂移 |
+| 2 | 同文件 | `LIBRARY_TABLES` = 3 | 4（+ job） | 从 DDL 派生，不手写第二份清单（P1） |
+| 3 | 同文件 | 无 trigger | `job_progress_monotonic` + `job_terminal_state_frozen` 两条 trigger | **约束上移**：进度回退 / 终态复活在最底层 ABORT，别的写入方也绕不过去 |
+| 4 | `db/schema-layers.ts` | process = [asset_index_state] | process = [asset_index_state, **job**] | `job` 是"尽量留、丢了能重算"的过程数据 ⇒ 归属**过程层**（不是事实层也不是意图层） |
+| 5 | `db/jobs.ts`（新） | 无（进度只活在内存） | **唯一写入口** + 类型化错误 + 时钟校验 + 崩溃判定/启动结算 | 新增的是**能力**；行取值走 DF-2 那套收窄（不写第二份 `typeof`），错误类型与 `IndexFileError` 同形 |
+| 6 | 测试 `db-schema.test.mjs` | 6 张 · `EXPECTED_TABLES`=4 · 暂缓 14 | 7 张 · 5 · 暂缓 13 · applied `[1]`→`[1,2]` | 断言**跟着事实走**；"每张建出的表都要被点名"仍强制（G1 双向断言没动） |
+| 7 | `db-rebuild.test.mjs` R5 | `applied === [TARGET_SCHEMA_VERSION]`（"绿地只有 v1"时代的写法） | `applied === LIBRARY_MIGRATIONS.map(version)`（**跟随清单**） | **不是放宽**：链上少一条/多一条照样红；且对 v3 自动成立（写死 `[1]` 只会一次次假红） |
+| 8 | `health-rebuild.test.mjs` H3/H8/H12 | applied 写死 `[1]`；表清单写死 4 张名；文案正则写死"应有的 4 张" | 全部**从 `LIBRARY_MIGRATIONS` / `EXPECTED_TABLES` 派生** | 断言强度不变（"派生 == 真实集合"本就是 H3 的本意），只是不再需要每次加表来改测试 |
+| 9 | `jobs.ts` 时钟注入 | `input.now ?? Date.now` 后直接调用（误传数字 ⇒ 深处 `TypeError: now is not a function`，看不出哪个参数） | `resolveClock(v, 'xxx.now')`：非函数 ⇒ `JobError('JOB_CLOCK_INVALID')` | **收紧**：不静默兜底成 Date.now（那会让"注入失效"看不出来）；这条是写测试时被自己的笔误逼出来的 |
+
+【2. 表 = 设计基线（11 字段行 / 13 物理列 —— J8 用 PRAGMA 逐列钉住）】
+`job_id`(PK) · `kind`(CHECK 5 枚举) · `state`(CHECK 5 枚举) · `progress_done`(NOT NULL DEFAULT 0，**只增不减**) ·
+`progress_total`(**可空**) · `phase`(可空，**会变**) · `cursor_json`(可空，断点) · `heartbeat_at_ms`(可空，崩溃检测) ·
+`summary_json`(可空) · `error`(可空，**人话**) · `queued/started/finished_at_ms`(可空，三个时刻)。
+索引：`idx_job_state(state, queued_at_ms)` · `idx_job_heartbeat(heartbeat_at_ms)`（另有 TEXT 主键的内部 autoindex，测试里显式说明"不算声明式索引"）。
+⚠️ `job_id`：设计基线写 nanoid，但**本仓库未安装 nanoid**（package.json 里没有；装它=新增依赖，不在本卡范围）⇒
+   用 Node 内置 `crypto.randomUUID()`，**收敛在 `newJobId()` 一处**（要换 nanoid 只改这里；job_id 目前不经 IPC ⇒ 不受契约约束）。
+
+【3. 四条承诺怎么落地（每条都有断言）】
+| 承诺 | 落点 | 断言 |
+|---|---|---|
+| 进度**单调** | 模块层 `setProgress` 抛 `JOB_PROGRESS_REGRESSION` + **数据库 trigger ABORT** | J3（两层各一条，且"被拒之后进度没被改动"）+ J3b（total < done ⇒ 抛，防超 100% 假进度） |
+| 总数**可空** | `progress_total` 可空；初始 `null` | J1（初始必须 null）· J8（NOT NULL 只给 progress_done） |
+| `phase` **会变** | `setProgress` 写 phase；不传 = 不改 | J4（两次更新 phase 不同；不传时不被静默清空） |
+| **崩溃判定** | `sweepStaleJobs` + `settleUnfinishedJobsOnStartup`（只动 running，心跳新鲜的不动） | J2（判 failed + 人话理由 + **不动进度** + 幂等 + 活着的没被误杀）· J5（重开库后判失败） |
+
+【4. 能红（3 条 · 变异 → 失败原文 → 回滚复绿）】
+① 去掉**崩溃清理**（`sweepStaleJobs` 只查不判）：
+   `✖ J2 … AssertionError: 只有心跳过期的那个被判失败  actual: []  expected: [ 'j-stale' ]`
+   ⇒ 界面会**永远**显示一个不存在的进度（这正是卡片要防的）。
+② 去掉**模块层单调守卫**（让数据库 trigger 独自承担）：
+   `✖ J3 … AssertionError: 回退必须在模块层被拒  actual: Error: job.progress_done 只增不减…（普通 Error，无 code）`
+   ⇒ 证明模块层不是装饰：没有它，调用方拿不到带码的`JobError`，只有 SQLite 的 RAISE 文本。
+③ 去掉**数据库 trigger**（DDL 里拿掉 `job_progress_monotonic`）：
+   `✖ J3 … AssertionError: Missing expected exception: 数据库级 trigger 也必须挡住（别的写入方绕不过去）`
+   ⇒ 证明两层缺一不可。
+三条各自回滚后：**23/23 复绿**（job-ledger 11 + db-schema 12）。
+
+【5. 迁移 / 分层（四件套）】
+1. **加一条迁移**：v2 `batch2-job-ledger`（不是改 v1 —— 见 §1 第 1 行）；
+2. **推版本号**：`TARGET_SCHEMA_VERSION` 1 → 2（从清单派生，不另写数字）；
+3. **`schema-layers.ts` 点名**：`job` → **process**（库级 `.gs.db` = fact ∪ process ∪ intent，现在 4 张）；
+4. **测试随之**：G1 6 → 7 张 · G2 `EXPECTED_TABLES` 4 → 5 · A1 的 db 目录精确清单 + `jobs.ts` · G0 迁移条数 1 → 2 ·
+   暂缓清单 14 → 13（`job` 移出）· G1 的 process 点名 = [asset_index_state, job]。
+   **"每张建出的表都必须被点名"仍强制**（G1 的双向断言原样保留：DDL 派生 == 四组点名，缺一边都红）。
+5. **旧库路径不回归（U16）**：J9 造一个"只跑到 v1"的库 ⇒ 版本=1、**没有 job 表**；再用完整清单打开 ⇒
+   只跑缺的那条 v2、**升到 2、老数据（asset 行）还在、新表是空的、再开一次不再跑迁移**。
+   `db-rebuild` R5 也复验：删库重建跑**整条链**（跟随 LIBRARY_MIGRATIONS）。
+
+【6. 0 残留 grep（先跑后结论）】
+$ Select-String -Path apps/desktop/src/main/**/*.ts -Pattern 'INSERT INTO job|UPDATE job|DELETE FROM job'
+  ⇒ **全部命中都在 `db/jobs.ts`**（183 / 195 / 244 / 265 / 292 / 348）—— job 表的**唯一写入口**成立（P1）。
+$ job 表名在 main/engine 源码里的其它出现（除 DDL 与 jobs.ts）⇒ **空**
+  （唯一其它落点是 `schema-layers.ts` 的点名与 `migrations.ts` 的 DDL，都是"定义"不是"第二份实现"）。
+$ 计划外的第二份"时钟"兜底 ⇒ 无：`input.now ?? Date.now` 只剩 `resolveClock` 内部那一处。
+
+【7. 门禁原始输出】
+$ node --test <本轮新增/改动>（job-ledger + db-schema）⇒ tests **23** · pass **23** · fail **0**
+$ node --test <受影响面 10 个文件>（app-db · db-schema · db-rebuild · db-import · job-ledger · health-rebuild ·
+  items-ipc · library-methods · s3-index-state · storage-ports-main）⇒ tests **104** · pass **104** · fail **0**
+$ npx prettier --write <改动文件> ⇒ 0 → npx prettier --check . ⇒ **0（All matched files use Prettier code style!）**
+$ npx tsc --noEmit -p tsconfig.node.json … ⇒ **NODE_TSC=0** ｜ tsconfig.web.json ⇒ **WEB_TSC=0**
+$ npm run lint ⇒ **0**
+$ **npm test（全量）⇒ 待 Lead 放行**。 【全量结果占位：待补】
+
+【8. 未做 / 边界（如实写）】
+· **没有接线**：`settleUnfinishedJobsOnStartup` 已写好并有测试，但**没有**挂到真实启动路径/界面/契约上 ——
+  卡片明确"接进界面/契约是下一张卡"，且本卡**不加 IPC 方法**（恢复 indexStart/Cancel/Resume 是契约变更）。
+  ⇒ 现在的能力是"库里能记、能续、能判崩溃"，**不是**"界面上能看到"（P6：不夸大）。
+· **没接真实索引循环**：心跳/进度/断点由调用方（下一张卡）按 `DEFAULT_JOB_STALE_MS = 5min` 的节奏刷新；
+  本卡只提供机制与默认值，没有真实跑过一遍 3594 条的索引任务。
+· 没测**真实进程被杀**（测试用"重开库 + 把时钟快进"模拟；不是真 kill -9）—— 语义覆盖到了，机制不同。
+· `job_id` 用 UUID 而非设计基线的 nanoid（原因见 §2）；若所有者要 nanoid，需要先批准新增依赖。
+
+【9. 回滚】
+· 删 `db/jobs.ts` + `tests/job-ledger.test.mjs`；`migrations.ts` 去掉 `T_JOB`/v2 条目与两条 trigger；
+  `schema-layers.ts` 的 process 去掉 job；`db-schema.test.mjs`/db-rebuild/health-rebuild 的计数与派生改回；
+· 未跑 git（AGENTS P7）。临时物：`data/_b21/`（本卡测试临时目录，自清）· `data/_verify/*.tsbuildinfo`（TS 缓存）。
+===============================================================================

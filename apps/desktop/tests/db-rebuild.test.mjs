@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import {
   ASSET_ITEM_SELECT_ALL_SQL,
   GsDbError,
+  LIBRARY_MIGRATIONS,
   joinedRowToItemRecord,
   TARGET_SCHEMA_VERSION,
   importItemsFromJson,
@@ -453,10 +454,12 @@ test('R5：重建会重新跑迁移（v0→目标版本），且不会留下旧�
   // 【改后】绿地只有一条库级迁移 ⇒ applied 必须恰为 [TARGET_SCHEMA_VERSION]（**跟随清单**，不写死数字）
   // 【为何非放宽】仍要求"重建真的走了一遍迁移且落到目标版本"；写死 [1,2] 反而会在清单演进时变成假红/假绿。
   //   跟随清单后：迁移合并、拆分、新增都会自动对上，且 applied 条数与目标版本不一致照样红。
+  // ⚠️ 2026-10-16 · B2-1：原来断言 [TARGET_SCHEMA_VERSION]，那是"绿地只有一条迁移"时代的写法；
+  //    现在有 v1+v2 ⇒ 改成**跟随清单**（applied 必须等于整条链）。**不是放宽**：链上少一条照样红。
   assert.deepEqual(
     rebuilt.opened.migration.applied.map((m) => m.version),
-    [TARGET_SCHEMA_VERSION],
-    '重建必须跑完整条迁移链（绿地只有 v1）',
+    LIBRARY_MIGRATIONS.map((m) => m.version),
+    '重建必须跑完整条迁移链（当前 v1…v2，跟随 LIBRARY_MIGRATIONS）',
   );
   assert.deepEqual(rebuilt.left, [], '删库后不许残留边车文件（WAL 里可能有未 checkpoint 的事务）');
   assert.equal(rebuilt.snap.digest, first.snap.digest);

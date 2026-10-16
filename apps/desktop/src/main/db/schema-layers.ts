@@ -1,11 +1,11 @@
-// apps/desktop/src/main/db/schema-layers.ts —— 本轮 6 张表的**四层分类**（唯一来源）
+// apps/desktop/src/main/db/schema-layers.ts —— 已建表的**四层分类**（唯一来源 · 当前 7 张）
 //
 // 提案（prototypes/PROPOSAL-schema-v1.html v1.2）自己的规矩：
 //   **迁移建出的每一张表都必须在四组里被点名，忘分类就测试变红。**
 //
 // 2026-10-15 · S1b（**所有者裁定 B** · TASKS §4 U19）：**不一次建齐 20 张，只建 6 张**，
-//   其余 14 张随功能上线。本文件因此只列 6 张：
-//     事实 2（asset · asset_file）· 过程 1（asset_index_state）· 意图 **0** · 应用 3（app_meta · library_registry · collect_dir）。
+//   其余随功能上线。**2026-10-16 · B2-1**：`job`（任务台账）进 **过程层** ⇒ 现在 7 张：
+//     事实 2（asset · asset_file）· 过程 2（asset_index_state · **job**）· 意图 **0** · 应用 3（app_meta · library_registry · collect_dir）。
 //
 // ⚠️ **空层是允许的**（intent 现在就是空的）—— 这一层一张表都没有，不代表这一层不存在。
 //   保留四组的意义在于**第二批**：新表一进 DDL，`db-schema.test.mjs` 的
@@ -20,7 +20,7 @@
 //   · app     应用层：不参与库级重建（跨库的配置与用户行为 + 全局安全边界）
 //
 // ⚠️ 物理落点与层**一一对应**（被测试钉住）：
-//   库级 `.gs.db` = fact ∪ process ∪ intent（本轮 3 张）；应用级 `app.db` = app（本轮 3 张）。
+//   库级 `.gs.db` = fact ∪ process ∪ intent（现在 4 张）；应用级 `app.db` = app（3 张）。
 //   所以下面四组同时充当：① "每张表归类到哪一层"；② "每张表落在哪个库文件"的唯一来源。
 //
 // 落点裁定（2026-10-15 Lead/所有者）：
@@ -46,8 +46,8 @@ export const SCHEMA_LAYERS: Readonly<Record<SchemaLayer, readonly string[]>> = O
   /** 事实层：条目 + 两个文件角色 —— 全部可从素材重建 */
   fact: Object.freeze(['asset', 'asset_file']),
 
-  /** 过程层：编码状态 —— 尽量留，丢了能重算 */
-  process: Object.freeze(['asset_index_state']),
+  /** 过程层：编码状态 + **任务台账** —— 尽量留，丢了能重算（任务历史丢了不至于让用户误解数据） */
+  process: Object.freeze(['asset_index_state', 'job']),
 
   /** 意图层：用户自己做的（评分/备注/收藏/标签/集合/导出历史）—— 本轮一张都还没建 */
   intent: Object.freeze([]),

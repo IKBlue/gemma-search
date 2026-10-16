@@ -117,7 +117,66 @@ CREATE TABLE IF NOT EXISTS asset_index_state (
 ];
 
 /**
- * 库级迁移清单（绿地：只有一条 v1）。
+ * 过程层 ② `job` —— **任务台账**（B2-1 · 字段照抄 `BATCH2-PLAN` 第 1 张的设计基线）。
+ *
+ * 为什么必须有它（审查报告的「产品无法冷启动」= 建索引，而建索引要先有任务台账）：
+ *   进度此前**只活在内存**里 —— 进程一崩，"谁在跑、跑到哪、心跳什么时候"全没了，
+ *   而 SPEC 明写「进度单调且**不静默**」是**功能承诺**。这张表就是那条承诺的落点。
+ *
+ * 四个字段的语义都是**承诺**，不是装饰：
+ *   · `progress_done` **只增不减** —— 字段层的落点 + 一条 **trigger**（见下）把"回退"变成数据库级错误；
+ *   · `progress_total` **可空** —— 扫描前不知道总数时**不许编一个**（编了就是谎报进度条）；
+ *   · `phase` 会变 —— 「不静默」= 界面能看到"正在统计文件/正在编码第 3 批"，而不是只有一个转圈；
+ *   · `heartbeat_at_ms` —— 崩溃检测：启动时把"运行中但心跳过期"的行判 `failed`，
+ *     否则界面会**永远显示一个不存在的进度**（比没有进度更坏）。
+ *
+ * ⚠️ 13 个物理列 = 设计基线的 **11 个字段行**（三个时刻算一行）—— 与 `asset_file` 的口径一致。
+ * ⚠️ 落点：**库级** `.gs.db`（过程层）—— 任务天然属于"某一个库"；丢了只是重算，不是用户数据。
+ */
+const T_JOB: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS job (
+  job_id          TEXT    PRIMARY KEY NOT NULL,
+  kind            TEXT    NOT NULL CHECK (kind IN ('scan', 'index', 'health', 'rebuild', 'ingest')),
+  state           TEXT    NOT NULL CHECK (state IN ('queued', 'running', 'done', 'failed', 'cancelled')),
+  progress_done   INTEGER NOT NULL DEFAULT 0,
+  progress_total  INTEGER,
+  phase           TEXT,
+  cursor_json     TEXT,
+  heartbeat_at_ms INTEGER,
+  summary_json    TEXT,
+  error           TEXT,
+  queued_at_ms    INTEGER,
+  started_at_ms   INTEGER,
+  finished_at_ms  INTEGER
+);`,
+  // ⚠️ 三个时刻**可空**：照抄设计基线（不在字段层额外收紧）。queued_at_ms 实践上总会写，
+  //    但"表必须允许缺"这条留给了写入口，免得将来某条迁移路径被迫造假值。
+  'CREATE INDEX IF NOT EXISTS idx_job_state ON job (state, queued_at_ms);',
+  'CREATE INDEX IF NOT EXISTS idx_job_heartbeat ON job (heartbeat_at_ms);',
+  // ⚠️ **进度单调是数据库级约束**，不只靠调用方自觉：回退 UPDATE 直接 ABORT。
+  //    为什么用 trigger 而不是 CHECK：CHECK 看不到旧值（NEW 里没有 OLD），表达不了"只增不减"。
+  `
+CREATE TRIGGER IF NOT EXISTS job_progress_monotonic
+BEFORE UPDATE OF progress_done ON job
+WHEN NEW.progress_done < OLD.progress_done
+BEGIN
+  SELECT RAISE(ABORT, 'job.progress_done 只增不减（SPEC：进度单调且不静默）');
+END;`,
+  // 状态机也不许乱跳：终态（done/failed/cancelled）**不许**再回到 running/queued。
+  // 为什么也要 trigger：崩溃恢复会把 running 判成 failed（那是唯一合法的"从运行中离开"），
+  //   而"failed 又变回 running"会让界面看到一个永远在跑、其实已经死掉的进度。
+  `
+CREATE TRIGGER IF NOT EXISTS job_terminal_state_frozen
+BEFORE UPDATE OF state ON job
+WHEN OLD.state IN ('done', 'failed', 'cancelled') AND NEW.state IN ('queued', 'running')
+BEGIN
+  SELECT RAISE(ABORT, 'job.state 已到终态，不许回到 queued/running');
+END;`,
+];
+
+/**
+ * 库级迁移清单（绿地：v1 三张；**v2 加 `job`** —— B2-1）。
  *
  * **第二批的表各加一条新迁移**（v2、v3…），机制与账本都不用动。
  * 测试用**注入的自定义清单**覆盖"多条按序推进"。
@@ -128,8 +187,18 @@ const LIBRARY_V1: readonly string[] = Object.freeze([
   ...T_ASSET_INDEX_STATE,
 ]);
 
+/**
+ * v2：**任务台账**（B2-1）。
+ *
+ * ⚠️ 为什么是**新的一条迁移**而不是改 v1：v1 已经在真实库里跑过了（账户里那条版本是「已发生的事」）。
+ *    改 v1 等于对已升级的库**静默不生效**（版本号没变 ⇒ 不会再跑），那正是最难查的一类漂移。
+ *    ⇒ 第二次加表就加 v2，版本号由 targetVersionOf 从清单派生（不另写数字）。
+ */
+const LIBRARY_V2: readonly string[] = Object.freeze([...T_JOB]);
+
 export const LIBRARY_MIGRATIONS: readonly Migration[] = Object.freeze([
   Object.freeze({ version: 1, name: 'greenfield-library-3', statements: LIBRARY_V1 }),
+  Object.freeze({ version: 2, name: 'batch2-job-ledger', statements: LIBRARY_V2 }),
 ]);
 
 /** 本程序知道的**库级**最高版本（从清单派生，不另写数字） */
@@ -137,7 +206,7 @@ export const TARGET_SCHEMA_VERSION: number = targetVersionOf(LIBRARY_MIGRATIONS)
 
 // ---------------------------------------------------------------- 应有表清单（从 DDL 派生）
 
-/** 库级 3 张业务表（**从 DDL 派生**，不手写第二份清单） */
+/** 库级业务表（**从 DDL 派生**，不手写第二份清单）—— v1 三张 + v2 的 `job` = 4 张 */
 export const LIBRARY_TABLES: readonly string[] = Object.freeze(
   uniqueSorted(
     LIBRARY_MIGRATIONS.flatMap((m: Migration): string[] => createdTableNames(m.statements)),
@@ -154,7 +223,7 @@ export const LIBRARY_VIRTUAL_TABLES: readonly string[] = Object.freeze(
 /**
  * 库级 `.gs.db` 里**应当存在**的全部表（含迁移账本 `schema_version`）。
  * 用途：T-15a 的完整性自检（apps/desktop/src/main/library-health.ts）。
- * ⚠️ 账本表不计入"本轮 6 张"，但它确实在库里 ⇒ 这份清单必须含它。
+ * ⚠️ 账本表不计入「表数」，但它确实在库里 ⇒ 这份清单必须含它（现在是 4 业务表 + 账本 = 5）。
  */
 export const EXPECTED_TABLES: readonly string[] = Object.freeze(
   uniqueSorted([...createdTableNames(SCHEMA_VERSION_LEDGER.ddl), ...LIBRARY_TABLES]),

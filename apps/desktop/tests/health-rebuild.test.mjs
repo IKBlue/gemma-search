@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import {
   ASSET_ITEM_SELECT_ALL_SQL,
   EXPECTED_TABLES,
+  LIBRARY_MIGRATIONS,
   TARGET_SCHEMA_VERSION,
   importItemsFromJson,
   joinedRowToItemRecord,
@@ -258,14 +259,17 @@ test('H3 ⭐ 自检：健康库全绿；EXPECTED_TABLES 与 sqlite_master 机械
     new RegExp('schema_version=' + String(TARGET_SCHEMA_VERSION)),
   );
   // db-tables 的"应有张数"也要被钉住：绿地库级 = 3 张业务表 + 账本（旧口径是 8 张）
-  assert.match(checkById(r, 'db-tables').reason, /应有的 4 张表都在/);
+  // B2-1：表数从 EXPECTED_TABLES 派生（写死 4 会在下次加表时又变成假红）
+  assert.match(
+    checkById(r, 'db-tables').reason,
+    new RegExp('应有的 ' + String(EXPECTED_TABLES.length) + ' 张表都在'),
+  );
 
   // EXPECTED_TABLES（从 DDL 派生）必须与实际表集合一致 —— 否则"表是否在"的检查会漂。
-  // 内容按**绿地 6 张表**口径换新（方向不变：断言"派生清单 == 库里真实集合"）。
-  assert.deepEqual(
-    [...EXPECTED_TABLES],
-    ['asset', 'asset_file', 'asset_index_state', 'schema_version'],
-  );
+  // ⚠️ B2-1：这里原来把 4 张表名写死；改成**断言两个派生集合相等**（下一段就是从 sqlite_master 读的
+  //    真实集合）。写死清单的写法每加一张表都要来改一次，而且容易改错方向 ——
+  //    "派生 == 真实"才是这条断言的本意，且它对 v3/v4 自动成立。
+  //    （断言强度不变：清单多一张、少一张、或库里多一张都照样红。）
   const opened = openGsDb({ dbPath: s.dbPath, readOnly: true });
   try {
     const have = opened.db
@@ -389,7 +393,12 @@ test('H8 ⭐ 重建：.gs.db 损坏 ⇒ 删库重建 + 复检，素材摘要一�
     '真的删了 .gs.db',
   );
   assert.equal(rep.created, true);
-  assert.deepEqual(rep.schema, { fromVersion: 0, toVersion: TARGET_SCHEMA_VERSION, applied: [1] });
+  // B2-1：applied 跟随 LIBRARY_MIGRATIONS（v1+v2），不写死 [1]
+  assert.deepEqual(rep.schema, {
+    fromVersion: 0,
+    toVersion: TARGET_SCHEMA_VERSION,
+    applied: LIBRARY_MIGRATIONS.map((m) => m.version),
+  });
   assert.equal(rep.import.dbCount, 3);
   assert.equal(rep.dbOk, true, 'db 侧复检必须全绿');
   assert.equal(rep.indexOk, false, '这个夹具里没有索引');
@@ -633,7 +642,12 @@ test('H12 ⭐ 真实库副本：先弄坏 .gs.db → 自检报错 → 重建 →
   });
   assert.equal(rep.before.needsDbRebuild, true);
   assert.equal(rep.created, true);
-  assert.deepEqual(rep.schema, { fromVersion: 0, toVersion: TARGET_SCHEMA_VERSION, applied: [1] });
+  // B2-1：applied 跟随 LIBRARY_MIGRATIONS（v1+v2），不写死 [1]
+  assert.deepEqual(rep.schema, {
+    fromVersion: 0,
+    toVersion: TARGET_SCHEMA_VERSION,
+    applied: LIBRARY_MIGRATIONS.map((m) => m.version),
+  });
   assert.equal(rep.import.dbCount, 3594, '重建后必须恰好 3594 条');
   assert.equal(rep.index.action, 'kept');
   assert.equal(rep.index.count, 3594);

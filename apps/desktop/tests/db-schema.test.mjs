@@ -62,9 +62,9 @@ const FIXED_NOW = 1700000000000;
 const now = () => FIXED_NOW;
 
 /** 本轮**保留**的 6 张 */
-const KEPT_LIBRARY = ['asset', 'asset_file', 'asset_index_state'];
+const KEPT_LIBRARY = ['asset', 'asset_file', 'asset_index_state', 'job'];
 const KEPT_APP = ['app_meta', 'collect_dir', 'library_registry'];
-/** 本轮**暂缓**的 14 张（随功能上线；它们现在一张都不许被建出来） */
+/** 仍未建的 13 张（随功能上线；它们现在一张都不许被建出来）—— `job` 已由 B2-1 建出，从本表移走 */
 const DEFERRED_TABLES = [
   'app_setting',
   'activity',
@@ -77,7 +77,6 @@ const DEFERRED_TABLES = [
   'collection',
   'collection_item',
   'asset_export',
-  'job',
   'health_run',
   'health_finding',
 ];
@@ -203,6 +202,7 @@ test('A1：db 层只有 sqlite-adapter.ts 碰 node:sqlite，且不 import electr
     'errors.ts',
     'import.ts',
     'index.ts',
+    'jobs.ts',
     'migration-engine.ts',
     'migrations.ts',
     'open.ts',
@@ -246,9 +246,9 @@ test('A2：db 层源码里没有 any / @ts-ignore / @ts-expect-error', () => {
 
 // ============================================================ G1 表数 + 分类全覆盖
 
-test('G1 ⭐ 表数 = 6；每张建出的表都在四组里被点名，且只被点名一次', () => {
+test('G1 ⭐ 表数 = 7；每张建出的表都在四组里被点名，且只被点名一次', () => {
   const grouped = schemaTables();
-  assert.equal(grouped.length, 6, '四组点名去重后必须是 6 张（所有者裁定 B：库级 3 + 应用级 3）');
+  assert.equal(grouped.length, 7, '四组点名去重后必须是 7 张（B2-1 起：库级 4 + 应用级 3）');
 
   // 双向：DDL 派生 == 四组点名（缺一边都要红）—— 这是"第二批加表会被逼着分类"的执行点
   const fromDdl = [...LIBRARY_TABLES, ...APP_TABLES].sort();
@@ -263,12 +263,12 @@ test('G1 ⭐ 表数 = 6；每张建出的表都在四组里被点名，且只被
   for (const layer of SCHEMA_LAYER_ORDER) {
     for (const name of SCHEMA_LAYERS[layer]) seen.set(name, (seen.get(name) || 0) + 1);
   }
-  assert.equal(seen.size, 6);
+  assert.equal(seen.size, 7);
   for (const [name, n] of seen) assert.equal(n, 1, name + ' 被点名了 ' + String(n) + ' 次');
 
   // 四层各自点名（**空层是合法的**：intent 本轮为空）
   assert.deepEqual(tablesInLayer('fact'), ['asset', 'asset_file']);
-  assert.deepEqual(tablesInLayer('process'), ['asset_index_state']);
+  assert.deepEqual(tablesInLayer('process'), ['asset_index_state', 'job']);
   assert.deepEqual(tablesInLayer('intent'), [], '意图层本轮一张表都没有 —— 空层允许为空');
   assert.deepEqual(tablesInLayer('app'), ['app_meta', 'library_registry', 'collect_dir']);
 
@@ -281,26 +281,28 @@ test('G1 ⭐ 表数 = 6；每张建出的表都在四组里被点名，且只被
     'DDL 落点与层分类必须一致（库级）',
   );
   assert.deepEqual(appLayerTables(), [...APP_TABLES].sort(), 'DDL 落点与层分类必须一致（应用级）');
-  assert.equal(DEFERRED_TABLES.length, 14, '暂缓的 14 张要逐张列出来（它们是第二批的输入）');
+  // B2-1：`job` 已建出 ⇒ 仍未建的从 14 张变 13 张（这张清单是第二批的输入，必须逐张列）
+  assert.equal(DEFERRED_TABLES.length, 13, '仍未建的 13 张要逐张列出来（它们是第二批的输入）');
 });
 
 // ============================================================ G2 DDL 建表 + 索引
 
-test('G2 ⭐ 打开两个库：DDL 建出全部表与索引；14 张暂缓表一张都不许被建出来', () => {
+test('G2 ⭐ 打开两个库：DDL 建出全部表与索引；13 张暂缓表一张都不许被建出来', () => {
   const lib = openLibrary('G2-lib');
   const app = openApp('G2-app');
   try {
     assert.equal(lib.created, true);
     assert.deepEqual(
       lib.migration.applied.map((m) => m.version),
-      [1],
+      [1, 2],
+      'v1（三张）+ v2（job 台账）—— B2-1',
     );
     assert.equal(lib.migration.toVersion, TARGET_SCHEMA_VERSION);
 
-    // 我们建的表 == 应有清单（3 业务表 + 账本 schema_version）
+    // 我们建的表 == 应有清单（4 业务表 + 账本 schema_version）
     assert.deepEqual(ourTables(lib.db, LIBRARY_VIRTUAL_TABLES), [...EXPECTED_TABLES]);
-    assert.equal(LIBRARY_TABLES.length, 3);
-    assert.equal(EXPECTED_TABLES.length, 4, '3 业务表 + schema_version 账本');
+    assert.equal(LIBRARY_TABLES.length, 4, 'asset · asset_file · asset_index_state · job');
+    assert.equal(EXPECTED_TABLES.length, 5, '4 业务表 + schema_version 账本');
     assert.deepEqual(
       [...LIBRARY_VIRTUAL_TABLES],
       [],
@@ -324,7 +326,7 @@ test('G2 ⭐ 打开两个库：DDL 建出全部表与索引；14 张暂缓表一
     for (const name of LIBRARY_TABLES)
       assert.equal(allTables(app.db).includes(name), false, '应用级库不该有 ' + name);
 
-    // 14 张暂缓表：两库都不许出现（"先建着"是被所有者否决的选项）
+    // 13 张仍未建的表：两库都不许出现（"先建着"是被所有者否决的选项）
     for (const name of DEFERRED_TABLES) {
       assert.equal(allTables(lib.db).includes(name), false, '本轮不建 ' + name + '（进第二批）');
       assert.equal(allTables(app.db).includes(name), false, '本轮不建 ' + name + '（进第二批）');
@@ -732,6 +734,7 @@ test('G0 ⭐ 应有表清单从 DDL 派生（不是手写清单），且清单�
   validateMigrations(LIBRARY_MIGRATIONS);
   validateMigrations(APP_MIGRATIONS);
   assert.equal(APP_MIGRATIONS.length, 1);
-  assert.equal(LIBRARY_MIGRATIONS.length, 1);
+  // B2-1：库级从 1 条变 2 条（v2 加 `job` 台账）—— 加表必须**加一条新迁移**，不许改 v1
+  assert.equal(LIBRARY_MIGRATIONS.length, 2);
   assert.equal(SCHEMA_VERSION_TABLE, 'schema_version');
 });
