@@ -6,7 +6,7 @@
   "//": [
     "`tokens.css` 被 `apps/desktop/src/renderer/src/main.jsx` **直接 import**（相对路径跨 root，",
     "  Vite 允许），所以它是**生产依赖**。原型套件其余部分已归档到 docs/archive/prototype/，",
-    "  这一份被提升为正式资产 —— 理由见 docs/MIGRATION-PLAN.md §5（不让生产代码依赖归档目录）。",
+    "  这一份被提升为正式资产 —— 理由见 AGENTS.md §1 硬约束（不让生产代码依赖归档目录）。",
     "**不要复制第二份**：全仓视觉常量只在这里定义，渲染层 renderer.css 只消费 `var(--…)`。",
     "没有 `main`/`exports`：只有一个 CSS 文件，调用方用相对路径 import，不走包名解析。"
   ]

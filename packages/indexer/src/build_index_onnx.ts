@@ -4,7 +4,7 @@
 //   node build_index_onnx.mjs --model <目录> --lib G:\model --out <目录>
 //        [--seq 140] [--device webgpu] [--limit N] [--save-every 200] [--rebuild]
 //
-// 设计要点（对齐 docs/design/DESIGN-app-details.md）：
+// 设计要点（**就地自述**：旧设计文档已随 v2 清除，不再外链）：
 //   · 配对：**同目录 + 同名主干**（不跨目录），图 .jpg/.jpeg/.png，包 .zip/.rar
 //   · UID：`sha1(lib_id|目录|主干)[:12]`（SPEC-identity §2 冻结公式）
 //          不依赖图像字节 —— 内容相同的两张图仍是两条素材（本库有 5 组这种）
@@ -382,7 +382,7 @@ function scanLibrary(root: string): LibraryItem[] {
 
 // ---------------- index.bin 读写 ----------------
 //
-// 布局（与 docs/spec/SPEC-identity.md §7 对齐；偏移全部由 MAGIC.length 推导，不再硬编码 8/12）：
+// 布局（与 SPEC.md §2.2 对齐；偏移全部由 MAGIC.length 推导，不再硬编码 8/12）：
 //   [0, MAGIC.length)          MAGIC（8 字节）
 //   [LEN_OFF, +4)              u32 LE headerLen
 //   [HEAD_OFF, +headerLen)     headerJSON（utf8）

@@ -3,7 +3,7 @@
 // 背景（为什么需要这个模块）：
 //   主进程原先只从 `config.json` / `GEMMA_CONFIG` 读库根，而**那个文件早已随 Python 档退役被删除**，
 //   仓库里也没有模板 ⇒ 库列表恒为空 ⇒ 界面永远 `LIB_NOT_FOUND`，开箱跑不出任何检索结果。
-//   这是审查确认的缺陷 D2（`docs/audit/AUDIT-FINAL.md` §4 F-03），也是一切界面工作的前置。
+//   这是审查确认的缺陷 D2（**就地自述**：旧审查文档已随 v2 清除），也是一切界面工作的前置。
 //
 // 本模块的定位：
 //   把「库从哪来」这条链从 `index.mjs` 里拆出来，做成**纯逻辑 + 可单测**的形态。
@@ -22,8 +22,8 @@
 //
 // 取件白名单（`collect.dirs`，同时解掉缺陷 F-04）：
 //   原先恒为 `{}` ⇒ 任何 `collect` 都返回 `COLLECT_DIR_NOT_ALLOWED`。
-//   这里按 `docs/spec/SPEC-app.md` §9（默认 `E:\素材待用\`）与
-//   `docs/spec/SPEC-transactions.md` §7（移出走 `E:\移出素材\`）给默认值。
+//   这里按 `SPEC.md` §2 存储布局（默认 `E:\素材待用\`）与
+//   `SPEC.md` §2.1 写入不变式（移出走 `E:\移出素材\`）给默认值。
 //
 // ⚠️ **本模块只读 + 只在显式调用时写**。启动路径上**绝不写** userData，
 //    以免"只是启动了一下"就产生副作用。写注册表只发生在 `saveRegistry()` 被调用时。
@@ -45,7 +45,7 @@ const LIB_ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
  *
  * ⚠️ P3（2026-10-13）：这是**兜底**，不再是"唯一值"。解析顺序见 `resolveLibraries`：
  * **`GEMMA_COLLECT_DIRS` 环境变量 > 注册表 > `config.json` > 本兜底**。
- * 本常量之所以仍是绝对路径，是因为 SPEC 就是这么规定的 —— 改它要走 `docs/spec` 的变更控制，
+ * 本常量之所以仍是绝对路径，是因为 SPEC 就是这么规定的 —— 改它要走 `PLAN.md` §9 变更控制，
  * 不在 T5 范围。**非 `E:` 盘的机器应当显式设 `GEMMA_COLLECT_DIRS`**（见 `parseCollectDirsEnv`）。
  */
 export const DEFAULT_COLLECT = Object.freeze({
@@ -415,9 +415,7 @@ export function resolveLibraries({
       }
     }
     // 走到这里说明三条路都没给 ⇒ 用规格兜底。**必须非空**（F-04 回归防线）。
-    diagnostics.push(
-      '取件白名单来自规格兜底值（`docs/spec/SPEC-app.md` §9）；想换目录请设 `GEMMA_COLLECT_DIRS`',
-    );
+    diagnostics.push('取件白名单来自规格兜底值（`SPEC.md` §2）；想换目录请设 `GEMMA_COLLECT_DIRS`');
     return { dirs: { ...DEFAULT_COLLECT.dirs }, default: DEFAULT_COLLECT.default };
   })();
 

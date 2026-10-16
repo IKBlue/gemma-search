@@ -1,4 +1,4 @@
-// core/errors.ts —— 错误码与结果信封（docs/spec/CONTRACT-engine-v1.md §1）
+// core/errors.ts —— 错误码与结果信封（SPEC.md §5 契约）
 //
 // 契约要求：**按 code 分支，绝不按 message 分支**。
 // 所以错误码在这里集中定义一次，界面与测试都从这里取。

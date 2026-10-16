@@ -29,7 +29,7 @@
     "start:restricted": "node scripts/electron-vite.mjs preview --noSandbox --entry out/main/index.js"
   },
   "//": [
-    "布局（docs/MIGRATION-PLAN.md §1，已冻结）：npm workspaces 根 = apps/* + packages/*。",
+    "布局（AGENTS.md §3，已冻结）：npm workspaces 根 = apps/* + packages/*。",
     "  apps/desktop = Electron 应用（原 src/）· packages/engine（原 core/，零依赖）·",
     "  packages/indexer（原 onnx-spike/）· packages/design-tokens/tokens.css（视觉令牌唯一来源）。",
     "  **包之间用相对路径 import，不用包名解析，也没有 workspace:* 依赖** —— 零构建步骤是有意的：",
@@ -47,14 +47,14 @@
     "@huggingface/transformers 的可选传递依赖，而主进程的编码路径直接 import 它，靠传递依赖迟早会断。",
     "externals：electron.vite.config.mjs 把 dependencies 全部列为 external（原生模块不能进 bundle）。",
     "**刻意没有 typecheck 脚本**：迁移期的 main/preload/renderer 还是普通 JS，打开 checkJs 会产生 356 条类型错误",
-    "（其中 noImplicitAny 家族 197 条；第①条审查实测，证据 docs/audit/stack-evidence.md），",
+    "（其中 noImplicitAny 家族 197 条；第①条审查实测，这条实测数字就地自述，旧审查文档已随 v2 清除），",
     "而在 JS 里撒 `any` 只是把红灯涂绿。",
     "tsconfig.*.json 已按新的两段布局写好（include/paths 指 apps/desktop 与 packages/engine），P3a 转 TS 时直接接上并恢复 typecheck 门禁。",
     "",
     "【2026-10-13 更新 · T1】typecheck 脚本**已加回**（上面那条'刻意没有'是迁移期的历史理由，保留作背景）：",
     "  范围刻意只覆盖**已转 .ts 的文件**（当前 = apps/desktop/src/shared/ipc.ts）。",
     "  因为 checkJs 仍为 false ⇒ .js/.mjs 文件**不参与检查**；所以门禁不是空的，但也**只对 .ts 有效**。",
-    "  实测：打开 checkJs 后渲染层 148 错 / 主进程侧 472 错（docs/plan/ROADMAP.md §10.1.1），",
+    "  实测：打开 checkJs 后渲染层 148 错 / 主进程侧 472 错（PLAN.md §4 阶段与依赖），",
     "  所以'全局打开 checkJs 让门禁覆盖一切'是 T2–T4 的事，不是 T1。",
     "  **这条门禁的价值在于它能为真**：往 ipc.ts 注入一个类型错误 ⇒ EXIT≠0（已双向验证）。"
   ],

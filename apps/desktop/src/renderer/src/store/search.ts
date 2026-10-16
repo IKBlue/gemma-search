@@ -194,7 +194,7 @@ export const useSearchStore = create<SearchStore>()((set, get) => ({
     // `r.ok` 只等价于「文件在盘上 + shell 端口被调用过」—— Electron 的
     // `shell.showItemInFolder` **返回 void、不报告失败**，所以我们**不知道**资源管理器有没有真的弹出来。
     // 写「已定位」就是又一次过度声称：用户没看到窗口时会以为是应用的 bug。
-    // 见 `packages/engine/src/engine.mjs` reveal 处的注释与 `docs/spec/CONTRACT-engine-v1.md` §2.4。
+    // 见 `packages/engine/src/engine.mjs` reveal 处的注释与 `SPEC.md` §5（契约）。
     if (onToast) {
       onToast(
         r.ok ? '已请求在资源管理器中定位（系统未回报结果）' : r.error.userMessage,

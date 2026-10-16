@@ -1,4 +1,4 @@
-// core/compat.ts —— 兼容性判定键（SPEC-identity §6.3 / docs/spec/CONTRACT-engine-v1.md §6）
+// core/compat.ts —— 兼容性判定键（SPEC.md §1.4 向量与索引 / §5 契约）
 //
 // 铁律：**device / ort_provider / gpu_model / gpu_driver 不参与 compat**。
 // 否则 CPU 回退生成的索引会拒绝自己，或者换个显卡就"不兼容"。

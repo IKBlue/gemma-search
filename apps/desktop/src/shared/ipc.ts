@@ -1,4 +1,4 @@
-// src/shared/ipc.ts —— IPC 契约的唯一来源（docs/spec/SPEC-security.md §2.1）
+// src/shared/ipc.ts —— IPC 契约的唯一来源（SPEC.md §5.1 方法表）
 //
 // 一份 zod schema 同时给出三样东西：
 //   ① 运行时参数校验  ② 允许的方法名白名单  ③ **编译期类型**（2026-10-13 起，T1）

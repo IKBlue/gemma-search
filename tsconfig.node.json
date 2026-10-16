@@ -2,7 +2,7 @@
 //
 // ⚠️ 现状（2026-10-12 monorepo 化后重述）：`checkJs` **关着**。迁移期这些文件还是普通 JS，
 //   打开会报 356 条类型错误（其中 noImplicitAny 家族 197 条；第①条审查实测，证据
-//   docs/audit/stack-evidence.md），而在 JS 里撒 `any` 只是把红灯涂绿 ——
+//   旧审查文档已随 v2 清除；本处数字就地自述），而在 JS 里撒 `any` 只是把红灯涂绿 ——
 //   所以这一轮不把它当门禁，只把它当作**编辑器的类型来源**（electron / zod / node 类型仍生效）。
 //   P3a 转 TS 时把文件改成 .ts、打开严格检查，并在 package.json 加回 typecheck。
 {

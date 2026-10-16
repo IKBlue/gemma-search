@@ -1,7 +1,7 @@
 // packages/engine/src/fake.ts —— 契约 §8 要求的「模拟模式」（`createEngine({ fake: true })`）
 //
 // ── 为什么需要它（这不是"测试便利"，是**契约欠账**）──────────────────────
-//   `docs/spec/CONTRACT-engine-v1.md` §8 写着：
+//   `SPEC.md` §5 写着：
 //     「契约要求提供两份可注入的东西，让 **P3a–P3d 独立开发**」
 //     「**P3 的验收依赖它**：界面在 `fake:true` 下必须能演示全部状态
 //       （空、加载、无结果、无索引、索引损坏、`RECOVERY_NEEDED`、`COMPAT_MISMATCH`、部分成功）」

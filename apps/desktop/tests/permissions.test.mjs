@@ -1,6 +1,6 @@
 // apps/desktop/tests/permissions.test.mjs —— SPEC-security §8 的传输层权限用例
 //
-// 为什么现在才有这个文件：本表 16 条此前**零自动化**（`docs/spec/SPEC-security.md:285` 自己写着
+// 为什么现在才有这个文件：本表 16 条此前**零自动化**（`SPEC.md` §6 自己写着
 // "P2 验收未通过"）。根因很实际 —— `main/index.mjs` import 了 `electron`，`node:test` 加载不了它，
 // 于是 IPC 分发、preload 暴露面、`thumb://` 处理器这三块**一条测试都没有**。
 // 本文件覆盖其中**能脱离 Electron 测**的部分；需要真窗口的那些走

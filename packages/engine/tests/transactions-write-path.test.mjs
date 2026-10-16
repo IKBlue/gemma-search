@@ -1,6 +1,6 @@
 // packages/engine/tests/transactions-write-path.test.mjs —— 规格 §9 的机械断言
 //
-// 规格原文（`docs/spec/SPEC-transactions.md` §9）：
+// 规格原文（`SPEC.md` §2.1 写入不变式）：
 //   「引擎**唯一**允许写文件的路径是事务执行器；**任何其它代码不得直接 `fs.rename`/`fs.unlink` 素材文件**。
 //    （用一条单测/静态检查守住这条：搜 `unlink`/`rename` 只允许出现在
 //      `packages/engine/src/transactions/` 目录内 —— 该目录尚未创建。）」

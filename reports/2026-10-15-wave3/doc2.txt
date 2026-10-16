@@ -136,3 +136,55 @@ DOC-2 前置（**只读那一半**）· 36 处悬挂引用的分类 + 判据 + �
     若带着这 3 条误报去落地，DOC-2 会去改 **3 处本来没问题的注释**（把工具的错误当成事实）。
     现在 `detectLine` 是纯函数且被已知真值覆盖 ⇒ 同类错误在**采信之前**就会被 --calibrate 拦下。
 ================================================================================
+
+================================================================================
+【DOC-2 落地段（task-85 · 2026-10-16）】
+
+【落地结果：两个数都到 0】
+  node reports/2026-10-15-wave3/doc2-verify.mjs（先 --calibrate 通过后采信）⇒
+    ① **文件悬挂 = 0**（去重 0 份文档）  ② **小节悬挂 = 0**（命中 17 个小节）
+  改动分布：A 类 27 处 + B 类 9 处 + 第 37 处（engine.test.mjs:311 → AGENTS.md §6.5 ⇒ 改指真实存在的 §6）
+  逐处口径：A ⇒ 改指向现存权威（SPEC/AGENTS/PLAN/TASKS 的**真实小节**，19/19 预验 + 落地复核）；B ⇒ 改自述不外链；
+  不新建任何 md（AGENTS §7）。
+
+【能红（纪律 20：还原也要复验）】
+  注入：把 packages/engine/src/errors.ts 已改好的 `（SPEC.md §5 契约）` 改回 `（docs/spec/CONTRACT-engine-v1.md §1）`
+    ⇒ doc2-verify：**① 文件悬挂 = 1**（0→1）· ② 小节悬挂 = 0（正是要抓的形态）
+  还原 ⇒ 探针残留 grep = **0** ⇒ 复跑 doc2-verify：**① 0 · ② 0**（回到基线）
+
+【library-config.ts:419（用户可见文案）】
+  改前：`取件白名单来自规格兜底值（docs/spec/SPEC-app.md §9）；想换目录请设 GEMMA_COLLECT_DIRS`
+  改后：`取件白名单来自规格兜底值（SPEC.md §2）；想换目录请设 GEMMA_COLLECT_DIRS`
+  **测试断言核对**：rg 该文案 ⇒ 测试里只有 `library-config.test.mjs:165` 断言 `d.includes('GEMMA_COLLECT_DIRS')` ——
+    它**不**断言文档出处 ⇒ 无需改断言（这就是「同步」的结论：核实后确认没有断言依赖旧串）。实跑见门禁段。
+
+⭐【新发现：**第三类**悬挂 —— 两把主尺子都看不见（已做成第三维尺子并校准）】
+  现象：还有 **70 处**引用用的是**裸旧文档名**（不带 docs/ 前缀、也不是根文档名），例如
+    `SPEC-security §8` · `SPEC-identity §2` · `DESIGN-app-details:414` · `ROADMAP.md:221` · `UI-REVIEW-and-migration.md:236`。
+  为什么两把尺子漏了它们：① 文件级要求 `docs/` 前缀；② 小节级只认 AGENTS/SPEC/PLAN/TASKS 四个根文档名。
+  新尺子（已入库）：`node reports/2026-10-15-wave3/doc2-legacy.mjs [--calibrate]`
+    语义：只算**带锚点的引用**（`§x` 或 `:行号`），**不算提及**。
+  ③ **裸旧文档引用 = 70**（67 行）· 按文档：SPEC-identity=28 · SPEC-security=21 · DESIGN-app-details=5 ·
+     ROADMAP=4 · SPEC-transactions=4 · UI-REVIEW-and-migration=4 · DESIGN-tokens=3 · SPEC-app=1
+     （明细 data/_doc2-legacy.txt，67 行）
+
+  ⚠️⚠️ **纪律 21 当场又救了一次**：第三维尺子**第一版校准失败** —— 我的已知不命中用例
+     `MIGRATION-PLAN.md 已改自述` 被误计 1（它把**提及**当成**引用**）。校准 FAIL ⇒ **输出不予采信** ⇒
+     改成「必须带锚点（§ 或 :行号）」后重校准 **6/6 OK**，才采信上面的 70。
+     若没做校准，我会拿着一个「多计」的尺子去改一批**本来没问题的注释**（正是纪律 21 说的代价）。
+
+【范围问题（请 Lead 裁定，不在本卡原定范围内）】
+  本卡原口径 = 36（文件级）+ 1（小节级）；第三类是**另一批 70 处**，同样指向已删文档（同一缺陷类，形态不同：
+  它们连 docs/ 前缀都没有，因此**不是**「文件不存在」，而是「名字已失效」）。
+  我没有擅自扩大范围去改（避免把一张已绿的卡改成大改；也需要你先定口径）。
+
+【门禁原始输出（落地后）】
+  tsc node（tsconfig.node.json）        ⇒ **TSC_NODE=0**
+  npm test（全量）                      ⇒ **NPM_TEST_EXIT=0 · tests 631**（全绿）
+  prettier --check . —— 第一次         ⇒ **EXIT=1 · 1 个文件**：apps/desktop/src/main/library-config.ts（**我的**：改字后换行不合规）
+    处置：npx prettier --write apps/desktop/src/main/library-config.ts ⇒ 复跑 **EXIT=0（All matched）**
+    并复验该文件相关测试：library-config.test.mjs ⇒ **14/14 通过**；尺子复跑 ⇒ **① 0 · ② 0**（未被格式化改坏）
+
+【结论】
+  本卡口径（36 文件级 + 1 小节级）**全部落地**，验收两个数 **0 / 0**，能红 0→1→0，门禁 tsc 0 · npm test 631 全绿 · prettier 0。
+  ⚠️ 范围内**未含**第三类（70 处裸旧文档引用）—— 已单独量出并校准，等 Lead 定口径。
