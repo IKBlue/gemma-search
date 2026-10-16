@@ -43,6 +43,8 @@ export interface CrashPolicyDeps {
   flush?: () => void;
   /** process 本体（默认真 process；单测可注入假对象） */
   target?: ProcessLike;
+  /** 时钟注入（默认 `() => new Date().toISOString()`）；单测给确定值 */
+  now?: () => string;
 }
 
 /** 进程内只读态（诊断可读） */
@@ -51,6 +53,14 @@ export interface CrashUnhealthyState {
   /** **第一条**原因（根因优先；后续原因只计数） */
   reason: string | null;
   count: number;
+  /**
+   * **第一条**出事的时刻（ISO 8601）；健康时 null。
+   *
+   * ⚠️ 2026-10-16（U27 appHealth）新增：界面要如实说「什么时候开始不对劲」。
+   *    它是**进程内**事实（与 unhealthy/reason/count 同源），**不落库** —— 落 app_meta 会留下
+   *    一个下次启动必然过期的假标记（本文件头「为什么不用 app_meta」那条同样适用）。
+   */
+  firstAt: string | null;
 }
 
 export interface CrashPolicy {
@@ -59,6 +69,8 @@ export interface CrashPolicy {
   isUnhealthy(): boolean;
   unhealthyReason(): string | null;
   unhealthyCount(): number;
+  /** 进程内只读态的一次快照（appHealth 的唯一数据来源） */
+  snapshot(): CrashUnhealthyState;
   /** 注册到 target（幂等：重复调用只注册一次） */
   install(): void;
   /** 摘掉监听器（幂等；单测收尾必须调，别把处理器漏进测试进程） */
@@ -84,13 +96,20 @@ export function createCrashPolicy(deps: CrashPolicyDeps): CrashPolicy {
   const target: ProcessLike = deps.target ?? process;
   let installed = false;
   /** 状态挂在实例上（单测可拿到互不干扰的实例）；模块槽只保存"已安装的那个" */
-  const state: CrashUnhealthyState = { unhealthy: false, reason: null, count: 0 };
+  const state: CrashUnhealthyState = { unhealthy: false, reason: null, count: 0, firstAt: null };
+
+  /** 时刻是注入点（单测要能给定一个确定值，不读真实时钟） */
+  const now = (): string => (deps.now ?? (() => new Date().toISOString()))();
 
   function mark(reason: string): void {
     state.unhealthy = true;
     state.count += 1;
     // 第一条原因优先：后面的多半是同一根因的余波，覆盖它反而丢掉根因
-    if (state.reason === null) state.reason = reason;
+    if (state.reason === null) {
+      state.reason = reason;
+      // 原因与时刻必须**同一次**被记下（否则会出现「有原因没时间」或反过来的半截状态）
+      state.firstAt = now();
+    }
   }
 
   function onUncaughtException(e: unknown): void {
@@ -124,6 +143,8 @@ export function createCrashPolicy(deps: CrashPolicyDeps): CrashPolicy {
     isUnhealthy: (): boolean => state.unhealthy,
     unhealthyReason: (): string | null => state.reason,
     unhealthyCount: (): number => state.count,
+    // 拷贝一份：调用方拿到的是快照，改它不会污染进程内状态
+    snapshot: (): CrashUnhealthyState => ({ ...state }),
     install(): void {
       if (installed) return;
       installed = true;
@@ -151,14 +172,10 @@ export function installCrashPolicy(deps: CrashPolicyDeps): CrashPolicy {
   return installedPolicy;
 }
 
-/** 诊断读口：当前进程的不健康态（没有安装过 ⇒ 全 false/0，不编一个"健康"的假象） */
+/** 诊断读口：当前进程的不健康态（没有安装过 ⇒ 全 false/0/null，不编一个"健康"的假象） */
 export function crashUnhealthyState(): CrashUnhealthyState {
-  if (installedPolicy === null) return { unhealthy: false, reason: null, count: 0 };
-  return {
-    unhealthy: installedPolicy.isUnhealthy(),
-    reason: installedPolicy.unhealthyReason(),
-    count: installedPolicy.unhealthyCount(),
-  };
+  if (installedPolicy === null) return { unhealthy: false, reason: null, count: 0, firstAt: null };
+  return installedPolicy.snapshot();
 }
 
 // ---------------------------------------------------------------- 生产态 DevTools（同一条策略边界）

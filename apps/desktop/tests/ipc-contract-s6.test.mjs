@@ -8,7 +8,7 @@ import { test } from 'node:test';
 
 import { METHOD_NAMES, Methods, validateCall } from '../src/shared/ipc.ts';
 
-test('C1 ⭐⭐ 白名单 = 基线 §2.2 的 20 个 + S8 的 items = 21 个（集合相等，多一个少一个都红）', () => {
+test('C1 ⭐⭐ 白名单 = 基线 §2.2 的 20 个 + S8 的 items + U27 的 appHealth = 22 个（集合相等，多一个少一个都红）', () => {
   const expected = [
     // 保留（/改造）
     'search',
@@ -35,6 +35,8 @@ test('C1 ⭐⭐ 白名单 = 基线 §2.2 的 20 个 + S8 的 items = 21 个（�
     'collectDirRemove',
     'collectDirSetDefault',
     'appMeta',
+    // 2026-10-16 · U27 新增：应用自身健康（只读；SPEC §6 第 22 个方法）
+    'appHealth',
   ].sort();
   assert.deepEqual(
     [...METHOD_NAMES].sort(),

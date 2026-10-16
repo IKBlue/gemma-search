@@ -71,7 +71,7 @@ function recorder({ isPackaged = true } = {}) {
 test('C0：没安装过策略时 crashUnhealthyState() 不编一个"健康"的假象（全 false/0）', () => {
   // 顺序前提：本用例必须在任何 installCrashPolicy() 之前跑（node:test 同文件按序执行）
   const s = crashUnhealthyState();
-  assert.deepEqual(s, { unhealthy: false, reason: null, count: 0 });
+  assert.deepEqual(s, { unhealthy: false, reason: null, count: 0, firstAt: null });
 });
 
 // ============================================================ C1 uncaughtException
@@ -216,7 +216,7 @@ test('C6：installCrashPolicy 后 crashUnhealthyState() 读得到已安装策略
   installCrashPolicy(first.deps);
   assert.deepEqual(
     crashUnhealthyState(),
-    { unhealthy: false, reason: null, count: 0 },
+    { unhealthy: false, reason: null, count: 0, firstAt: null },
     '刚装上、还没出事 ⇒ 健康',
   );
 

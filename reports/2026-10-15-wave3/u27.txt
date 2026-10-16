@@ -1,0 +1,145 @@
+U27 · `appHealth`（第 22 个只读方法）· 2026-10-16 · 执行: ui-migrator
+任务：HANDOFF 的 U27（`task-80`）· 证据类型：**本轮实测**（单测 + 真窗口 e2e + tsc + build + prettier）
+写入范围：`shared/ipc.ts` · `main/**`（crash-policy / app-health / index）· `renderer/**` · `tests/**` · `e2e/**` · SPEC §6
+
+=================================================================================
+0. 结论速览
+=================================================================================
+① `appHealth` 落地为**第 22 个只读方法**（白名单 21 → 22，C1 集合断言同步）；
+② 契约**严格按裁定收窄**：`{ unhealthy, count, reason, firstAt }` —— **不含** `sessionExit`、**不持久化**「上次崩溃」、
+   **不含**路径/用户名/堆栈正文、**恒成功**（查不到事实本身就是事实）；
+③ 数据**只有一个来源**：`main/crash-policy.ts` 的进程内快照（新增 `firstAt` + `snapshot()`）；
+④ 界面：顶栏**无条件**的低调入口 + 诊断页面板（健康时也写一行「没事发生」，不是空白）；**不弹窗不阻塞**；
+⑤ 真窗口 2 条全绿；focused 单测 41/41；`tsc` web/node = 0；`build` = 0；`prettier --check .` = 0。
+
+=================================================================================
+1. 交付物
+=================================================================================
+新增：
+  apps/desktop/src/main/app-health.ts                     queryAppHealth() + summarizeReason()（**不含敏感信息的唯一落点**）
+  apps/desktop/src/renderer/src/store/app-health.ts       状态 + 三个纯文案判据 + shouldKeepPolling()
+  apps/desktop/src/renderer/src/hooks/useAppHealth.ts     React 薄壳（含**有界重查**，见 §5）
+  apps/desktop/src/renderer/src/pages/AppHealthPanel.tsx  诊断页面板（**单独成文件**，避开 U12 正在改的 DiagnosticsPage）
+  apps/desktop/tests/app-health.test.mjs                  AH1–AH6b（10 条，主进程侧）
+  apps/desktop/tests/app-health-store.test.mjs            AS1–AS6（6 条，界面侧判据）
+  apps/desktop/e2e/app-health.spec.mjs                    E15-a / E15-b（真窗口 2 条）
+修改：
+  shared/ipc.ts                    + appHealth: z.object({}).strict()（白名单 21 → 22）
+  main/crash-policy.ts             状态 + firstAt；deps.now 注入点；snapshot()；模块读口带上 firstAt
+  main/index.ts                    import + 白名单放行 + 分派一行（queryAppHealth(crashUnhealthyState())）
+  layout/Topbar.tsx                顶栏入口（**无条件渲染**，不是可选 prop —— 见 §4）
+  pages/DiagnosticsPage.tsx        只加两行：import + <AppHealthPanel />
+  tests/ipc-contract-s6.test.mjs   C1 期望集合加 appHealth（标题 21 → 22）
+  tests/permissions.test.mjs       S16 零参方法补 appHealth 两条断言
+  tests/crash-policy.test.mjs      C0/C6 的 deepEqual 补 firstAt: null
+  SPEC.md §6                       第 22 个方法（**只加这一节**，未改其它条款）
+
+=================================================================================
+2. 契约（与裁定逐字一致）
+=================================================================================
+  appHealth {} → { unhealthy: boolean, count: number, reason: string | null, firstAt: string | null }
+  · **只读**：不改任何状态（可以随便查）；
+  · **恒成功**：不返回 ok:false —— 查不到事实本身就是一条事实（unhealthy:false）；
+  · **不含** sessionExit / **不持久化**「上次崩溃」：不写 app_meta（会留下下次启动必然过期的假标记）；
+    「上个会话异常退出」由**日志**说明 —— 面板里明确指向 data/_app.log，
+    ⚠️ 并且**刻意不给「打开日志」按钮**：契约里没有「打开日志文件」的方法（reveal 只接受 libId+uid，是素材坐标），
+       硬塞一个按钮就得先造接口或猜日志路径 ⇒ **宁可不显示，也不猜**；
+  · **不含**路径/用户名/堆栈正文（清洗见 §3）· **不上报**。
+
+=================================================================================
+3. 摘要清洗：**实测拦得住**（不是声称）
+=================================================================================
+  summarizeReason() 三步：① 只留第一行（堆栈正文在后续行）② 整段抹掉像路径的连续串 ③ 折叠空白 + 截断 160。
+  实测（原始输出 data/_w2ui/u27-test.txt）：
+    'Error: 数据库打不开：D:/Users/zhangsan-9f2c/AppData/Roaming/gemma-search/app.db'
+      → 'Error: 数据库打不开：<路径已省略>'      ← 用户名与整段路径都没了，但「什么事」还在
+    'ENOENT: …, open /Users/someone/lib/x.db'  → 'ENOENT: …, open <路径已省略>'
+    'Error: x'                                 → 'Error: x'      ← **不误伤**普通文案
+    'code: BAD_REQUEST，方法尚未实现'          → 原样（**不误伤**「字母+冒号」）
+  ⚠️ 两个实测踩到的坑，都写进注释并留了断言：
+    · 只抹分隔符**不够**：D:/Users/某人/AppData 抹完变成 'D: Users 某人 AppData' —— **用户名还在**（AH3d 钉它）；
+    · 只按「字母+冒号」认盘符会**吃掉普通文案**：'Error: x' 曾被抹成 'Erro<路径已省略> x'（AH3b 钉它）。
+
+  **能红（Lead 要求的那条）**：把 summarizeReason 改成「直接返回原串」⇒ AH3b/AH3d **当场红**（原文见 §7.1），
+  还原后立刻复绿 ⇒ 这两条断言**不是恒真**，「不含敏感信息」是**被验证过**的。
+
+=================================================================================
+4. 顶栏入口：按 Lead 裁定做成**无条件渲染**
+=================================================================================
+  我原先打算在 Topbar 加一个可选槽、再给 6 个调用点各加一行 prop —— Lead **否掉**，理由（我认）：
+    · 「本次进程是否出现过未处理异常」是**进程级事实**，不是页面级事实；
+    · 做成可选 prop ⇒ **哪个页面忘了传，那个页面的标记就静默消失** —— 那正是要消灭的静默形态；
+    · 一处定义 > 6 处 prop（将来不会漂移）。
+  ⇒ 最终实现：Topbar.tsx **内部**调 useAppHealth() 并**无条件**渲染入口；6 个页面**一行都没改**。
+  （原先按「可选槽」写的那半个组件已删除，**没留两套**。）
+
+=================================================================================
+5. ⚠️ 一条我在真窗口里被证伪的判断（更正并说明）
+=================================================================================
+  我最初在 useAppHealth.ts 写的是「**不轮询**：启动查一次就够，轮询会把低频事实变成持续 IPC」。
+  **真窗口当场证伪**：注入之后顶栏 data-unhealthy 一直是 no（E15-b 第一次失败，原文见 §7.3）——
+  因为顶栏只在挂载时查过一次。⇒ 「知道但不显示」正是本方法要消除的东西。
+  更正为**有界重查**：空闲期 5s 一次、**拿到「不健康 + 原因」即停**（判据 shouldKeepPolling()，AS6 钉住）。
+  代价实测：一次只读 IPC **0ms**（日志 invoke appHealth 0ms → ok）；收益：出事后 ≤5s 界面自己变。
+
+=================================================================================
+6. 门禁（命令 + 原始输出；时刻 2026-10-16T01:45:44Z）
+=================================================================================
+  $ npx tsc --noEmit -p tsconfig.web.json  --tsBuildInfoFile data/_verify/web.tsbuildinfo   → EXIT=0
+  $ npx tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile data/_verify/node.tsbuildinfo  → EXIT=0
+  $ node --test apps/desktop/tests/{app-health,app-health-store,crash-policy,ipc-contract-s6,permissions}.test.mjs
+      → ℹ tests 41 · pass 41 · fail 0 · EXIT=0（data/_w2ui/u27-focused.txt）
+  $ npm run build                                            → EXIT=0（三端齐备）
+  $ npx prettier --check .                                   → EXIT=0（6 个新文件已 --write）
+  $ npx playwright test -c apps/desktop/e2e/playwright.config.mjs app-health.spec.mjs
+      → ok 1 E15-a（6.7s）· ok 2 E15-b（12.7s）· **2 passed (20.0s)** · EXIT=0
+  $ node -e "import('.../ipc.ts').then(m=>console.log(m.METHOD_NAMES.length))" → 22
+  out/ 指纹：build 后 0F7D86049D8EA744D99945140694932ECA144C14A9A994287C0DB65182EDA9FB（本轮 e2e 用的就是它）
+
+  未跑（**按纪律 6/19：跑全量 npm test 前先问 Lead**）：
+  · npm test（全量）；· npm run e2e（全量，含我这 2 条新增 ⇒ 预期 65 passed / 1 skipped）
+  ⇒ 这两条我**没有**跑，也不会在别人的窗口里跑；等你给冻结窗口。
+
+=================================================================================
+7. 「能红」与失败原文
+=================================================================================
+7.1 摘要清洗（把清洗改成「直接返回原串」）
+    ✖ AH3b：单行里也带路径 ⇒ 分隔符被抹掉（路径不再是路径），且长度有上限
+    ✖ AH3d ⭐⭐ 能红：注入含**绝对路径 + 用户名**的原因 ⇒「输出里不含它」这两条断言必须真能抓到
+    ℹ tests 10 · pass 8 · fail 2   ⇒ 还原后 10/10 绿
+
+7.2 契约白名单守卫（把 appHealth 从期望集合里抽掉）
+    ✖ C1 ⭐⭐ 白名单 = 基线 §2.2 的 20 个 + S8 的 items + U27 的 appHealth = 22 个（集合相等，多一个少一个都红）
+    ℹ tests 3 · pass 2 · fail 1   ⇒ 还原后 3/3 绿
+
+7.3 E15-b 在「不轮询」那版上的原文（不是注入，是真实失败）
+    Error: expect(locator).toHaveAttribute(expected) failed
+      Locator: getByTestId('app-health-entry')  Expected: "yes"  Received: "no"
+    ⇒ 由此定位到「顶栏只查一次」的缺口（§5）。
+    另一次失败：getByRole('link', { name: '诊断与重建' }) 命中 2 个链接（侧栏 + 顶栏入口）⇒ 改 exact。
+
+=================================================================================
+8. e2e 注入方式（**刻意不给产品开测试口子**）
+=================================================================================
+  E15-b 往**主进程**投递一次 unhandledRejection（process.emit(...)）—— 那正是 Node 在真的未处理 rejection 时做的事，
+  走的是 DF-6 **同一个处理器**（crash-policy.ts：记日志 + 标记不健康 + **不退出**）。
+  ⚠️ **诚实标注**：事件本身是**合成的**（不是等一个真的异步 bug 发生）；
+     但它触发的处理器 / 状态 / IPC 读口 / 界面渲染**全是真的**。这条断言能抓「接线断 / 状态没传出去 / 界面没说」；
+     抓不到「Node 会不会真的把某类 rejection 交上来」（那是 Node 语义，不是本方法的契约）。
+  · 先试过 utilityProcess.fork() + kill()：**实测不产生 rejection**（探针原文：fork 成功、kill 后无事件）⇒ 放弃，不留死代码；
+  · 产品里**没有**任何为测试开的分支。
+
+=================================================================================
+9. 0 残留 grep（纪律 17：先跑、贴输出、后结论）
+=================================================================================
+  · appHealth 的全部引用：契约 1 · main 3 · renderer 4 · 测试 6 · e2e 6 · SPEC §6 1 —— **没有重复实现、没有第二个数据来源**；
+  · crashUnhealthyState 的调用点：main/index.ts:1088 一处（分派），其余是测试；
+  · METHOD_NAMES.length 的写死断言：只有 permissions.test.mjs:55 的 >= 13（下界，未过时），**没有**把 21 写死的地方；
+  · 「打开日志」按钮：**没做**（契约里没有对应方法）—— 面板里只给日志路径的文字说明；
+  · 弃用的探针（utility-child.* / _u27-probe.mjs）：**已删除**。
+
+=================================================================================
+10. 回滚
+=================================================================================
+  删 4 个新源码文件 + 2 个新测试 + 1 个 e2e；还原 shared/ipc.ts · main/crash-policy.ts · main/index.ts ·
+  layout/Topbar.tsx · pages/DiagnosticsPage.tsx（两行）· 3 处测试断言 · SPEC §6 那一节。无依赖变更。

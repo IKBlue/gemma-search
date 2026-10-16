@@ -198,6 +198,19 @@ export const Methods = {
 
   // ---- 基线 §2.2 新增：应用级账本（app_meta）—— **只读**；写它的只有迁移 ----
   appMeta: z.object({}).strict(),
+
+  // ---- U27（2026-10-16 · SPEC §6 第 22 个方法）：应用自身健康（进程内事实）—— **只读** ----
+  /**
+   * `appHealth` —— 把「本次进程出现过未处理异常」这件**只活在主进程里**的事接到界面上。
+   *
+   * · **只读**：不改任何状态，可以随便查（界面只在启动 + 打开诊断面板时各查一次）；
+   * · **恒成功**：不返回 `ok:false` —— 「查不到事实」本身就是一条事实（`unhealthy:false`）；
+   * · **不含** `sessionExit` / **不持久化**「上次崩溃」：不写 `app_meta`（那会留下一个下次启动必然
+   *   过期的假标记）。「上个会话异常退出」由**日志**说明，界面只给「打开日志」入口（宁可不显示，也不猜）；
+   * · 数据**只来自** `main/crash-policy.ts` 的同一份进程内状态（不产生第二份真相）；
+   * · 载荷**不含**路径 / 用户名 / 堆栈正文（摘要清洗在 `main/app-health.ts`），也**不上报**。
+   */
+  appHealth: z.object({}).strict(),
 };
 
 export const METHOD_NAMES = Object.freeze(Object.keys(Methods));

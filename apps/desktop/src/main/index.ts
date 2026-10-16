@@ -47,7 +47,8 @@ import { createLibraryResolverPort, createStoragePorts } from './storage-ports.t
 import { runLibraryHealth, runLibraryRebuild } from './library-ipc.ts';
 import { runItemsQuery } from './items-ipc.ts';
 import type { ItemsQueryParams } from './items-ipc.ts';
-import { installCrashPolicy } from './crash-policy.ts';
+import { crashUnhealthyState, installCrashPolicy } from './crash-policy.ts';
+import { queryAppHealth } from './app-health.ts';
 import {
   appDbPath,
   deleteCollectDir,
@@ -757,6 +758,7 @@ function registerIpc(): void {
       v.method === 'collectDirRemove' ||
       v.method === 'collectDirSetDefault' ||
       v.method === 'appMeta' ||
+      v.method === 'appHealth' ||
       v.method === 'libraryHealth' ||
       v.method === 'libraryRebuild'
     ) {
@@ -1077,6 +1079,13 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
     invalidateLibraries();
     const all = withAppDb((db) => listCollectDirs(db));
     return { ok: true, data: { dir: r.value, dirs: all.ok ? all.value : [r.value] } };
+  }
+
+  // ---- U27（2026-10-16）：应用自身健康 —— **只读**、**恒成功**、不落库 ----
+  // 数据唯一来源是 crash-policy 的进程内快照（同一份真相）；信封组装与摘要清洗在 main/app-health.ts。
+  // ⚠️ 刻意**不**读日志、**不**持久化「上次崩溃」：那需要一个下次启动必然过期的标记（宁可不显示，也不猜）。
+  if (method === 'appHealth') {
+    return queryAppHealth(crashUnhealthyState());
   }
 
   // ---- 基线 §2.2 新增：应用级账本（app_meta）—— **只读**（写它的只有迁移）----

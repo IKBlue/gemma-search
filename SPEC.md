@@ -394,6 +394,14 @@
 
 **新增**：`librarySetEnabled` · `libraryReorder` · `libraryRemove` · `collectDirs` · `collectDirAdd` · `collectDirRemove` · `collectDirSetDefault` · `appMeta`（诊断页显示应用级版本）
 
+**`appHealth`（只读 · 2026-10-16 所有者批准 · **第 22 个方法** · 属兼容新增）** —— 把「本次进程出现过未处理异常」这件**只活在主进程里**的事接到界面上（DF-6 的配套；设计稿 `reports/2026-10-15-wave3/appHealth-demo.html`）。
+签名：`appHealth {}` → `{ unhealthy: boolean, count: number, reason: string | null, firstAt: string | null }`。
+· **只读**：不改任何状态（界面只在启动 + 打开诊断面板时各查一次）；
+· **恒成功**：不返回 `ok:false` —— 「查不到事实」本身就是一条事实（`unhealthy:false`）；
+· **不含 `sessionExit` / 不持久化「上次崩溃」**：**不写** `app_meta`（那会留下一个下次启动必然过期的假标记）。「上个会话异常退出」由**日志**说明，界面只给「打开日志」入口 —— **宁可不显示，也不猜**；
+· 数据**只来自** `main/crash-policy.ts` 的同一份进程内状态（**不产生第二份真相**）；
+· 载荷**不含**路径 / 用户名 / 堆栈正文（摘要清洗的唯一落点是 `main/app-health.ts` 的 `summarizeReason()`），**不上报**、**不弹窗**、**不阻塞**。
+
 **`items`（只读列表 · 2026-10-15 补 · 属兼容）** —— F2「逛整库」要的读路径。**Lead 基线的遗漏**：`scan` 只返回**差异**（`new/missing/changed` + 指纹）、`search` 空查询会 `BAD_REQUEST`（「查询文本为空」）、`item` 只读一条 ⇒ 三者**都不能**列全部。
 签名（S8 定稿实现）：`items { libId, folder?, ext?, hasArchive?, sort?, offset?, limit? }` → `{ rows, total, facets }`。
 · **只读**：不触发扫描、不进向量；`total` = **筛选后**总数，**越界也如实给**；

@@ -393,6 +393,9 @@ test('S16 ⭐ 新增的 8 个方法都登记了，且形状/`.strict()` 都对�
   assert.equal(validateCall('libraryList', {}).ok, true);
   assert.equal(validateCall('collectDirs', {}).ok, true);
   assert.equal(validateCall('appMeta', {}).ok, true);
+  // 2026-10-16 · U27：appHealth 也是零参 + .strict()（多传字段一律拒）
+  assert.equal(validateCall('appHealth', {}).ok, true);
+  assert.equal(validateCall('appHealth', { libId: 'L1' }).ok, false, 'appHealth 不接受参数');
 
   // 带参 + 边界 + `.strict()`（多传字段一律拒）
   assert.equal(validateCall('librarySetEnabled', { libId: 'L1', enabled: true }).ok, true);
