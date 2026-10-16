@@ -97,3 +97,18 @@
 
 ## 今日新增纪律（TASKS §3 · 14–19）
 全部来自今日实况，其中 **16/19 是 Lead 自己的错**：「最后一次写入之后」与「门禁窗口要冻结写入面+测试面」。
+
+## 第三份审查（`reports/2026-10-16-review/review-report.md` · 2026-10-16 · Lead 逐条核实）
+
+| 条目 | 核实结果 | 处置 |
+|---|---|---|
+| **S1** 🔴 构建门禁 RED（`esbuild remove … Access is denied`，`out/renderer` 空） | ⚠️ **复现，但定性为「环境」不是「产品」** —— Lead 三组对照：**默认 TEMP** ⇒ `Build failed / EXIT=-1`；**TEMP+TMP 都指仓库内** ⇒ **EXIT=0**；**只改 TMP、TEMP 留默认** ⇒ `EXIT=-1` ⇒ **必须同时改两个**（vite/esbuild 在 Windows 读 `TEMP`） | 开 **BUILD-1**：让构建**不依赖环境临时目录**（把 vite/esbuild 的 temp 指到可写位置）+ 顺手修 **S10**（`bmp_decode.ts` 静态+动态双 import 警告） |
+| **S2** 🟠 打包从未真正验证 | ✅ **真**（`electron-builder.yml` 自述「从未打包过」；`dist/win-unpacked` 停在 10-14） | **P8 的范围**（我们已排期）· 记录：`asarUnpack` 需按实测补原生 `.node` |
+| **S3** 🟡 元数据押在实验性 `node:sqlite` | ✅ 真（有薄适配层隔离；Stability 1.2） | **已知取舍**（AGENTS §1 已选型）· 保留适配层 + 锁 Electron 版本 + 备逃生路线 |
+| **S4** 🟡 两个方法接受渲染层传来的**绝对路径**，与「渲染层传不进路径」的声明不符 | ✅ **真**（`libraryAdd.root` · `collectDirAdd.absPath`） | 开 **SEC-1**：① **把声明改成如实**（说明这两处例外与缓解）；② 主进程**二次校验**（必须存在且是目录） |
+| **S5/S6/S8/S9** 设置中心 · 入库增量 · 快捷键 · `cmdk` 零 import | ✅ 真，**都是已排期项** | 对应 **P4-4 设置中心** · 第二批表（入库）· **P4-6 命令面板**（用上 `cmdk`） |
+| **S7** 🟡 侧栏连「文档」入口都没有（与 SPEC §4 信息架构不符） | ✅ **真**（SPEC 说有、侧栏没有） | 开 **IA-1**：加**禁用占位 + 原因**（F7 门控：需 10–30 份真实文档）—— 与其它门控项同一形态 |
+| **S10** 🟢 `bmp_decode.ts` 静态+动态双 import | ✅ 真（构建警告） | 并入 **BUILD-1** |
+| **S11** 🟢 生产态 `devTools: true` | ✅ 真但**是有意保留**（DF-6 的 C5 断言「`devTools:true` 必须还在」= 允许打开，**不是自动打开**；`openDevTools()` 已被禁止） | **不改**，口径已钉 |
+| **S12** ⚪ `npm audit` 不可用（镜像源没有 audit 端点） | ✅ 真（环境） | 记入 `TASKS §5`：查漏洞要用**官方源** `npm audit --registry=https://registry.npmjs.org` |
+| 「单测 644 通过 / 0 失败」·「类型只覆盖 `.ts`、`checkJs` 关闭」 | ✅ 与我们的门禁一致；第二条是**已知边界**（`.mjs` 由运行时测试覆盖） | 不改 |
