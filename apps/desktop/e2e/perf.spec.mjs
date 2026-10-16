@@ -3,9 +3,14 @@
 // ── 怎么复跑（三步，可直接抄）──────────────────────────────────────────────
 //  1. 先构建产物（e2e 跑的是 out/）：
 //       npm run build
-//     ⚠️ 本会话沙箱下 build 必须把 TEMP/TMP 指到仓库内，否则 esbuild 清理 AppData 临时文件会被拒（EPERM）：
-//       $env:TEMP='<仓库>/data/_esbuild-tmp'; $env:TMP=$env:TEMP; npm run build
-//     （同一个 TEMP 也是 e2e 能起窗的前提：Electron 的 userData/临时目录都落在 TEMP 下。）
+//     ✅ 2026-10-16（BUILD-1 / 审查 S1 收口）：**构建已自给自足** —— `electron.vite.config.mjs` 的 build 段
+//        自己把 `TEMP` / `TMP` / `TMPDIR` 指到仓库内 `data/_esbuild-tmp`，**不再需要任何手动重定向**。
+//        （历史上这里写过「build 必须手工设 TEMP/TMP」，那是环境依赖的绕法，已随 BUILD-1 退役。）
+//     ⚠️ 但 **e2e 自己仍要把 `TEMP`/`TMP` 指到仓库内**：`helpers/app.mjs` 与 `helpers/launch.mjs` 的临时
+//        userData 都建在 `os.tmpdir()` 下，而本会话沙箱把 **electron.exe 的写限制在仓库工作目录内**
+//        （见 TASKS.md §5）⇒ 不重定向的话 Electron 的 userData/临时目录会落到 `AppData` 而被拒。
+//        （此条为**继承既有结论**：BUILD-1 期间冻结门禁在跑，未在本轮复验。）
+//       $env:TEMP='<仓库>/data/_esbuild-tmp'; $env:TMP=$env:TEMP   # 只为跑 e2e；该目录由上面的 npm run build 建出
 //  2. 打开开关，只跑这一条（**默认 GEMMA_PERF 未设 ⇒ skip**，不给全量 e2e 加时间）：
 //       $env:GEMMA_PERF='1'; npx playwright test -c apps/desktop/e2e/playwright.config.mjs perf.spec.mjs
 //  3. 读输出：结论表搜 '[perf] TABLE'，原始逐次计时搜 '[perf] RAW'。

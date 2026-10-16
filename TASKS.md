@@ -194,6 +194,30 @@ node_modules/typescript-eslint/dist/index.js:45-53  =>  if (versionMajor >= 7) t
 底层 @typescript-eslint/parser 与 eslint-plugin 同样抛；latest 8.71.2 / canary 8.71.3-alpha.5 全都不支持（上游 issue #10940，等 TS >= 7.1）
 `~
 ⇒ **在 typescript-eslint 支持 TS >= 7.1 之前**：ESLint 只覆盖 **JS 家族**（`.js/.mjs/.cjs/.jsx`）；**TS 规则**要么等上游，要么由所有者批准「并行装一个 TS 6 + overrides」（**架构级决定：仓库会出现第二个 TS 大版本**）。**不要**装一个 import 即崩的包当依赖。
+**构建临时目录（2026-10-16 · S1 已收口 · 来源：第三份审查 S1）**：`esbuild` 会在 `%TEMP%` 下建一个
+`esbuild-<hash>` 目录，**退出时删它**；受限环境（本机沙箱）下这个 `remove` 被拒 ⇒
+`[vite:esbuild-transpile] remove C:\Users\…\Temp\esbuild-<hash>: Access is denied` ⇒ **渲染层**那一段构建失败
+（`out/renderer` 空，而 main / preload 已成功 ⇒ 现象上很像「渲染层坏了」）。**根因是环境依赖，不是产品缺陷**：
+门禁脚本一直**手动**把 `TEMP`+`TMP` 都指到仓库内，所以本机看起来一直绿；审查者「只把 `TMP` 换到项目内仍复现」的真因是
+**Windows 读的是 `TEMP`，`TMP` 只是回退**。三组对照（引用既有证据：`reports/2026-10-16-review/review-report.md` S1）：
+~
+默认 TEMP                  => Build failed（EXIT≠0）
+TEMP + TMP 都指仓库内      => EXIT=0
+只改 TMP、TEMP 留默认      => Build failed（EXIT≠0）  ← 审查者那条的真因
+~
+⇒ **已修（BUILD-1，2026-10-16）**：`electron.vite.config.mjs` 在 `command === 'build'` 时把
+`TEMP` / `TMP` / `TMPDIR` 三个都指向仓库内的 `data/_esbuild-tmp`（`data/_*` 已被 `.gitignore` 与 `.prettierignore` 忽略）
+⇒ **构建自给自足，任何人都不需要再手设变量**。本轮实测三种环境全部通过：
+~
+默认环境（不预先设任何变量）        => EXIT=0 · main/preload/renderer 三端齐备
+TEMP+TMP 指向**不存在**的目录        => EXIT=0 · 三端齐备
+只改 TMP、TEMP 留默认                => EXIT=0 · 三端齐备
+~
+⚠️ **旧的「手动设 TEMP」配方保留为历史记录，但不要再写进门禁脚本**（它掩盖了真实的机器差异）。
+⚠️ dev / preview **刻意不重定向**：那两段会由 electron-vite 拉起 Electron，子进程继承环境 ——
+那时改 `TEMP` 等于把 Electron 自己的临时目录（GPU 缓存 / 崩溃转储）也搬进仓库，那才是真的行为改变。
+完整原始输出见 `reports/2026-10-15-wave3/build1.txt`。
+
 本会话沙箱把 **electron.exe 的写限制在仓库工作目录内**（仓库内可写；`G:\` 与 `AppData` 一律 EPERM），普通 node 不受限。
 ⇒ 「库根不可写 ⇒ 回退」这类行为，**有效证据必须来自显式 ACL 拒绝**（如 `icacls` 拒绝后普通 node 也被拒），
 而『G:\model 写不进去』在本机是**环境噪声**。要验收真实的库根写入（`.gs-index.bin` / `.gs.db` 落到 `G:\model`），**必须在沙箱外跑**，并在证据里写明是环境还是产品。

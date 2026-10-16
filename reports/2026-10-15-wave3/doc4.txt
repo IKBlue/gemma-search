@@ -46,3 +46,22 @@ DOC-4 证据（task-87 · 2026-10-16 · storage-worker）
   `data/baseline-v1.json` 只改文字不改数据（卡里写明）；`docs/archive/**` 的命中不算（归档自身记录旧路径），
   尺子里已显式排除 docs/（含 archive）。
 ================================================================================
+
+【⑧ 全量门禁 —— **引用 Lead 冻结门禁 `e7fba7e`，非本轮实测**（方式 B）】
+  ⚠️ 证据协议口径：以下数字**不是我这个 worker 本轮跑出来的**，而是 Lead 在
+     「我落地之后、无人写入的冻结窗口」里跑出的权威门禁（纪律 16/19）；
+     我**没有**再跑一遍全量（同一时刻只跑一个 `npm test`，纪律 6）。
+
+  prettier --check .     ⇒ 0（All matched）
+  npm run lint           ⇒ 0（本轮新增进门禁）
+  npm test               ⇒ **645 / pass 644 / fail 0 / skipped 1 · EXIT=0**
+  npm run typecheck      ⇒ 0
+  npm run build          ⇒ 0
+  e2e                    ⇒ 67 passed / 1 skipped / 0 failed（3.5m）
+  s4-accept.mjs          ⇒ PASS 13 · FAIL 0 · SKIP 0
+
+  ⇒ 这覆盖了本卡唯一挂起项「全量单测」；本 worker 自己跑过的部分是：
+     tsc node 0 · prettier --check . 0 · 定向测试（db-schema + engine/fake）34/34 · 三数 0/0/0 · 能红 0→1→0。
+     两部分的**归属写明**，避免把 Lead 的数字当成本轮实测（AGENTS §4 证据协议第 3 条）。
+
+【结论】task-87 达到验收：三类归零 + 独立信号交叉验证（1 处合法提及已判）+ 能红 + 门禁全绿（其中全量门禁引用冻结窗口）。

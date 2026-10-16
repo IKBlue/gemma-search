@@ -6,6 +6,7 @@ LINT-1 证据 · 22 条 ESLint error 逐条修因（**不关规则、不加 disa
 
 【结论】
 · `npm run lint`：**22 problems → 0 problems（EXIT=0）**，全部**逐条修因**，没有一条靠 disable/降级。
+  ⇒ 已被 Lead 的**冻结门禁**（提交 `e7fba7e`）独立复核：`npm run lint => 0`（见 §5 的方式 B 引用）。
 · 其中**两条不是"清理"而是修真问题**：① index-corruption 的 `\s` 在字符串里被吃掉（潜在**错正则**）；
   ② health.spec 里那个从未被调用的 `digest()` 是一处**覆盖缺口**的线索（已如实记下，见 §3）。
 · 门禁（截至本文件）：lint **0** · tsc node/web **0** · `prettier --check .` **0** · 受影响单测 **113/113** ·
@@ -85,8 +86,18 @@ $ node --test <9 个受影响单测文件>      ⇒ tests **113** · pass **113*
     engine/storage-ports · engine/transactions-recovery · engine/transactions · engine/uid）
 $ npx playwright test confirm-dialog.spec.mjs health.spec.mjs ⇒ **12 passed (1.6m)** · OUT_UNCHANGED=True
   （E7-a…f 8 条 + E13-a…d 4 条 —— 含被我修好的 E13-a）
-$ **npm test（全量）⇒ 待 Lead 放行**（卡片要求跑全量前先问）—— 放行后我跑并把原始输出补在这里。
-  【全量结果占位：待补】
+$ **npm test（全量）** ⇒ **tests 645 · pass 644 · fail 0 · skipped 1 · EXIT=0**
+  ⚠️ **方式 B：引用 Lead 的冻结门禁，非本轮实测**（AGENTS 证据协议第 3 条）。
+  来源 = Lead 2026-10-16 在**冻结窗口**（无人写入，纪律 16/19）跑的那一轮，提交 `e7fba7e`，其完整数字：
+    prettier --check .   => 0（All matched）
+    npm run lint         => 0（**本轮新增进门禁** —— 也就是本卡的 0 被独立复核过）
+    npm test             => 645 / pass 644 / fail 0 / skipped 1 · EXIT=0
+    npm run typecheck    => 0
+    npm run build        => 0
+    e2e                  => 67 passed / 1 skipped / 0 failed（3.5m）
+    s4-accept.mjs        => PASS 13 · FAIL 0 · SKIP 0
+  ⇒ 我没有再跑一遍全量（纪律 6：同一时刻只跑一个 npm test）。本文件 §5 的**其余数字**（lint 0 · tsc 0 ·
+    prettier 0 · 受影响单测 113/113 · 触碰的 e2e 12 passed）是**本轮实测**，两者口径分开写、不混。
 
 【6. 过程记录（如实）：一次自伤与修复】
 删 `digest()` 时我的 `old_string` 多含了一行（把紧随其后的 `test('E13-a …', async () => {` 的开头一起吃掉），

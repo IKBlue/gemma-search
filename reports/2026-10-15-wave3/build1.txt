@@ -1,0 +1,264 @@
+BUILD-1 · 构建不依赖环境临时目录（S1）+ 修 bmp_decode 双 import 警告（S10）
+日期 2026-10-16 · 类型：**本轮实测** · 任务卡：task-88 · 执行者：renderer-migrator
+
+================================================================
+0. 结论速览
+================================================================
+① **构建自给自足**：不预先设任何 `TEMP/TMP` 跑 `npm run build` ⇒ **EXIT=0**，三端产物齐备 ✅
+② 把 `TEMP`+`TMP` 都指向**不存在**的目录 ⇒ 仍 **EXIT=0**、三端齐备 ✅
+③ `TMP` 单独指向仓库内、`TEMP` 留默认（审查者那条"仍复现"）⇒ **EXIT=0** ✅（修前是红的）
+④ S10 修掉：`bmp_decode.ts` 的动态 import 警告 **GONE**（构建警告 20 → 19）✅
+⑤ T-00 基线**改前/改后逐字一致**（cos=1.000000 ×2 · 「北欧吊灯」Top-5 完全相同 · BMP 回退仍走）✅
+⑥ 「能红」探针：临时停用重定向 + 坏 TEMP ⇒ **EXIT=1**（同一条 `Access is denied`），随后**逐字节还原**
+   （sha256 前=后=`75c9ff2ea8a1a2a3`）⇒ 证明这条修复是**承重**的，不是装饰 ✅
+⑦ 残留 grep：`encoder.ts` **代码区** 0 处 `await import(`（注释里 1 处是历史说明，用仓库自己的
+   `maskComments` 判定）；`package.json` / `scripts/` / `tools/` / `e2e/` 里 **0 处**手动设 TEMP ✅
+⑧ ✅ `npx prettier --check .` = **EXIT 0**（"All matched files use Prettier code style!"）。
+   过程中曾一度是 1，命中的 4 个文件全在**未跟踪目录 `UI/`**（别的流程 11:29–11:39 建的设计稿）——
+   **不是本次改动**；Lead 已裁定把它加进 `.prettierignore`（commit `2cc3254`），复验即 0。详见 §7.1。
+⑨ `npm test` **不在本轮实测** —— 按纪律（同一时刻只跑一个 `npm test`；冻结窗口里的结论才权威），
+   由 **Lead 的冻结门禁**覆盖。本文件只写「引用」，不把它写成"本轮数字"。详见 §7.2。
+
+================================================================
+1. 改了什么（3 个文件）
+================================================================
+| 文件 | 改动 |
+|---|---|
+| `electron.vite.config.mjs` | 新增 `useRepoLocalTempDir()`；改成 `defineConfig(({ command }) => …)` 函数式，**仅 `command === 'build'` 时**把 `TEMP`/`TMP`/`TMPDIR` 指向 `data/_esbuild-tmp` |
+| `apps/desktop/src/main/encoder.ts` | S10：删掉与静态导入重复的**动态** `import(…/bmp_decode.ts)`，`readBmpAsRawImage` 并入顶部静态导入 |
+| `TASKS.md` | §5「环境限制」新增「构建临时目录」条目：旧限制**保留为历史**，注明构建已自给自足 + 实测三组 |
+
+**没改**：`packages/indexer/src/bmp_decode.ts`（不需要动 —— 双 import 的两端都在 encoder.ts 一侧）。
+
+================================================================
+2. 改前 → 改后 → 为何不是放宽
+================================================================
+【改前】默认环境（本机 TEMP=`C:\Users\ADMINI~1\AppData\Local\Temp`）：
+~
+$ npm run build
+✓ 56 modules transformed … out/main/index.js  258.32 kB   ✓ built
+✓ 1 modules transformed  … out/preload/index.cjs 0.85 kB  ✓ built
+✓ 267 modules transformed            ← 渲染层已经开始 transform
+✗ Build failed in 1.73s
+error during build:
+[vite:esbuild-transpile] remove C:\Users\ADMINI~1\AppData\Local\Temp\esbuild-5a451ef9…: Access is denied.
+BUILD_EXIT=1
+~
+（原始输出：`data/_build1/ctrl-default.txt`）
+
+【改后】同一条命令（不预置任何变量）：
+~
+$ npm run build
+✓ … out/main/index.js  ✓ … out/preload/index.cjs  ✓ … out/renderer/{index.html,assets/*}
+A_EXIT=0   [A] main:YES preload:YES renderer:YES
+~
+
+【为何不是放宽】这条改动**没有**关掉任何检查、**没有**跳过任何文件、**没有**降低任何阈值：
+· 构建仍然完整跑三段（main / preload / renderer），产物仍然落在 `out/`；
+· 改的只是"esbuild 把自己的临时文件放哪儿"—— 从"系统临时目录"换成"仓库内临时目录"；
+· 而且**证明是承重的**（§4）：把这一行停用 + 给坏 TEMP ⇒ 立刻回到 `EXIT=1` 的同一失败。
+· 反过来说，**改前**那条"绿"才是假的：门禁脚本手动设了 `TEMP`+`TMP`，换台机器/CI 就会红。
+
+================================================================
+3. 验收：四组对照（原始输出见 data/_build1/after-*.txt）
+================================================================
+【改前只有 A 组是红的；改后四组全绿】每组都查了三端产物是否存在：
+
+| 组 | TEMP / TMP | 改前 | 改后 | 三端产物 |
+|---|---|---|---|---|
+| A | 默认（不预置） | **EXIT=1**（§2） | **EXIT=0** | main:YES preload:YES renderer:YES |
+| B | 两者都指仓库内 | EXIT=0（门禁旧配方） | **EXIT=0** | 三端齐备 |
+| C | 两者都指**不存在**的目录 `D:\__no_such_tmp_build1\deep` | — | **EXIT=0** | 三端齐备 |
+| D | **只**改 TMP、TEMP 留默认（审查者那条） | **EXIT=1** | **EXIT=0** | 三端齐备 |
+
+原始输出摘录（}`data/_build1/after-A-default.txt` 末尾）：
+~
+rendering chunks...
+../../../../out/renderer/index.html                     1.18 kB
+../../../../out/renderer/assets/index-psza4hml.css     48.99 kB
+../../../../out/renderer/assets/index-C6BD94Ob.js   1,249.15 kB
+✓ built in 2.17s
+~
+`TEMP+TMP` 指向不存在目录时（`after-C-bogus-tmp.txt`）：同样的 `✓ built in 2.06s` + 三端齐备。
+四份日志里 **0 处** `Access is denied`（`Select-String` 实测）。
+
+证据：仓库内临时目录确实被用起来了 —— 构建后 `data/_esbuild-tmp` 有实体条目（构建期间观测 6107 项，
+esbuild 退出后自行清理，只留下 73 项 5.1 MB 的其它临时物；`git check-ignore` 命中 `.gitignore:25 data/_*`）。
+
+================================================================
+4. 「能红」探针（证明修复承重）
+================================================================
+把 `if (command === 'build') useRepoLocalTempDir();` **临时停用**，再给坏 TEMP：
+~
+$ $env:TEMP='D:\__no_such_tmp_build1\deep'; $env:TMP=$env:TEMP; npm run build
+✗ Build failed in 2.05s
+error during build:
+… b76738c379ae88: Access is denied.
+CANRED_EXIT=1
+~
+⇒ 与改前**同一条**失败。随后立刻还原那一行，**harness 断言还原是逐字节的**：
+~
+config sha256 before probe : 75c9ff2ea8a1a2a3
+config sha256 after restore: 75c9ff2ea8a1a2a3   identical: true   call present: true
+~
+（探针原始输出：`data/_build1/canred-disabled-bogus-temp.txt`）
+
+⇒ 结论：组 C（坏 TEMP ⇒ 绿）之所以绿，**正是因为**这条重定向；不是别的东西碰巧救场。
+
+================================================================
+5. S10：bmp_decode 双 import
+================================================================
+【事实】`apps/desktop/src/main/encoder.ts` 同时 **静态**导入（顶部：`readFileHead / isBmpHead / HEAD_SNIFF_BYTES`）
+和 **动态**导入（`readImageAny` 的 BMP 分支：`await import(…/bmp_decode.ts)`）同一个模块。
+Rollup 因此警告：
+~
+(!) packages/indexer/src/bmp_decode.ts is dynamically imported by …/encoder.ts but also statically imported by
+    …/encoder.ts, dynamic import will not move module into another chunk.
+~
+
+【保留哪种 · 理由】**保留静态、删掉动态**：
+· 模块在文件顶部**已经被静态导入**，而那几个头读函数是"每次读图"的必经路径 ⇒ `bmp_decode.ts`
+  **本来就在主 chunk 里、早就求值过了** ⇒ 那个"延迟加载"**一点延迟都没省下**（Rollup 的警告说的就是这件事）；
+· 所以动态 import 只保留了一个**错觉**。删掉它 = 少一次无意义的 `await`，**语义不变**；
+· 反过来（删静态、全动态）会动到热路径（`readHead` / `isBmpHead` 是同步调用），代价大、收益只是
+  "首屏晚一点加载整个 bmp_decode" —— 那属于另一次有取舍的改动。代码注释里写明了这一点，
+  并留了一句"将来真要做，必须连头读函数一起改成动态，不要只在调用点做半套"。
+
+【效果】构建警告 **20 → 19**，`bmp_decode` 那条 **GONE**：
+~
+[ctrl-default]   warnings=1    bmp_decode present = true     ← 改前（那时渲染层还没跑到）
+[after-A-default] warnings=20  bmp_decode present = true     ← 修 S10 前
+[after-S10-fix]   warnings=19  bmp_decode present = false    ← 修 S10 后
+~
+⚠️ 剩下 19 条是**渲染层**同类警告（`ui/*.tsx` / `pages/*.tsx` 被 `main.tsx` 动态导入、又被
+`App.tsx` 或彼此静态导入）。那些文件**不在本卡写入范围**，见 §7.3。
+
+================================================================
+6. T-00 编码护栏：改前 / 改后（**必跑**，因为动了 `main/encoder.ts`）
+================================================================
+命令（两次完全相同）：
+~
+node tools/verify_encoder_path.mjs \
+  --model model-cache/onnx/embeddinggemma-2/daa72c51243991dfcaf9f9137d2c573d8f7790c0/fp32 \
+  --lib "G:\model" --index data/idx-full-v2
+~
+原始输出：`data/_build1/baseline-before.txt` · `data/_build1/baseline-after.txt`
+
+| 断言 | 改前 | 改后 |
+|---|---|---|
+| 结论 | PASS | **PASS** |
+| 索引 | 3594 条 · dim 768 | 3594 条 · dim 768 |
+| encodeImage ↔ 索引行（native） | cos=1.000000 · 337 MB 那张 | cos=1.000000 · 同一条 |
+| encodeImage ↔ 索引行（bmp-fallback） | cos=1.000000 | cos=1.000000 |
+| **BMP 回退仍走**（正是本次改的那条分支） | source=bmp-fallback · 768 vs 768 | **source=bmp-fallback · 768 vs 768** |
+| 文本向量 | ‖v‖=1.000000 · 768 | ‖v‖=1.000000 · 768 |
+| 「北欧吊灯」Top-5 | 0.7855 / 0.7852 / 0.7836 / 0.7756 / 0.7751 | **完全相同** |
+
+机械化比对（忽略"载入完成 6.8s"这类时间行）：**两次输出逐行相同**（`IDENTICAL full output: true`）。
+⇒ 没有静默降质。这是 T-00 那条护栏第 N 次生效。
+
+================================================================
+7. 未决 / 阻塞（需要你决策）
+================================================================
+7.1 ✅ `npx prettier --check .` = **EXIT 0**（已复验）。
+  中途那次红**不是本次改动**；当时命中的 4 个文件全部在**未跟踪目录 `UI/`**
+~
+[warn] UI/01-home.html
+[warn] UI/02-item-detail.html
+[warn] UI/03-library.html
+[warn] UI/styles.css
+Code style issues found in 4 files.
+~
+  `UI/` 是**未跟踪目录**（`git status` 里 `?? UI/`），文件时间 11:29–11:39，**是另一个 worker 在写的前端稿**，
+  不在本卡写入范围（也不在 T-09 当时的范围内 —— 那时 `check` 是 0）。
+  本卡**自己**的文件定向验证 = 0：
+~
+$ npx prettier --check electron.vite.config.mjs apps/desktop/src/main/encoder.ts
+Checking formatting...
+All matched files use Prettier code style!     MYFILES_EXIT=0
+~
+  Lead 裁定并已执行 **方案 (b)**：把 `UI/` 加进 `.prettierignore`（commit `2cc3254`，条目注释写明
+  "归属待所有者决定"）。本条已收口，**没有**动 `UI/` 里的任何文件。修后复验：
+~
+$ npx prettier --check .
+Checking formatting...
+All matched files use Prettier code style!     PRETTIER_EXIT=0
+~
+
+7.2 `npm test`：**引用 Lead 的冻结门禁，非本轮实测**
+  纪律要求同一时刻只允许一个人跑 `npm test`（事务套件共用 `data/_txn-test`，并行会撞 `ENOTEMPTY`），
+  且**冻结窗口里跑出来的才是权威结论** ⇒ 本卡**不自己跑**全量，由 Lead 的门禁覆盖（它连全量单测 + e2e 一起跑）。
+  本文件**不写**测试数字 —— 避免把别人的结论冒充成本轮实测（AGENTS §4 证据协议第 3 条）。
+
+7.3 同类警告还剩 19 条（渲染层），不在本卡范围：
+  `ui/{Button,Toast,ConfirmDialog,Score,Tag,Metric,Chip,Field,SearchBox,Progress}.tsx` ·
+  `pages/{FirstRunWizard,SearchPage,ItemPage,TasksPage,ActivityPage,AppHealthPanel,DiagnosticsPage,BrowsePage,LibraryGate}.tsx`
+  —— 都是 `main.tsx` 动态导入 + 别处静态导入。**本次只修 S10 点名的 `bmp_decode` 那一条**，
+  渲染层那批要么由界面线的属主决定"去掉静态"还是"去掉动态"，要么另开一张卡统一处理（一次性改 19 个文件属于跨范围）。
+
+7.4 ✅ `apps/desktop/e2e/perf.spec.mjs` 的过时配方**已改写**（Lead 授权本卡善后）
+  原文第 6–8 行说的是「**build** 必须手工设 TEMP/TMP」—— 那是 BUILD-1 之前的环境依赖绕法，已退役。
+  改写**只动说明、不动行为**：
+~
+✅ 2026-10-16（BUILD-1 / 审查 S1 收口）：**构建已自给自足** —— electron.vite.config.mjs 的 build 段
+   自己把 TEMP/TMP/TMPDIR 指到仓库内 data/_esbuild-tmp，**不再需要任何手动重定向**。
+   （历史上这里写过「build 必须手工设 TEMP/TMP」，那是环境依赖的绕法，已随 BUILD-1 退役。）
+⚠️ 但 **e2e 自己仍要把 TEMP/TMP 指到仓库内**：helpers/app.mjs 与 helpers/launch.mjs 的临时 userData
+   都建在 os.tmpdir() 下，而本会话沙箱把 electron.exe 的写限制在仓库工作目录内（见 TASKS.md §5）
+   ⇒ 不重定向的话 Electron 的 userData/临时目录会落到 AppData 而被拒。
+   （此条为**继承既有结论**：BUILD-1 期间冻结门禁在跑，未在本轮复验。）
+~
+  ⚠️ **给 Lead 的一条提醒**：卡片的「清除门禁配方里的手动 TEMP 依赖」只对 **build** 成立；
+  **e2e 那一步可能仍需**手动把 `TEMP/TMP` 指进仓库（机制见上：`os.tmpdir()` + electron 写限制）。
+  我没有在冻结窗口里复验 —— 若门禁里 e2e 是**不设 TEMP** 跑的且仍全绿，说明该限制已不成立，
+  请把这行 e2e 提醒也删掉。
+
+================================================================
+8. 残留 grep（先跑后结论）
+================================================================
+~
+# 1) encoder.ts 里还有没有"动态 import bmp_decode"的**代码**？
+$ node --input-type=module -e "…maskComments(src)…"
+CODE-AREA hits for /await import\(/ : 0
+RAW (incl comments) hits: 1        ← 唯一那处是我新写的**注释**（说明历史写法），不是代码
+
+# 2) 门禁配方里还有没有人手动设 TEMP/TMP？
+$ Select-String -Path package.json, scripts/*.mjs, tools/*.mjs -Pattern "env:TEMP|TEMP="
+0 matches in package.json / scripts / tools
+
+# 3) 配置里重定向是否在位？
+electron.vite.config.mjs:76  function useRepoLocalTempDir() {
+electron.vite.config.mjs:78    process.env.TEMP   = BUILD_TMP;
+electron.vite.config.mjs:79    process.env.TMP    = BUILD_TMP;
+electron.vite.config.mjs:80    process.env.TMPDIR = BUILD_TMP;
+electron.vite.config.mjs:106   if (command === 'build') useRepoLocalTempDir();
+~
+
+# 4) ⭐ 全仓还有没有「手动设 TEMP 才能**构建**」的说明残留？（Lead ④ 要求的那条 grep 证明）
+$ <apps / packages / scripts / tools 下的 *.mjs *.ts *.tsx *.js> |
+    Select-String -Pattern '必须把 TEMP','必须设 TEMP','手工设 TEMP','手动设 TEMP','TEMP/TMP 指到仓库内','env:TEMP='
+2 hits —— **两条都不是"构建要手设"**：
+  perf.spec.mjs:8   「（历史上这里写过「build 必须手工设 TEMP/TMP」…已随 BUILD-1 退役。）」 ← **历史说明**
+  perf.spec.mjs:13  「$env:TEMP='<仓库>/data/_esbuild-tmp'; … # 只为跑 e2e」              ← **只针对 e2e**
+⇒ **关于 build 的「必须手设 TEMP」说明：0 处。**
+
+# 5) 根文档（AGENTS / PLAN / SPEC / TASKS）里的 TEMP 提及
+TASKS.md §5 的新增条目是**历史记录**形态（三组对照 + "旧的配方保留为历史、不要再写进门禁脚本"），不是指令；
+AGENTS / PLAN 无相关条目；SPEC 的两条命中是 `attempt_count` 里的 "tempt" 误匹配（大小写不敏感搜索的假阳性）。
+
+================================================================
+9. 环境说明（是环境还是产品）
+================================================================
+· 本机沙箱对 `%TEMP%` 下 esbuild 临时目录的 **`remove` 拒绝**（`Access is denied`）—— **环境**；
+  产品侧的问题是"**依赖**了这台机器的环境"，那才是本卡要修的，且已修（构建不再读系统临时目录）。
+· 顺带实测一条**通用结论**（写进配置注释了）：Node 的 `os.tmpdir()` **不缓存** ——
+  先调用一次、再改 `process.env.TEMP`，下一次调用就返回新值（实测 `before: C:\…\Temp` →
+  `after: D:/__probe_tmp`）。所以"在配置文件里改 env"这条路径确实生效。
+· dev / preview **刻意不重定向**：那两段由 electron-vite 拉起 **Electron**，子进程会继承这份环境；
+  那时改 `TEMP` 等于把 Electron 自己的临时目录（GPU 缓存 / 崩溃转储 / `app.getPath('temp')`）
+  搬进仓库 —— 那才是真的行为改变，而 dev 不需要这条修复。
+· `data/_esbuild-tmp` 是 `data/_*` ⇒ 已被 `.gitignore:25` 与 `.prettierignore` 覆盖，不入库、不被格式化。
+
+—— 原始输出文件：`data/_build1/{ctrl-default,after-A-default,after-B-repo-tmp,after-C-bogus-tmp,after-D-only-tmp,
+   after-S10-fix,canred-disabled-bogus-temp,baseline-before,baseline-after}.txt`（PowerShell `Tee-Object`
+   默认 UTF-16LE，读的时候注意编码）。

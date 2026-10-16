@@ -26,6 +26,7 @@ import {
   readFileHead,
   isBmpHead,
   HEAD_SNIFF_BYTES,
+  readBmpAsRawImage,
 } from '../../../../packages/indexer/src/bmp_decode.ts';
 import { decideDevice, UNPROBED } from './encoder-device.ts';
 import type { DeviceFallbackFact, GpuProbe, RequestedDevice } from './encoder-device.ts';
@@ -122,7 +123,14 @@ export async function readImageAny(
   const head = readHead(absPath, HEAD_SNIFF_BYTES);
   const isBmp = isBmpHead(head);
   if (ext === '.bmp' || isBmp) {
-    const { readBmpAsRawImage } = await import('../../../../packages/indexer/src/bmp_decode.ts');
+    // ⚠️ 2026-10-16（BUILD-1 / 审查 S10）：这里原先写的是 `await import('…/bmp_decode.ts')`，
+    // 但同一个模块在**文件顶部**已经被**静态**导入（readFileHead / isBmpHead / HEAD_SNIFF_BYTES
+    // 是每次读图的必经路径）⇒ 那个「延迟加载」**一点延迟都没省下**（Rollup 也这么警告：
+    // "dynamic import will not move module into another chunk"）。改成直接用静态绑定：
+    // 少一次无意义的 await，**语义不变**（模块本来就在主 chunk 里、早就求值过了），
+    // 顺带消掉构建警告。若将来真的想延迟加载 BMP 解码器，正确做法是**连头读那几个函数一起**
+    // 改成动态 —— 那会动到热路径，属于另一次有取舍的改动，不要只在调用点做半套。
+    //
     // ⚠️ 这个 API 要的是**路径**，不是 Buffer：`readBmpAsRawImage(filePath)` 内部自己做
     // `fs.readFileSync(filePath)`（packages/indexer/src/bmp_decode.ts:137 → :56）。
     // 曾经这里传的是上面那个 `buf` → `fs.readFileSync(Buffer)` → `ERR_INVALID_ARG_VALUE`，
