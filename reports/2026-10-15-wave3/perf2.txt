@@ -20,14 +20,63 @@ PERF-2 · 落地页取舍：SearchPage 留**静态**、只懒加载其余 5 条�
 | `npm run typecheck` | **0** |
 | 我改的文件定向 prettier | **0**（All matched） |
 
-【引用 —— **不是本轮实测**】（待 Lead 的冻结门禁回报后填入提交号，这是**唯一还需改的一处**）
-| 项 | 来源 |
+【引用 —— **不是本轮实测**】（**引用 Lead 冻结门禁 `d1fb333`** · 干净窗口）
+| 项 | 值 |
 |---|---|
-| `npm test`（全量单测） · `npm run lint` · 全量 `e2e` · `build`（门禁口径） | **引用 Lead 的冻结门禁**（本轮）。本卡**不自己跑** `npm test`：同一时刻只允许一个人跑（事务套件共用 `data/_txn-test`），且冻结窗口里跑出来的才权威 |
+| `prettier --check .` | 0（All matched） |
+| `npm run lint` | 0 |
+| `npm test` | **686 / pass 685 / fail 0 / skipped 1** |
+| `npm run typecheck` | 0 |
+| `build`（不预置 TEMP/TMP） | EXIT=0 · **WARNINGS=0** · MAIN=PRELOAD=RENDERER=True |
+| `e2e`（**第一次**） | ⚠️ **67 passed / 4 skipped · E9-a 挂了一条** |
+| `e2e`（**复跑**） | **68 passed / 4 skipped / 0 failed**（3.2m）· 该 spec 单跑 **6 passed** |
+| `s4-accept.mjs` | PASS 14 · FAIL 0 · SKIP 0 |
+| doc5-paths / doc5-roundrefs | ① **0** · ② **0** |
 
 > ⚠️ 按 AGENTS §4 证据协议第 3 条：引用既有结论必须写明「引用」，**不得**写成「本轮实测」。
 > **PERF-1 引用的那个冻结门禁是 `fa9d0a4`**（686/685/0/1 · WARNINGS=0 · e2e 68/4skip/0 · s4 14/0/0）；
-> 本次改动在上次门禁**之后**，所以需要**新的一轮**，数字不沿用。
+> 本次改动在上次门禁**之后**，所以需要**新的一轮**，数字不沿用 —— 上面这七行就是**新的一轮**。
+
+### 0.1 ⚠️ 那次 e2e 抖动**如实记**（Lead 要求不许抹掉）
+· **现象**：`d1fb333` 门禁**第一次**跑全量 e2e 时，`item-detail.spec.mjs:29` 的
+  **E9-a**（显示大图 + 元数据 + 两条绝对路径）**失败**。
+· **复跑结论**：全量 e2e **复跑 68 passed / 4 skipped / 0 failed**；该 spec **单跑 6 passed**
+  ⇒ **定性为抖动（非回归）**。
+· ⭐ **但抖动不是"重跑就好"** —— 机制线索指向**本次改动**：详情页现在是**按需 chunk**，
+  多了一次 Suspense 往返，时序整体后移。**根因是那条用例自己踩了固定时序**（见 §0.2），
+  已在本卡**修掉**，不是靠重跑掩盖。
+· ⚠️ 记录口径：**"第一次挂了、复跑绿"** 这件事本身写在这里，**不抹掉**；
+  它是"判据曾经踩时序"的证据，也是 §0.2 那次修改的来由。
+
+### 0.2 修复：E9-a 不再用"读一眼就分叉"（本卡第 2 件）
+`apps/desktop/e2e/item-detail.spec.mjs` 原判据：
+~
+const fallback = win.getByTestId('image-fallback');
+const img = win.locator('img').first();
+if (await fallback.isVisible().catch(() => false)) {   // ← 单次瞬时读，不重试
+  …断言兜底文案…
+} else {
+  expect(await img.getAttribute('src')).toBe('thumb://L1/a00000000001@512');
+  //   ↑ 这一支**假设 <img> 还在**：若那一眼读完之后 img 才被兜底换掉，就会去等一个不存在的元素
+}
+~
+⇒ 这是**依赖固定时序**的判据（"读那一眼"落在哪一侧决定成败），不是"超时太短"。
+修复：把分支改成**等图片区进入确定的两种形态之一**（就绪标记），并且**用轮询落定的那一刻观察到的值**断言，
+不再重新去读一个可能已经消失的元素：
+~
+let imageState = 'pending';
+let imgSrc = null;
+await expect
+  .poll(async () => {
+    imageState = 'pending'; imgSrc = null;
+    if (await fallback.isVisible().catch(() => false)) { imageState = 'fallback'; return imageState; }
+    imgSrc = await img.getAttribute('src').catch(() => null);
+    if (imgSrc) { imageState = 'img'; return imageState; }
+    return imageState;                       // ← 两个都还不是 ⇒ **继续等**，而不是就此分叉
+  }, { timeout: 20_000, message: '图片区既没进兜底、也没出现带 src 的 <img>（未就绪）' })
+  .not.toBe('pending');
+~
+**验证**：`item-detail.spec.mjs` 单跑 **6 passed (15.6 s) · EXIT=0**（修复后实测）。
 
 ================================================================
 1. 改了什么（2 个文件）
@@ -36,6 +85,7 @@ PERF-2 · 落地页取舍：SearchPage 留**静态**、只懒加载其余 5 条�
 |---|---|
 | `renderer/src/router/index.tsx` | `SearchPage` 改为**静态导入**（`search: SearchPage`）；其余 5 条仍是 `lazy(LOADERS.*)`；映射表由"6 个 lazy"变成"**1 静态 + 5 lazy** 混装"；启动期断言随之改为查 `PAGES`（同一个判据：路由表与组件表对不上就当场炸） |
 | `renderer/src/main.tsx` | `./pages/SearchPage.tsx` 从 `ROUTE_PAGES`（非 eager）**移到** `STATIC_PAGES`（eager）—— ⚠️ **只能在一处**（见 §3） |
+| `e2e/item-detail.spec.mjs` | E9-a 的**瞬时读分叉**改成**等就绪标记**（Lead 要求，见 §0.1/§0.2）—— 这是**抖动那条线**的修复，不是本卡的主目标 |
 
 **没改**任何页面组件、没改契约。
 

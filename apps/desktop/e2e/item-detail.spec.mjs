@@ -38,13 +38,47 @@ test('E9-a ⭐ 显示大图 + 元数据 + **两条绝对路径**（P3c 的核心
     // 大图走 thumb://（渲染层传不进路径，只给 libId+uid@size）。
     // ⚠️ 模拟模式下库里**没有真实文件** ⇒ `thumb://` 必然取不到 ⇒ `onError` 会把 <img> 换诚实的兜底。
     //    所以这里两种结果都接受，但**必须**是其中之一 —— 不允许"什么都没有还装作正常"。
+    // ⚠️ 2026-10-16（PERF-2）：这一段原先用**单次瞬时读**决定走哪个分支 ——
+    //    `await fallback.isVisible()` 不重试、立刻返回，然后另一分支**假设 <img> 还在**。
+    //    那是**依赖固定时序**的判据：只要"读那一眼"的时刻偏了一点（例如 img 刚 onError 完、
+    //    已经被兜底换掉，而分支已按"还没换"选了 else），`img.getAttribute` 就会等一个**不存在的**
+    //    元素直到超时。详情页改成**按需 chunk** 之后多了一次 Suspense 往返，时序整体后移，
+    //    这个隐患就被放大了：Lead 的冻结门禁**第一次全量 e2e 挂了 E9-a**，复跑 68/4/0、单跑 6 passed。
+    //    ⇒ 抖动不是"重跑就好"，而是**判据踩了时序**。改成**等图片区进入确定的两种形态之一**（就绪标记）
+    //      再分叉：要么兜底可见，要么 <img> 带 src。这样"等待"是**显式且可重试**的，不再靠读一眼。
     const fallback = win.getByTestId('image-fallback');
     const img = win.locator('img').first();
-    if (await fallback.isVisible().catch(() => false)) {
+    let imageState = 'pending';
+    let imgSrc = null;
+    await expect
+      .poll(
+        async () => {
+          imageState = 'pending';
+          imgSrc = null;
+          // ① 已经换成诚实兜底了？
+          if (await fallback.isVisible().catch(() => false)) {
+            imageState = 'fallback';
+            return imageState;
+          }
+          // ② 还是原图、且已经拿到 src？
+          imgSrc = await img.getAttribute('src').catch(() => null);
+          if (imgSrc) {
+            imageState = 'img';
+            return imageState;
+          }
+          // ③ 两个都还不是 ⇒ 还没就绪，继续等（而不是就此分叉）
+          return imageState;
+        },
+        { timeout: 20_000, message: '图片区既没进兜底、也没出现带 src 的 <img>（未就绪）' },
+      )
+      .not.toBe('pending');
+
+    if (imageState === 'fallback') {
       await expect(fallback).toContainText(/无预览/);
       await expect(fallback).toContainText(/文件可能已不在盘上/);
     } else {
-      expect(await img.getAttribute('src')).toBe('thumb://L1/a00000000001@512');
+      // 用**轮询落定的那一刻**观察到的 src —— 不再重新去读一个可能已经消失的元素
+      expect(imgSrc).toBe('thumb://L1/a00000000001@512');
     }
 
     // 元数据
