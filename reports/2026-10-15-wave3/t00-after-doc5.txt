@@ -1,0 +1,48 @@
+# T-00 编码护栏 · 基线（**DOC-5 之后** · 2026-10-16）
+
+**为什么跑**：DOC-5 改了 `packages/indexer/src/resize_compat.ts`（**注释**）⇒ AGENTS §4 硬性要求「改动 `packages/indexer/**` 或 `main/encoder.*` 之前必须已有基线证据，改动之后必须**重跑同一基线并归档对比**」。
+
+## 0. 先证明「只动了注释」
+`~
+git diff -w HEAD~1 -- packages/indexer/src/resize_compat.ts  ⇒ 非空白差异 = 2 行（都是 * 注释行）
+  - *   ② 主进程（apps/desktop/src/main/index.mjs）…   →  …main/index.ts
+  - // …装点：build_index_onnx.mjs / encode_queries.mjs / src/main/encoder.mjs  →  …/ main/encoder.ts
+`~
+
+## 1. 命令（与 BUILD-1、ENC-1 完全相同的调用方式）
+`~
+node tools/verify_encoder_path.mjs \
+  --model model-cache/onnx/embeddinggemma-2/daa72c51243991dfcaf9f9137d2c573d8f7790c0/fp32 \
+  --lib G:\model
+`~
+
+## 2. 原始输出（关键行）
+`~
+[OK] resize_compat 已安装  kernel=pil-like rawImage=_RawImage
+索引 3594 条 · dim 768 · compat onnx-community/embeddinggemma-2-ONNX|daa72c51243991dfcaf9f9137d2c573d8f7790c0|fp32|2|140|768|l2|mean_soft_token
+[OK] encodeImage ↔ 索引行  VR\ID-15602395.jpg  cos=1.000000  src=native
+[OK] encodeImage ↔ 索引行  VR\ID-12089794.jpg  cos=1.000000  src=bmp-fallback
+[OK] 真的走了 BMP 回退  source=bmp-fallback
+[OK] 文本向量已 L2 归一  ‖v‖=1.000000     · 维度 768 vs 768
+查询「北欧吊灯」Top-5：
+0.7855  CR\ID-633419997.jpg
+0.7852  VR\ID-15588806.jpg
+0.7836  VR\ID-723604.jpeg
+0.7756  VR\ID-115822915.jpg
+0.7751  VR\ID-1112089406.jpg
+[OK] 分数确实有区分度（Top-1 0.7855 > 第 11 名 0.7734）
+结论：PASS（产品编码路径在这台机器上自洽）
+EXIT=0
+`~
+
+## 3. 与既有基线对比
+| 项 | 既有基线（T-00 / BUILD-1） | 本轮（DOC-5 之后） | 判 |
+|---|---|---|---|
+| 索引条数 · dim | 3594 · 768 | 3594 · 768 | **一致** |
+| cos（native / bmp-fallback） | 1.000000 / 1.000000 | 1.000000 / 1.000000 | **一致** |
+| ‖v‖ | 1.000000 | 1.000000 | **一致** |
+| Top-5「北欧吊灯」 | 0.7855 / 0.7852 / 0.7836 / 0.7756 / 0.7751 | **完全相同** | **一致** |
+
+⇒ **无静默降质**：这条路径的产物逐项相同；与「只动注释」的 diff 相互印证。
+
+⚠️ 该脚本自己声明：这**不**证明 Electron 内可跑（渲染进程 / asar / GPU 设备仍待 P1.5 实机验证）。
