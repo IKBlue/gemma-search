@@ -89,7 +89,20 @@ $ npx tsc --noEmit -p tsconfig.node.json … ⇒ **NODE_TSC=0** ｜ tsconfig.web
 $ npm run lint ⇒ **0**
 $ **npm test（全量）⇒ 本轮不自己跑**（Lead 2026-10-16 指示：同一时刻只跑一个 npm test —— 纪律 6；
   权威结论只在**冻结窗口**里成立 —— 纪律 19）⇒ 本文件按**方式 B** 引用 Lead 的冻结门禁，**非本轮实测**：
-    【引用占位：待 Lead 给出提交与数字（prettier / lint / npm test / typecheck / build / e2e / s4）】
+    **引用 Lead 冻结门禁 `1707ed0`（干净窗口 · 我在窗口开始前回执「已停笔」之后跑的），非本轮实测**：
+      prettier --check .   => 0（All matched）
+      npm run lint         => 0
+      npm test             => **668 / pass 667 / fail 0 / skipped 1 · EXIT=0**（对照上一轮 657：B2-1 的 23 条新/改测试进了门禁）
+      npm run typecheck    => 0
+      build（不预置 TEMP/TMP）=> EXIT=0 · MAIN=True PRELOAD=True RENDERER=True
+      e2e（不设 TEMP/TMP）  => 68 passed / 1 skipped / 0 failed（7.2m）
+      s4-accept.mjs        => **PASS 10 · FAIL 3**   ← **见下：那 3 条红不属于本卡**
+  ⚠️ 本轮是**第二次**跑：第一次（在我那两处「偏离注释」交叉写入期间启动）按纪律 19 **整轮作废**、
+     Lead 已 kill 且未采信任何一行；本文件引用的是**回执之后**那一轮的干净窗口。
+  ⚠️ **本卡的产品面在权威窗口里全绿**（单测 668/667/0/1 · e2e 68/1/0 · build 0 · lint 0 · prettier 0）；
+     而同轮的 **s4 验收仪 10/3** —— 那 3 条红（S4-A14 / S4-FIELDMAP / S4-A16）**不属于本卡的产品行为**：
+      **验收仪自己把「6 张表」写死**了（与我在 R5/H3/H8/H12 修的是同一类，只是它在 `reports/` 里、不在本卡范围）。
+      ⇒ 归属 **ACC-1（task-93）**。**既不把别人的红藏起来，也不把不该本卡背的红背过来。**
   ⚠️ 本卡此后的写入已**完全停止**（最后一次改动 = §2 那两处「偏离注释」；改完复跑：
      prettier --check 0 · tsc node 0 · lint 0 · job-ledger + db-schema 23/23）⇒ 冻结窗口覆盖的是**最终字节**。
 

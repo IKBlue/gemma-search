@@ -1,0 +1,109 @@
+================================================================================
+ACC-1 证据 · S4 验收仪「停在 6 张表的世界」⇒ 修成**从真源派生**（并证明判别力没降）
+任务板 id: task-93   执行: db-worker   日期: 2026-10-16
+边界：**只改 `reports/2026-10-15-wave3/s4-accept.mjs` 与输出归档**；没改产品代码、没改 `apps/desktop/tests/**` 来迁就它。
+（唯一例外是为了做「反弱化证明」的**临时注入**：`schema-layers.ts` / `migrations.ts` / 脚本自身各注入一次，
+   **每次都当场还原并核过 0 残留**，见 §3。产品代码的最终状态与 B2-1 收口时**逐行相同**。）
+===============================================================================
+
+【结论】
+· 三处红的根因都是**验收仪把「当前数量」写死**（不是产品回归）—— 与 B2-1 在 `db-schema.test.mjs` 的
+  R5/H3/H8/H12 修的是同一类，只是它在 `reports/` 里。
+· 修法一律是**从真源派生**（`LIBRARY_TABLES` / `APP_TABLES` / `schemaTables()` / `TARGET_SCHEMA_VERSION` /
+  `LIBRARY_MIGRATIONS`），并且**把"数量"换成"双向一致 + 显式白名单"** —— 判别力不降反增。
+· **反弱化证明做了三组**（注入 ⇒ 必红 ⇒ 还原 ⇒ 复绿），原文见 §3：A14 删点名 · FIELDMAP 扣列 / 加越界表 · A16 版本更旧。
+· 现在：`node reports/2026-10-15-wave3/s4-accept.mjs` ⇒ **PASS 13 · FAIL 0 · SKIP 0 · EXIT=0**（回到 13/0/0）。
+
+【1. 三处红逐条：改前 → 改后 → 为何**不是放宽**】
+| # | 检查 | 改前（写死） | 改后（派生 + 双向 + 白名单） | 为什么不是放宽 |
+|---|---|---|---|---|
+| 1 | **S4-A14** | `grouped.length === 6` · `seen.values() === [1,1,1,1,1,1]` · `DEFERRED.length === 14`（且 `job` 还在"暂缓"清单里） | 张数**不断言**；改断言 `[...seen.keys()].sort() === schemaTables()`（点名集合 == 派生集合）+ 每个计数为 1 + `NOT_BUILT` 与已建表**互斥** + `job` 必须在点名里且不在未建清单里 | 少了"6"这个数字，多了两条真判据（集合相等、清单互斥）。**任何一张表建出却没点名、或点名却没建出，照样红**（§3 注入 1 走的就是这条路）。 |
+| 2 | **S4-FIELDMAP** | `mappedTables === [...LIBRARY_TABLES, ...APP_TABLES]`（断言 map 覆盖**本轮全部**表） | ① 列漂移检查**显式限定到 map 覆盖的表**；② 新增：**未被 map 覆盖的表必须恰好等于**显式白名单 `SECOND_BATCH = ['job']`；③ 保留反向"map 点名的表必须在 DDL 里建出" | 原来把"map 的覆盖范围"与"当前表数"绑成一条；现在**分开**：覆盖范围有白名单兜底（多一张/少一张都红），列的双向覆盖仍逐列查（§3 注入 2a/2b 各走一条）。**判别力比改前更强**：改前管不了"新加的第三批表"，现在会直接红。 |
+| 3 | **S4-A16** | 夹具 `schema_version = 2` 写死（"程序最新是 v1"时代的写法）；`[fromVersion, toVersion] === [0, 1]`；`[applied, ver] === [0, 1]` | 夹具版本 = `TARGET_SCHEMA_VERSION + 1`（**比程序新** ⇒ `SCHEMA_TOO_NEW` 的正当形态）；两处版本断言都跟 `TARGET_SCHEMA_VERSION`（=2） | 写死 2 在目标升到 v2 之后变成"当前版本" ⇒ "拒绝 + 重建"那条恒假红。派生之后语义**不变**（"程序读不了的库 ⇒ 如实告知 + 丢弃重建 + 素材不动"），且 v3 来了自动跟。 |
+**为什么这些数字现在不再写死**（卡片要求的那条说明）：
+  · 写死的是**当前状态**（此刻几张表 / 此刻哪个版本），而检查的**本意**是**关系**（派生 ↔ 点名双向一致、
+    map ↔ DDL 逐列覆盖、程序能读/读不了）。状态会变、关系不会 ⇒ 写死状态 = 每次加表都来改一次验收仪，
+    而且**改的人只要把数字改大就"绿"了**，那正是弱化。
+  · 派生之后，"加表却没分类"、"加表却没出处"、"版本对不上"三类问题**仍然会被抓住**，并且**断言里不再有可调的数字**。
+
+【2. 判据现在长什么样（摘要）】
+· A14：`fromDdl = [...LIBRARY_TABLES, ...APP_TABLES].sort()` vs `grouped = schemaTables()` —— **双向相等**；
+  再叠 `NOT_BUILT`（未建清单）与已建集合**互斥** + 每张恰好点名一次 + `job` 的归属位置。
+· FIELDMAP：`unmapped = built.filter(t => !mappedTables.includes(t))` **必须等于** `SECOND_BATCH`；
+  `mappedTables.filter(t => !built.includes(t))` 必须为空；列检查只在 `mappedTables` 上做双向覆盖。
+· A16：夹具版本 `TARGET_SCHEMA_VERSION + 1`；重建 `[0, TARGET_SCHEMA_VERSION]`；幂等 `[applied, ver] = [0, TARGET]`。
+
+【3. ⭐ 反弱化证明：三组「注入 ⇒ 必红 ⇒ 还原 ⇒ 复绿」（原文）】
+■ 注入 1 —— **A14**：把 `job` 从 `schema-layers.ts` 的过程层点名里删掉
+   `schema-layers.ts`: `process: Object.freeze(['asset_index_state', 'job'])` ⇒ `(['asset_index_state'])`
+   $ node reports/2026-10-15-wave3/s4-accept.mjs
+     `FAIL  S4-A14  DDL 建出的表 == 四层点名（双向），**张数从真源派生**且各点名一次；未建的表两库都不存在`
+     `        DDL 建出的表与四层点名必须逐张对上（双向：缺一边都红）`
+     `        实际 ["app_meta","asset","asset_file","asset_index_state","collect_dir","job","library_registry"]`
+     `        期望 ["app_meta","asset","asset_file","asset_index_state","collect_dir","library_registry"]`
+     `FAIL  S4-U1   db-schema.test.mjs（exit=1）`  ← 单元门禁**独立**也抓到了（两条守卫，不是一条）
+     `PASS 12 …… PASS 11 · FAIL 2 · SKIP 0`（另一条红是 S4-U1）
+     ⇒ 注：**S4-FIELDMAP 仍然 PASS** —— 两个检查的判断不重叠（删点名不动 map 的覆盖范围），说明它们各管各的。
+   还原后：`PASS 13 · FAIL 0`。
+
+■ 注入 2a —— **FIELDMAP（扣列）**：把 map 文档里的 `discovered_at_ms` 从**副本**里扣掉，并临时把脚本的
+   `DESIGN_DOC` 指到副本（原文档**一个字节都没动**；副本用完即删）
+   $ (Get-Content DESIGN-6tables-and-contract.md -Raw).Replace('discovered_at_ms','') | Set-Content reports/2026-10-15-wave3/_acc1-fm-mutant.md
+     副本里 discovered_at_ms 出现次数: 0 · 原/副本字节: 13318 / 13058 · 行数 180 / 180
+   $ node reports/2026-10-15-wave3/s4-accept.mjs
+     `FAIL  S4-FIELDMAP  field-map（设计基线 §1）↔ 真 DDL 双向覆盖：map 字段都在 DDL；DDL 每列都被 map 引用`
+     `        DDL 里没有任何出处的列（要么进 map，要么显式标为内部字段）`
+     `        实际 ["asset.discovered_at_ms"]   期望 []`
+     `PASS 12 · FAIL 1 · SKIP 0`   ← 只有它一条红（精准）
+   还原（并把副本删掉）后：`PASS 13 · FAIL 0`。
+
+■ 注入 2b —— **FIELDMAP（加一张既不在 map 也不在白名单的表）**：临时往 `migrations.ts` 的 v2 里塞
+   `CREATE TABLE IF NOT EXISTS __acc1_probe (id TEXT PRIMARY KEY NOT NULL);`
+   $ node reports/2026-10-15-wave3/s4-accept.mjs
+     `FAIL  S4-FIELDMAP …`
+     `        未被 field-map 覆盖的表必须恰好是显式的第二批白名单（多一张/少一张都红）`
+     `        实际 ["__acc1_probe","job"]   期望 ["job"]`          ← **新加的那条守卫真的在拦**
+     `FAIL  S4-A14   … 实际 [...,"__acc1_probe",...] 期望 [...]`  ← 顺带被 A14 抓到（双向点名）
+     `PASS 10 · FAIL 3 · SKIP 0`（第三条红是 S4-U1 单测）
+   还原后：`PASS 13 · FAIL 0`。
+
+■ 注入 3 —— **A16**：把夹具标成一个**更旧**的版本（`TARGET_SCHEMA_VERSION + 1` ⇒ `- 1`）
+   $ node reports/2026-10-15-wave3/s4-accept.mjs
+     `FAIL  S4-A16  A16 旧库不升级：… **当前版本的库不被丢弃**（能红对照）`
+     `        码必须是 SCHEMA_TOO_NEW（库比程序新）   实际 "SCHEMA_OUTDATED"   期望 "SCHEMA_TOO_NEW"`
+     `PASS 12 · FAIL 1 · SKIP 0`
+     ⇒ 说明：夹具一旦不是"程序读不了的库"，"如实告知 + 丢弃重建"这条**立刻红**——
+       也就是这条判据**不是恒真**（这正是它原来"能红对照"的意图）。
+   还原后：`PASS 13 · FAIL 0`。
+
+■ 0 残留（先跑后结论）
+   $ Select-String -Path s4-accept.mjs, migrations.ts, schema-layers.ts -Pattern '注入[0-9]|MUTANT|__acc1_probe|_acc1-fm-mutant|T_ACC1'
+     ⇒ **空**（没有任何注入标记/变异表/副本引用留下）
+   $ 关键行现值：`process: Object.freeze(['asset_index_state', 'job'])` ·
+     `const LIBRARY_V2: readonly string[] = Object.freeze([...T_JOB])` ·
+     `DESIGN_DOC = …/DESIGN-6tables-and-contract.md` · 夹具 `TARGET_SCHEMA_VERSION + 1`
+   $ 变异副本 `reports/2026-10-15-wave3/_acc1-fm-mutant.md` ⇒ **已删除**（Test-Path = False）
+
+【4. 门禁（本轮实测）】
+$ node reports/2026-10-15-wave3/s4-accept.mjs ⇒ **PASS 13 · FAIL 0 · SKIP 0 · EXIT=0**
+$ node --test db-schema + app-db + items-ipc + job-ledger ⇒ tests **46** · pass **46** · fail **0**
+$ npx prettier --write s4-accept.mjs ⇒ 未被重排；npx prettier --check . ⇒ **0（All matched）**
+$ npx tsc --noEmit -p tsconfig.node.json … ⇒ **NODE_TSC=0**
+$ npm run lint ⇒ **0**
+（全量 `npm test` 与冻结门禁由 Lead 跑；本卡不自己跑，纪律 6。）
+
+【5. 边界 / 如实写】
+· **只改了验收仪 + 本文件**：产品代码与 `apps/desktop/tests/**` 的**最终状态未变**（注入是临时的，三次都还原并核过 0 残留）。
+· 验收仪里那句 `npm test 全绿：已达成（574/573/0/1）` 是**脚本里写着的旧转述**，**不是**本轮结论 ——
+  本轮权威数字是 Lead 冻结门禁的 **668/667/0/1**（我在 b2-1.txt §7 按方式 B 引用）。这条属于下一类的"数字写死"，
+  但它写在 DEFERRED 说明段里、**不参与任何断言**（脚本自己也标注了"数字是转述、非本脚本产出"），
+  所以本卡**没有**顺手改它（避免把"顺带修饰"混进本卡）—— 如需一起更新，请开一句指令或并入下一张卡。
+· A16 的检查**标题**仍是"旧库不升级"，但其夹具现在是"程序读不了的库（旧口径残留表 + 比程序新的版本号）"；
+  标题与内部语义的这一层细微差别我保留在原处（改标题会让别的引用对不上），只在注释里写清。
+
+【6. 回滚】
+· `s4-accept.mjs`：三处改回写死数字（A14 的 `6`/`[1×6]`/`DEFERRED.length=14`、FIELDMAP 的 `eq(mappedTables, six)`、
+  A16 的 `2`/`[0,1]`）即可 —— 但不建议（那会再次假红）。
+· 临时注入涉及的两个产品文件**已经**是原状（§3 的 0 残留）；
+· 未跑 git（AGENTS P7）。临时物：本卡的 `data/_s4/**`（脚本自清）· 已删除的变异副本。
+===============================================================================

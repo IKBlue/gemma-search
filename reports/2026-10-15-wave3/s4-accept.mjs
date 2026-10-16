@@ -16,8 +16,9 @@
 //
 // ── 口径与边界（**不假装**）──────────────────────────────────────────────────
 //   · 「npm test 全绿」不在本脚本的**断言**范围内（本脚本只跑 3 个相关单测文件 + 验收级判据）；
-//     但该门禁**已达成**：2026-10-15 实测 npm test 574 / pass 573 / fail 0 / skipped 1 / EXIT=0，
-//     typecheck 0、build 0（数字为**转述 Lead 的实跑**，不是本脚本产出）。
+//     ⚠️ **本文件不转述任何「当前」数字**（那会漂）：全量单测 / typecheck / build 由 Lead 在**冻结窗口**跑，
+//     数字以**当轮归档**为准（见 reports/ 下该轮门禁记录）。历史一次：2026-10-15 实测 574 / pass 573 / fail 0 / skipped 1
+//     （转述，**非本脚本产出**）—— 保留它是为了说明「本脚本为什么不自己跑全量」，不是现状声明。
 //   · 本脚本**只读**产品代码与夹具；临时库落 data/_s4/（AGENTS §3：data/_* 是本机临时物）。
 //   · 判定：任一 FAIL ⇒ 退出码 1；只有 PASS/SKIP ⇒ 0。
 
@@ -34,6 +35,7 @@ import {
   LIBRARY_VIRTUAL_TABLES,
   SCHEMA_LAYERS,
   SCHEMA_LAYER_ORDER,
+  TARGET_SCHEMA_VERSION,
   createdTableNames,
   migrateApp,
   openGsDb,
@@ -150,11 +152,14 @@ console.log('');
 
 console.log('── B. 验收级判据（本脚本新增，来源各不相同）──────────────────────');
 
-check('S4-A14', 'DDL 建出的表 == 四层点名（双向），6 张且各点名一次；14 暂缓表两库都不存在', () => {
+check('S4-A14', 'DDL 建出的表 == 四层点名（双向），**张数从真源派生**且各点名一次；未建的表两库都不存在', () => {
+  // ⚠️ ACC-1（2026-10-16）：这里原来写死「6 张」「六个 1」「暂缓 14 张」—— B2-1 加了 `job` 之后它们变成**假红**。
+  //    张数**不是**判据，**双向一致**才是：DDL 建出的 ⊆ 点名、点名 ⊆ 建出，逐张对上。
+  //    ⇒ 张数一律从真源（LIBRARY_TABLES / APP_TABLES / schemaTables）派生，不再写数字。
   const grouped = schemaTables();
-  eq(grouped.length, 6, '四层点名去重后必须是 6 张');
   const fromDdl = [...LIBRARY_TABLES, ...APP_TABLES].sort();
-  eq(fromDdl, grouped, 'DDL 建出的表与四层点名必须逐张对上');
+  eq(fromDdl, grouped, 'DDL 建出的表与四层点名必须逐张对上（双向：缺一边都红）');
+  assert(grouped.length > 0, '四层点名不能为空（否则下面全是恒真）');
 
   const lib = openLibrary('A14-lib');
   const app = openApp('A14-app');
@@ -165,17 +170,24 @@ check('S4-A14', 'DDL 建出的表 == 四层点名（双向），6 张且各点�
     for (const layer of SCHEMA_LAYER_ORDER) {
       for (const n of SCHEMA_LAYERS[layer]) seen.set(n, (seen.get(n) || 0) + 1);
     }
-    eq([...seen.values()], [1, 1, 1, 1, 1, 1], '每张表恰好点名一次');
+    eq([...seen.keys()].sort(), grouped, '点名集合必须与派生集合逐张相同（少一张/多一张都红）');
+    eq([...seen.values()].filter((n) => n !== 1), [], '每张表恰好点名一次（重复点名 = 分类漂移）');
     eq(tablesInLayer('intent'), [], '意图层本轮为空（空层合法）');
-    const DEFERRED = ['app_setting', 'activity', 'recent_query', 'recent_view', 'asset_name_fts',
+
+    // 仍未建的表：这份**清单**是第二/第三批的输入，但它的**长度不再断言**（随功能上线而变）。
+    //   改钉两条真判据：① 清单里的表一张都不许被建出来；② 已建出的表不许出现在清单里。
+    const NOT_BUILT = ['app_setting', 'activity', 'recent_query', 'recent_view', 'asset_name_fts',
       'asset_user_meta', 'tag', 'asset_tag', 'collection', 'collection_item', 'asset_export',
-      'job', 'health_run', 'health_finding'];
-    eq(DEFERRED.length, 14, '暂缓表 14 张');
+      'health_run', 'health_finding'];
+    assert(NOT_BUILT.length > 0, '未建清单不能为空（否则这条检查变成恒真）');
+    eq(NOT_BUILT.filter((n) => grouped.includes(n)), [], '被标为「未建」的表却已经建出来了 ⇒ 清单必须同步');
+    assert(grouped.includes('job'), '`job` 已由 B2-1 建出 ⇒ 必须出现在四层点名里');
+    assert(!NOT_BUILT.includes('job'), '`job` 已建出 ⇒ 不许还留在「未建」清单里');
     const present = [];
-    for (const n of DEFERRED) {
+    for (const n of NOT_BUILT) {
       if (allTables(lib.db).includes(n) || allTables(app.db).includes(n)) present.push(n);
     }
-    eq(present, [], '第二轮的表本轮一张都不许被建出来');
+    eq(present, [], '仍未建的表一张都不许被建出来（"先建着"是被所有者否决的选项）');
     const oneLess = LIBRARY_MIGRATIONS.map((m) => ({
       version: m.version,
       name: m.name,
@@ -183,7 +195,7 @@ check('S4-A14', 'DDL 建出的表 == 四层点名（双向），6 张且各点�
     }));
     const derived = createdTableNames(oneLess.flatMap((m) => m.statements));
     assert(!derived.includes('asset_file'), '删掉 asset_file 的 DDL ⇒ 派生清单必须跟着少一张');
-    return '6 张 / 双向一致 / 14 暂缓缺席 / 派生可证';
+    return String(grouped.length) + ' 张 / 双向一致 / 未建 ' + String(NOT_BUILT.length) + ' 张缺席 / 派生可证';
   } finally { lib.db.close(); app.db.close(); }
 });
 
@@ -278,8 +290,16 @@ check('S4-FIELDMAP', 'field-map（设计基线 §1）↔ 真 DDL 双向覆盖：
   }
   commit();
   const mappedTables = [...map.keys()].sort();
-  const six = [...LIBRARY_TABLES, ...APP_TABLES].sort();
-  eq(mappedTables, six, '设计基线 §1 点名的表必须正好是本轮 6 张');
+  const built = [...LIBRARY_TABLES, ...APP_TABLES].sort();
+  // ⚠️ ACC-1（2026-10-16）：原来断言「map 点名的表 == 本轮全部表」（当时 6 张）。
+  //    design 基线 §1 的 field-map 只覆盖**第一批**的表；B2-1 的 `job` 属**第二批**，
+  //    它的字段出处是 BATCH2-PLAN 第 1 张（不是这份 map）⇒ 旧断言变成假红。
+  //    现在：① 检查**显式限定到 map 覆盖的表**；② 新增一条 —— **未被 map 覆盖的表必须恰好等于**
+  //    一份**显式的第二批白名单**。将来冒出一张既不在 map、也不在白名单的表，照样红（判别力不降）。
+  const SECOND_BATCH = ['job'];
+  const unmapped = built.filter((t) => !mappedTables.includes(t));
+  eq(unmapped, SECOND_BATCH, '未被 field-map 覆盖的表必须恰好是显式的第二批白名单（多一张/少一张都红）');
+  eq(mappedTables.filter((t) => !built.includes(t)), [], 'map 里点名的表必须在 DDL 里真的建出来');
 
   const lib = openLibrary('FM-lib');
   const app = openApp('FM-app');
@@ -294,12 +314,16 @@ check('S4-FIELDMAP', 'field-map（设计基线 §1）↔ 真 DDL 双向覆盖：
     eq(missing, [], 'map 里有、DDL 里没有的字段（文档与实现漂移）');
     const INTERNAL_FIELDS = new Set([]);
     const undocumented = [];
-    for (const [t, cols] of ddlCols) {
-      for (const c of cols) if (!map.get(t).has(c) && !INTERNAL_FIELDS.has(t + '.' + c)) undocumented.push(t + '.' + c);
+    // ⚠️ 只查 **map 覆盖的表**：第二批（`job`）的字段出处不在本 map，上面的白名单已经显式接管它。
+    for (const t of mappedTables) {
+      for (const c of ddlCols.get(t)) {
+        if (!map.get(t).has(c) && !INTERNAL_FIELDS.has(t + '.' + c)) undocumented.push(t + '.' + c);
+      }
     }
     eq(undocumented, [], 'DDL 里没有任何出处的列（要么进 map，要么显式标为内部字段）');
     const total = [...map.values()].reduce((n, s) => n + s.size, 0);
-    return 'map ' + String(mappedTables.length) + ' 表 / ' + String(total) + ' 字段；双向零漂移；内部字段 0 个';
+    return 'map ' + String(mappedTables.length) + ' 表 / ' + String(total) + ' 字段；双向零漂移；未覆盖表 = 第二批白名单 [' +
+      SECOND_BATCH.join(', ') + ']；内部字段 0 个';
   } finally { lib.db.close(); app.db.close(); }
 });
 
@@ -426,14 +450,17 @@ check('S4-A16', 'A16 旧库不升级：旧口径 .gs.db ⇒ 如实告知 + 丢�
     return root;
   };
 
-  // ① 旧口径库：旧表 items / library + schema_version = 2（**不在**本轮 6 张口径内）
+  // ① 程序**读不了**的库：旧口径残留表（items / library）+ 一个比本程序**更新**的版本号。
+  //    ⚠️ ACC-1（2026-10-16）：原来把版本号写死成 2 —— 那是"程序最新是 v1"时代的写法；
+  //    B2-1 把库级目标推到 v2 之后，写死 2 就变成"当前版本"了（于是"拒绝 + 重建"这条会假红）。
+  //    ⇒ 版本**从迁移清单派生**：TARGET_SCHEMA_VERSION + 1（= 比程序新 ⇒ SCHEMA_TOO_NEW 的正当形态）。
   const oldRoot = makeRoot('A16-old');
   const oldDb = path.join(oldRoot, '.gs.db');
   const mk = openNodeSqlite(oldDb);
   mk.exec('CREATE TABLE IF NOT EXISTS schema_version (id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1), version INTEGER NOT NULL CHECK (version >= 0), updated_at INTEGER NOT NULL);');
   mk.exec('CREATE TABLE IF NOT EXISTS library (lib_id TEXT PRIMARY KEY, lib_root TEXT, count INTEGER);');
   mk.exec('CREATE TABLE IF NOT EXISTS items (uid TEXT PRIMARY KEY, lib_id TEXT, rel_path TEXT, folder TEXT, stem TEXT);');
-  mk.prepare('INSERT OR REPLACE INTO schema_version (id, version, updated_at) VALUES (1, 2, ?)').run(1700000000000);
+  mk.prepare('INSERT OR REPLACE INTO schema_version (id, version, updated_at) VALUES (1, ?, ?)').run(TARGET_SCHEMA_VERSION + 1, 1700000000000);
   mk.prepare('INSERT OR REPLACE INTO library (lib_id, lib_root, count) VALUES (?,?,?)').run('L1', oldRoot, 0);
   mk.close();
 
@@ -460,7 +487,7 @@ check('S4-A16', 'A16 旧库不升级：旧口径 .gs.db ⇒ 如实告知 + 丢�
   const r = rebuildLibraryDb({ libId: 'L1', root: oldRoot, itemsJsonPath: path.join(oldRoot, 'items.json'), dbPath: oldDb, expectedCount: sample.length, checkBefore: true });
   assert(r.removedDbFiles.length >= 1, '旧 .gs.db 必须被真的删掉（removedDbFiles 为空 = 没丢）');
   eq(r.created, true, '重建必须新建一个库文件');
-  eq([r.schema.fromVersion, r.schema.toVersion], [0, 1], 'schema 必须从 v0 建到 v1');
+  eq([r.schema.fromVersion, r.schema.toVersion], [0, TARGET_SCHEMA_VERSION], 'schema 必须从 v0 建到当前目标版本（从清单派生）');
   eq(r.dbOk, true, '重建后的 db-* 检查必须全过');
   assert(typeof r.reason === 'string' && r.reason.includes('重建完成'), '报告必须给出重建理由：' + String(r.reason));
   const after = materialDigest(oldRoot, { withContent: true });
@@ -471,7 +498,7 @@ check('S4-A16', 'A16 旧库不升级：旧口径 .gs.db ⇒ 如实告知 + 丢�
   const names = new Set(nw.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((x) => x.name));
   nw.close();
   eq([names.has('items'), names.has('library')], [false, false], '旧表 items / library 必须被清掉（丢干净）');
-  eq([...LIBRARY_TABLES, 'schema_version'].filter((x) => !names.has(x)), [], '绿地 6 张口径的表必须都在');
+  eq([...LIBRARY_TABLES, 'schema_version'].filter((x) => !names.has(x)), [], '按清单派生的库级表必须都在（含 B2-1 的 job）');
 
   // ⑤ 能红对照：**当前版本**的库不许被丢弃（证明上面的判据不是恒真）
   const curRoot = makeRoot('A16-current');
@@ -485,9 +512,9 @@ check('S4-A16', 'A16 旧库不升级：旧口径 .gs.db ⇒ 如实告知 + 丢�
   const applied = second.migration.applied.length;
   const ver = readSchemaVersion(second.db);
   second.db.close();
-  eq([applied, ver], [0, 1], '再打开必须幂等（applied=0、版本仍 v1）');
+  eq([applied, ver], [0, TARGET_SCHEMA_VERSION], '再打开必须幂等（applied=0、版本仍是当前目标版本）');
   assert(fs.existsSync(curDb), '当前版本的库文件必须还在（没被丢弃）');
-  return '旧库：如实告知(SCHEMA_TOO_NEW/可重建) + 丢弃重建(v0→v1、旧表清空) + 素材 sha1 不变；对照：当前版本库 db-schema 通过且幂等不丢';
+  return '程序读不了的库：如实告知(SCHEMA_TOO_NEW/可重建) + 丢弃重建(v0→' + String(TARGET_SCHEMA_VERSION) + '、旧表清空) + 素材 sha1 不变；对照：当前版本库 db-schema 通过且幂等不丢';
 });
 
 // ================================================================ A18 第二半（两路同码）
@@ -535,7 +562,7 @@ const sk = rows.filter((r) => r.status === 'SKIP').length;
 console.log('  PASS ' + String(pass) + ' · FAIL ' + String(failN) + ' · SKIP ' + String(sk));
 console.log('');
 console.log('── DEFERRED（明确**不算进**本脚本结论）─────────────────────────');
-console.log('  · npm test 全绿：**已达成**（2026-10-15 门禁实测：574 / pass 573 / fail 0 / skipped 1 / EXIT=0；typecheck 0；build 0）。');
+console.log('  · npm test 全绿：由 Lead 的**冻结窗口门禁**覆盖 —— 本脚本**不产出也不转述当前数字**（数字会漂）；历史一次：2026-10-15 = 574/573/0/1。');
 console.log('    数字是**转述 Lead 的实跑**，非本脚本产出。');
 console.log('  · 本脚本已无 SKIP：A14 / A15 / A16 / A17 / A18（含第二半）全部为真断言。');
 fs.rmSync(TMP, { recursive: true, force: true });
