@@ -1,0 +1,114 @@
+==============================================================================
+START-1 / task-100 · 冷启动「6.1 s 停摆」归因 + 修复（同一具权威仪器的改前/改后）
+日期：2026-10-16 · 执行：main-migrator · 机器：i7-11700K / 16 核 / 55.8 GB / win32 x64
+==============================================================================
+
+## 0. 结论（一句话）
+  **这不是产品回归，是量具的环境依赖。** 同一份 out/ 产物：e2e 把 userData 放在**工作区外** ⇒
+  first-paint ≈ 6.2 s；放在**工作区内** ⇒ 0.3–0.4 s。三场景（real / fake / 无库向导）**一起变**，
+  且主进程日志显示窗口 105 ms 就建好了 ⇒ 与产品代码路径无关。
+  机制：本执行环境**拒绝**（EPERM / ERROR_ACCESS_DENIED 0x5）Chromium 在 userData 里创建
+  Lock file / GPUPersistentCache / Network / Code Cache，Chromium **重试约 6.1 s** 才继续。
+
+## 1. 归因证据一：三场景同 bundle 对照（同一份 out/renderer）
+  量具：apps/desktop/e2e/start1-probe.spec.mjs（本次新增，GEMMA_PERF=1 才跑）
+  命令：$env:GEMMA_PERF=1; $env:GEMMA_PROBE_RUNS=1; npx playwright test -c apps/desktop/e2e/playwright.config.mjs start1-probe.spec.mjs
+  A) TEMP/userData = 系统 %TEMP%（工作区外）：
+     real  firstPaint 6212 · dI 37.1 · DCL 6140.2 · 空档 6103.1 · innerHTML 183
+     fake  firstPaint 6188 · dI 40.0 · DCL 6133.9 · 空档 6093.9 · innerHTML 183
+     无库  firstPaint 6228 · dI 42.9 · DCL 6152.4 · 空档 6109.5 · innerHTML 1343（向导已渲染）
+  B) TEMP/userData = 工作区内 data/_esbuild-tmp：
+     real  firstPaint 448 · dI 65.0 · DCL 368.4 · 空档 303.4 · innerHTML 7332 · #query=true
+     fake  firstPaint 620 · dI 31.6 · DCL 557.3 · 空档 525.7 · innerHTML 7308 · #query=true
+     无库  firstPaint 548 · dI 78.0 · DCL 454.1 · 空档 376.1 · innerHTML 1360
+  ⇒ **连"没有库、只有首启向导"的场景也一起 6.1 s** ⇒ 停摆发生在任何库/引擎工作**之前**，
+    排除 libraryList 探测 / B2-1b 开库结算 / appHealth 轮询 / thumb:// 注册 / 窗口 show 时机这些候选。
+
+## 2. 归因证据二：TEMP 与 userData **解耦**（决定产品侧能动哪个杠杆）
+  量具：apps/desktop/e2e/start1-tmpab.spec.mjs（四组对照，每组 1 次启动）
+  | 组 | TEMP | userData | domInteractive | DCL | 空档 |
+  |---|---|---|---|---|---|
+  | A | 工作区内 | 工作区内 | 29.8 | **314.8** | 285.0 |
+  | B | 工作区外 | 工作区外 | 35.4 | **6138.7** | 6103.3 |
+  | C | 工作区内 | **工作区外** | 36.9 | **6126.4** | 6089.5 |
+  | D | **工作区外** | 工作区内 | 29.2 | **256.7** | 227.5 |
+  ⇒ **杠杆是 userData 的落点**（A/C 对比、B/D 对比）：TEMP 换到工作区内也救不了 userData 在工作区外的情形（C）。
+  ⇒ e2e 的 helper 里 TEMP 与 --user-data-dir **同源**（都来自 os.tmpdir()）⇒ 这就是"改 TEMP 看起来有用"的真正原因。
+
+## 3. 归因证据三：Chromium 自己说它被拒绝了（直接启动，不走 Playwright）
+  命令：$env:ELECTRON_ENABLE_LOGGING=1; electron.exe --no-sandbox out/main/index.js --user-data-dir=D:\_log-out\profile
+  Chromium stderr（原文，工作区外的 userData）：
+    [ERROR:chrome\browser\process_singleton_win.cc:318] Lock file can not be created: 拒绝访问。(0x5)
+    [ERROR:...persistent_cache_sandboxed_file_factory.cc:84] Failed to create cache directory: ...\GPUPersistentCache: 拒绝访问。(0x5)
+    [ERROR:content\browser\network_sandbox.cc:495] Failed to create network context data directory ...\Network: 拒绝访问。(0x5)
+    [ERROR:net\disk_cache\simple\simple_backend_impl.cc:81] Failed to create directory: ...\Code Cache\js
+    [ERROR:gpu\ipc\host\gpu_disk_cache.cc:737] Gpu Cache Creation failed: -2
+  应用自己的日志（同一进程，D:\_app.log 原文节选）：
+    ⚠️ 单实例锁不可用：userData 不可写 ⇒ Chromium 建不出 lockfile，本次**按单实例放行**并照常启动。
+       探测结果 = 目录不可写：D:\_log-out\profile（EPERM: operation not permitted, open '...\.gs-write-probe-...'）
+    !! [temp] 临时目录创建失败（保持系统临时目录）：D:\_log-out\profile\tmp · EPERM: operation not permitted, mkdir
+    !! app.db 操作失败: Error: unable to open database file
+    [窗口] 窗口状态保存失败（不影响使用）: EPERM: operation not permitted, open '...\window-state.json'
+  ⇒ 三处独立信号都指向**写权限被拒**；产品对"userData 不可写"的处理是**如实记日志 + 降级继续**（没有崩、没有静默）。
+
+## 4. 与 T-19（0.66 s）为什么差 9.4×：同一件事的两个落点
+  · T-19 的证据 reports/2026-10-15-wave3/19.txt:141 明写：
+      「临时物已清理：data/_t19 已删除；**data/_esbuild-tmp 是构建/E2E 的 TEMP 落点**」
+  · perf.spec.mjs 文件头也写着当时的配方：把 TEMP/TMP/TMPDIR 指到**仓库内** data/_esbuild-tmp；
+    而 launchWithLibrary() 的 userData = mkdtemp(os.tmpdir()) ⇒ **跟着落在工作区内** ⇒ 0.66 s。
+  · 今天的测量（PERF-1 / 本卡第 0 步）没有设 TEMP ⇒ userData 落在系统 %TEMP%（工作区外）⇒ 6.4 s。
+  ⇒ 同一份代码、同一具量具，**只差 userData 落点**。
+
+## 5. 修复（量具侧，唯一落点）
+  改前：userData = fs.mkdtempSync(path.join(os.tmpdir(), ...))（工作区外，受环境写限制）
+  改后：userData = fs.mkdtempSync(path.join(E2E_TMP_ROOT, ...))，E2E_TMP_ROOT = <ROOT>/data/_e2e-tmp
+        （apps/desktop/e2e/helpers/launch.mjs 导出一次；app.mjs 的 tmpDir() 复用它 —— P1：只有一处定义）
+  为何非放宽：**没有**动阈值、没有跳过断言、没有改产品代码；只是把"落点"从不稳定的环境位置
+    固定到工作区内（两处 helper 的文件头都写明理由与证据位置，免得后人再改回去）。
+  ⚠️ 产品侧零改动 —— 按卡片要求，动 main/** 非 db/ 之前先说；本卡**没动**。
+
+## 6. 改前 / 改后中位数（**同一具权威仪器** apps/desktop/e2e/first-paint.spec.mjs，各 6 次，**同一份 out/**）
+  | 指标 | 改前（还原修复点＝os.tmpdir） | 改后（工作区内 userData） | 变化 |
+  |---|---|---|---|
+  | **first-paint**（主口径） | **6208 ms**（6 次：6184/6212/6216/6172/6204/6228） | **374 ms**（324/360/420/648/388/328） | **16.6×** |
+  | DOMContentLoaded | 6129.9 ms（6107.9–6161.9） | 304.5 ms（255.4–579.2） | 20.1× |
+  | domInteractive | ~34 ms | 35.6 ms | 不变（文档本身一直是瞬时的） |
+  | 主界面 #query 可见 | 6863.5 ms | 1477.9 ms | 4.6× |
+  | body.innerHTML | 7332 | 7332 | **界面渲染内容一字不变** |
+  | 控制台错误 | 0 | 0 | 0 |
+  ⇒ 达到卡片目标「回到 ≤1 s 量级」（T-19 同级 0.66 s）。
+
+## 7. ⭐ 能红：把修复点还原 ⇒ 首屏必须回到 6 s 量级（已做，原文见 §6 左列）
+  注入方式：把两个 helper 临时改回 os.tmpdir()（副本 data/_start1/*.fixed.mjs，未用 git checkout）
+  注入后同一具仪器 6 次：first-paint 6184 / 6212 / 6216 / 6172 / 6204 / 6228 ms（中位 6208）
+    [perf1] run 1/6 墙钟 6858 ms · first-paint 6184 ms · DCL 6117 ms · innerHTML 7332 · 控制台错误 0
+    [perf1] run 6/6 墙钟 6887 ms · first-paint 6228 ms · DCL 6161.9 ms · innerHTML 7332 · 控制台错误 0
+  还原后：first-paint 374 ms（§6 右列）⇒ **改的是根因，不是碰巧**。
+
+## 8. 回归面：改的是**公用 helper**，所以要证明别的 e2e 没被带坏
+  · npx playwright test gate.spec.mjs library-unavailable.spec.mjs health.spec.mjs ⇒ **11 passed / 0 failed**（EXIT=0）
+    （这三个覆盖 launchWithoutLibrary / launchWithMissingLibrary / launchWithLibrary 三条路）
+  · eslint（launch.mjs / app.mjs）⇒ EXIT=0；prettier --check ⇒ All matched files use Prettier code style!
+  · 0 残留：e2e helper 里不再有 os.tmpdir()（见 §9 grep）。
+  · ⚠️ 未跑：全量 npm test / build / 全量 e2e（纪律：跑全量前先问 Lead）。
+
+## 9. 0 残留 grep（先跑后结论）
+  Select-String -Path apps/desktop/e2e/helpers/*.mjs -Pattern "os\.tmpdir\(" ⇒ 0 命中（只剩注释里说明"为什么不用它"）
+  Select-String -Path apps/desktop/e2e/helpers/*.mjs -Pattern "E2E_TMP_ROOT" ⇒ launch.mjs 定义 + app.mjs 引用（唯一落点）
+  （补记：os.tmpdir 那条的**实测输出**：原始命中 = 2（全在注释里）· 滤掉注释行 ⇒ **代码行命中 = 0**。）
+  E2E_TMP_ROOT 实际落点：launch.mjs:42 定义 · launch.mjs:78/79 使用 · app.mjs:21 引用 · app.mjs:53/54 使用（P1：无第二份定义）
+  量具格式化后复跑（RUNS=1）⇒ real 332.2 / fake 522.3 / 无库 369.0 ms，1 passed（格式化没弄坏量具）。
+
+## 10. 未决 / 如实说明（P6：不外推）
+  · 这 6.1 s 是**本执行环境**（agent 沙箱/写限制）造成的；**没有**任何证据说真实用户的机器也这样：
+    真实用户 userData = %APPDATA%\gemma-search，不受本沙箱限制。**未在真实终端验证过 ⇒ 不声称**。
+  · 副产品：产品对"userData 不可写"的降级路径（单实例锁放行、app.db 失败、窗口状态失败）本轮**顺带被实测到**，
+    行为都是"如实记日志 + 继续跑"，没有崩 —— 这是正面证据，但也说明这条路径此前没有自动化覆盖（可另开卡）。
+  · 本卡新增 3 个 e2e 量具（start1-probe / start1-tmpab / start1-warm），都由 GEMMA_PERF=1 门控、默认 skip。
+    ⚠️ start1-warm 的 userData 目录没预建（Electron 回落到默认 profile）⇒ 已删除，避免留下会误导的量具；
+    冷/热 profile 的结论不作为判据（真正判据是 §2 的四组解耦 + §3 的拒绝日志）。
+
+## 11. 回滚方式
+  · 只回滚"修复"：把两个 helper 的 E2E_TMP_ROOT 改回 os.tmpdir() ⇒ 首屏立刻回到 6.2 s（§7 已实测）——**不推荐**；
+  · 整卡撤销：撤销该提交（e2e/helpers 两个文件 + 量具 + 证据）；**产品代码一行未动**。
+==============================================================================

@@ -13,13 +13,12 @@
 // 四条都断了，才会真的没有库。少堵一条，测出来的就是"有库"分支，而测试还会"通过"——
 // 那是最坏的一种假绿（本仓库栽过的坑就是这个形状）。
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { IMG_EXT } from '../../../../packages/engine/src/fingerprint.ts';
 
-import { launchApp } from './launch.mjs';
+import { launchApp, E2E_TMP_ROOT } from './launch.mjs';
 
 /** 夹具库（**不是**本机真实库 —— E2E 不该依赖 `G:\model`） */
 export const FIXTURE_LIB = fileURLToPath(new URL('../fixtures/lib-mini', import.meta.url));
@@ -45,9 +44,14 @@ function countFixtureImages(root) {
   return n;
 }
 
-/** 建一个临时目录（调用方负责在 finally 里删） */
+/**
+ * 建一个临时目录（调用方负责在 finally 里删）。
+ * ⚠️ START-1：底座是**工作区内**的 `E2E_TMP_ROOT`，不是 `os.tmpdir()` ——
+ *    工作区之外写入会被环境拒绝 ⇒ Chromium 重试 ~6.1 s（理由与证据见 helpers/launch.mjs 的常量注释）。
+ */
 function tmpDir(tag) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), `gemma-e2e-${tag}-`));
+  fs.mkdirSync(E2E_TMP_ROOT, { recursive: true });
+  return fs.mkdtempSync(path.join(E2E_TMP_ROOT, `${tag}-`));
 }
 
 /** 建一份"只有 data_dir、没有任何库来源"的临时配置 */

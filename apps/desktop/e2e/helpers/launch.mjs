@@ -16,7 +16,6 @@
 //    ⚠️ 用户自己的终端**不需要**它；这里加是因为 agent 沙箱起不来进程沙箱。
 //    **绝不把它固化进产品配置**（`AGENTS.md` §6.5）。
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,6 +26,20 @@ export const ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
 
 /** 构建产物入口（先跑 `npm run build`） */
 export const MAIN_ENTRY = path.join(ROOT, 'out', 'main', 'index.js');
+
+/**
+ * E2E 临时根：**必须落在工作区内**（START-1 · 2026-10-16）。
+ *
+ * ⚠️ 为什么不能再用 `os.tmpdir()`（= 系统 TEMP，在工作区之外）：
+ *   本执行环境对**工作区之外**的写入返回 EPERM / ERROR_ACCESS_DENIED(0x5)，实测 Electron 子进程
+ *   在那里建不出 Chromium 的 Lock file / GPUPersistentCache / Network / Code Cache —— 它会**重试约 6.1 s**
+ *   才继续（Chromium stderr 原文与 A/B 对照见 reports/2026-10-15-wave3/start1.txt）。
+ *   结果：同一份产物、同一具量具，首屏 DCL 会在 **0.3 s / 6.1 s** 之间跳 20 倍 —— 那是**量具的环境依赖**，
+ *   不是产品回归（三场景 real/fake/无库一起变；T-19 之所以快，是因为它按当时的配方把 TEMP 设成了
+ *   仓库内 `data/_esbuild-tmp`，userData 跟着落在工作区内）。
+ * ⇒ userData 落点**由本常量统一决定**（P1：只有这一处），不再从 TEMP 派生。
+ */
+export const E2E_TMP_ROOT = path.join(ROOT, 'data', '_e2e-tmp');
 
 /** Electron 二进制（用仓库里那一份，不用 Playwright 自带的浏览器） */
 const ELECTRON_BIN = path.join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe');
@@ -62,7 +75,8 @@ export async function launchApp(opts = {}) {
   //    两者都在系统 temp 下，名字一样就分不清"哪个 helper 漏了没删"。
   const isolatedUserData = hasUserDataDir(opts.extraArgs)
     ? null
-    : fs.mkdtempSync(path.join(os.tmpdir(), 'gemma-e2e-launchapp-'));
+    : (fs.mkdirSync(E2E_TMP_ROOT, { recursive: true }),
+      fs.mkdtempSync(path.join(E2E_TMP_ROOT, 'launchapp-')));
 
   const app = await electron.launch({
     executablePath: ELECTRON_BIN,
