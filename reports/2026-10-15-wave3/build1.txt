@@ -16,11 +16,14 @@ BUILD-1 · 构建不依赖环境临时目录（S1）+ 修 bmp_decode 双 import 
 ⑧ ✅ `npx prettier --check .` = **EXIT 0**（"All matched files use Prettier code style!"）。
    过程中曾一度是 1，命中的 4 个文件全在**未跟踪目录 `UI/`**（别的流程 11:29–11:39 建的设计稿）——
    **不是本次改动**；Lead 已裁定把它加进 `.prettierignore`（commit `2cc3254`），复验即 0。详见 §7.1。
-⑨ `npm test` **不在本轮实测** —— 按纪律（同一时刻只跑一个 `npm test`；冻结窗口里的结论才权威），
-   由 **Lead 的冻结门禁**覆盖。本文件只写「引用」，不把它写成"本轮数字"。详见 §7.2。
+⑨ ✅ **门禁全绿（引用 Lead 冻结门禁 `cbb368a`，非本轮实测）**：
+   prettier 0 · lint 0 · **npm test 657 / pass 656 / fail 0 / skipped 1** · typecheck 0 ·
+   **build（不预置任何 TEMP/TMP）EXIT=0 · MAIN=True PRELOAD=True RENDERER=True** ·
+   e2e 68 passed / 1 skipped / 0 failed · s4-accept PASS 13 / FAIL 0 / SKIP 0。
+   ⭐ 其中「不预置 TEMP/TMP 也能 build」正是本卡的核心验收 —— 由权威窗口跑出，**不是自报**。详见 §7.2。
 
 ================================================================
-1. 改了什么（3 个文件）
+1. 改了什么（4 个文件）
 ================================================================
 | 文件 | 改动 |
 |---|---|
@@ -185,10 +188,20 @@ Checking formatting...
 All matched files use Prettier code style!     PRETTIER_EXIT=0
 ~
 
-7.2 `npm test`：**引用 Lead 的冻结门禁，非本轮实测**
+7.2 **门禁数字：引用 Lead 冻结门禁 `cbb368a`，非本轮实测**（AGENTS §4 证据协议第 3 条）
   纪律要求同一时刻只允许一个人跑 `npm test`（事务套件共用 `data/_txn-test`，并行会撞 `ENOTEMPTY`），
-  且**冻结窗口里跑出来的才是权威结论** ⇒ 本卡**不自己跑**全量，由 Lead 的门禁覆盖（它连全量单测 + e2e 一起跑）。
-  本文件**不写**测试数字 —— 避免把别人的结论冒充成本轮实测（AGENTS §4 证据协议第 3 条）。
+  且**冻结窗口里跑出来的才是权威结论** ⇒ 本卡**不自己跑**全量，由 Lead 的门禁覆盖。
+~
+prettier --check .   => 0（All matched）
+npm run lint         => 0
+npm test             => 657 / pass 656 / fail 0 / skipped 1 · EXIT=0
+npm run typecheck    => 0
+build（**不预置任何 TEMP/TMP**）=> EXIT=0 · MAIN=True PRELOAD=True RENDERER=True
+e2e                  => 68 passed / 1 skipped / 0 failed（3.6m）
+s4-accept.mjs        => PASS 13 · FAIL 0 · SKIP 0
+（对照上一轮：单测 645 → 657（+SEC-1 的 7 与 IA-1 的 5）；e2e 67 → 68）
+~
+  ⭐ 其中 **build 那一行就是本卡 ①／② 的验收**，而且是在"不预置任何变量"的权威窗口里跑出来的。
 
 7.3 同类警告还剩 19 条（渲染层），不在本卡范围：
   `ui/{Button,Toast,ConfirmDialog,Score,Tag,Metric,Chip,Field,SearchBox,Progress}.tsx` ·
@@ -196,22 +209,26 @@ All matched files use Prettier code style!     PRETTIER_EXIT=0
   —— 都是 `main.tsx` 动态导入 + 别处静态导入。**本次只修 S10 点名的 `bmp_decode` 那一条**，
   渲染层那批要么由界面线的属主决定"去掉静态"还是"去掉动态"，要么另开一张卡统一处理（一次性改 19 个文件属于跨范围）。
 
-7.4 ✅ `apps/desktop/e2e/perf.spec.mjs` 的过时配方**已改写**（Lead 授权本卡善后）
+7.4 ✅ `apps/desktop/e2e/perf.spec.mjs` 的过时配方**已改写为条件式说明**（Lead 授权本卡善后）
   原文第 6–8 行说的是「**build** 必须手工设 TEMP/TMP」—— 那是 BUILD-1 之前的环境依赖绕法，已退役。
-  改写**只动说明、不动行为**：
+  ⚠️ 我第一版把「**e2e 仍必须**设 TEMP」也写了进去（依据：`helpers/app.mjs:50` / `helpers/launch.mjs:65`
+  用 `os.tmpdir()` 建临时 userData ＋ TASKS §5 的「AppData 一律 EPERM」）。
+  **Lead 随后做了对照实验，证明那条也不成立**：
 ~
-✅ 2026-10-16（BUILD-1 / 审查 S1 收口）：**构建已自给自足** —— electron.vite.config.mjs 的 build 段
-   自己把 TEMP/TMP/TMPDIR 指到仓库内 data/_esbuild-tmp，**不再需要任何手动重定向**。
-   （历史上这里写过「build 必须手工设 TEMP/TMP」，那是环境依赖的绕法，已随 BUILD-1 退役。）
-⚠️ 但 **e2e 自己仍要把 TEMP/TMP 指到仓库内**：helpers/app.mjs 与 helpers/launch.mjs 的临时 userData
-   都建在 os.tmpdir() 下，而本会话沙箱把 electron.exe 的写限制在仓库工作目录内（见 TASKS.md §5）
-   ⇒ 不重定向的话 Electron 的 userData/临时目录会落到 AppData 而被拒。
-   （此条为**继承既有结论**：BUILD-1 期间冻结门禁在跑，未在本轮复验。）
+清空 TEMP/TMP（TEMP= | TMP=）后跑全量 e2e  =>  68 passed / 1 skipped / 0 failed（7.2m）
 ~
-  ⚠️ **给 Lead 的一条提醒**：卡片的「清除门禁配方里的手动 TEMP 依赖」只对 **build** 成立；
-  **e2e 那一步可能仍需**手动把 `TEMP/TMP` 指进仓库（机制见上：`os.tmpdir()` + electron 写限制）。
-  我没有在冻结窗口里复验 —— 若门禁里 e2e 是**不设 TEMP** 跑的且仍全绿，说明该限制已不成立，
-  请把这行 e2e 提醒也删掉。
+  ⇒ 最终形态（**条件式** —— 别把当时的对策写成永久要求）：
+~
+✅ 构建已自给自足：electron.vite.config.mjs 的 build 段自己把 TEMP/TMP/TMPDIR 指到 data/_esbuild-tmp，
+   **不再需要任何手动重定向**。（历史上那两行已随 BUILD-1 退役。）
+ℹ️ e2e 默认可不设 TEMP/TMP（2026-10-16 实测：清空后全量 e2e 68/1/0）。
+   **只有沙箱限制写入时才需要** —— 历史现象是 AppData 下 EPERM、electron.exe 秒退（见 TASKS.md §5）。
+   ⚠️ 那是**当时那个文件策略下**的事实，**不是常量**（本会话 danger-full-access 下已不复现）。
+   判据：同一次实验里复用默认临时目录，e2e 耗时 3.6m → 7.2m（确实在用那个目录，只是不再被拒）。
+   # 仅故障时：$env:TEMP='<仓库>/data/_esbuild-tmp'; $env:TMP=$env:TEMP
+~
+  ⚠️ 顺手**复核并限定**了 `TASKS.md §5` 那句「electron.exe 的写限制在仓库工作目录内（AppData 一律 EPERM）」：
+  给它加了 2026-10-16 的复核注记（**随策略变化、不是常量** + 上面那次实测），免得下一个人把它当永久约束。
 
 ================================================================
 8. 残留 grep（先跑后结论）
