@@ -16,7 +16,7 @@
 //   是 indexer-migrator 独立复刻护栏时抓到的。这说明"接线正确"必须单独有一条机械断言。
 //
 // 另一条同源事故：护栏 tools/verify_encoder_path.mjs 里写死了
-//   import(... 'apps/desktop/src/main/encoder.mjs')
+//   import(... 'apps/desktop/src/main/encoder.ts')
 // 文件改名后**护栏自己先炸**（ERR_MODULE_NOT_FOUND），于是"改编码路径必须重跑护栏"这条纪律
 // 在关键时刻失效。这里一并钉住护栏的 import 目标，避免它再次悄悄指向不存在的文件。
 import { test } from 'node:test';

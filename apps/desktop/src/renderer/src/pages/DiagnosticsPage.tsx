@@ -336,7 +336,7 @@ export default function DiagnosticsPage() {
                       · 所以必须常驻可见、不许进折叠区 —— 藏起来就等于静默；
                       · 三句口径文案不许改写：不算素材 · 不是损坏 · 重建修不好；
                       · 路径只显示文本（select-all 便于复制）：按路径 reveal 要新契约方法，本卡不开
-                        （理由与将来做法见 reports/2026-10-15-wave3/u12.txt）。 */}
+                        （理由：按路径 reveal 要新契约方法，本卡不开；将来做法同此）。 */}
                   <div
                     className="mt-4 border-t border-line pt-3"
                     data-testid="orphan-archive"

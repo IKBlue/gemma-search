@@ -45,7 +45,7 @@ type RenderResult =
 /**
  * 按**源码相对路径**挂载一个渲染层组件（构建期由 Vite 的 import.meta.glob 收集）。
  *
- * 为什么需要它：`tools/verify_renderer_dom.mjs` 验的是**构建产物**，
+ * 为什么需要它：**曾经有过的守卫脚本**（`verify_renderer_dom`，已于 2026-10-13 移除）验的是**构建产物**，
  * 而产物里所有组件都被打平成一个 bundle —— 守卫无法 `import('pages/LibraryGate.jsx')`。
  * 于是「首启向导」这类**分支界面**就没法被无人值守地测到（只能靠人眼看）。
  * 这个钩子让守卫能重挂载任意一页，从而覆盖那些分支。
@@ -75,7 +75,7 @@ type RenderResult =
 //      1,249,310 B → 1,245,068 B，−4,242 B ≈ −0.34% —— 省掉的是那层 import() 包装机器；
 //      main / preload 两段**逐字节不变**）⇒ 首屏不会变大，也没有新的模块被拉进主 chunk。
 //
-// ⚠️ 别改回不 eager：那样警告会**全部回来**（能红探针见 reports/2026-10-15-wave3/build2.txt）。
+// ⚠️ 别改回不 eager：那样警告会**全部回来**（当时用「改回不 eager」做过能红探针：警告会全部回来）。
 const PAGES = import.meta.glob('./pages/*.tsx', { eager: true });
 const COMPONENTS = import.meta.glob('./ui/*.tsx', { eager: true });
 

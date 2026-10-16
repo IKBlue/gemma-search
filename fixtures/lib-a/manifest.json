@@ -1,7 +1,7 @@
 {
   "library": "lib-a",
   "purpose": "写操作/故障注入的夹具库（合成字节，非真图）",
-  "generatedBy": "data/_gen-lib-a.mjs 的确定性配方",
+  "generatedBy": "确定性配方生成（一次性脚本，未入库）",
   "dirs": {
     "VR": [
       "VR/VR-101.jpg",

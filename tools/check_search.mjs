@@ -1,6 +1,6 @@
 // tools/check_search.mjs —— 端到端检索自查：注册好的索引 + 真实查询向量 → 引擎 search 是否出结果
 //
-// 用「向量模式」搜（向量由 packages/indexer/src/encode_queries.mjs 真跑模型算出），
+// 用「向量模式」搜（向量由索引器的编码脚本真跑模型算出），
 // 这样不需要在 Node 里再起一次 WebGPU 编码器，但仍然走的是**引擎的真实检索路径**。
 //
 // 用法：
@@ -77,9 +77,7 @@ const vecFile = positionals[0]
 if (!fs.existsSync(vecFile)) {
   console.error(`查询向量文件不存在：${vecFile}`);
   console.error('用法: node tools/check_search.mjs --lib <素材库根> [向量文件]');
-  console.error(
-    '（向量文件由 packages/indexer/src/encode_queries.mjs 生成，默认 data/diag/_q1vec.json）',
-  );
+  console.error('（向量文件由索引器的编码脚本生成，默认 data/diag/_q1vec.json）');
   process.exit(2);
 }
 const query = JSON.parse(fs.readFileSync(vecFile, 'utf8'));

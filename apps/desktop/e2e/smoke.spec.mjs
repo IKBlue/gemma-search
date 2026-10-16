@@ -1,7 +1,7 @@
 // apps/desktop/e2e/smoke.spec.mjs —— E0 探针：Electron 起窗 + preload 桥真的接上了
 //
 // 这条测试的定位很特殊：**它是其余所有 E2E 的前提**。
-// 如果它不过，说明本环境起不了窗（见 `tools/probe_electron_start/README.md`），
+// 如果它不过，说明本环境起不了窗（本沙箱实测：需 `--no-sandbox` + 提权），
 // 那后面所有 E2E 都无从谈起 —— 而不是"应用坏了"。
 //
 // 它同时覆盖一条**被删守卫丢掉的断言**：S9（渲染进程拿不到 Node 能力）。

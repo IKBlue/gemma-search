@@ -4,7 +4,7 @@
   "private": true,
   "description": "视觉令牌唯一来源（生产资产，不是原型遗留）：tokens.css",
   "//": [
-    "`tokens.css` 被 `apps/desktop/src/renderer/src/main.jsx` **直接 import**（相对路径跨 root，",
+    "`tokens.css` 被 `apps/desktop/src/renderer/src/main.tsx` **直接 import**（相对路径跨 root，",
     "  Vite 允许），所以它是**生产依赖**。原型套件其余部分已归档到 docs/archive/prototype/，",
     "  这一份被提升为正式资产 —— 理由见 AGENTS.md §1 硬约束（不让生产代码依赖归档目录）。",
     "**不要复制第二份**：全仓视觉常量只在这里定义，渲染层 renderer.css 只消费 `var(--…)`。",

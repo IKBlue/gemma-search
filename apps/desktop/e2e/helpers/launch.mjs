@@ -11,7 +11,7 @@
 //    日志一行没有、窗口永不出现。`scripts/electron-vite.mjs` 交互启动时也做同一件事。
 //
 // ③ **本沙箱必须 `--no-sandbox`**。
-//    `tools/probe_electron_start/README.md`（2026-10-10 实测）：`electron.exe --version` 报
+//    自述（2026-10-10 实测，原始 README 未入库）：`electron.exe --version` 报
 //    `0x80000003`、加 `--no-sandbox` 就 exit=0 ⇒ 卡住的是 **Chromium 沙箱初始化**，与项目代码无关。
 //    ⚠️ 用户自己的终端**不需要**它；这里加是因为 agent 沙箱起不来进程沙箱。
 //    **绝不把它固化进产品配置**（`AGENTS.md` §6.5）。

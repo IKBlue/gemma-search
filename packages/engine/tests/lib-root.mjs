@@ -10,7 +10,7 @@
 //      "指纹与 Python 侧逐字节一致"这两条真实有价值的一致性断言长期挂在门外。
 //      这不是代码坏了，而是**测试在检一个生产已不再使用的主机制**。
 //
-// 本模块与 `apps/desktop/src/main/library-config.mjs` 的解析顺序**刻意保持一致**
+// 本模块与 `apps/desktop/src/main/library-config.ts` 的解析顺序**刻意保持一致**
 // （环境变量 → config.json → 索引自举）。引擎包**零第三方依赖**的纪律不受影响：
 // 这里只用 Node 内置模块，且它是测试夹具、不是引擎的运行时依赖。
 import fs from 'node:fs';

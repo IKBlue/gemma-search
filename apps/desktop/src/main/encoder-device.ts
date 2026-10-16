@@ -1,6 +1,6 @@
 // apps/desktop/src/main/encoder-device.ts —— 「设备」这件事的**唯一语义来源**（T-31 / U2 核查的修法）
 //
-// 为什么单独一个模块：U2 核查（reports/2026-10-15-wave3/u2.txt）证明了两件事 ——
+// 为什么单独一个模块：U2 核查（**结论就地自述，本轮不引逐轮产物**）证明了两件事 ——
 //   ① 旧代码里的 device 字段**同时被读成"请求"和"实际"**（两义）。它其实只是"我们请求的值"：
 //      encoder.ts 里 device 是局部变量，只有"我们看得见的回退"才会把它改成 cpu；
 //   ② 在 Node/Electron 主进程里 transformers.js 把 IS_WEBGPU_AVAILABLE **恒置为真**

@@ -45,7 +45,7 @@ export const BANDS: Readonly<Record<string, { high: number; mid: number }>> = Ob
  * 这些方法的**请求/响应形状已在契约里冻结**，但真实实现还没接线。
  * 两处都要用它，所以**必须**从这里读，不许各抄一份（P1）：
  *   ① 引擎自己：真实模式下如实返回 `ERR.INTERNAL`（**绝不假装成功**）；
- *   ② 主进程（`apps/desktop/src/main/index.mjs`）：在进引擎**之前**就拒绝，
+ *   ② 主进程（`apps/desktop/src/main/index.ts`）：在进引擎**之前**就拒绝，
  *      以便给出更明确的用户文案「这个功能还没做好。」。
  *
  * 模拟模式（契约 §8）下这些方法由 `fake.ts` 提供假实现 —— 那时主进程**不**拒绝。

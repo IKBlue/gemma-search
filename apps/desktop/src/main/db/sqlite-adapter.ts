@@ -3,7 +3,7 @@
 // 为什么必须有这一层（T-11a 要求 ①）：
 //   `node:sqlite` 是**实验性**内置模块。Node 24.18.1 实测每次进程启动都会打
 //     "(node:PID) ExperimentalWarning: SQLite is an experimental feature and might change at any time"
-//   （原始输出见 reports/2026-10-15-wave3/11a.txt）。它的 API（DatabaseSync / StatementSync）是**同步**的，
+//   （警告原文已就地引用，见上一行）。它的 API（DatabaseSync / StatementSync）是**同步**的，
 //   返回类型是 `SQLInputValue` / `SQLOutputValue` 这套 Node 自己的别名，版本间调整过。
 //   ⇒ 把 `new DatabaseSync(...)` 散在各处 = 把"换实现 / 换 Node 版本"的成本摊到每个调用点。
 //   ⇒ 全仓库**只有这一个文件** import 'node:sqlite'；其余模块只认下面这几个接口。

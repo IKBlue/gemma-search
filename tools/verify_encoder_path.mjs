@@ -3,7 +3,7 @@
 // 为什么需要：
 //   P1.5 的"Electron 内能不能起 WebGPU"我在受限沙箱里无法验证（多进程管道被禁），
 //   但**更能致命**的那类问题可以在这里查出来：
-//     · `apps/desktop/src/main/encoder.mjs` 的模块图里，重采样兼容层是否真的生效？
+//     · `apps/desktop/src/main/encoder.ts` 的模块图里，重采样兼容层是否真的生效？
 //       （仓里有两份 @huggingface/transformers，同版本不同类对象 —— 补错 prototype 是**静默**失效）
 //     · 用应用编码器编一张库内图，是否与索引里**同一张**的行向量一致？
 //       （索引↔查询必须同一套预处理，否则结果变差且不报错）

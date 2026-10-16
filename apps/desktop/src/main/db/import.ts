@@ -31,7 +31,7 @@
 // ── 外键前置条件（T-11a 交接）────────────────────────────────────────────────
 //   items.lib_id 有外键 → library(lib_id)，驱动默认 enableForeignKeyConstraints=true。
 //   所以本函数在写 items **之前**先 upsert library 行（同一事务内），否则第一条就
-//   FOREIGN KEY constraint failed（证据 reports/2026-10-15-wave3/11a.txt 的 B1b 留了反例）。
+//   FOREIGN KEY constraint failed（当时留过反例：先写子表会当场 FOREIGN KEY constraint failed）。
 
 import { readIndexBin, readItems } from '../../../../../packages/engine/src/index.ts';
 import type { IndexItem } from '../../../../../packages/engine/src/index.ts';
@@ -176,7 +176,7 @@ function optionalPositiveInt(value: unknown, name: string): number | null {
 /**
  * 读 .gs-index.bin 的 header.count —— **可选的重校验路径**（不是默认计数来源）。
  *
- * ⚠️ 为什么它只是"可选"（T-11c 按 Lead 裁定降级，见 reports/2026-10-15-wave3/11c.txt）：
+ * ⚠️ 为什么它只是"可选"（T-11c 按 Lead 裁定降级为可选）：
  *   为拿一个数字要把整块 11 MB 向量读进来、还要算一遍 sha1（引擎的五道校验里最贵的那道），
  *   而 meta.json 的 count 是**几百字节**的同名事实，读它几乎免费。
  *   ⇒ 默认计数来源 = expectedCount（meta.json 的 count，由调用方传）；

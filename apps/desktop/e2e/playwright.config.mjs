@@ -8,7 +8,7 @@
 // ⚠️ 与 `npm test` 的关系：**两条独立的门禁**，不要混。
 //   `npm test`  —— `node:test`，纯逻辑，快，无 GUI 依赖（164 条）
 //   `npm run e2e` —— Playwright，真启动 Electron，慢，**需要能出窗的环境**
-//   本沙箱出窗需要 `--no-sandbox` + 提权（见 `tools/probe_electron_start/README.md` 的实测结论）。
+//   本沙箱出窗需要 `--no-sandbox` + 提权（本沙箱实测结论：需 `--no-sandbox` 且提权；原始 README 未入库）。
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({

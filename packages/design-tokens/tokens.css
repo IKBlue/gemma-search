@@ -3,7 +3,7 @@
 
    位置变更（2026-10-12 monorepo 重构）：本文件原在原型套件里
    （`static/prototype/tokens.css`），现**已提升为正式生产资产**，
-   被 `apps/desktop/src/renderer/src/main.jsx` 直接 import。
+   被 `apps/desktop/src/renderer/src/main.tsx` 直接 import。
    原型套件的其余部分已归档到 `docs/archive/prototype/`，**不再是依据**。
 
    权威关系（v2 重构后，旧的 docs/design/* 两份设计文档已随旧文档体系清除 —— 指向它们等于悬挂指针）：
@@ -42,7 +42,7 @@
    *    `--color-critical` 当**填充底色**（配 `--color-on-accent` 白字）；
    *     它自己当**浅底上的正文**只有 **3.55:1**（实测复算），**不过 WCAG AA 正文 4.5:1**。
    *   2026-10-13 Apple Style 审查 V-15 就是这条：错误文案与正文同色 / 用色不可读。
-   *   取 Apple 深色档红 #d70015：on #ffffff = **5.38:1** ✔（`data/_pick-red.mjs` 复算，含候选表）。 */
+   *   取 Apple 深色档红 #d70015：on #ffffff = **5.38:1** ✔（一次性脚本复算，脚本未入库）。 */
   --color-critical-text: #d70015;
   --color-warning: #ff9f0a;
   --color-success: #34c759;

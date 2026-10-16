@@ -20,7 +20,7 @@
 // 进 `preprocessing.resample_impl`，并体现为 `preprocessing_version = 2`（compat 随之变化）。
 //
 // ⚠️ **索引路径与查询路径必须都装这份 shim**：两侧预处理不一致是本项目最危险的失败模式
-//    （不报错，只是结果变差）。装点：build_index_onnx.mjs / encode_queries.mjs / src/main/encoder.mjs。
+//    （不报错，只是结果变差）。装点：build_index_onnx.mjs / encode_queries.mjs / apps/desktop/src/main/encoder.ts。
 //
 // ⚠️ 依赖上游内部 API（`RawImage.prototype.resize` / `toSharp` / 构造函数）。
 //    所以有 `selfTestResizeCompat()` 做**可执行断言**（含"同尺寸必须no-op"与"输出通道数不变"），
