@@ -1,6 +1,6 @@
 // electron.vite.config.mjs —— electron-vite 三端一体构建（monorepo 布局 · React 渲染层）
 //
-// 目录（docs/MIGRATION-PLAN.md §1 已冻结）：
+// 目录（v2 重构后冻结；权威描述见 AGENTS.md §3「目录职责与放置规则」）：
 //   主进程 / preload / 渲染层的 root 分别在 `apps/desktop/src/{main,preload,renderer}`；
 //   引擎在 `packages/engine/src`（零依赖、传输无关），索引兼容层在 `packages/indexer/src`；
 //   两者都由主进程**相对导入后打进主进程 bundle**，不额外产出包。

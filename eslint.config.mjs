@@ -38,7 +38,7 @@ export default [
       'reports/**',
       'fixtures/**',
       'prototypes/**',
-      'docs/**', // 旧文档体系（v2 之前），不是源码 —— 与 .prettierignore 同口径
+      'docs/**', // 归档与设计工具页（v2 后只剩 archive/ 与 design/ui-kit/），不是源码 —— 与 .prettierignore 同口径
     ],
   },
 

@@ -6,10 +6,10 @@
    被 `apps/desktop/src/renderer/src/main.jsx` 直接 import。
    原型套件的其余部分已归档到 `docs/archive/prototype/`，**不再是依据**。
 
-   权威关系（见 docs/design/DESIGN-tokens.md §12）：
-     · docs/design/UI-REVIEW-and-migration.md → 决定「做什么界面」（信息架构）
-     · docs/design/DESIGN-tokens.md           → 决定「长什么样」（视觉值）
-     · 本文件                                  → 上述令牌的**可执行版本**；冲突时以它为准
+   权威关系（v2 重构后，旧的 docs/design/* 两份设计文档已随旧文档体系清除 —— 指向它们等于悬挂指针）：
+     · 本文件 → 视觉值的**唯一权威**（可执行版本）；
+     · 界面做什么/长什么样的**现行依据**是仓库根的四份文档（AGENTS / PLAN / SPEC / TASKS）；
+     · docs/archive/prototype/ 是历史原型，**只作对照，不是依据**。
 
    加载顺序已简化（**旧的三张表顺序已作废**）：
      · 本文件                        设计令牌（唯一来源）
@@ -25,7 +25,7 @@
         **但色值仍然只在本文件定义一次**。
    ============================================================ */
 
-/* ---------- 1) Apple 风格设计令牌（DESIGN-tokens.md §10 原样） ---------- */
+/* ---------- 1) Apple 风格设计令牌（**旧设计文档 §10 原样**；该文档已随 v2 清除，值以本文件为准） ---------- */
 :root {
   /* color */
   --color-bg-primary: #ffffff;
@@ -97,7 +97,7 @@
   /* 强调色上的文字 */
   --color-on-accent: #ffffff;
 
-  /* 侧栏：DESIGN-tokens §2.1 把「侧栏」归到 bg.secondary。
+  /* 侧栏：旧设计文档 §2.1 把「侧栏」归到 bg.secondary（文档已清除，此处保留出处以便对照）。
      深浅模式自动跟随；若要**固定的深色侧栏**（更早的口头偏好），
      在 <html> 上加 data-sidebar="dark" 即可（见文件末）。 */
   --sidebar-bg: var(--color-bg-secondary);
@@ -135,7 +135,7 @@
   /* 原型专用：缩略图未内嵌时的占位底（真实缩略图接入后不再需要） */
   --thumb-fallback: linear-gradient(150deg, #eceef4, #dfe3ea);
 
-  /* 材质类令牌（DESIGN-tokens §6 说"没有其他阴影，需要浮起时再新增"；
+  /* 材质类令牌（旧设计文档 §6 说「没有其他阴影，需要浮起时再新增」；
      §12 说"新增值要标注来源"。以下 5 个是为**弹窗/遮罩/图上覆盖**新增的，
      来源标注为「本项目新增 · 用于浮起层与图像上的遮罩」。 */
   --shadow-float: 0 12px 35px color-mix(in srgb, #000 22%, transparent);
@@ -144,7 +144,7 @@
   --scrim-media-strong: color-mix(in srgb, #000 72%, transparent);
   --hairline-on-media: color-mix(in srgb, #fff 25%, transparent);
 
-  /* ---------- 2.5) 字号 / 布局 / 控件（**本项目新增**，来源：DESIGN-tokens §3.2 · §4.2 · §7） ----------
+  /* ---------- 2.5) 字号 / 布局 / 控件（**本项目新增**，来源：旧设计文档 §3.2 · §4.2 · §7（已随 v2 清除）） ----------
      §10 的变量表只给了颜色/字体族/间距/圆角/阴影；字号阶梯、布局尺寸、控件尺寸在文档里
      有成文数值却没有变量。按 §12「找不到再加，并标注来源」补成变量，供渲染层使用。
      阶梯外的原型值（22px 边距、35px 图标按钮、23px 指标值…）按 §4.1「就近取整」处理，

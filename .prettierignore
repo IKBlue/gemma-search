@@ -24,13 +24,15 @@ data/
 # 重排它们既不能提升可读性，又会让「引用既有证据」的哈希/字节对照失效。
 reports/
 
-# ---------- 旧文档体系（v2 之前）：整个 docs/ 都不属于「源码与配置」 ----------
+# ---------- docs/：归档与设计工具页，都不属于「源码与配置」 ----------
 # ① electron-builder.yml 已用 '!docs/*' 把它排除打包；
 # ② packages/design-tokens/tokens.css 也注明「不再是依据」（旧文档体系残留）；
 # ③ 里面还有 3 个归档原型 HTML（docs/archive/prototype/prototype/），Prettier 的 HTML 解析器
 #    **解析不了** —— 实测会让 prettier --check . 以 EXIT=2 失败：
 #      SyntaxError: Opening tag "a" not terminated. (1:568)
 # ⇒ 格式化它既无门禁价值，又会改到不属于本轮范围的旧体系文件（Lead 2026-10-15 裁定）。
+# 补充（DOC-1）：v2 清理后 docs/ 下只剩 docs/archive/**（历史原型 · spike 证据 · legacy 脚本）与
+# docs/design/ui-kit/**（UI 工具页）—— 二者都**不参与构建 / 格式化 / lint / 打包**，与 eslint.config.mjs 同口径。
 docs/
 
 # ---------- 契约夹具（改它 = 改契约样例，不是格式化） ----------

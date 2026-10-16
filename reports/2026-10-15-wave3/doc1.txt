@@ -1,0 +1,86 @@
+================================================================================
+DOC-1 证据 · 修悬挂文档引用（v2 已删的文档）        task-84   2026-10-15/16   执行: storage-worker
+================================================================================
+【改前 → 改后 → 为何非放宽】
+  1) electron.vite.config.mjs:3
+     改前：`// 目录（docs/MIGRATION-PLAN.md §1 已冻结）：`   ← 指向**不存在**的文件
+     改后：`// 目录（v2 重构后冻结；权威描述见 AGENTS.md §3「目录职责与放置规则」）：`
+     为何非放宽：不是删掉指针，而是换成**存在**的权威（AGENTS.md §3 = 四份根文档之一，仓库实际有）；
+                信息量没少（仍指明目录约定去哪看），可靠性从「悬挂」变成「可点开」。
+  2) packages/design-tokens/tokens.css:9-11
+     改前：`权威关系（见 docs/design/DESIGN-tokens.md §12）` + 两行指向 docs/design/* 的文档
+     改后：明说这两份**已随旧文档体系清除**（指向它们等于悬挂指针）；
+           改为「本文件 = 视觉值唯一权威」+「界面依据 = 四份根文档（AGENTS/PLAN/SPEC/TASKS）」+
+           「docs/archive/prototype/ 只作对照，不是依据」。
+     为何非放宽：:7 的 `docs/archive/prototype/` **确实存在 ⇒ 保留不动**（卡片要求）；
+                被删的是**不存在**的两份；同时把「谁是权威」讲得更硬（本文件唯一权威），不是含糊化。
+  3) .prettierignore:27 + eslint.config.mjs:41（口径对齐）
+     改前：两处都写「旧文档体系（v2 之前）」
+     改后：`.prettierignore` →「docs/：归档与设计工具页」并补一段：v2 后只剩 archive/ 与 design/ui-kit/，
+           二者都**不参与构建/格式化/lint/打包**；`eslint.config.mjs` 同句对齐。
+     为何非放宽：口径从「按时间命名（v2 之前）」改成「按性质命名（归档/工具页，非源码）」——
+                与 docs/ 的**现状**一致（现在里面确实只剩这两类），规则本身一条没删。
+
+【⭐ 重要发现：卡里的「3 处」不成立 —— 实际 36 处 / 14 份被删文档】
+  扫描方式（可复跑）：node reports/2026-10-15-wave3/doc1-scan.mjs —— 遍历 apps/ 与 packages/ 的 mjs/js/cjs/ts/tsx/json/css/html
+  （跳过 node_modules/out/data/docs/reports/fixtures），抽 docs/<path> 并**逐个 fs.existsSync**。
+  结果：**总引用 43 · 存在 7 · 悬挂 36**（去重后 **14 份**被删文档）：
+    · docs/spec/CONTRACT-engine-v1.md      ← 7 处（engine 的 errors/compat/index/library/fake + 渲染层 search/Score）
+    · docs/MIGRATION-PLAN.md               ← 6 处（根 package.json、apps/desktop/package.json ×2、design-tokens、engine、indexer）
+    · docs/spec/SPEC-security.md           ← 4 处（ipc.ts、deps/permissions 测试、window-security.spec）
+    · docs/spec/SPEC-transactions.md       ← 4 处（library-config、engine.ts、states.ts、transactions 测试）
+    · docs/design/UI-REVIEW-and-migration.md ← 3 处（ItemPage.tsx、item-actions.ts、item-detail.spec.mjs）
+    · docs/audit/stack-evidence.md         ← 2 处（根 package.json、tsconfig.node.json）
+    · docs/plan/ROADMAP.md ← 2 处 · docs/spec/SPEC-app.md ← 2 处
+    · 单处：docs/DEBT-CLEANUP.md · docs/audit/AUDIT-FINAL.md · docs/audit/STACK-AUDIT.md ·
+      docs/design/DESIGN-app-details.md · docs/spec/SPEC-identity.md · `docs/spec`（裸目录名）
+  存在且应予保留的：docs/archive/prototype/(×4) · docs/archive/legacy/ · docs/design/ ✓
+  ⚠️ 归属：这 36 处里，**只有本卡 writeScopes 内的 3 个文件**属于我；其余分布在 apps/desktop（package.json、
+     src/renderer/**、src/main/library-config.ts、e2e/**、tests/**）与 packages/** ⇒ **按边界我不碰**，请 Lead 定。
+
+【能红（纯指针/注释改动的机械守卫 = prettier）】
+  注入：在 electron.vite.config.mjs 末尾加一行 `const __doc1Probe = {a:1,b:2};`（故意不合 Prettier 格式）
+    ⇒ `npx prettier --check electron.vite.config.mjs` = **EXIT=1** ✓
+  还原 ⇒ 探针残留 grep = 0。
+  ⚠️ **如实记一处事故**：第一次「还原」时我用 read→join 写回，**丢了文件末尾换行** ⇒ prettier 仍 EXIT=1；
+     我核对末尾字符（末 3 字符 }); · endsWith 换行 = false）后，用 `npx prettier --write` 规范化 ⇒ `--check` **EXIT=0**。
+     教训（第三次同类）：**还原也要验证**，不能假设写回 = 原样。
+
+【门禁原始输出】
+  tsc node（tsconfig.node.json）                    ⇒ **EXIT=0**
+  prettier --check（我改的 3 个可解析文件）          ⇒ **EXIT=0**（All matched files use Prettier code style!）
+  prettier --check .（全仓）                        ⇒ 第一次 **EXIT=1 · 6 个文件**，其中 **1 个是我的**：
+     apps/desktop/src/main/library-health.ts（S2 期间改过）⇒ 已 `--write` 规范化 ⇒ 单文件 check **EXIT=0**
+     其余**不是我的**：apps/desktop/src/main/app-health.ts · crash-policy.ts ·
+       src/renderer/src/store/app-health.ts · tests/app-health.test.mjs（这是 4 个）
+     ⇒ 复跑全仓的原文见本文件末尾。按边界我不动别人的文件。
+  npm test（全量）                                  ⇒ **未跑**：纪律 6/19 要求先向 Lead 申请冻结窗口（收尾报告里一并申请）。
+
+【0 残留 grep（先跑命令、贴输出、后结论 —— 纪律 17）】
+  rg "MIGRATION-PLAN|DESIGN-tokens|UI-REVIEW-and-migration" <我 scope 内 4 个文件>
+     ⚠️ **第一次实测：tokens.css 命中 4 处**（:28 :100 :138 :147 的**数值出处注释**仍在引用 DESIGN-tokens）——
+        我把这 4 处出处注释改成「旧设计文档 §x（已随 v2 清除）」后复跑：
+     ⇒ electron.vite.config.mjs **0** · .prettierignore **0** · eslint.config.mjs **0**
+     ⚠️ tokens.css 第 4 处（:147「来源：DESIGN-tokens §3.2…」）第一次替换**old_string 不匹配而失败** ⇒ 随即用更短锚点修掉；
+        复跑后 tokens.css = **0**。
+     （docs/archive/prototype/ 按卡片要求保留；它是**存在**的目录，不是悬挂指针）
+  ⚠️ 这是我**第三次**「先写结论后验证」被自己抓住（前两次在 db-rebuild/db-import）。
+     证据文件里那句原本写的「命中 0」**已按本条更正** —— 保留错误痕迹，不悄悄改掉。
+
+【复跑全仓 prettier --check . 的原文】
+node.exe : [warn] apps/desktop/src/main/app-health.ts
+    + CategoryInfo          : NotSpecified: ([warn] apps/des...n/app-health.ts:String) [], RemoteException
+[warn] apps/desktop/src/main/crash-policy.ts
+[warn] apps/desktop/src/renderer/src/pages/DiagnosticsPage.tsx
+[warn] apps/desktop/src/renderer/src/store/app-health.ts
+[warn] apps/desktop/tests/app-health.test.mjs
+[warn] Code style issues found in 5 files. Run Prettier with --write to fix.
+
+【⑨ 收尾补正（Lead 裁定 ③：gitignore 里的脚本 = 验收不可复跑）】
+  已把扫描脚本从 data/_doc1-scan.mjs **移入** reports/2026-10-15-wave3/doc1-scan.mjs（data/ 是 gitignore 区），
+  并从新位置**实跑一次**确认可复跑（输出仍为：总引用 43 · 存在 7 · 悬挂 36）。
+  ⚠️ 这与 task-63 的同类教训一致：**证据里的命令必须在入库路径上**，否则下一个人复跑不了。
+
+【⑩ 纪律 20（本轮立的）】
+  「还原」也是一次写入，必须验证：我用 read→join→write 还原 electron.vite.config.mjs 时**丢了末尾换行**，
+  prettier 仍 EXIT=1 ⇒ 用**改坏时那把尺子**（prettier --check）复验后才算还原完成。
