@@ -75,9 +75,9 @@ const KEPT_LIBRARY = [
   'recent_query',
   'recent_view',
 ];
-const KEPT_APP = ['app_meta', 'collect_dir', 'library_registry', 'app_setting'];
+const KEPT_APP = ['app_meta', 'collect_dir', 'library_registry', 'app_setting', 'activity'];
 /** 仍未建的表（随功能上线；它们现在一张都不许被建出来）—— `job`(B2-1) / `health_run`+`health_finding`(B2-2) 已建出，从本表移走 */
-const DEFERRED_TABLES = ['activity', 'tag', 'asset_tag', 'collection', 'collection_item'];
+const DEFERRED_TABLES = ['tag', 'asset_tag', 'collection', 'collection_item'];
 
 let seq = 0;
 function freshDir(label) {

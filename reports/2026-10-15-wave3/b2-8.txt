@@ -1,0 +1,119 @@
+================================================================================
+B2-8 证据 · `activity` 操作记录（+ 与 `asset_export` 的 1:N **机械证明**）
+任务板 id: task-108   执行: db-worker   日期: 2026-10-16
+边界：`main/db/app-migrations.ts`（应用级链）· `main/db/schema-layers.ts` · 测试 · 证据
+      **未加契约方法** · **未改界面**
+===============================================================================
+
+【结论】
+· `activity` 落地（**8 列 = 设计基线的 8 个字段行**）+ 应用级链 **v3** + `idx_activity_at (at_ms DESC)`。
+· ⭐ **归属先核对了基线**：`SPEC.md:173`（第二批归属表）把它列在**应用级**；基线 `SPEC-COMPACT.md:197` 更直白
+  「复用 `activity.activity_id` … **不能建外键 —— activity 在应用级 DB**」⇒ 落 **`app.db`**。
+· ⭐⭐ **与 `asset_export` 的 1:N 边界是机械证明的**（C3，**跨两个数据库**）：
+  一次批量 ⇒ `activity` **恰好 1 行**（同一 id 第二次插入被主键拒）· `asset_export` **恰好 N 行**（batch_id 允许重复）
+  · 两者用**同一个 `batch_id`** 关联 · 且**两边都没有物理外键**（跨库不可能）。
+· 字段出处机械证明（C1：解析 `SPEC-COMPACT.md` §46-57 ↔ 真 DDL 双向）· CHECK 枚举 · 可空语义 · DESC 索引 · detail_json 结构化。
+· **能红三组**（原文见 §5）· 断言全部**从清单/真源派生**（没有"当前张数/条数/某层 == 列表"写死）。
+· 门禁（本轮实测）：受影响面 **164/164** · **s4 19/0/0** · `prettier --check .` **0** · `tsc` node/web **0** · `lint` **0**。
+
+【1. ⭐ 归属核对（卡面第 1 条）—— 顺带发现**证据链内部冲突**，已按 SPEC 处理】
+| 证据 | 说法 | 采用 |
+|---|---|---|
+| `SPEC.md:173`（第二批归属表） | **应用级**：`app_setting` · `activity` · `recent_query` | ✅ 采用（SPEC 是行为权威） |
+| `SPEC-COMPACT.md:197`（`asset_export.batch_id` 行） | 「复用 `activity.activity_id` …**不能建外键 —— activity 在应用级 DB**」 | ✅ 采用（与上一条一致；这句**只有** activity 在 app.db 才自洽） |
+| `README.md:32`（四层分类） | 把 `activity` 归**过程层** | ❌ 不采用：那是**按层语义**分，而本仓物理规则是「库级 = fact ∪ process ∪ intent」⇒ 按它会放进 `.gs.db`，与上面两条矛盾 |
+⇒ 落 **`app.db`** + 应用层点名；冲突与理由**写进注释**（`app-migrations.ts` 的 T_ACTIVITY、`schema-layers.ts` 的 app 层）。
+
+【2. 字段出处（照抄设计基线 `SPEC-COMPACT.md` §46-57）】
+| 字段 | 类型/约束 | 为什么（照抄基线） |
+|---|---|---|
+| `activity_id` | TEXT **PK** | nanoid；**同时是批量操作的 `batch_id`**（一族操作共用一个 id） |
+| `at_ms` | INTEGER NOT NULL **INDEX DESC** | 倒序 ⇒ 列表页第一屏是索引扫描，不是全表排序 |
+| `kind` | TEXT NOT NULL **CHECK 10 值** | collect / deliver / trash / restore / purge / tag.add / tag.remove / collection.add / index.exclude / index.in |
+| `subject_kind` | TEXT NOT NULL **CHECK 5 值** | asset / library / tag / collection / app |
+| `subject_id` | TEXT 可空 | 对象 id；**批量操作时为空**，明细在 `detail_json` |
+| `lib_id` | TEXT 可空 | 有些操作（**登记库**）**不属于任何库** |
+| `result` | TEXT CHECK ok/skipped/failed | 与 `asset_export.result` **同一套词** |
+| `detail_json` | TEXT 可空 | 存**结构化参数**，不存渲染好的文字（渲染的唯一来源在界面那一侧） |
+
+【3. ⭐⭐ 1:N 边界的机械证明（C3 · 跨两库 · 不是文字说明）】
+一次批量（`batch_id = 'batch-2026-1016-A'`，N = 5）：
+1. **activity 恰好 1 行**：写入后，**再插同一个 `activity_id` 被拒**（PK）——这就是 1:N 里的**那个 1**；
+2. **asset_export 恰好 N 行**：同一个 `batch_id` 写 5 行，全部成功（`batch_id` **不唯一**）；
+3. **同一 id 跨库关联**：`SELECT … FROM activity WHERE activity_id = ?` ⇒ 1 行；
+   `SELECT … FROM asset_export WHERE batch_id = ?` ⇒ N 行；且 activity 的 `detail_json.count` 与子表行数一致；
+4. **另一个批量** ⇒ 两边各自 +1 / +N（不是"全局只有一行"）；
+5. **没有物理外键**：`PRAGMA foreign_key_list(activity)` = **`[]`**（尤其不可能指向另一个库里的 asset_export）；
+   `foreign_key_list(asset_export)` 仍只有 `asset`（B2-2 的口径不变）。
+⇒ 「一次批量 = activity 1 行 + asset_export N 行」这条**基线口径**现在有可执行证据。
+
+【4. 改前 → 改后 → 为何**不是放宽**】
+| # | 位置 | 改前 | 改后 | 为什么不是放宽 |
+|---|---|---|---|---|
+| 1 | `app-migrations.ts` | 应用链 v1 + v2（app_setting） | **v3 `batch2-activity`** | 加新迁移，不改 v1/v2；版本从该链派生 |
+| 2 | `schema-layers.ts` | app 层 4 张 | app += `activity` | 按 SPEC 的**物理归属**；四组点名仍强制全覆盖 |
+| 3 | `app-db.test.mjs` D1 | 应用表名清单 4 个 | 清单加 `activity`（**只列名字、不写数量**） | 与 DDL 同步；数量仍由清单派生 |
+| 4 | `db-schema.test.mjs` | `KEPT_APP` 无 activity · `DEFERRED_TABLES` 含 activity | 加进已建、移出未建 | 清单与事实同步；"未建清单与已建集合互斥"这条关系断言原样保留 |
+| 5 | `s4-accept.mjs` | 白名单无 activity · `NOT_BUILT` 含它 | 白名单加它（**同一份**）· 移出 `NOT_BUILT` · **新增 S4-U9** | 白名单仍是显式登记（不在 map 又不在白名单 ⇒ 红）；新单测纳入同一门禁 |
+
+【5. ⭐ 能红（三组 · 注入 ⇒ 必红 ⇒ 还原 ⇒ 复绿）】
+① **去掉点名**（app 层删 `activity`）：
+   `✖ C7 … activity 属应用层（actual: false, expected: true）` · `✖ G1 … DDL 建出的表与四组点名必须逐张对上`
+   s4 同轮：`FAIL S4-A14` + **`FAIL S4-U1`（db-schema）** + **`FAIL S4-U9`（activity）** ⇒ `PASS 16 · FAIL 3`
+   ⇒ **三条守卫独立都抓到**。
+② **改坏 1:N 关系**（去掉 `activity_id` 的主键 —— 也就是把那个"1"拆掉）：
+   `✖ C3 … Missing expected exception: activity_id 是主键 ⇒ 一次批量只能有一行（这就是 1:N 里的那个 1）`
+   ⇒ 一次批量可以塞进任意多行 activity，"1 行 + N 行"的口径当场失效 ✓ 这条断言**真的是在守那条边界**。
+③ **弄坏一条约束**（整段去掉 `kind` 的 CHECK）：
+   `✖ C2 … Missing expected exception: kind 只认基线那 10 个动作`
+   ⚠️ 如实记一次**无效注入**：我第一次把 CHECK 挪到"另一个列名"上（`__unused TEXT CHECK (kind IN …)`）—— SQLite 的
+      表级 CHECK **不看你写在哪个列**，约束照样生效 ⇒ C2 仍然绿。**注入方式错了，不是断言弱**；改成整段删除后立刻红。
+⇒ 三组还原后：`activity + db-schema + app-db + app-setting = 34/34 绿` · `s4 = 19/0/0`。
+
+【6. 0 残留 grep（先跑后结论）】
+$ `activity` 在 `apps/desktop/src/main` 的落点：`db/app-migrations.ts × 19`（DDL + 注释）·
+  `db/schema-layers.ts × 4`（app 层点名 + 注释）· `db/migrations.ts × 3`（**都是注释**：B2-2 的
+  `asset_export.batch_id` 说明里提到"复用 activity.activity_id"）⇒ **没有第二份实现**（唯一 DDL 在应用级链）。
+$ 正证：`app-migrations.ts:192` = `activity_id TEXT PRIMARY KEY NOT NULL,`（② 已还原）·
+  `:194` = `kind TEXT NOT NULL CHECK (kind IN ('collect', …)`（③ 已还原）· `:204` = `idx_activity_at`；
+  全 `main/` **没有** `MUTANT` 标记。
+
+【7. 门禁（本轮实测 · 最终字节）】
+$ node --test <受影响面 18 个文件>（activity/app-setting/app-db/db-schema/asset-export/search-history/asset-user-meta/
+  health-ledger/job-ledger/job-wiring/db-rebuild/db-import/items-ipc/health-rebuild/library-methods/s3-index-state/
+  storage-ports-main/index-location）⇒ **164/164 · fail 0**
+$ node reports/2026-10-15-wave3/s4-accept.mjs ⇒ **PASS 19 · FAIL 0 · SKIP 0**（含 S4-U9）
+$ npx prettier --write <本卡改动文件> ⇒ 0 → npx prettier --check . ⇒ **0（All matched files use Prettier code style!）**
+$ npx tsc --noEmit -p tsconfig.node.json … ⇒ **0** ｜ tsconfig.web.json … ⇒ **0**
+$ npm run lint ⇒ **0**
+（全量 `npm test` 与冻结门禁由 Lead 跑 —— 纪律 6；收到「冻结开始」我会**先回执再停笔**。）
+
+【8. ⚠️⚠️ 跨卡发现（如实上报，**未越界修**）：`recent_query` 被我 B2-5 放进了**库级**，而 SPEC 说它是**应用级**
+· `SPEC.md:173`：「**应用级** | `app_setting` · `activity` · **`recent_query`**」
+· 我 B2-5 的实现：`recent_query` 在 **`main/db/migrations.ts`（库级链 v6 `T_SEARCH`）**，并在 `schema-layers.ts` 归**过程层**
+  （依据是 `README.md:32` 的四层表把它列在"过程层"）。
+· **同一份证据链内部冲突**：README 按**层语义**分类，而本仓物理规则是「库级 = fact ∪ process ∪ intent」；
+  SPEC.md:173 给的是**物理归属**。两者对 `recent_query` 的结论不同 ⇒ **以 SPEC 为准**（AGENTS §0：行为冲突看 SPEC）。
+  （`recent_view` **不冲突**：SPEC.md:171 明确写「库级·过程」，我放的就是库级 ✓ 只有 `recent_query` 一个放错了。）
+· **影响**：`recent_query` 现在躺在 `.gs.db` 里 —— 而它记的是"跨库检索历史"（基线字段 `scope_lib_id`：NULL = 全部库），
+  放库级意味着**每个库各存一份搜索历史**、且**删库重建会连搜索历史一起丢**（而它是"系统记的最近行为"，本不该跟库走）。
+· **修复方案（本卡未做，等你裁）**：把它从库级链搬到应用级链 ——
+  ① `migrations.ts` 的 v6 `T_SEARCH` 去掉 `recent_query`（**已有库怎么升级**需要在下一张卡里定：搬表 or 保留空表）；
+  ② `app-migrations.ts` 加一条应用级迁移建 `recent_query`（v4）；
+  ③ `schema-layers.ts`：从 process 挪到 app；
+  ④ 连带：`search-history.test.mjs` 的 S1/S5/S6、`db-schema` 的清单、s4 白名单、`lib b2-5.txt` 的结论都要改。
+  ⚠️ 因为**迁移已经落地**（v6 已在真实库跑过），这属于**跨卡、跨链**的修正 ⇒ 我**不擅自做**。
+· 我这次能发现它，正是因为 B2-8 卡面要求"**归属先核对基线**" —— 与 B2-2/B2-6 同一条纪律。
+
+【9. 未做 / 边界（如实写 · P6）】
+· **只落地表**：`activity` **没有 API**（没有写入函数）⇒ **界面看不到操作记录**。
+  ⚠️ 因此 `app-db.test.mjs` 的 **D4（唯一写入口）没有为 activity 加断言**——没有写入者就无从断言；
+  等写入 API 落地那张卡，D4 应同步把 `activity` 加进去（与 B2-6 对 `app_setting` 的做法一致）。
+· `asset_export` 侧**没有改**（B2-2 已落地）——1:N 的证明只用它的既有形状。
+· 没做真实 `collect`/`deliver` 端到端（本卡不含写入路径）。
+
+【10. 回滚】
+· `app-migrations.ts`：删 `T_ACTIVITY` + `APP_V3` + 清单里 v3 条目；
+· `schema-layers.ts`：app 去掉 `activity`；`app-db.test.mjs`/`db-schema.test.mjs`/`s4-accept.mjs`：清单/白名单改回、删 S4-U9；删 `activity.test.mjs`。
+· 未跑 git（AGENTS P7）。临时物：`data/_b28/**`（测试自清）· `data/_verify/*.tsbuildinfo`。
+===============================================================================

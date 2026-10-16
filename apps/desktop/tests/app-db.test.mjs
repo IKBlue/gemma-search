@@ -92,8 +92,9 @@ test('D1 ⭐ 打开即建库：app.db 在 <userData>/app.db，应用级表齐全
     .map((r) => r['name']);
   for (const t of APP_TABLES)
     assert.ok(names.includes(t), '缺表：' + t + '（实得 ' + names.join(',') + '）');
-  // B2-6 起多了 app_setting（**只列名字、不写数量**）
+  // 只列名字、不写数量（B2-6 起多了 app_setting，B2-8 起多了 activity）
   assert.deepEqual([...APP_TABLES].sort(), [
+    'activity',
     'app_meta',
     'app_setting',
     'collect_dir',

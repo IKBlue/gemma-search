@@ -75,10 +75,13 @@ export const SCHEMA_LAYERS: Readonly<Record<SchemaLayer, readonly string[]>> = O
 
   /**
    * 应用层：跨库的配置与全局安全边界（不参与库级重建）
-   * + `app_setting`（B2-6 起）：应用设置 —— 按 `SPEC.md:173` 与基线四层表（`README.md:34`）属**应用级**，
-   *   所以它进的是 `app.db` 的迁移链（见 `app-migrations.ts`），**不是**库级链。
+   * · `app_setting`（B2-6）：应用设置 —— `SPEC.md:173` 与基线四层表（`README.md:34`）都列在**应用级**；
+   * · `activity`（B2-8）：操作记录 —— `SPEC.md:173` 列在**应用级**，且基线 `SPEC-COMPACT.md:197` 明说
+   *   「`asset_export.batch_id` 复用 `activity.activity_id`，**不能建外键 —— activity 在应用级 DB**」
+   *   （这一句只有把 activity 放 `app.db` 才自洽）。⚠️ `README.md:32` 把 activity 归"过程层"是**按层语义**分的，
+   *   与本仓"层 == 物理文件"的规则冲突 ⇒ **以 SPEC 为准**（AGENTS §0），落在应用层。
    */
-  app: Object.freeze(['app_meta', 'library_registry', 'collect_dir', 'app_setting']),
+  app: Object.freeze(['app_meta', 'library_registry', 'collect_dir', 'app_setting', 'activity']),
 });
 
 /** 一层里的表名（副本，防调用方改到常量；空层返回空数组） */

@@ -156,10 +156,62 @@ const APP_V1: readonly string[] = Object.freeze([...T_LIBRARY_REGISTRY, ...T_COL
 
 const APP_V2: readonly string[] = Object.freeze([...T_APP_SETTING]);
 
+/**
+ * **应用层** `activity` —— 操作记录（B2-8 · 字段照抄设计基线
+ * `reports/2026-10-15-schema-diff/SPEC-COMPACT.md` §「activity [v1.2 新增] · 字段 8」，第 46-57 行）。
+ *
+ * ⚠️ **归属先核对了基线**（卡面第 1 条要求）：
+ *   · `SPEC.md:173`（第二批归属表）把 `activity` 列在**应用级**；
+ *   · 设计基线 `SPEC-COMPACT.md:197` 更直白：「复用 `activity.activity_id` … **不能建外键 —— activity 在应用级 DB**」。
+ *   ⇒ 它是 **`app.db` 的表**，进**应用级链**（本文件）。
+ *   ⚠️ 与 `README.md:32`（把 `activity` 归"过程层"）**表面冲突**：那份按**层语义**分，而本仓的物理规则是
+ *     「库级 = fact ∪ process ∪ intent」⇒ 按它会把 activity 放进 `.gs.db`，与上面两处（以及"跨库无外键"
+ *     这条唯一自洽的解释）矛盾。**以 SPEC 为准**（AGENTS §0：行为冲突看 SPEC）。
+ *
+ * ── 与 `asset_export` 的边界（"一次批量 = 谁一行"）────────────────────────────
+ * 基线原话：**一次批量 = `activity` 1 行 + `asset_export` N 行**。
+ *   · `activity`（**应用级**）= 「谁在什么时候做了一次什么」—— 一次批量**一行**；
+ *   · `asset_export`（**库级·意图**）= 「每条素材的结局」—— 一次批量 **N 行**；
+ *   · 纽带 = **同一个 `batch_id`**（就是本表的 `activity_id`：基线原话「也是批量操作的 batch_id」）。
+ * ⚠️ 两张表**在不同的数据库里** ⇒ 这条纽带只能是**逻辑**的、**不可能有物理外键**（这就是基线写"不能建外键"的原因）。
+ *   ⇒ 测试用**同一批数据跨两库**证明 1:N（`activity.test.mjs` 的 C3）。
+ *
+ * 逐字段的"为什么"（照抄基线）：
+ *   · `activity_id` **PK** —— nanoid；**同时是批量操作的 `batch_id`**（一族操作共用一个 id）；
+ *   · `at_ms` NOT NULL + **DESC 索引** —— 倒序 ⇒ 列表页第一屏是索引扫描，不是全表排序；
+ *   · `kind` NOT NULL + **CHECK 枚举**（collect/deliver/trash/restore/purge/tag.add/tag.remove/collection.add/index.exclude/index.in）；
+ *   · `subject_kind` NOT NULL + **CHECK 枚举**（asset/library/tag/collection/app）；
+ *   · `subject_id` 可空 —— 对象 id（uid/lib_id/tag_id…）；**批量操作时为空**，明细在 `detail_json`；
+ *   · `lib_id` **可空** —— 有些操作（登记库）**不属于任何库**；
+ *   · `result` CHECK ok/skipped/failed —— 与 `asset_export.result` **同一套词**；
+ *   · `detail_json` 可空 —— 存**结构化参数**，不存渲染好的文字（渲染的唯一来源在界面那一侧）。
+ */
+const T_ACTIVITY: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS activity (
+  activity_id   TEXT    PRIMARY KEY NOT NULL,
+  at_ms         INTEGER NOT NULL,
+  kind          TEXT    NOT NULL CHECK (kind IN ('collect', 'deliver', 'trash', 'restore', 'purge',
+                                                 'tag.add', 'tag.remove', 'collection.add',
+                                                 'index.exclude', 'index.in')),
+  subject_kind  TEXT    NOT NULL CHECK (subject_kind IN ('asset', 'library', 'tag', 'collection', 'app')),
+  subject_id    TEXT,
+  lib_id        TEXT,
+  result        TEXT    CHECK (result IN ('ok', 'skipped', 'failed')),
+  detail_json   TEXT
+);`,
+  // 基线在 at_ms 上点名 "INDEX DESC"：历史列表按时间倒序看 ⇒ 第一屏是索引扫描
+  'CREATE INDEX IF NOT EXISTS idx_activity_at ON activity (at_ms DESC);',
+];
+
+const APP_V3: readonly string[] = Object.freeze([...T_ACTIVITY]);
+
 export const APP_MIGRATIONS: readonly Migration[] = Object.freeze([
   Object.freeze({ version: 1, name: 'greenfield-app-3', statements: APP_V1 }),
   // B2-6：`app_setting` 走**应用级自己的链**（版本号与库级链各算各的，绝不混用）
   Object.freeze({ version: 2, name: 'batch2-app-setting', statements: APP_V2 }),
+  // B2-8：`activity` 同样走应用级链（SPEC.md:173 把它列在应用级）
+  Object.freeze({ version: 3, name: 'batch2-activity', statements: APP_V3 }),
 ]);
 
 /** 本程序知道的**应用级**最高版本（从清单派生） */
