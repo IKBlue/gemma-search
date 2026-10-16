@@ -46,12 +46,38 @@ export type HealthCheck = {
   rebuildable: boolean;
 };
 
+/** 孤包明细（相对库根）—— 界面显示/复制用；**孤包没有 uid**（它不是素材） */
+export type OrphanArchiveFinding = {
+  relPath: string;
+  ext: string;
+};
+
+/**
+ * 孤包（只有包、没有图）—— 主进程给的**独立异常类别**（U12）。
+ * ⚠️ 界面只渲染它，**不自己判定**：
+ *   · 它**不是**失败检查项，也**不是损坏** —— 是**不完整**；
+ *   · 文案必须带上「不算素材 · 不是损坏 · 重建修不好」（这三句是口径，不许改写）。
+ */
+export type OrphanArchive = {
+  count: number;
+  samples: OrphanArchiveFinding[];
+  /** count > samples.length ⇒ 明细被截断（计数仍然真实） */
+  truncated: boolean;
+  /** 是否真的扫过：false ⇒ count=0 代表「没扫/扫描失败」，**不是**「没有孤包」 */
+  scanned: boolean;
+  error: string | null;
+};
+
 export type LibraryHealthReport = {
   libId: string;
   root: string;
   dbPath: string | null;
   indexPath: string;
   checks: HealthCheck[];
+  /** 素材数 = 预览图条目（**孤包不计入**）；null = 没扫（库根不在） */
+  materialCount: number | null;
+  /** 独立异常类别：孤包（只有包、没有图） */
+  orphanArchive: OrphanArchive;
   ok: boolean;
   needsDbRebuild: boolean;
   needsIndexRebuild: boolean;

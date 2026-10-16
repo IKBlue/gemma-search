@@ -1,0 +1,99 @@
+==============================================================================
+U12 / task-81 · 孤包（只有包、没有图）作为**独立异常类别**报告
+日期：2026-10-16 · 执行：main-migrator · 环境：Windows / Node v24.14.0 / TS 7.0.2
+==============================================================================
+
+## 0. 交付物（4 个源文件 + 1 个纯格式化）
+  [改] apps/desktop/src/main/library-health.ts             报告新增 materialCount + orphanArchive（复用引擎 scanLibrary.missingImage）
+  [改] apps/desktop/src/renderer/src/store/health.ts       类型镜像（OrphanArchive + 2 个字段）
+  [改] apps/desktop/src/renderer/src/pages/DiagnosticsPage.tsx  常驻可见的「孤包」段（纯增补，不动 CheckRow/重建两段式）
+  [改] apps/desktop/tests/health-rebuild.test.mjs          H14 / H15
+  [格式] apps/desktop/src/main/crash-policy.ts             纯 prettier 格式化（DF-6 的文件此前没过 prettier；无逻辑改动）
+
+## 1. 改前 → 改后 → 为何非放宽
+  改前：checkLibraryHealth 只报 library-root / items-file / index / db-* 四块；引擎扫描器算出的
+        missingImage（有包无图）**在体检里没有任何出口** ⇒ 孤包要么被静默忽略，要么被人当成"新素材"
+        数进「100 条素材」（TASKS §4 U12 的原始分歧）。
+  改后：报告新增两个字段 —— materialCount（素材 = **预览图条目**）+ orphanArchive{count, samples[],
+        truncated, scanned, error}；诊断页在体检结论下方**常驻**一段显示它。
+  为何非放宽：这是**新增一个可见类别**，没有删掉/放松任何既有检查，也没有改任何既有错误码；
+        并且它**不进 checks**、**不翻 report.ok**、**不进 needsDbRebuild**（Lead 裁决①）——
+        它报的是「不完整」，不是「坏」。三句口径同时写进 report.reason，所以即使不看界面也能看见。
+
+## 2. Lead 三条裁定的落实
+  ① 不翻 report.ok + 界面必须可见 + 文案三句
+     · 不翻 ok：H14 断言 after.ok === before.ok、after.needsDbRebuild === before.needsDbRebuild；
+     · 常驻可见：DiagnosticsPage 的 ready 面板里直接渲染（**没有**折叠/展开），data-testid="orphan-archive"；
+     · 文案逐字：不算素材 · 不是损坏 · 重建修不好（H14 还断言 reason 里有「不算素材 / 不是损坏 / 重建元数据修不好」）。
+  ② samples 上限 + truncated：MAX_ORPHAN_LISTED = 50；计数**不受**截断影响（H15：60 个 ⇒ count=60 / samples=50 / truncated=true）。
+  ③ 不开 revealPath：路径只**显示文本**（li.mono.select-all，一键选中便于复制）；理由与将来做法见 §5。
+
+## 3. 能红原文（2 条；注入 ⇒ 必红 ⇒ 还原复绿，副本 data/_u12/，未用 git checkout）
+
+### R1 把孤包算进素材（materialCount = images + missingImage）
+命令：node --test --test-isolation=none --test-name-pattern="H14 " apps/desktop/tests/health-rebuild.test.mjs
+  ✖ H14 ⭐ 孤包是独立异常类别：单独计数 · 素材数不变 · 不翻 ok · 缺包 ≠ 孤包 (1252.2287ms)
+  ℹ tests 1
+  ℹ pass 0
+  ℹ fail 1
+  ✖ failing tests:
+  ✖ H14 ⭐ 孤包是独立异常类别：单独计数 · 素材数不变 · 不翻 ok · 缺包 ≠ 孤包 (1252.2287ms)
+    AssertionError [ERR_ASSERTION]: ★ 加孤包后素材计数不变（孤包不算素材）
+      actual: 4,
+  restored identical = true；复跑 15/15 绿（§4）
+
+### R2 去掉明细上限（samples 不再 slice）
+命令：node --test --test-isolation=none --test-name-pattern="H15 " apps/desktop/tests/health-rebuild.test.mjs
+  ✖ H15 ⭐ 孤包明细有上限且如实标记 truncated（计数不受截断影响） (128.0236ms)
+  ℹ tests 1
+  ℹ pass 0
+  ℹ fail 1
+  ✖ failing tests:
+  ✖ H15 ⭐ 孤包明细有上限且如实标记 truncated（计数不受截断影响） (128.0236ms)
+    AssertionError [ERR_ASSERTION]: 明细上限 = 50
+      actual: 60,
+  restored identical = true；复跑 15/15 绿
+
+## 4. 门禁原始输出
+  · tsc -p tsconfig.node.json：EXIT=0（0 行）
+  · tsc -p tsconfig.web.json：EXIT=0（0 行）
+  · 单文件测试（格式化之后复跑）：
+      health-rebuild      ℹ tests 15 · ℹ pass 15 · ℹ fail 0 · ℹ skipped 0
+      health-store        ℹ tests 11 · ℹ pass 11 · ℹ fail 0 · ℹ skipped 0
+      library-methods     ℹ tests 8 · ℹ pass 8 · ℹ fail 0 · ℹ skipped 0
+      storage-ports-main  ℹ tests 11 · ℹ pass 11 · ℹ fail 0 · ℹ skipped 0
+      db-schema           ℹ tests 12 · ℹ pass 12 · ℹ fail 0 · ℹ skipped 0
+      crash-policy        ℹ tests 7 · ℹ pass 7 · ℹ fail 0 · ℹ skipped 0
+  · prettier --check：本卡 4 个文件 + crash-policy.ts = "All matched files use Prettier code style!"；
+    全仓仍剩 6 个 warn，**全是 U27 的在飞文件**（app-health.ts / AppHealthPanel.tsx / store/app-health.ts /
+    tests/app-health*.test.mjs / e2e/app-health.spec.mjs）—— 不是本卡的，未碰。
+  · 未跑全量 npm test / build / e2e：纪律 6/19（门禁窗口要冻结写入面，且要先问 Lead）。
+
+## 5. gap 记录（**不是遗漏**）：为什么现在不做"按路径跳转"
+  现状：路径只显示文本（可复制）。**没有** revealPath 之类的方法 —— 现有的 reveal 只收 {libId, uid}，
+        而孤包**没有 uid**（它根本不是素材），所以那条路走不通。
+  Lead 裁定（2026-10-16）不开新方法，理由记在这里以免下次被当成"忘了做"：
+   ① **契约面**：今天已经在加第 22 个方法（appHealth）；再塞一个没有明确用户价值的方法不划算 ——
+      孤包的可行动作发生在**用户的文件系统**里，不在应用内；路径文本可复制已够定位。
+   ② **安全**：**按路径 reveal 与刚修的两条 P4 逃逸是同一类风险**（路径必须被约束在库根/白名单内）。
+  ⇒ 将来真要做：**必须复用 DF-9 的 checkPathInsideBase**，不许裸 shell.openPath / showItemInFolder。
+
+## 6. 0 残留 grep（先跑、贴输出、后结论 —— 纪律 17）
+  ① 孤包判据只有一份（main 里谁引用引擎的 missingImage）：
+       library-health.ts:215（注释）· :230 count · :231 samples · :232 truncated —— **只有这一个模块**
+  ② main 里没有第二份压缩包扩展名配对（.rar/.7z/.zip 字面量）：**0 命中**（判据留在引擎 fingerprint.ts）
+  ③ 引擎侧唯一来源：scanner.ts:65/83/123/186/255/268（missingImage 的产生处）
+  ④ orphanArchive 的出现处：library-health.ts 18 · store/health.ts 4 · DiagnosticsPage.tsx 13 · health-rebuild.test.mjs 10
+
+## 7. 未决 / 边界内的如实说明
+  · 诊断页顶部徽标仍按 report.ok（= 检查项全过）显示「全部通过」—— 孤包**不翻** ok（裁决①），
+    所以它不以"失败项"出现；它在下面就**常驻可见**，且 report.reason 里也写了。若要求徽标也反映孤包，
+    那是改 report.ok 的语义（与裁决①冲突），需重新裁定。
+  · 与既有体检项的关系（也写进了代码注释）：缺包（有图无包）是 SPEC §1 **允许**的状态；
+    孤包（有包无图）是**不完整**；重复 / 坏索引是**可处置**的（去重 / 重新编码），孤包重建元数据修不好。
+
+## 8. 回滚方式
+  · 整卡撤销：撤销该提交（git revert <commit>）；
+  · 只回滚界面：删掉 DiagnosticsPage 的那段（主进程字段留着不影响任何调用方）；
+  · 注入副本：data/_u12/library-health.R1.bak · library-health.R2.bak（均已与工作树逐字节一致）。
+==============================================================================

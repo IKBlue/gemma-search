@@ -26,6 +26,8 @@ import { openGsDb } from './db/open.ts';
 import { readIndexSummaryAt } from './index-file.ts';
 import { resolveIndexLocation } from '../../../../packages/engine/src/index-layout.ts';
 import type { IndexLayout } from '../../../../packages/engine/src/index-layout.ts';
+// ⚠️ 复用引擎的扫描器（**不写第二份**）：孤包/缺包的判据只有一份（AGENTS P1）
+import { scanLibrary } from '../../../../packages/engine/src/scanner.ts';
 import type { SqlDatabase } from './db/sqlite-adapter.ts';
 
 export type HealthCheckId =
@@ -50,6 +52,35 @@ export interface HealthCheck {
   rebuildable: boolean;
 }
 
+/** 一个孤包（只有包、没有图）—— 相对库根，供界面显示/跳到该文件 */
+export interface OrphanArchiveFinding {
+  relPath: string;
+  ext: string;
+}
+
+/**
+ * **独立异常类别**：孤包（只有包、没有图）。口径见 checkLibraryHealth 里那段注释（TASKS §4 U12）。
+ *
+ * ⚠️ 它**不是**失败检查项，也不是"损坏"：它是**不完整**。所以：
+ *   · 不翻 `report.ok`（健康库不该因为"少了一半素材"被显示成"有问题"）；
+ *   · 不参与 `needsDbRebuild`（重建元数据修不好它 —— 缺的是素材本身）。
+ */
+export interface OrphanArchiveCategory {
+  /** 孤包计数 —— **不**计入 `materialCount` */
+  count: number;
+  /** 明细（相对库根；最多 {@link MAX_ORPHAN_LISTED} 条）—— "可跳到该文件"的数据来源 */
+  samples: OrphanArchiveFinding[];
+  /** count > samples.length ⇒ 明细被截断（计数仍然真实） */
+  truncated: boolean;
+  /** 是否真的扫过：库根不在 / 扫描抛错 ⇒ false，此时 count=0 **不代表**"没有孤包" */
+  scanned: boolean;
+  /** 扫描本身失败的原因（scanned=false 时非空） */
+  error: string | null;
+}
+
+/** 孤包明细最多列几条（**计数**不受影响）—— 与引擎 `maxSkippedListed` 同一态度 */
+export const MAX_ORPHAN_LISTED = 50;
+
 export interface LibraryHealthReport {
   libId: string;
   root: string;
@@ -59,6 +90,13 @@ export interface LibraryHealthReport {
   /** 用的是哪套布局：库根（新）/ 旧布局回退 / 两处都没有（T-44） */
   indexLayout: IndexLayout;
   checks: HealthCheck[];
+  /**
+   * 素材数 = **预览图条目**（引擎扫描口径）。**孤包不算素材** ⇒ 这个数里没有它们。
+   * `null` = 没扫（库根不存在/不合法）—— 不编一个 0 冒充"这个库没有素材"。
+   */
+  materialCount: number | null;
+  /** 独立异常类别：孤包（只有包、没有图）—— 不算素材、不是损坏、重建修不好 */
+  orphanArchive: OrphanArchiveCategory;
   /** 所有检查通过 */
   ok: boolean;
   /** 有可重建的失败项 ⇒ 调 rebuildLibraryDb 有意义 */
@@ -93,6 +131,11 @@ function codeOf(e: unknown): string {
     if (typeof c === 'string' && c) return c;
   }
   return 'UNKNOWN';
+}
+
+/** 空类别（没扫 / 库根不在时的默认值）—— 一处定义，避免两处各拼一个字面量 */
+function EMPTY_ORPHANS(): OrphanArchiveCategory {
+  return { count: 0, samples: [], truncated: false, scanned: false, error: null };
 }
 
 function isDir(p: string): boolean {
@@ -151,7 +194,7 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
         ' —— 盘没挂载 / 库被移走时就是这样；后面几项无从检查（不假装它们通过）',
       rebuildable: false,
     });
-    return summarize(libId, root, dbPath, indexPath, loc.layout, checks);
+    return summarize(libId, root, dbPath, indexPath, loc.layout, checks, null, EMPTY_ORPHANS());
   }
   checks.push({
     id: 'library-root',
@@ -160,6 +203,46 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
     reason: '库根是目录：' + root,
     rebuildable: false,
   });
+
+  // ---- 孤包（只有包、没有图）—— **独立异常类别**，不是失败检查项（TASKS §4 U12，所有者已批）
+  //
+  // 口径（别再改）：
+  //   · 「素材」= **预览图条目**（SPEC 口径）⇒ 孤包**不算素材**、不进 materialCount
+  //     （否则污染「100 条素材」的口径）；
+  //   · 但**不许静默忽略** ⇒ 独立类别 = 计数 + 明细（界面可显示到具体文件）；
+  //   · **缺包 ≠ 孤包**：缺包（有图无包）是 SPEC §1 **明文允许**的状态（登记为 missing-archive），
+  //     孤包（有包无图）是**不完整**。两者的判据都只有一份 —— 引擎 scanner 的 missingArchive /
+  //     missingImage；本模块只**复用**它的结果（AGENTS P1），所以文案**不许**写成「损坏」
+  //     （它不是坏，是缺了一半）。
+  //   · 与「重复 / 坏索引」的关系：那两类都是**可处置**的问题（去重 / 重新编码）；
+  //     孤包是**素材本身缺了一半** ⇒ 重建元数据（删 .gs.db 重导）**修不好**它 ⇒ 不是 rebuildable。
+  //   · 为什么不把它做成「失败检查项」：那会翻 report.ok，让**健康库**在界面上显示成「有问题」，
+  //     而且重建后的复检**永远**过不了（缺的文件不会因为重建而出现）—— 那是把「不完整」谎报成「坏」。
+  //
+  // ⚠️ 扫描是**只读**的（scanner 的硬约束：只用 readdir/stat/open(r)），且健康检查本来就是用户
+  //    主动点「运行体检」才跑的重活（已经要读整个索引）。库根不在时压根不扫（上面已 return）。
+  let materialCount: number | null = null;
+  let orphanArchive: OrphanArchiveCategory = EMPTY_ORPHANS();
+  try {
+    const scan = scanLibrary(root, { libId });
+    materialCount = scan.counts.images;
+    orphanArchive = {
+      count: scan.counts.missingImage,
+      samples: scan.missingImage.slice(0, MAX_ORPHAN_LISTED),
+      truncated: scan.counts.missingImage > MAX_ORPHAN_LISTED,
+      scanned: true,
+      error: null,
+    };
+  } catch (e) {
+    // 扫描失败**不许静默**：scanned=false + error 非空 ⇒ 界面不能说「没有孤包」（那是不知道）
+    orphanArchive = {
+      count: 0,
+      samples: [],
+      truncated: false,
+      scanned: false,
+      error: describeError(e),
+    };
+  }
 
   // ---- items.json（重建的输入；不参与"索引/元数据好不好"的判断，但不检查它就没法说重建能不能跑）
   const itemsJsonPath =
@@ -249,7 +332,16 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
       reason: '没有可用的 .gs.db 落点（T-04 的解析结果与 userData 回退都失败了）',
       rebuildable: false,
     });
-    return summarize(libId, root, dbPath, indexPath, loc.layout, checks);
+    return summarize(
+      libId,
+      root,
+      dbPath,
+      indexPath,
+      loc.layout,
+      checks,
+      materialCount,
+      orphanArchive,
+    );
   }
 
   if (!fs.existsSync(dbPath)) {
@@ -261,7 +353,16 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
         '.gs.db 不存在：' + dbPath + ' —— 删库重建会把它建出来（后面的 db 检查跳过，不假装通过）',
       rebuildable: true,
     });
-    return summarize(libId, root, dbPath, indexPath, loc.layout, checks);
+    return summarize(
+      libId,
+      root,
+      dbPath,
+      indexPath,
+      loc.layout,
+      checks,
+      materialCount,
+      orphanArchive,
+    );
   }
   checks.push({
     id: 'db-file',
@@ -451,7 +552,16 @@ export function checkLibraryHealth(opts: CheckLibraryHealthOptions): LibraryHeal
     }
   }
 
-  return summarize(libId, root, dbPath, indexPath, loc.layout, checks);
+  return summarize(
+    libId,
+    root,
+    dbPath,
+    indexPath,
+    loc.layout,
+    checks,
+    materialCount,
+    orphanArchive,
+  );
 }
 
 function summarize(
@@ -461,12 +571,14 @@ function summarize(
   indexPath: string,
   indexLayout: IndexLayout,
   checks: HealthCheck[],
+  materialCount: number | null,
+  orphanArchive: OrphanArchiveCategory,
 ): LibraryHealthReport {
   const failed = checks.filter((c) => !c.ok);
   const needsDbRebuild = failed.some((c) => c.rebuildable);
   const indexCheck = checks.find((c) => c.id === 'index');
   const needsIndexRebuild = indexCheck !== undefined && !indexCheck.ok;
-  const reason =
+  const baseReason =
     failed.length === 0
       ? '自检通过（' + String(checks.length) + ' 项）'
       : '自检发现 ' +
@@ -475,6 +587,19 @@ function summarize(
         failed.map((c) => c.id + '(' + c.code + ')').join(' / ') +
         (needsDbRebuild ? ' ⇒ 可以删库重建' : '') +
         (needsIndexRebuild ? ' ⇒ 索引需要重新编码（删库重建修不好）' : '');
+  // 孤包**不是**失败项（不进 failed），但必须在总结里可见 —— 否则「自检通过」会把
+  // 「这个库少了 N 个素材的另一半」盖掉，那正是 U12 要禁的静默。
+  const orphanNote =
+    orphanArchive.count > 0
+      ? ' · 另有 ' +
+        String(orphanArchive.count) +
+        ' 个孤包（只有包、没有图：不算素材 · 不是损坏 · 重建元数据修不好，见 orphanArchive）'
+      : orphanArchive.scanned
+        ? ''
+        : ' · 孤包扫描未完成（' +
+          String(orphanArchive.error ?? '未知原因') +
+          '）—— 不能据此说「没有孤包」';
+  const reason = baseReason + orphanNote;
   return {
     libId,
     root,
@@ -482,6 +607,8 @@ function summarize(
     indexPath,
     indexLayout,
     checks,
+    materialCount,
+    orphanArchive,
     ok: failed.length === 0,
     needsDbRebuild,
     needsIndexRebuild,

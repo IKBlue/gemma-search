@@ -35,7 +35,9 @@ import {
 import { isReservedLibraryName } from '../src/main/gs-names.ts';
 import { GS_DB_NAME } from '../src/main/storage-roots.ts';
 import { writeIndexAtomically } from '../src/main/index-file.ts';
-import { checkLibraryHealth } from '../src/main/library-health.ts';
+import { checkLibraryHealth, MAX_ORPHAN_LISTED } from '../src/main/library-health.ts';
+// 缺包/孤包的判据只有一份（引擎 scanner）—— 测试直接拿它做交叉核对（P1：不重写判据）
+import { scanLibrary } from '../../../packages/engine/src/scanner.ts';
 import { materialDigest, rebuildLibraryDb } from '../src/main/library-rebuild.ts';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -672,4 +674,108 @@ test('H12 ⭐ 真实库副本：先弄坏 .gs.db → 自检报错 → 重建 →
     [],
     '库级 .gs.db 不得出现库注册表（它在 app.db）',
   );
+});
+// ============================================================ H14 孤包（只有包、没有图）
+
+test('H14 ⭐ 孤包是独立异常类别：单独计数 · 素材数不变 · 不翻 ok · 缺包 ≠ 孤包', () => {
+  const dir = freshDir('H14');
+  const cr = path.join(dir, 'CR');
+  fs.mkdirSync(cr, { recursive: true });
+  // 3 条素材：U1/U2 有图有包；U3 有图无包（SPEC §1 允许的缺包）
+  const records = [
+    makeItem(U1),
+    makeItem(U2),
+    makeItem(U3, {
+      archiveName: null,
+      archiveRelPath: null,
+      archiveAbsPath: null,
+      archiveExt: null,
+      archiveSize: null,
+      archiveMtime: null,
+    }),
+  ];
+  const itemsJsonPath = path.join(dir, 'items.json');
+  fs.writeFileSync(itemsJsonPath, JSON.stringify(records), 'utf8');
+  for (const uid of [U1, U2, U3]) fs.writeFileSync(path.join(cr, 'ID-' + uid + '.jpg'), 'IMG');
+  for (const uid of [U1, U2]) fs.writeFileSync(path.join(cr, 'ID-' + uid + '.rar'), 'ARC');
+  // 保留命名空间里的包不算孤包（扫描器必须跳过 —— U11 的判据）
+  fs.mkdirSync(path.join(cr, '.gs-staging', 't1'), { recursive: true });
+  fs.writeFileSync(path.join(cr, '.gs-staging', 't1', 'x.rar'), 'STAGED');
+
+  const opened = openGsDb({ dbPath: path.join(dir, '.gs.db'), now });
+  try {
+    importItemsFromJson({
+      db: opened.db,
+      library: { libId: 'L1', root: dir },
+      itemsJsonPath,
+      expectedCount: 3,
+      now,
+    });
+  } finally {
+    opened.db.close();
+  }
+
+  const args = { libId: 'L1', root: dir, itemsJsonPath };
+  const before = checkLibraryHealth(args);
+  assert.equal(before.orphanArchive.scanned, true, '库根在 ⇒ 必须真扫过（不是「没扫」冒充 0）');
+  assert.equal(before.orphanArchive.count, 0, '还没有孤包');
+  assert.equal(before.materialCount, 3, '素材 = 预览图条目 = 3');
+
+  // 现在放一个只有包、没有图的文件
+  fs.writeFileSync(path.join(cr, 'LONELY.rar'), 'ORPHAN');
+
+  const after = checkLibraryHealth(args);
+  assert.equal(
+    after.orphanArchive.count,
+    1,
+    '孤包 ⇒ 该类 +1（保留命名空间里的包不算，所以不是 2）',
+  );
+  assert.equal(after.orphanArchive.samples.length, 1);
+  assert.match(after.orphanArchive.samples[0].relPath, /LONELY\.rar$/);
+  assert.equal(after.orphanArchive.truncated, false);
+  assert.equal(after.materialCount, 3, '★ 加孤包后素材计数不变（孤包不算素材）');
+  assert.equal(after.ok, before.ok, '★ 孤包不翻 report.ok —— 它不是损坏，是不完整');
+  assert.equal(
+    after.needsDbRebuild,
+    before.needsDbRebuild,
+    '孤包修不好 ⇒ 不许因此提示「删库重建」',
+  );
+  assert.match(after.reason, /孤包/, '总结里必须能看见（不许静默）');
+  assert.match(after.reason, /不算素材/);
+  assert.match(after.reason, /不是损坏/);
+  assert.match(after.reason, /重建元数据修不好/);
+
+  // 缺包 ≠ 孤包：引擎那两份清单必须各自独立（这就是「不写第二份判据」的交叉核对）
+  const scan = scanLibrary(dir, { libId: 'L1' });
+  assert.equal(scan.counts.images, 3);
+  assert.equal(scan.counts.missingArchive, 1, '缺包 = 有图无包（允许的状态，单独计数）');
+  assert.equal(scan.counts.missingImage, 1, '孤包 = 有包无图（不完整）');
+  // 扫描器算出的 uid 与 items.json 里手写的常量**不是一回事**（uid 由库/路径派生）
+  // ⇒ 这里按**路径**核对（拿 uid 公式再算一遍 = 在测试里实现第二份公式，P1）
+  assert.match(scan.missingArchive[0].relPath, new RegExp('ID-' + U3 + '\\.jpg$'));
+  assert.equal(scan.missingArchive[0].stem, 'ID-' + U3);
+  assert.equal(scan.missingImage[0].relPath.endsWith('LONELY.rar'), true);
+  assert.equal(scan.missingImage[0].ext, '.rar');
+});
+
+// ============================================================ H15 明细上限 + truncated
+
+test('H15 ⭐ 孤包明细有上限且如实标记 truncated（计数不受截断影响）', () => {
+  const dir = freshDir('H15');
+  const cr = path.join(dir, 'CR');
+  fs.mkdirSync(cr, { recursive: true });
+  const total = MAX_ORPHAN_LISTED + 10;
+  for (let i = 1; i <= total; i++) {
+    fs.writeFileSync(path.join(cr, 'lone-' + String(i).padStart(3, '0') + '.rar'), 'X');
+  }
+  const r = checkLibraryHealth({ libId: 'L1', root: dir });
+  assert.equal(r.orphanArchive.scanned, true);
+  assert.equal(r.orphanArchive.count, total, '计数必须真实（截断只影响明细）');
+  assert.equal(
+    r.orphanArchive.samples.length,
+    MAX_ORPHAN_LISTED,
+    '明细上限 = ' + String(MAX_ORPHAN_LISTED),
+  );
+  assert.equal(r.orphanArchive.truncated, true, 'count > samples ⇒ 必须标记 truncated');
+  assert.equal(r.materialCount, 0, '没有预览图 ⇒ 素材 0（孤包不计入）');
 });

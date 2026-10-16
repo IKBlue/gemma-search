@@ -31,6 +31,7 @@ import { useDocumentTitle } from '../utils/useDocumentTitle.ts';
 import { resolveLibrary } from '../utils/library-root.ts';
 import useLibraryConfig from '../hooks/useLibraryConfig.ts';
 import useToast from '../hooks/useToast.ts';
+import AppHealthPanel from './AppHealthPanel.tsx';
 import { useHealthStore, checkLabel, decideRebuildGate, rebuildSummary } from '../store/health.ts';
 import type { HealthCheck, LibraryHealthReport, RebuildReport } from '../store/health.ts';
 
@@ -300,11 +301,74 @@ export default function DiagnosticsPage() {
                       <CheckRow key={c.id} check={c} />
                     ))}
                   </ul>
+
+                  {/* ── 孤包（只有包、没有图）：**独立异常类别**，不是失败项、不是损坏（U12）──
+                      · 不进 checks、不翻 report.ok（缺的是素材本身 ⇒ 它是「不完整」，不是「坏」）；
+                      · 所以必须常驻可见、不许进折叠区 —— 藏起来就等于静默；
+                      · 三句口径文案不许改写：不算素材 · 不是损坏 · 重建修不好；
+                      · 路径只显示文本（select-all 便于复制）：按路径 reveal 要新契约方法，本卡不开
+                        （理由与将来做法见 reports/2026-10-15-wave3/u12.txt）。 */}
+                  <div
+                    className="mt-4 border-t border-line pt-3"
+                    data-testid="orphan-archive"
+                    data-orphan-count={String(report.orphanArchive.count)}
+                    data-orphan-scanned={report.orphanArchive.scanned ? 'yes' : 'no'}
+                  >
+                    <div className="flex flex-wrap items-center gap-2 text-caption">
+                      <span
+                        className={report.orphanArchive.count > 0 ? 'tone-warn' : 'tone-ok'}
+                        aria-hidden="true"
+                      >
+                        {report.orphanArchive.count > 0 ? '!' : '✓'}
+                      </span>
+                      <span className="text-ink">孤包（只有包、没有图）</span>
+                      <span className="mono muted">{String(report.orphanArchive.count)} 个</span>
+                      <span className="muted small">不算素材 · 不是损坏 · 重建修不好</span>
+                    </div>
+                    <p className="muted small">
+                      素材
+                      {report.materialCount === null
+                        ? '（未扫描）'
+                        : ' ' + String(report.materialCount) + ' 个'}
+                      （孤包不计入）
+                      {report.orphanArchive.count > 0
+                        ? '；这些包没有对应的预览图，无法作为素材检索或取用。'
+                        : ''}
+                    </p>
+                    {!report.orphanArchive.scanned ? (
+                      <p className="tone-warn small">
+                        孤包未扫描或扫描失败：{report.orphanArchive.error ?? '未知原因'}
+                        —— 这里的 0 不代表没有孤包（是「不知道」）。
+                      </p>
+                    ) : null}
+                    {report.orphanArchive.samples.length > 0 ? (
+                      <ul className="mt-1">
+                        {report.orphanArchive.samples.map((f) => (
+                          <li
+                            key={f.relPath}
+                            className="mono small muted break-all select-all"
+                            data-testid="orphan-path"
+                          >
+                            {f.relPath}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {report.orphanArchive.truncated ? (
+                      <p className="muted small">
+                        只列出前 {String(report.orphanArchive.samples.length)} 个（共{' '}
+                        {String(report.orphanArchive.count)} 个）。
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
             </div>
 
             {reportAfterRebuild ? <RebuildReportView report={reportAfterRebuild} /> : null}
+
+            {/* ── 应用自身健康（U27）：与体检并列，但说的是**应用**而不是**库** ────── */}
+            <AppHealthPanel />
 
             {rebuildPhase === 'error' && rebuildError ? (
               <div className="panel mt-4" role="alert" data-testid="rebuild-error">
