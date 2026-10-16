@@ -120,10 +120,46 @@ CREATE TABLE IF NOT EXISTS collect_dir (
   'CREATE UNIQUE INDEX IF NOT EXISTS uniq_collect_default ON collect_dir ((1)) WHERE is_default = 1;',
 ];
 
+/**
+ * **应用层** `app_setting` —— 应用设置（B2-6 · 字段照抄设计基线
+ * `reports/2026-10-15-schema-diff/SPEC-COMPACT.md` §「app_setting [v1.2 新增] · 字段 3」，第 38-44 行）。
+ *
+ * ⚠️ **落点先核对了基线**：`SPEC.md:173` 把 `app_setting` 列在**应用级**（与 `activity` · `recent_query` 同组），
+ *    四层分类表（`reports/2026-10-15-schema-diff/README.md:34`）同样列在**应用层**（不参与库级重建）。
+ *    ⇒ 它是 **`app.db` 的表**，进的是**应用级迁移链**（本文件），**不是**库级 `.gs.db` 链（两条链各算各的版本）。
+ *
+ * 逐字段的"为什么"（照抄基线）：
+ *   · `key` **PK** —— 设置键，形如 `theme` / `model.dir` / `collect.default`（层级靠命名约定，不加列）；
+ *   · `value_json` **NOT NULL** —— 值**统一存 JSON**（字符串也是 JSON 字符串）：布尔/数组/对象不必各开一列，
+ *     **加设置不需要迁移**（这就是"3 个字段能干很多事"的原因）；
+ *   · `updated_at_ms` **NOT NULL** —— 最后修改时刻。
+ *
+ * ── ⚠️ 与 `config.json` 的关系（P1：**只在这两处定义，别处不许再定一套**）───────────────
+ * 现状：设置落在 `config.json`；SPEC 把它定义为**兼容回退**。口径定死为**「库优先 + 旧文件只读回退」**：
+ *   · **写**：只写 `app_setting`（新设置**不再**写回 `config.json`）；
+ *   · **读**：`app_setting` 有该键 ⇒ 用它；没有 ⇒ **才**回退读旧 `config.json`；
+ *   · **不回写**（读完不把旧值搬进库）：回写会让"用户删掉库里的键"被旧文件**复活** —— 那正是"两份真相"的经典 bug；
+ *     真要搬运是一次性迁移脚本的事，不该藏在读取路径里。
+ * ⇒ **可执行的那一份**在 `main/app-db.ts` 的 `resolveSetting()`（唯一实现；`app.db` 的写入也只许在那里，
+ *    见 `app-db.test.mjs` 的 D4）。本注释是"口径"的那一份；两处互为指针，**不重复实现**。
+ */
+const T_APP_SETTING: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS app_setting (
+  "key"           TEXT    PRIMARY KEY NOT NULL,
+  value_json      TEXT    NOT NULL,
+  updated_at_ms   INTEGER NOT NULL
+);`,
+];
+
 const APP_V1: readonly string[] = Object.freeze([...T_LIBRARY_REGISTRY, ...T_COLLECT_DIR]);
+
+const APP_V2: readonly string[] = Object.freeze([...T_APP_SETTING]);
 
 export const APP_MIGRATIONS: readonly Migration[] = Object.freeze([
   Object.freeze({ version: 1, name: 'greenfield-app-3', statements: APP_V1 }),
+  // B2-6：`app_setting` 走**应用级自己的链**（版本号与库级链各算各的，绝不混用）
+  Object.freeze({ version: 2, name: 'batch2-app-setting', statements: APP_V2 }),
 ]);
 
 /** 本程序知道的**应用级**最高版本（从清单派生） */

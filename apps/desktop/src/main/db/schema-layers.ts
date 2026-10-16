@@ -73,8 +73,12 @@ export const SCHEMA_LAYERS: Readonly<Record<SchemaLayer, readonly string[]>> = O
    */
   intent: Object.freeze(['asset_export', 'asset_user_meta']),
 
-  /** 应用层：跨库的配置与全局安全边界（不参与库级重建） */
-  app: Object.freeze(['app_meta', 'library_registry', 'collect_dir']),
+  /**
+   * 应用层：跨库的配置与全局安全边界（不参与库级重建）
+   * + `app_setting`（B2-6 起）：应用设置 —— 按 `SPEC.md:173` 与基线四层表（`README.md:34`）属**应用级**，
+   *   所以它进的是 `app.db` 的迁移链（见 `app-migrations.ts`），**不是**库级链。
+   */
+  app: Object.freeze(['app_meta', 'library_registry', 'collect_dir', 'app_setting']),
 });
 
 /** 一层里的表名（副本，防调用方改到常量；空层返回空数组） */

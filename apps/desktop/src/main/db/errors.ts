@@ -30,6 +30,9 @@ export type GsDbErrorCode =
   | 'SCHEMA_GAP'
   /** 从 SQLite 读回来的值不是本层认识的类型（理论上到不了；到了也**不许静默**） */
   | 'UNEXPECTED_SQL_VALUE'
+  // B2-6：应用设置（app_setting）的入参/读取错误
+  | 'SETTING_KEY_REQUIRED'
+  | 'SETTING_VALUE_UNREADABLE'
   // ---- T-11b 导入（import.ts）。为什么单独一组：导入的失败要能区分"源文件坏了 / 某条记录坏了 /
   //      计数对不上" —— 三种处置完全不同（重导 / 修数据 / 查索引），混成一个码就只能看文案猜。
   /** 调用方参数不合法（libId / 路径为空，expectedCount 不是正整数） */

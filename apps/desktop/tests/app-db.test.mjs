@@ -82,7 +82,7 @@ after(() => {
   }
 });
 
-test('D1 ⭐ 打开即建库：app.db 在 <userData>/app.db，应用级 3 张表齐全，账本推到目标版本', () => {
+test('D1 ⭐ 打开即建库：app.db 在 <userData>/app.db，应用级表齐全（清单派生），账本推到目标版本', () => {
   assert.equal(app.dbPath, appDbPath(TMP));
   assert.ok(fs.existsSync(app.dbPath), 'app.db 应当被建出来');
   assert.equal(app.migration.toVersion, APP_TARGET_SCHEMA_VERSION);
@@ -92,7 +92,13 @@ test('D1 ⭐ 打开即建库：app.db 在 <userData>/app.db，应用级 3 张表
     .map((r) => r['name']);
   for (const t of APP_TABLES)
     assert.ok(names.includes(t), '缺表：' + t + '（实得 ' + names.join(',') + '）');
-  assert.deepEqual([...APP_TABLES].sort(), ['app_meta', 'collect_dir', 'library_registry']);
+  // B2-6 起多了 app_setting（**只列名字、不写数量**）
+  assert.deepEqual([...APP_TABLES].sort(), [
+    'app_meta',
+    'app_setting',
+    'collect_dir',
+    'library_registry',
+  ]);
   // app_meta 单行 + 版本
   const meta = readAppMeta(app.db);
   assert.equal(meta.schemaVersion, APP_TARGET_SCHEMA_VERSION);
@@ -208,6 +214,8 @@ test('D4 ⭐⭐ 唯一写入口（静态）：应用级 3 张表只被 app-db.ts
     'library_registry 的写入口只能有 app-db.ts（§2.3：每张表一个写入口）',
   );
   assert.deepEqual(writersOf('collect_dir'), ['app-db.ts'], 'collect_dir 的写入口只能有 app-db.ts');
+  // B2-6：设置的写入也收敛在 app-db.ts（§2.3 每张表一个写入口）
+  assert.deepEqual(writersOf('app_setting'), ['app-db.ts'], 'app_setting 的写入口只能有 app-db.ts');
   // app_meta 的写入口**只有迁移**（§2.3）—— 迁移账本的读写就在 app-migrations.ts 里，
   // 它是"迁移"这一件事的实现，不算第二个业务写入口（业务侧一律只读：readAppMeta）。
   assert.deepEqual(
@@ -219,7 +227,9 @@ test('D4 ⭐⭐ 唯一写入口（静态）：应用级 3 张表只被 app-db.ts
   // 只读入口也收敛：谁 SELECT 这两张表
   const readers = files
     .filter((f) =>
-      /SELECT[\s\S]{0,80}FROM\s+(library_registry|collect_dir)/i.test(fs.readFileSync(f, 'utf8')),
+      /SELECT[\s\S]{0,80}FROM\s+(library_registry|collect_dir|app_setting)/i.test(
+        fs.readFileSync(f, 'utf8'),
+      ),
     )
     .map((f) => path.basename(f))
     .sort();

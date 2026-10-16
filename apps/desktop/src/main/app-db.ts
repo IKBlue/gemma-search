@@ -300,6 +300,120 @@ export function deleteLibrary(db: SqlDatabase, libId: string): boolean {
   );
 }
 
+// ---------------------------------------------------------------- 应用设置（唯一写入口 + **唯一**优先级实现）
+
+/** 一条应用设置。`valueJson` 是**原样**的 JSON 文本（解析走 `readSettingValue`）。 */
+export interface AppSettingRow {
+  key: string;
+  valueJson: string;
+  updatedAtMs: number;
+}
+
+/** 设置的来源：库 / 旧 config.json 回退 / 两侧都没有 */
+export type SettingSource = 'db' | 'legacy' | 'missing';
+
+export interface ResolvedSetting {
+  key: string;
+  value: unknown;
+  source: SettingSource;
+}
+
+function toSettingRow(row: SqlRow): AppSettingRow {
+  return {
+    key: textOf(row['key'], 'app_setting.key'),
+    valueJson: textOf(row['value_json'], 'app_setting.value_json'),
+    updatedAtMs: numberOf(row['updated_at_ms'], 'app_setting.updated_at_ms'),
+  };
+}
+
+/** 全部设置（按 key 升序；确定性顺序，测试/界面都靠它） */
+export function listSettings(db: SqlDatabase): AppSettingRow[] {
+  return db
+    .prepare('SELECT "key", value_json, updated_at_ms FROM app_setting ORDER BY "key"')
+    .all()
+    .map(toSettingRow);
+}
+
+/** 读一条（没有 = null，**不编一个默认值** —— 缺省值属于调用方/界面的事） */
+export function getSetting(db: SqlDatabase, key: string): AppSettingRow | null {
+  const row = db
+    .prepare('SELECT "key", value_json, updated_at_ms FROM app_setting WHERE "key" = ?')
+    .get(key);
+  return row === undefined ? null : toSettingRow(row);
+}
+
+/**
+ * 把 `value_json` 解析回值。**坏 JSON 抛错**（`SETTING_VALUE_UNREADABLE`），不静默当"没有设置" ——
+ * 后者会让用户以为"我的设置丢了"，而真相是那条记录坏了。
+ */
+export function readSettingValue<T = unknown>(row: AppSettingRow): T {
+  try {
+    return JSON.parse(row.valueJson) as T;
+  } catch (e) {
+    throw new GsDbError(
+      'SETTING_VALUE_UNREADABLE',
+      '设置 ' +
+        row.key +
+        ' 的值不是合法 JSON（' +
+        (e instanceof Error ? e.message : String(e)) +
+        '）',
+      { cause: e },
+    );
+  }
+}
+
+/**
+ * 写一条设置（upsert）。`value` 可以是字符串/数字/布尔/数组/对象 —— **统一存 JSON**，
+ * 所以"加一个新设置"**不需要迁移**（这正是基线给 `value_json` 的理由）。
+ */
+export function writeSetting(
+  db: SqlDatabase,
+  key: string,
+  value: unknown,
+  now: () => number = Date.now,
+): AppSettingRow {
+  const k = typeof key === 'string' ? key.trim() : '';
+  if (!k) throw new GsDbError('SETTING_KEY_REQUIRED', 'writeSetting 需要一个非空的设置键');
+  if (value === undefined) {
+    // undefined 不是 JSON 能表达的值；静默写成 "null" 会让"我设过"和"没设过"混在一起
+    throw new GsDbError(
+      'SETTING_KEY_REQUIRED',
+      '设置 ' + k + ' 的值不能是 undefined（JSON 表达不了）',
+    );
+  }
+  db.prepare(
+    'INSERT INTO app_setting ("key", value_json, updated_at_ms) VALUES (?, ?, ?) ' +
+      'ON CONFLICT("key") DO UPDATE SET value_json = excluded.value_json, updated_at_ms = excluded.updated_at_ms',
+  ).run(k, JSON.stringify(value), now());
+  const row = getSetting(db, k);
+  if (!row) throw new GsDbError('META_ROW_MISSING', '写完设置却读不回来：' + k);
+  return row;
+}
+
+/**
+ * **与 `config.json` 的关系 —— 全仓唯一一处实现**（口径写在 `db/app-migrations.ts` 的 `T_APP_SETTING` 注释里）。
+ *
+ * 规则（**库优先 + 旧文件只读回退**）：
+ *   ① `app_setting` 有该键 ⇒ 用它（`source: 'db'`）；
+ *   ② 没有 ⇒ **才**回退到旧的 `config.json`（`source: 'legacy'`）；
+ *   ③ 两侧都没有 ⇒ `source: 'missing'`（`value: undefined`）。
+ * ⚠️ **不回写**：读完不把旧值搬进库。回写会让"用户删掉库里的键"被旧文件**复活** ——
+ *    那正是"两份真相"的经典 bug（用户明明删了，重启又回来）。真要搬运 = 一次性迁移脚本的事。
+ * ⚠️ 本函数是**唯一**决定优先级的地方：别处不许再写"先看 config 再看库"之类的第二套。
+ */
+export function resolveSetting(
+  db: SqlDatabase,
+  key: string,
+  legacy: Record<string, unknown> | null,
+): ResolvedSetting {
+  const row = getSetting(db, key);
+  if (row) return { key, value: readSettingValue(row), source: 'db' };
+  if (legacy && Object.prototype.hasOwnProperty.call(legacy, key)) {
+    return { key, value: legacy[key], source: 'legacy' };
+  }
+  return { key, value: undefined, source: 'missing' };
+}
+
 // ---------------------------------------------------------------- 写：collect_dir（唯一写入口）
 
 export interface InsertCollectDirInput {

@@ -75,16 +75,9 @@ const KEPT_LIBRARY = [
   'recent_query',
   'recent_view',
 ];
-const KEPT_APP = ['app_meta', 'collect_dir', 'library_registry'];
+const KEPT_APP = ['app_meta', 'collect_dir', 'library_registry', 'app_setting'];
 /** 仍未建的表（随功能上线；它们现在一张都不许被建出来）—— `job`(B2-1) / `health_run`+`health_finding`(B2-2) 已建出，从本表移走 */
-const DEFERRED_TABLES = [
-  'app_setting',
-  'activity',
-  'tag',
-  'asset_tag',
-  'collection',
-  'collection_item',
-];
+const DEFERRED_TABLES = ['activity', 'tag', 'asset_tag', 'collection', 'collection_item'];
 
 let seq = 0;
 function freshDir(label) {
@@ -355,10 +348,10 @@ test('G2 ⭐ 打开两个库：DDL 建出全部表与索引；仍未建的表一
     // 索引：DDL 里声明的 idx_* 必须真的建出来
     assert.deepEqual(indexNames(lib.db), ddlIndexNames(LIBRARY_MIGRATIONS));
 
-    // 应用级 3 张
+    // 应用级：表的**数量不写死**，只钉关系（应有表 = DDL 派生；且至少含关键表）
     assert.equal(app.migration.toVersion, APP_TARGET_SCHEMA_VERSION);
     assert.deepEqual(ourTables(app.db, []), [...APP_TABLES]);
-    assert.equal(APP_TABLES.length, 3);
+    assert.ok(APP_TABLES.length > 0);
     assert.ok(APP_TABLES.includes(APP_META_TABLE));
     assert.deepEqual(indexNames(app.db), ddlIndexNames(APP_MIGRATIONS));
 
@@ -566,17 +559,18 @@ test('G3 ⭐ 两套账本各自独立：推进一个不动另一个', () => {
     assert.equal(APP_META_LEDGER.readVersion(app.db), APP_TARGET_SCHEMA_VERSION);
 
     const libTablesBefore = ourTables(lib.db, LIBRARY_VIRTUAL_TABLES);
+    // ⚠️ 版本号从**应用级清单**派生（B2-6 起真实链已经有 v2 ⇒ 写死 2 会撞上 validateMigrations 的严格递增）
     const appV2 = {
-      version: 2,
+      version: Math.max(...APP_MIGRATIONS.map((m) => m.version)) + 1,
       name: 'probe-app-only',
       statements: ['CREATE TABLE IF NOT EXISTS probe_app_v2 (x INTEGER);'],
     };
     const r2 = migrateApp(app.db, { migrations: [...APP_MIGRATIONS, appV2], now });
     assert.deepEqual(
       r2.applied.map((m) => m.version),
-      [2],
+      [appV2.version],
     );
-    assert.equal(APP_META_LEDGER.readVersion(app.db), 2);
+    assert.equal(APP_META_LEDGER.readVersion(app.db), appV2.version);
     assert.equal(readSchemaVersion(lib.db), TARGET_SCHEMA_VERSION, '应用级推进不得碰库级版本');
     assert.deepEqual(
       ourTables(lib.db, LIBRARY_VIRTUAL_TABLES),
@@ -586,7 +580,7 @@ test('G3 ⭐ 两套账本各自独立：推进一个不动另一个', () => {
     assert.equal(ourTables(app.db, []).includes('probe_app_v2'), true);
 
     lib.db.prepare('UPDATE schema_version SET version = 999 WHERE id = 1').run();
-    assert.equal(APP_META_LEDGER.readVersion(app.db), 2, '库级版本坏了不该影响应用级');
+    assert.equal(APP_META_LEDGER.readVersion(app.db), appV2.version, '库级版本坏了不该影响应用级');
   } finally {
     lib.db.close();
     app.db.close();
@@ -775,7 +769,17 @@ test('G0 ⭐ 应有表清单从 DDL 派生（不是手写清单），且清单�
 
   validateMigrations(LIBRARY_MIGRATIONS);
   validateMigrations(APP_MIGRATIONS);
-  assert.equal(APP_MIGRATIONS.length, 1);
+  // ⚠️ B2-6：不再写死应用级迁移条数（v2 加 app_setting 后会变）——改钉**关系**：从 1 起连续 + 上限 == 目标版本
+  assert.deepEqual(
+    APP_MIGRATIONS.map((m) => m.version),
+    APP_MIGRATIONS.map((_, i) => i + 1),
+    '应用级迁移版本必须从 1 起连续',
+  );
+  assert.equal(
+    APP_MIGRATIONS[APP_MIGRATIONS.length - 1].version,
+    APP_TARGET_SCHEMA_VERSION,
+    '应用级目标版本 = 它自己那条链的上限',
+  );
   // ⚠️ 不再写死迁移条数（B2-1 是 2 条、B2-2 是 3 条…）。改钉**关系**：
   //    ① 版本号必须从 1 连续递增（validateMigrations 已保证严格递增，这里再钉"从 1 起、不跳号"）
   //    ② 清单最后一条 == TARGET_SCHEMA_VERSION（目标版本永远等于清单上限，不另写数字）

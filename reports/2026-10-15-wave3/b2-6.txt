@@ -1,0 +1,107 @@
+================================================================================
+B2-6 证据 · `app_setting` 应用设置（+ 与 `config.json` 的关系定死一处）
+任务板 id: task-107   执行: db-worker   日期: 2026-10-16
+边界：`main/app-db.ts`（设置 API，应用级唯一写入口）· `main/db/app-migrations.ts` · `main/db/schema-layers.ts` ·
+      `main/db/errors.ts`（两个错误码）· 测试 · 证据
+      **未加契约方法** · **未改界面** · 未碰 `main/index.ts`
+===============================================================================
+
+【结论】
+· `app_setting` 落地（**3 列 = 设计基线的 3 个字段行**），进的是 **应用级 `app.db` 的迁移链 v2**（不是库级链）。
+· ⭐ **归属先核对了基线**：`SPEC.md:173` 把 `app_setting` 列在**应用级**；基线四层表（`README.md:34`）同样列在**应用层**
+  ⇒ 落在 `app.db`，走 `APP_MIGRATIONS`（两条链版本各算各的，绝不混用）。
+· ⭐ **与 `config.json` 的关系定了**：**库优先 + 旧文件只读回退 + 不回写**；
+  **口径**写在 `app-migrations.ts` 的 `T_APP_SETTING` 注释，**可执行的那一份**是 `app-db.ts` 的 `resolveSetting()`
+  —— 全仓**只有这一处**实现（源码扫描断言：`source: 'legacy'` 只出现在 `app-db.ts`）。
+· 字段出处机械证明（A1：解析 `SPEC-COMPACT.md` §38-44 ↔ 真 DDL 双向）· 值统一存 JSON（A2，"加设置不需要迁移"）。
+· **能红三组**（原文见 §5）· 全部断言**从清单/真源派生**（没有"当前张数/当前版本/某层 == 具体列表"写死）。
+· 门禁（本轮实测）：受影响面 **157/157** · **s4 18/0/0** · `prettier --check .` **0** · `tsc` node/web **0** · `lint` **0**。
+
+【1. ⭐ 归属：先核对基线（卡面第 1 条特别要求）】
+| 证据 | 结论 |
+|---|---|
+| `SPEC.md:173` | 「应用级：`app_setting` · `activity` · `recent_query`」 ⇒ **应用级** |
+| 基线四层表 `README.md:34` | 应用层 = `app_meta · library_registry · app_setting`（**不参与库级重建**） |
+⇒ 落点 = **`app.db`**，迁移进 **应用级链**（`app-migrations.ts`），**不进** `migrations.ts`（库级链）。两条链版本各自派生、互不影响（A7 断言）。
+
+【2. ⭐⭐ 与 `config.json` 的关系（P1：口径一处 + 实现一处）】
+**口径**（写在 `app-migrations.ts` 的 `T_APP_SETTING` 注释里）：
+· **写**：只写 `app_setting`（新设置**不再**写回 `config.json`）；
+· **读**：`app_setting` 有该键 ⇒ 用它；没有 ⇒ **才**回退读旧 `config.json`；
+· **不回写**：读完不把旧值搬进库。
+**为什么"不回写"**（这条是"两份真相"的分水岭）：回写会让**用户删掉库里的键**之后，下一次启动又被旧文件**复活** ——
+  用户明明删了它却回来了，而代码里没有任何一处"看起来错"。真要搬运是一次性迁移脚本的事，不该藏在读取路径里。
+**可执行的那一份** = `main/app-db.ts` 的 `resolveSetting(db, key, legacy)`：返回 `{value, source: 'db'|'legacy'|'missing'}`。
+**机械证据**：
+· **A3 行为断言**：库里没有 ⇒ `legacy`；库里**有**（即使旧文件也有同键）⇒ **库赢**；都没有 ⇒ `missing`；
+  解析过旧键之后 `getSetting` **仍为 null**（= 没回写，删掉的键不会被复活）；
+· **A3 源码扫描**：`main/**` 里 `source: 'legacy'` **只出现在 `app-db.ts`** ⇒ 优先级**没有第二份实现**；
+· **D4（既有纪律）**：`app_setting` 的写入者只许是 `app-db.ts`（本卡把该表加进了 D4 的断言，读也只走 app-db.ts）。
+
+【3. 字段出处（照抄设计基线）】
+出处 = `SPEC-COMPACT.md` §「app_setting [v1.2 新增] · 字段 3」（第 38-44 行）：
+| 字段 | 类型/约束 | 为什么（照抄基线） |
+|---|---|---|
+| `key` | TEXT **PK** | 设置键，形如 `theme` / `model.dir` / `collect.default`（层级靠命名约定，不加列） |
+| `value_json` | TEXT **NOT NULL** | 值**统一存 JSON**（字符串也是 JSON 字符串）：布尔/数组/对象不必各开一列，**加设置不需要迁移** |
+| `updated_at_ms` | INTEGER **NOT NULL** | 最后修改时刻 |
+⚠️ `key` 是 SQL 关键字 ⇒ DDL 里写成 `"key"`（**列名不变**，A1 断言列就叫 `key`）。
+
+【4. 改前 → 改后 → 为何**不是放宽**】
+| # | 位置 | 改前 | 改后 | 为什么不是放宽 |
+|---|---|---|---|---|
+| 1 | `app-migrations.ts` | 应用链只有 v1（app_meta / registry / collect_dir） | **v2 `batch2-app-setting`** | 加新迁移，不改 v1；**应用链自己的版本**（目标版本由 `targetVersionOf` 派生） |
+| 2 | `app-db.ts` | 无设置 API | `listSettings/getSetting/readSettingValue/writeSetting/resolveSetting` | 新增能力；且**写入留在应用级唯一写入口**（D4 那条既有纪律因此仍然成立） |
+| 3 | `schema-layers.ts` | app = 3 张 | app += `app_setting` | 分类按基线；四组点名仍强制全覆盖 |
+| 4 | `app-db.test.mjs` D1/D4 | 表名清单 3 个；D4 只查 3 张表 | 清单加 `app_setting`；D4 **加**"app_setting 的写入只许 app-db.ts"与读也只走 app-db.ts | **加强**：新表也被"唯一写入口"纪律覆盖 |
+| 5 | `db-schema.test.mjs` G2/G0 | `APP_TABLES.length === 3` · `APP_MIGRATIONS.length === 1` | 数量**不再断言**；改钉"应有表 = DDL 派生（已在上一条）" · 版本**从 1 起连续 + 上限 == 目标版本** | 写死的是**状态**（每加一张表/一条迁移都要改，且改大数字就绿）；关系断言对将来成立 |
+| 6 | `db-schema.test.mjs` G3 | 探针迁移写死 `version: 2` + `applied === [2]` | 探针版本 = `max(清单)+1`（派生）+ 断言跟它 | 原写法在真实链有 v2 后会**撞上严格递增校验**；派生后永远成立，且仍证明"应用级推进不动库级" |
+| 7 | `s4-accept.mjs` | 白名单无 `app_setting` · `NOT_BUILT` 含它 | 白名单加它（**同一份**）· 移出 `NOT_BUILT` · **新增 S4-U8** | 白名单仍是显式登记（不在 map 又不在白名单 ⇒ 红）；新单测纳入同一门禁 |
+
+【5. ⭐ 能红（三组 · 注入 ⇒ 必红 ⇒ 还原 ⇒ 复绿）】
+① **去掉点名**（app 层删 `app_setting`）：
+   `✖ A7 … app_setting 属应用层（actual: false, expected: true）`
+   `✖ G1 … DDL 建出的表与四组点名必须逐张对上`
+   s4 同轮：`FAIL S4-A14` + **`FAIL S4-U1`（db-schema）** + **`FAIL S4-U8`（app-setting）** ⇒ `PASS 15 · FAIL 3` ⇒ **三条守卫独立都抓到**
+② **破坏"一份真相"**（把 `resolveSetting` 改成**旧文件优先** —— 这就是"两份真相"的 bug 形态）：
+   `✖ A3 … actual: { key: 'theme', value: 'legacy-dark', source: 'legacy' }`
+   `        expected: { key: 'theme', value: 'db-light', source: 'db' }`
+   ⇒ 用户在库里改的值被旧 `config.json` 盖掉；这条断言**确实在守 P1**。
+③ **弄坏一条约束**（去掉 `value_json NOT NULL`）：`✖ A2 … AssertionError: Missing expected exception`
+⇒ 三组还原后：`db-schema + app-db + app-setting = 27/27 绿` · `s4 = 18/0/0`。
+
+【6. 0 残留 grep（先跑后结论）】
+$ `app_setting` 在 `apps/desktop/src/main` 的落点：
+  `app-db.ts × 7`（设置 API = 应用级唯一写入口）· `db/app-migrations.ts × 8`（DDL + 口径注释）·
+  `db/schema-layers.ts × 2`（分类 + 注释）· `db/errors.ts × 1`（错误码注释）
+  ⇒ **没有第二份实现**：写入只有 `app-db.ts`（D4 机械断言）；优先级实现**只有一处**。
+$ 正证：`db/app-migrations.ts:150` = `value_json TEXT NOT NULL,`（③ 已还原）·
+  `db/schema-layers.ts:81` = app 层含 `app_setting`（① 已还原）·
+  `app-db.ts:409` = `const row = getSetting(db, key)`（**唯一**优先级实现；② 已还原）；
+  全 `main/` **没有** `MUTANT` 标记。
+
+【7. 门禁（本轮实测 · 最终字节）】
+$ node --test <受影响面 17 个文件>（app-setting/app-db/db-schema/search-history/asset-user-meta/asset-export/
+  health-ledger/job-ledger/job-wiring/db-rebuild/db-import/items-ipc/health-rebuild/library-methods/s3-index-state/
+  storage-ports-main/index-location）⇒ **157/157 · fail 0**
+$ node reports/2026-10-15-wave3/s4-accept.mjs ⇒ **PASS 18 · FAIL 0 · SKIP 0**（含 S4-U8）
+$ npx prettier --write <本卡改动文件> ⇒ 0 → npx prettier --check . ⇒ **0（All matched files use Prettier code style!）**
+$ npx tsc --noEmit -p tsconfig.node.json … ⇒ **0** ｜ tsconfig.web.json … ⇒ **0**
+$ npm run lint ⇒ **0**
+（全量 `npm test` 与冻结门禁由 Lead 跑 —— 纪律 6；收到「冻结开始」我会**先回执再停笔**。）
+
+【8. 未做 / 边界（如实写 · P6）】
+· **只落地表 + 迁移口径**：**设置界面不会因此出现**（外观/模型目录/快捷键的读写仍走现有路径）。
+· `config.json` 的**现有读取路径没有改**（`library-config.ts` 仍在读它 —— 那是启动引导用的 `data_dir` 等键）。
+  本卡给的是"**设置键**读写的口径与唯一实现"；把调用点切过去（并把 `library-config` 的引导键与用户设置分开）
+  属后续卡。⇒ 现在说"设置已迁到库里"是**不诚实**的：表与口径就位，**接线未做**。
+· 没做"从 `config.json` 一次性搬运设置"的迁移脚本（本卡明确不做；口径里写了它该是一次性脚本的事）。
+· `undefined` 值被拒、坏 JSON 抛错 —— 这两条是**本卡定的**（基线未写），理由都写在注释里（不静默）。
+
+【9. 回滚】
+· `app-migrations.ts`：删 `T_APP_SETTING` + `APP_V2` + 清单里 v2 条目（应用级版本自动回 1）；
+· `app-db.ts`：删设置 API 段（`AppSettingRow`/`SettingSource`/`ResolvedSetting` 与 5 个函数）；
+· `schema-layers.ts`：app 去掉 `app_setting`；`db/errors.ts`：去掉两个 SETTING_* 码；
+· `app-db.test.mjs`/`db-schema.test.mjs`/`s4-accept.mjs`：清单/白名单改回、删 S4-U8；删 `app-setting.test.mjs`。
+· 未跑 git（AGENTS P7）。临时物：`data/_b26/**`（测试自清）· `data/_verify/*.tsbuildinfo`。
+===============================================================================
