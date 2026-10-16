@@ -64,3 +64,29 @@ node …/s4-accept.mjs     => PASS 13 · FAIL 0 · SKIP 0
 · 在飞：**B2-3 `asset_user_meta`**（独占 `migrations.ts`）。
 · 待所有者：**U35 批契约**（索引接界面）· **U30** 回收站 · **U31/U32** 复核 · **U33/U34** 文档不一致；**P4 系列与 T-38 仍在 U15 暂停令内**。
 · 我今天的三个错（已自纠并记入 TASKS）：把 6.2 s 当产品回归 · 猜共享 userData 锁 · B2-2 卡面把意图层写成过程层。
+
+---
+
+## 2026-10-16 收工（明日待办）
+
+**权威门禁（干净窗口 `91d3d11`）**：
+`~
+prettier 0 · lint 0 · npm test 723 / pass 722 / fail 0 / skipped 1
+typecheck 0 · build 0（WARNINGS=0、三端齐备、不预置 TEMP）
+e2e 69 passed / 4 skipped / 0 failed · s4 PASS 19 / FAIL 0
+`~
+`main == origin/main == 91d3d11`；工作树干净（只剩外部流程未跟踪的 `UI/`）；**全部队友空闲**。
+
+### 今天做完的（可按提交查）
+第二批表 **B2-1 `job` · B2-2 `asset_export` · B2-3 `asset_user_meta` · B2-4 体检台账 · B2-5 FTS+历史+续看 · B2-6 `app_setting` · B2-8 `activity`** ＋ **B2-5FIX**（`recent_query` 从库级搬到应用级）；
+另：**IDX-1**（索引构建器 → 可导入函数）· **PERF-1/PERF-2**（懒加载 + 落地页静态化，换回 `#query` 370 ms）· **START-1**（冷启动 6.2 s → 374 ms，量具侧）· **START-2**（userData 不可写降级路径补自动化）· **E2E-FLAKE-1**（间歇红根治）· 以及早间的 U12/U27/U18/U28/DOC-1…5/LINT-1/SEC-1/IA-1/BUILD-1/BUILD-2/ACC-1。
+
+### 明日待办（所有者：「剩下的卡明天做」）
+1. **B2-7 拆两张卡、串行**：① `tag` + `asset_tag` ② `collection` + `collection_item`（**一次一张**，独占迁移链）；
+2. **接线类**（都是「表已就位、没 API/界面」）：`asset_export` 写入 + 交付历史 · `asset_user_meta` 读写（详情页组织块）· `recent_query` 历史读写（`MATCH` 转义 + trigram ≥3 字符两条注意事项）· `activity` 写入（并把 D4 补上）· `app_setting` 切调用点（**把引导键与用户设置分开**）；
+3. **仍等所有者裁决**：**U35 批契约**（`indexStart`/`indexCancel`/`indexResume` ⇒ IDX-2 + IDX-3 把索引接到界面）· **U30** 回收站口径 + `SPEC §2.1` · **U31/U32** 复核 · **U33/U34** 文档不一致；
+4. **暂停令内（未解冻）**：P4-2…P4-6 · **T-38 安装器 + 干净机器安装**；
+5. ⚠️ **待所有者决定 `UI/` 归属**（外部流程今天产出的 10 份界面设计稿，未入 git，已 `prettier` 忽略）。
+
+### 今日 Lead 自纠记录（都在 `TASKS` 或提交信息里）
+把量具的 6.2 s 当产品回归 · 猜共享 userData 锁 · B2-2 卡面把意图层写成过程层 · 提交遗漏未跟踪的测试文件（后已堵住，单测 700 → 706 即证据）· 提交前没核对 `git status` 为空。
