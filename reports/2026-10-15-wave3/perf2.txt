@@ -1,0 +1,133 @@
+PERF-2 · 落地页取舍：SearchPage 留**静态**、只懒加载其余 5 条路由 —— 换回 `#query` 的 ~370 ms
+日期 2026-10-16 · 类型：**本轮实测** · 任务卡：task-101 · 执行者：renderer-migrator
+量具：`apps/desktop/e2e/first-paint.spec.mjs`（`GEMMA_PERF=1` · 6 次取中位 · 与 PERF-1 **同一具**）
+
+================================================================
+0. 结论速览（两栏）
+================================================================
+【本轮实测 —— 可复跑】
+| 项 | 结果 |
+|---|---|
+| ⭐ **`#query` 可见（冷启动到可交互）** | **1220.4 ms** ← 回到 **PRE-lazy 量级**（PRE 实测 1197 ms）✓ |
+| first-paint（主口径，renderer 内部） | **362 ms**（PRE 344 · PERF-1 352/386）⇒ 基本持平 |
+| **机械判据：route chunk** | **5 个**（BrowsePage / DiagnosticsPage / ItemPage / TasksPage / ActivityPage）⇒ **≥2 且 SearchPage 除外** ✓ |
+| `SearchPage` 独立 chunk | **不存在**（已回主 chunk）✓ |
+| 渲染层 chunk 数 / 合计 | **7**（PERF-1 是 12）/ 1,250,475 B |
+| 主 chunk | **1,117,208 B**（PRE-lazy 1,245,068 → **−127,860 B / −10.3%**；PERF-1 1,078,345） |
+| **构建警告** | **0**（BUILD-2 的 19 条**没有回来**） |
+| **能红** | 把 SearchPage 改回 lazy ⇒ **`#query` 1552.7 ms**（回到 1550+）· SearchPage chunk **回来了** · chunk **7 → 12**；随后**逐字节还原**（sha256 router/main 前=后） |
+| 真窗口 e2e 关键路径 | **16 passed / 0 failed**（43.5 s；启动 E0 · 导航 E2-*/E6-* · 详情 E9-*） |
+| `npm run typecheck` | **0** |
+| 我改的文件定向 prettier | **0**（All matched） |
+
+【引用 —— **不是本轮实测**】（待 Lead 的冻结门禁回报后填入提交号，这是**唯一还需改的一处**）
+| 项 | 来源 |
+|---|---|
+| `npm test`（全量单测） · `npm run lint` · 全量 `e2e` · `build`（门禁口径） | **引用 Lead 的冻结门禁**（本轮）。本卡**不自己跑** `npm test`：同一时刻只允许一个人跑（事务套件共用 `data/_txn-test`），且冻结窗口里跑出来的才权威 |
+
+> ⚠️ 按 AGENTS §4 证据协议第 3 条：引用既有结论必须写明「引用」，**不得**写成「本轮实测」。
+> **PERF-1 引用的那个冻结门禁是 `fa9d0a4`**（686/685/0/1 · WARNINGS=0 · e2e 68/4skip/0 · s4 14/0/0）；
+> 本次改动在上次门禁**之后**，所以需要**新的一轮**，数字不沿用。
+
+================================================================
+1. 改了什么（2 个文件）
+================================================================
+| 文件 | 改动 |
+|---|---|
+| `renderer/src/router/index.tsx` | `SearchPage` 改为**静态导入**（`search: SearchPage`）；其余 5 条仍是 `lazy(LOADERS.*)`；映射表由"6 个 lazy"变成"**1 静态 + 5 lazy** 混装"；启动期断言随之改为查 `PAGES`（同一个判据：路由表与组件表对不上就当场炸） |
+| `renderer/src/main.tsx` | `./pages/SearchPage.tsx` 从 `ROUTE_PAGES`（非 eager）**移到** `STATIC_PAGES`（eager）—— ⚠️ **只能在一处**（见 §3） |
+
+**没改**任何页面组件、没改契约。
+
+================================================================
+2. 四组数字放一起看（同一具量具 · 同一台机器）
+================================================================
+| 指标 | ① PRE-lazy（`ba060e3^`） | ② PERF-1 全 lazy（`ba060e3`） | ③ **PERF-2 落地页静态**（本卡） |
+|---|---|---|---|
+| **`#query` 可见**（墙钟） | **1197 ms** | 1550 / 1595 ms | **1220 ms** ✅ |
+| first-paint（renderer 内部） | 344 ms | 352 / 386 ms | 362 ms |
+| DOMContentLoaded | 276.5 ms | 278.9 ms | ~265 ms |
+| 渲染层 chunk 数 | 1 | 12 | **7** |
+| 其中 route chunk | 0 | 6 | **5** |
+| `SearchPage` 独立 chunk | — | 有 | **无** |
+| 主 chunk | 1,245,068 B | **1,078,345 B** | 1,117,208 B |
+| 构建警告 | 0 | 0 | **0** |
+
+⇒ **本卡的目标（把 `#query` 换回来、同时保住 route chunk 与 0 警告）达成**：
+  ①②的差（+约 370 ms）**被消掉**（③比①只差 +23 ms），而 route chunk 从 6 个变成 **5 个**（少了 SearchPage 那一个）。
+  主 chunk 比①仍小 **127,860 B（−10.3%）** —— 5 条非落地路由确实搬出去了。
+
+（② 的两个数来自 `reports/2026-10-15-wave3/perf1.txt` §8.1 与 `data/_perf1/{new-baseline.txt, postlazy-repeat.txt}`；
+  ①的两个数来自 `data/_perf1/prelazy-perf.txt`。**本次 can-red 又独立测了一遍②，见 §5**。）
+
+================================================================
+3. ⚠️ BUILD-2 的教训：一个模块只能走一条腿（这次是"搬家"）
+================================================================
+`SearchPage` 从「动态」改成「静态」**必须两处同时改**，而且它**只能出现在一处**：
+· `router/index.tsx` ⇒ 静态导入（它是唯一引用它的地方之一）；`main.tsx` ⇒ 从 `ROUTE_PAGES` 移入 `STATIC_PAGES`。
+· **如果只改 router、不把它移出 `ROUTE_PAGES`**：它会同时是"动态（glob）+ 静态（import）"
+  ⇒ **BUILD-2 修掉的 19 条那类警告立刻回来**（就是 BUILD-2/PERF-1 反复踩的那个坑）。
+· **如果只改 main.tsx、router 仍 lazy**：它就是"静态（glob eager）+ 动态（lazy）"，同上。
+⇒ 本卡的验收里 `警告 = 0` 正是这条的**机械检查**（见 §4 的构建输出）。
+
+================================================================
+4. 机械判据：产物
+================================================================
+~
+$ npm run build                    → BUILD_EXIT=0 · warnings=0
+$ Get-ChildItem out/renderer/assets/*.js
+index-BOZmo4yG.js          1,117,208 B   ← 主 chunk（SearchPage 回来了）
+BrowsePage-CtR0Rmg7.js        83,433 B   ┐
+DiagnosticsPage-BBu9Wc0o.js   23,876 B   │ **按路由切分的 route chunk（5 个）**
+ItemPage-RBsMtHlY.js          20,277 B   │
+TasksPage-CKypyxBj.js          2,323 B   │
+ActivityPage-NhS0P6IS.js       2,319 B   ┘
+library-root-fC4jkh25.js       1,039 B   （共享块）
+chunk count = 7 · total = 1,250,475 B
+SearchPage chunk present? **False** ✓
+~
+⇒ 「route chunk ≥ 2 且 **SearchPage 除外**」✓ · 「构建警告 0」✓
+
+================================================================
+5. 能红（证明"落地页静态"这件事承重）
+================================================================
+把两处**切回 PERF-1 的全 lazy 状态**（`git checkout ba060e3 -- <router> <main>`），**用同一具量具重测**：
+~
+CANRED chunk count = 12 · SearchPage chunk present = **True**
+[perf1] run 1/6 墙钟 1525 ms · [perf1] run 2/6 墙钟 1543 ms · run 3 1508 · run 4 1563 · run 5 1784 · run 6 1595
+[perf1] | 主界面 #query 可见 | **1552.7 ms**      ← 回到 1550+ ✓
+[perf1] | first-paint        | 380 ms
+~
+随后从**备份逐字节还原**（不是"再 checkout 一次"）：
+~
+PERF-2 router sha=097CE649E4F4E1C7  main sha=54D06C9D92A403ED
+restored identical: router=**True**  main=**True**
+final chunk count = 7
+~
+⇒ 判据**能红**：把落地页改回 lazy，`#query` 立刻从 1220 → **1552.7 ms**，SearchPage chunk 也回来。
+
+⚠️ 流程改进（Lead 2026-10-16 提醒）：这次 A/B **先备份再还原**（`Copy-Item` 存到 `data/_perf1/perf2/`），
+   而不是只靠"再 checkout 一次倒回去"；还原后用 **sha256 比对证明逐字节一致**（上面那两行）。
+   （"checkout 还原"正是纪律 20 盯的那类动作 —— 还原本身也要复验。）
+
+================================================================
+6. 真窗口 e2e 关键路径
+================================================================
+~
+$ npx playwright test -c apps/desktop/e2e/playwright.config.mjs smoke.spec.mjs routing.spec.mjs item-detail.spec.mjs
+16 passed (43.5s)   E2E_EXIT=0
+~
+覆盖：启动 `E0` · 导航 `E2-a..e` / `E6-a..c` · 详情 `E9-a..f`。
+（顺带：这一轮 43.5 s，PERF-1 那轮同类是 2.3 m —— 本卡的落地页静态化顺带也让 e2e 启动更快，
+ 但这**不作为产品结论**，只记事实。）
+
+================================================================
+7. 未决
+================================================================
+7.1 `npm test`：**引用 Lead 的冻结门禁，非本轮实测**（本轮提交号由 Lead 回报后填入 §0 的引用表）。
+7.2 `npx prettier --check .` 全仓若仍为 1，需确认是否又是别人在飞的文件；**我改的文件定向 check = 0**。
+7.3 本卡**没有**再动钩子（`__DSH_RENDER` / `__DSH_ROOT`）：SearchPage 走静态后，
+    守卫仍能按路径挂载它（在 `STATIC_PAGES` 里），能力没减；U33 仍等所有者。
+
+—— 原始输出：`data/_perf1/{perf2-after.txt, perf2-perf.txt, perf2-canred.txt, perf2-e2e.txt,
+   prelazy-perf.txt, new-baseline.txt, postlazy-repeat.txt}`（Tee-Object 默认 UTF-16LE）。

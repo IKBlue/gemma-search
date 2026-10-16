@@ -29,7 +29,25 @@ import { createHashRouter, RouterProvider, Navigate } from 'react-router';
 import { ROUTES } from './paths.ts';
 
 /**
- * 路由 key → **按需加载器**（模块形状只需有 `default` 导出）。
+ * **落地页**：`search` 走**静态**（不 lazy）。
+ *
+ * ⚠️ 2026-10-16（PERF-2 · 实测依据）：PERF-1 把 6 条路由**全部** lazy 之后，在新量具上做 PRE/POST A/B 发现：
+ *   · first-paint 基本持平（344 → 352 ms）；
+ *   · 但 **`#query` 可见**（冷启动到可交互）一致地 **1197 → 1550 ms（+约 370 ms）**，两批分布与改前**几乎不重叠**
+ *     ⇒ **不是噪声**。
+ *   机制：`#query` 在**本页**里，而它当时是独立 chunk ⇒ 必须等主 bundle 执行完 → React 挂载 → Suspense
+ *   再去取第二个 chunk ⇒ **首屏多了一次往返**。懒加载把成本从**体积**换成了**往返**，
+ *   而**落地页在关键路径上**，正是"不该多这一次往返"的那一个；其余 5 条路由不在首屏路径上，拆出去才是净收益。
+ *
+ * ⚠️ 因此规则升级为：**落地页静态、其余按需**（不再是"全部 lazy"）。
+ *   同时**必须**遵守 BUILD-2 的教训 —— **一个模块只能走一条腿**：
+ *   本页既然走静态，`main.tsx` 的 `ROUTE_PAGES` 就必须把它**移出去**（并入 `STATIC_PAGES`），
+ *   否则"动态+静态"会把 BUILD-2 修掉的 19 条警告带回来。
+ */
+import SearchPage from '../pages/SearchPage.tsx';
+
+/**
+ * 其余 5 条路由 → **按需加载器**（模块形状只需有 `default` 导出）。
  *
  * ⚠️ 不能用 `import.meta.glob('./pages/*.tsx')` 一把抓：pages/ 下还有**不是路由**的页面，
  *    被别处静态导入（LibraryGate ← App、FirstRunWizard ← LibraryGate、AppHealthPanel ← DiagnosticsPage）
@@ -37,7 +55,6 @@ import { ROUTES } from './paths.ts';
  *    ⚠️ 新增路由页时要**同时**改这里与本文件的断言；`ROUTES` 与它的对应关系由下面的启动期断言兜住。
  */
 const LOADERS = {
-  search: () => import('../pages/SearchPage.tsx'),
   item: () => import('../pages/ItemPage.tsx'),
   tasks: () => import('../pages/TasksPage.tsx'),
   activity: () => import('../pages/ActivityPage.tsx'),
@@ -45,25 +62,29 @@ const LOADERS = {
   browse: () => import('../pages/BrowsePage.tsx'),
 } satisfies Record<string, () => Promise<unknown>>;
 
-// 启动期断言：表里有 key 却没有加载器 ⇒ 立刻炸，别留白屏
-// （原先断言的是 `typeof COMPONENTS[key] === 'function'`；现在映射的是 **loader**，
-//  所以判据同样是 `function` —— 只是把"组件"换成了"加载器"，判据强度没降。）
-const missing = ROUTES.filter((r) => !(r.key in LOADERS)).map((r) => r.key);
-if (missing.length) {
-  throw new Error(
-    `路由表里的这些 key 没有对应加载器（router/index.tsx 的 LOADERS）：${missing.join(', ')}`,
-  );
-}
-
-/** 加载器 → `React.lazy` 组件（**只在模块顶层建一次**：每次 render 新建会让 React 重挂载整棵子树） */
+/**
+ * 路由 key → 组件。**唯二的来源都在这里**：落地页是静态组件，其余是 `React.lazy`。
+ * （`lazy(...)` **只在模块顶层建一次**：每次 render 新建会让 React 重挂载整棵子树。）
+ */
 const PAGES = {
-  search: lazy(LOADERS.search),
+  search: SearchPage, // ← 静态：落地页，见上面的长注释
   item: lazy(LOADERS.item),
   tasks: lazy(LOADERS.tasks),
   activity: lazy(LOADERS.activity),
   health: lazy(LOADERS.health),
   browse: lazy(LOADERS.browse),
 };
+
+// 启动期断言：表里有 key 却没有组件 ⇒ 立刻炸，别留白屏
+// （PERF-1 时断的是 LOADERS 的 `function`；PERF-2 之后映射表是 `PAGES`，里面**静态组件与 lazy 混装**，
+//  所以判据改成"这个 key 在不在映射表里" —— 查的仍是同一件事：路由表与组件表对不上就当场炸。
+//  另外 PAGES 是字面量，`tsc` 在编译期已经保证 6 个 key 齐全，这条断言是运行期的兜底。）
+const missing = ROUTES.filter((r) => !(r.key in PAGES)).map((r) => r.key);
+if (missing.length) {
+  throw new Error(
+    `路由表里的这些 key 没有对应组件（router/index.tsx 的 PAGES）：${missing.join(', ')}`,
+  );
+}
 
 /**
  * 路由 chunk 到达前的占位。

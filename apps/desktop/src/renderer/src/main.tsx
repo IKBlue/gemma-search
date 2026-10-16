@@ -86,16 +86,19 @@ type RenderResult =
 //       · 只改 router → chunk 拆不出来（glob 仍 eager 把页面钉在主 chunk）；
 //       · 只改本文件 → BUILD-2 修掉的 19 条警告原样回来。
 const ROUTE_PAGES = import.meta.glob([
-  './pages/SearchPage.tsx',
   './pages/ItemPage.tsx',
   './pages/TasksPage.tsx',
   './pages/ActivityPage.tsx',
   './pages/BrowsePage.tsx',
   './pages/DiagnosticsPage.tsx',
 ]);
-const STATIC_PAGES = import.meta.glob(['./pages/LibraryGate.tsx', './pages/FirstRunWizard.tsx'], {
-  eager: true,
-});
+// ⚠️ 2026-10-16（PERF-2）：`SearchPage.tsx` 从上面**移到**这里 —— 落地页改成**静态**。
+//    依据：PERF-1 的全 lazy 版让 `#query` 可见一致地 +370 ms（多一次 chunk 往返，见 router/index.tsx 长注释）。
+//    ⚠️ 它**只能出现在一处**：留在 ROUTE_PAGES 会变成"动态+静态" ⇒ BUILD-2 的警告回来。
+const STATIC_PAGES = import.meta.glob(
+  ['./pages/LibraryGate.tsx', './pages/FirstRunWizard.tsx', './pages/SearchPage.tsx'],
+  { eager: true },
+);
 const COMPONENTS = import.meta.glob('./ui/*.tsx', { eager: true });
 
 window.__DSH_RENDER = async (rel, container, props): Promise<RenderResult> => {
