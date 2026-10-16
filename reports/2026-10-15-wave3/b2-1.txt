@@ -33,8 +33,14 @@ B2-1 证据 · `job` 任务台账（持久化 · 断点续跑 · 取消 · 崩�
 `progress_total`(**可空**) · `phase`(可空，**会变**) · `cursor_json`(可空，断点) · `heartbeat_at_ms`(可空，崩溃检测) ·
 `summary_json`(可空) · `error`(可空，**人话**) · `queued/started/finished_at_ms`(可空，三个时刻)。
 索引：`idx_job_state(state, queued_at_ms)` · `idx_job_heartbeat(heartbeat_at_ms)`（另有 TEXT 主键的内部 autoindex，测试里显式说明"不算声明式索引"）。
-⚠️ `job_id`：设计基线写 nanoid，但**本仓库未安装 nanoid**（package.json 里没有；装它=新增依赖，不在本卡范围）⇒
-   用 Node 内置 `crypto.randomUUID()`，**收敛在 `newJobId()` 一处**（要换 nanoid 只改这里；job_id 目前不经 IPC ⇒ 不受契约约束）。
+⚠️ `job_id`：设计基线写 nanoid，但**本仓库未安装 nanoid**（package.json dependencies 里没有 ⇒ 装它 = 新增依赖）⇒
+   用 Node 内置 `crypto.randomUUID()`，**收敛在 `newJobId()` 一处**（job_id 目前不经 IPC ⇒ 不受契约约束）。
+   **Lead 2026-10-16 批准**该偏离，理由：零新增依赖 · 与本仓既有做法一致（DF-4 已把 `Math.random` 的 4 位 hex 换成它）·
+   `job_id` 是内部 id（不是用户可见文案）⇒ 格式无所谓。
+   **偏离写进了两处**（Lead 要求「可发现」，别变成没人知道的差异）：
+     ① `main/db/jobs.ts` 的 `newJobId()` 文档注释：基线是 nanoid / 仓库没装 / 三条理由 / 谁批准 / 将来怎么换；
+     ② `main/db/migrations.ts` 的 `job` DDL `job_id` 行上的注释（读 DDL 的人也能看到）。
+   （AGENTS §1 把 nanoid 列为「已选定」而仓库里没有 = **文档与仓库不符**；AGENTS 只有所有者能改 ⇒ Lead 报所有者，不在本卡处理。）
 
 【3. 四条承诺怎么落地（每条都有断言）】
 | 承诺 | 落点 | 断言 |
@@ -81,7 +87,11 @@ $ node --test <受影响面 10 个文件>（app-db · db-schema · db-rebuild ·
 $ npx prettier --write <改动文件> ⇒ 0 → npx prettier --check . ⇒ **0（All matched files use Prettier code style!）**
 $ npx tsc --noEmit -p tsconfig.node.json … ⇒ **NODE_TSC=0** ｜ tsconfig.web.json ⇒ **WEB_TSC=0**
 $ npm run lint ⇒ **0**
-$ **npm test（全量）⇒ 待 Lead 放行**。 【全量结果占位：待补】
+$ **npm test（全量）⇒ 本轮不自己跑**（Lead 2026-10-16 指示：同一时刻只跑一个 npm test —— 纪律 6；
+  权威结论只在**冻结窗口**里成立 —— 纪律 19）⇒ 本文件按**方式 B** 引用 Lead 的冻结门禁，**非本轮实测**：
+    【引用占位：待 Lead 给出提交与数字（prettier / lint / npm test / typecheck / build / e2e / s4）】
+  ⚠️ 本卡此后的写入已**完全停止**（最后一次改动 = §2 那两处「偏离注释」；改完复跑：
+     prettier --check 0 · tsc node 0 · lint 0 · job-ledger + db-schema 23/23）⇒ 冻结窗口覆盖的是**最终字节**。
 
 【8. 未做 / 边界（如实写）】
 · **没有接线**：`settleUnfinishedJobsOnStartup` 已写好并有测试，但**没有**挂到真实启动路径/界面/契约上 ——

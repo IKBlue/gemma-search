@@ -110,7 +110,19 @@ function resolveClock(v: unknown, where: string): () => number {
   throw new JobError('JOB_CLOCK_INVALID', where + ' 需要 () => number，实得 ' + typeof v);
 }
 
-/** 新的任务 id（唯一生成点；要换 nanoid 只改这里） */
+/**
+ * 新的任务 id —— **唯一生成点**。
+ *
+ * ⚠️ **对设计基线的偏离，写在这里以免它变成「没人知道的差异」**：
+ *   · 设计基线（`BATCH2-PLAN` 第 1 张 / AGENTS §1 的依赖表）写的是 **nanoid**；
+ *   · 但**本仓库没有安装 nanoid**（`package.json` 的 dependencies 里没有它 —— Lead 2026-10-16 核实）；
+ *   · 偏离原因：① 只为生成 id 装一个依赖不划算（AGENTS §1：新增运行时依赖必须写明用途）；
+ *     ② **与本仓既有做法一致**（DF-4 已把 `Math.random` 拼的 4 位 hex 换成 `crypto.randomUUID()`）；
+ *     ③ `job_id` 是**内部 id**（目前不经 IPC、不是用户可见文案）⇒ 格式无所谓，只要不可猜、不受并发影响。
+ *   · **Lead 2026-10-16 批准**用 `crypto.randomUUID()`（零新增依赖）。
+ *   · 将来若所有者批准引入 nanoid：**只改这一个函数**，其余代码不感知 id 形状。
+ *   （AGENTS §1 把 nanoid 列为「已选定」而仓库里没有它 = **文档与仓库不符**：Lead 报给所有者，不在本模块处理。）
+ */
 export function newJobId(): string {
   return crypto.randomUUID();
 }

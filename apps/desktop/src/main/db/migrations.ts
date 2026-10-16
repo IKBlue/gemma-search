@@ -136,6 +136,8 @@ CREATE TABLE IF NOT EXISTS asset_index_state (
 const T_JOB: readonly string[] = [
   `
 CREATE TABLE IF NOT EXISTS job (
+  -- job_id：设计基线写 nanoid，本仓未装该依赖 ⇒ 用内置 crypto.randomUUID()
+  --   （偏离已获 Lead 2026-10-16 批准；生成点收敛在 main/db/jobs.ts 的 newJobId()；内部 id，不经 IPC）
   job_id          TEXT    PRIMARY KEY NOT NULL,
   kind            TEXT    NOT NULL CHECK (kind IN ('scan', 'index', 'health', 'rebuild', 'ingest')),
   state           TEXT    NOT NULL CHECK (state IN ('queued', 'running', 'done', 'failed', 'cancelled')),
