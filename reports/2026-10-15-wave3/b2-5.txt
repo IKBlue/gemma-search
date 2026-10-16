@@ -1,0 +1,115 @@
+================================================================================
+B2-5 证据 · 搜索与历史：`asset_name_fts`（FTS5）· `recent_query` · `recent_view`
+任务板 id: task-106   执行: db-worker   日期: 2026-10-16
+边界（**本卡独占**）：`main/db/migrations.ts` · `main/db/schema-layers.ts` + 测试 + 证据
+      **未加契约方法** · **未改界面** · 未碰 `main/index.ts`
+===============================================================================
+
+【结论】
+· 三张表落地 + **v6** 迁移；**FTS5 虚拟表**先实测了写法与幂等（SQLite 3.51.2 / `node:sqlite`）。
+· ⭐ **同步只有一处**（P1）：`asset_name_fts` 由**三条触发器**维护（INSERT/UPDATE/DELETE），
+  业务代码里**没有**第二处同步（源码扫描断言 + 三条路径行为断言）。
+· ⭐ **"子串"是照基线兑现的**：用 `tokenize='trigram'`（真子串）而不是默认 `unicode61`（词元匹配），
+  并且**用对照组证明**了差别（`R-101` 在 trigram 命中 `VR-101.jpg`，在 unicode61 **中不了**）。
+· 层级**先核对了基线**：`asset_name_fts` → **事实层**（可重建）；`recent_query` / `recent_view` → **过程层**。
+· 字段出处机械证明：`recent_query`（7）与 `recent_view`（3）从 `SPEC-COMPACT.md` 解析后与真 DDL 双向对照；
+  `asset_name_fts` 基线**明确写「无字段行；此卡不是数据表」** ⇒ 形状是本卡定的，**已写清归属**（见 §3）。
+· **能红三组**（原文见 §6）· 全部断言**从清单/真源派生**（**没有**"当前张数/当前版本/某层 == 具体列表"写死）。
+· 门禁（本轮实测）：受影响面 **150/150** · **s4 17/0/0** · `prettier --check .` **0** · `tsc` node **0** · `lint` **0**。
+
+【1. FTS5：决定、实测与代价（全部实测过，不是推断）】
+| 问题 | 实测结论 |
+|---|---|
+| 能不能用 | ✅ `node:sqlite`（SQLite **3.51.2**）建 FTS5 表、`MATCH` 查询、外部内容、trigram 全部可用 |
+| 迁移**幂等** | ✅ `CREATE VIRTUAL TABLE IF NOT EXISTS` 与 `CREATE TRIGGER IF NOT EXISTS` 可重复执行（连建两次不报错） |
+| 为什么不用 `LIKE` | 基线原话「现在按名找只能 LIKE；**FTS5 已实测可用**」。`LIKE '%x%'` 是全表扫 + 每行子串匹配；FTS5 建索引后是索引查找 |
+| 为什么 `trigram` | 基线写的是"**子串**搜"。默认 `unicode61` 按词元切：`VR-101.jpg` → `vr`/`101`/`jpg` ⇒ 找 `101` 行、找 `R-10` **不行**（跨词元）。trigram 是**真子串** ⇒ 与基线用词一致 |
+| 外部内容 | `content='asset', content_rowid='rowid'` ⇒ **不复制**名字文本（单一事实来源仍是 `asset`）。⚠️ 代价：FTS 只暴露自己声明的列，回查必须 `JOIN asset ON a.rowid = asset_name_fts.rowid`（实测 `SELECT uid FROM asset_name_fts` 报 no such column） |
+| ⚠️ 查询串**必须加引号** | `MATCH` 右边是**表达式**：`-`/`:`/`*` 有语法含义。实测裸 `R-101` 报 `no such column: 101`，加引号 `"R-101"` 才正常 ⇒ **下一张卡（按名搜 API）必须转义**；本卡把它写进 DDL 注释，别让"用户搜带连字符的文件名就报错"再被踩一次 |
+| 代价（如实记） | trigram 索引比 unicode61 大；查询串**至少 3 个字符**才有意义；每次写 `asset` 多三条行级触发器开销 |
+
+【2. ⭐ 同步**只有一处** = 三条触发器（P1）】
+· 写 `asset` 的路径**不止一条**：导入 `import.ts` · 扫描 `scanLibrary` · 重建 `rebuildLibraryDb`（将来还会有"改显示名"）。
+· ⇒ 同步若写在**应用层**，每加一条写入路径就多一次"记得同步"的机会，**漏一处 = 静默的搜索不一致**（条目明明在却搜不到）。
+  放进**触发器**：① 只有一处（就是这段 DDL）；② 任何写入路径自动生效，调用方不必知道 FTS 存在。
+· **机械证据**（S3）：① 库里的 `asset_name_fts_*` 触发器**恰好三条**；② 三条路径行为都到
+  （INSERT 后搜得到 → UPDATE 后**旧名字搜不到、新名字搜得到** → DELETE 后搜不到）；
+  ③ **源码扫描**：`main/**` 里对 `asset_name_fts` 的**写入**语句只许出现在 `db/migrations.ts`（触发器体）——实测正是如此。
+· 触发器**故意更窄**：`AFTER UPDATE OF display_name` —— 其它列（大小/时间戳）变了不需要重建索引。
+
+【3. 字段出处（谁定的，写清楚）】
+| 表 | 出处 | 归属说明 |
+|---|---|---|
+| `recent_query` | `SPEC-COMPACT.md` §59「字段 7」 | 7 列照抄：`query_id`(PK) · `kind`(CHECK text/image) · `text` · `image_ref` · `scope_lib_id` · `result_count` · `at_ms`(NOT NULL, DESC 索引) |
+| `recent_view` | §171「字段 3」 | 3 列照抄：`uid`(**PK + FK asset.uid CASCADE**) · `viewed_at_ms`(NOT NULL, DESC 索引) · `view_count`(NOT NULL DEFAULT 1) |
+| `asset_name_fts` | §106「[本轮]」 | 基线原话**「（无字段行；此卡不是数据表）」** ⇒ **形状是本卡定的**：索引列 `name`（喂 `asset.display_name`）+ 外部内容 `asset`。**名字也不是基线给的**（基线只给了"文件名子串搜"这件事） |
+· 逐字段的"为什么"照抄基线写进 DDL 注释（例如 `query_id` 用 nanoid；`kind` 分开记"文字搜/以图搜图"否则重跑时不知道该拿什么当输入；
+  `image_ref` 存 uid 不存绝对路径（路径会变、uid 不会）；`scope_lib_id` NULL = 全部库且重跑要能还原范围；
+  `recent_view.uid` 就是主键 ⇒ 同一条看多次只保留最后一次，天然去重）。
+· 索引：基线的 "INDEX DESC" 与偏索引口径都落到 DDL（`idx_recent_query_at` / `idx_recent_view_at`，DESC 由测试断言）。
+
+【4. 层级（先核对了基线四层分类表 `README.md:31-32`）】
+· **事实层**：`asset` · `asset_file` · **`asset_name_fts`**（全文索引可由 `asset` 重建 ⇒ 丢了可接受）；
+· **过程层**：`asset_index_state` · `job` · `health_run` · `health_finding` · **`recent_query`** · **`recent_view`**
+  （"系统记的最近行为"，不是用户标的注 ⇒ 不是意图层）。
+
+【5. 改前 → 改后 → 为何**不是放宽**】
+| # | 位置 | 改前 | 改后 | 为什么不是放宽 |
+|---|---|---|---|---|
+| 1 | `migrations.ts` | v1–v5 | **v6 `batch2-search-history`**（T_SEARCH） | 加新迁移，不改已跑过的（改了对已升级的库静默不生效） |
+| 2 | `schema-layers.ts` | fact 2 张 · process 4 张 | fact 加 `asset_name_fts` · process 加两张 | 四组点名仍强制全覆盖（G1 双向）；分类按基线 |
+| 3 | `db-schema.test.mjs` G1 | 逐层 `assert.deepEqual(tablesInLayer('fact'/'process'/'app'), […具体列表])` | **删掉逐层写死**，只留"**每一层声明的表都必须真的建出来**" | 写死的是**状态**（每加一张表都要来改，改的人只要把列表改大就绿）；关系断言对任何一层将来内容都成立 |
+| 4 | `db-schema.test.mjs` G2 | `assert.deepEqual(LIBRARY_VIRTUAL_TABLES, [], '本轮没有 FTS 虚表')` | 改钉三条关系：虚表也算"我们建的表"（⊆ LIBRARY_TABLES/EXPECTED_TABLES）· 影子表**确实在** · 影子表**不许**混进"我们建的表" | 原断言是"此刻没有虚表"（状态）；新断言更强：虚表被漏分类会红、影子表混进来也会红 |
+| 5 | `health-ledger.test.mjs` H7 | `tablesInLayer('process') === [4 张]` | `includes('health_run')` / `includes('health_finding')` | 同 #3；"我在过程层"仍被钉，完整成员由 G1 关系兜住 |
+| 6 | `health-rebuild.test.mjs` H3 | `sqlite_master 全部表 == EXPECTED_TABLES` | 先按 `<虚表>_` 前缀**机械排除影子表**，再比；并正向断言"影子表确实在" | 影子表**不是我们建的表**（仓内既有规则）；正向断言保证这条排除**不会掩盖"虚表没建出来"** |
+| 7 | `s4-accept.mjs` | 白名单无这三张 · `NOT_BUILT` 含它们 | 白名单加三张（**同一份**，A14/FIELDMAP 共用）· 移出 `NOT_BUILT` · **新增 S4-U7** | 白名单仍是显式登记（不在 map 又不在白名单 ⇒ 红）；新单测纳入同一门禁 |
+
+【6. ⭐ 能红（三组 · 注入 ⇒ 必红 ⇒ 还原 ⇒ 复绿）】
+① **去掉点名**（fact/process 各删掉本卡的表）：
+   `✖ G1 … DDL 建出的表与四组点名必须逐张对上   actual: […, 'asset_name_fts', …, 'recent_query', 'recent_view']   expected: [不含它们]`
+   `✖ S6 … asset_name_fts 属事实层（actual: false, expected: true）`
+   s4 同轮：`FAIL S4-A14` + **`FAIL S4-U1`（db-schema）** + **`FAIL S4-U7`（search-history）** ⇒ `PASS 14 · FAIL 3` ⇒ **三条守卫独立都抓到**
+② **弄坏 FTS 同步**（去掉"改名同步"那条触发器）：
+   `✖ S3 … actual: [ 'asset_name_fts_ad', 'asset_name_fts_ai' ]   expected: [ …, 'asset_name_fts_au' ]`
+   （即便去掉这条断言，行为断言也会红：改名后旧名字仍能搜到 = 静默的搜索不一致）
+③ **弄坏一条约束**（去掉 `kind` 的 CHECK）：
+   `✖ S5 … AssertionError: Missing expected exception: kind 只认 text/image`
+⇒ 三组还原后：六个 schema 测试文件 **50/50 绿** · `s4 = 17/0/0`。
+
+【7. 0 残留 grep（先跑后结论）】
+$ `asset_name_fts|recent_query|recent_view` 在 `apps/desktop/src/main` 的出现：
+  `db/migrations.ts × 22`（DDL + 注释）· `db/schema-layers.ts × 6`（点名 + 注释）·
+  `db/app-migrations.ts × 2`（**注释**：讲"其余 4 张随功能上线"与"跨库列只会是普通 TEXT"）·
+  `db/migration-engine.ts × 1`（**注释**：讲 `CREATE VIRTUAL TABLE` 也要被派生认出来，它举的例子就是 `asset_name_fts`）
+  ⇒ **没有第二份实现**（唯一落点：DDL + 分类；其余是文档）。
+$ 正证（三处注入都还原）：`migrations.ts:339` = `CREATE TRIGGER IF NOT EXISTS asset_name_fts_au AFTER UPDATE OF display_name …`（② 已还原）·
+  `migrations.ts:346` = `kind TEXT CHECK (kind IN ('text','image'))`（③ 已还原）·
+  `schema-layers.ts:50` = fact 含 `asset_name_fts` · `schema-layers.ts:64` = process 含 `recent_view`（① 已还原）；
+  全文件**没有** `MUTANT`/`__acc` 标记。
+
+【8. 门禁（本轮实测 · 最终字节）】
+$ node --test <受影响面 16 个文件>（search-history/asset-user-meta/asset-export/health-ledger/job-ledger/job-wiring/
+  db-schema/db-rebuild/db-import/app-db/items-ipc/health-rebuild/library-methods/s3-index-state/storage-ports-main/index-location）
+  ⇒ **150/150 · fail 0**
+$ node reports/2026-10-15-wave3/s4-accept.mjs ⇒ **PASS 17 · FAIL 0 · SKIP 0**（含 S4-U7）
+$ npx prettier --write <本卡改动文件> ⇒ 0 → npx prettier --check . ⇒ **0（All matched files use Prettier code style!）**
+$ npx tsc --noEmit -p tsconfig.node.json … ⇒ **0** · `npm run lint` ⇒ **0**
+（全量 `npm test` 与冻结门禁由 Lead 跑 —— 纪律 6；收到「冻结开始」我会**先回执再停笔**。）
+$ 探测用的临时目录 `data/_b25probe/`（FTS5 三组探针脚本）已删除。
+
+【9. 未做 / 边界（如实写 · P6）】
+· **只落地表**：没有 API ⇒ **"按名搜"、搜索历史、接着上次看都还没有界面**（能力边界不变，只是有了落点）。
+· ⚠️ 留给下一张卡的两条**使用注意**（本卡写进注释与测试，但没有 API 可修）：
+  ① `MATCH` 的查询串必须**转义/加引号**（裸 `R-101` 会报错）；
+  ② trigram 需要**至少 3 个字符**（更短的查询要走别的路径）。
+· `recent_view` 的"同一条看多次只保留最后一次"由**调用方 UPSERT** 实现（表这一层只能保证 1:1，不会有两行）；
+  `view_count` 的累加也在调用方。
+· 没测真窗口端到端（本卡不含读取/写入路径）；没做真实大库的 FTS 性能基准（只验证了机制与语义）。
+
+【10. 回滚】
+· `migrations.ts`：删 `T_SEARCH` + `LIBRARY_V6` + 清单里 v6 条目（版本自动回 5）；
+· `schema-layers.ts`：fact 去掉 `asset_name_fts`、process 去掉两张；
+· `db-schema.test.mjs` / `health-rebuild.test.mjs` / `health-ledger.test.mjs` / `s4-accept.mjs`：把关系断言改回写死（**不建议**）；
+  白名单去掉三张、`NOT_BUILT` 加回、删 S4-U7；删 `search-history.test.mjs`。
+· 未跑 git（AGENTS P7）。临时物：`data/_b25/**`（测试自清）· 已删的 `data/_b25probe/` · `data/_verify/*.tsbuildinfo`。
+===============================================================================
