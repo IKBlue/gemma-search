@@ -57,15 +57,35 @@ type RenderResult =
  * 它**不是调试后门**：`glob` 的范围在构建期就固化（pages/ 下有哪些文件），
  * 传进来的路径取不到模块就返回 null；也没有暴露任何新能力 —— 渲染层本来就只有 window.api。
  */
-const PAGES = import.meta.glob('./pages/*.tsx');
-const COMPONENTS = import.meta.glob('./ui/*.tsx');
+// ⚠️ 2026-10-16（BUILD-2 / 构建警告 19 → 0）：这两个 glob 必须 `{ eager: true }`。
+//
+// 【为什么】（不是"为了消警告"的取巧，是**把已经存在的事实写成显式**）
+//   不带 eager 时，`import.meta.glob` 生成的是**动态 import** ⇒ `pages/*.tsx` 与 `ui/*.tsx`
+//   每一个都成了"动态导入"。而它们**同时又都被静态导入**（`router/index.tsx` 引 4 个页面、
+//   `LibraryGate` 引向导、`App`/`Sidebar` 引其余，`ui/*` 被各页与 `search/*` 大量静态引用）
+//   ⇒ Rollup 逐条警告「dynamically imported … but also statically imported … will not move module
+//   into another chunk」**19 条**（= pages 9 + ui 10，正好是这两个目录的全部文件）。
+//
+//   ⚠️ 关键：这条警告断言的正是「**那个动态导入一点懒加载都没实现**」—— 模块本来就在主 chunk 里。
+//   ⇒ 所以这里**没有**"该不该 lazy"的可选空间：只要它们仍被静态导入（而那是必须的——路由/布局
+//   本来就静态引用它们），它们就**不可能**被拆成独立 chunk。想真 lazy 就得删掉那些静态导入，
+//   那会改变 `Suspense` 边界与首屏顺序 —— 本卡明令不许。
+//   ⇒ 逐个决定的结果：**19/19 都应当 eager**，不存在需要保留 lazy 的那一条。
+//   ⇒ 用 eager 把这件事写成显式：产物**不增反微降**（实测 renderer JS：
+//      1,249,310 B → 1,245,068 B，−4,242 B ≈ −0.34% —— 省掉的是那层 import() 包装机器；
+//      main / preload 两段**逐字节不变**）⇒ 首屏不会变大，也没有新的模块被拉进主 chunk。
+//
+// ⚠️ 别改回不 eager：那样警告会**全部回来**（能红探针见 reports/2026-10-15-wave3/build2.txt）。
+const PAGES = import.meta.glob('./pages/*.tsx', { eager: true });
+const COMPONENTS = import.meta.glob('./ui/*.tsx', { eager: true });
 
 window.__DSH_RENDER = async (rel, container, props): Promise<RenderResult> => {
   const key = './' + String(rel || '').replace(/^\.?\//, '');
-  const loader = PAGES[key] || COMPONENTS[key];
-  if (!loader) return { ok: false, error: `没有这个组件：${key}` };
-  const mod = (await loader()) as ComponentModule;
-  if (!mod || !mod.default) return { ok: false, error: `${key} 没有 default 导出` };
+  // eager glob ⇒ 这里是**模块对象本身**（不再是 () => Promise）。外层仍保持 async：
+  // 签名与调用方（window.__DSH_RENDER 的守卫）不变，只是少了一次必然立即 resolve 的 await。
+  const mod = (PAGES[key] || COMPONENTS[key]) as ComponentModule | undefined;
+  if (!mod) return { ok: false, error: `没有这个组件：${key}` };
+  if (!mod.default) return { ok: false, error: `${key} 没有 default 导出` };
   const host = container || document.createElement('div');
   const r = createRoot(host);
   const Cmp = mod.default;

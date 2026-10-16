@@ -16,10 +16,17 @@ declare module '*.css' {
 /**
  * Vite 的 `import.meta.glob`（**构建期**替换成静态映射）。
  *
- * 类型刻意写得比 Vite 的完整签名**窄而准**：本仓库只用它挂载 `pages/` 与 `ui/` 下的组件，
- * 所以返回值就是「源码相对路径 → () => Promise<模块>」。
- * `eager` 等选项本仓库没有用到，不在这里铺开（YAGNI，也不必假装支持）。
+ * 类型刻意写得比 Vite 的完整签名**窄而准**：本仓库只用它把 `pages/` 与 `ui/` 下的组件
+ * 收集成「源码相对路径 → 模块」，而且**只用 `{ eager: true }` 这一种形态** ——
+ * 见 `main.tsx` 的 `PAGES` / `COMPONENTS` 与那里的长注释。
+ *
+ * ⚠️ 2026-10-16（BUILD-2）：**之前这里声明的是非 eager 形态**（`() => Promise<unknown>`）。
+ *    改成 eager 不是"放宽类型"，而是**跟着实现走**：那 19 个模块本来就都被静态导入
+ *    （`router/index.tsx`、`App.tsx`、`Sidebar.tsx`、各页引 `ui/*`），
+ *    非 eager 的动态 import 一个 chunk 都拆不出来，只换来 19 条 Rollup 警告。
+ *    ⇒ 非 eager 的形态本仓库**不再使用**，故这里**只声明 eager 这一种**；
+ *      将来真要用（比如给某个页面做真 lazy），把它加回来并写明理由即可。
  */
 interface ImportMeta {
-  glob(pattern: string): Record<string, () => Promise<unknown>>;
+  glob(pattern: string, options: { eager: true }): Record<string, unknown>;
 }
