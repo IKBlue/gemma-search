@@ -143,6 +143,45 @@ app ready          67 ms
 （Lead 裁定走 (a)+(b)：(a) 6.4 s 启动停摆另开 START-1/task-100；(b) 本卡的拆 chunk 继续做，
   验收按 §5 的写法 —— 「chunk ≥ 2 且含 route chunk」+「首屏不劣化」，**不写"更快"**。）
 
+### 8.0 两栏小结（**本轮实测** / 引用）
+【本轮实测 —— 可复跑，原始输出见各节】
+| 项 | 结果 |
+|---|---|
+| **机械判据** | 渲染层 JS **1 → 12 个 chunk**，含 6 个 route chunk ⇒ 「chunk ≥ 2 且含 route chunk」✓ |
+| 主 chunk | 1,245,068 → **1,078,345 B**（**−166,723 B / −13.4%**） |
+| 构建警告 | **0**（BUILD-2 的 19 条**没有回来**） |
+| **能红** | 退回一条 lazy ⇒ 警告 **1** · 该页 chunk **消失** · chunk 数 **12 → 7**；随后逐字节还原（sha256 `483957e6afd1022c` 前=后） |
+| 首屏 | first-paint 6190 → **6204 ms**（+14 ms，σ≈10 ms 噪声内）⇒ **不劣化**（**不写"更快"**） |
+| 真窗口 e2e 关键路径 | **16 passed / 0 failed**（启动 E0 · 导航 E2-*/E6-* · 详情 E9-*） |
+| `npm run typecheck` | **0** |
+| 我改的 4 个文件定向 prettier | **0**（All matched） |
+
+【引用 —— **不是本轮实测**】
+| 项 | 来源 |
+|---|---|
+| `npm test`（全量单测） · `npm run lint` · 全量 `e2e` · `build`（门禁口径） | **引用 Lead 的冻结门禁**（本轮；提交号由 Lead 的冻结回报给出后填入即**唯一需要改的一处**）。本卡**不自己跑**：同一时刻只允许一个人跑 `npm test`（事务套件共用 `data/_txn-test`），且冻结窗口里的结论才权威 |
+
+> ⚠️ 按 AGENTS §4 证据协议第 3 条：引用既有结论必须写明「引用」，**不得**写成「本轮实测」。
+> 本节**刻意不复制**冻结门禁的数字 —— 避免把别人的结论冒充成本轮测量。
+
+【⭐ 规则：**一个模块只能走一条腿**】（Lead 要求写进证据保留）
+Rollup 只在「**同一个模块既静态导入、又动态导入**」时警告「…will not move module into another chunk」；
+而**静态那条腿会把模块钉进主 chunk**。⇒ 本仓据此定的规则：
+
+| 模块 | 走哪条腿 | 落在哪 |
+|---|---|---|
+| 路由页 6 个（SearchPage / ItemPage / TasksPage / ActivityPage / BrowsePage / DiagnosticsPage） | **动态**（`React.lazy` + `ROUTE_PAGES` 非 eager，**逐个列出**） | 各自的 route chunk |
+| 非路由页 LibraryGate · FirstRunWizard | **静态**（被 `App` / `LibraryGate` 静态导入；`STATIC_PAGES` eager 只为守卫） | 主 chunk |
+| `ui/*` 10 个 | **静态**（被各页与 `search/*` 大量引用；`COMPONENTS` eager） | 主 chunk |
+| `pages/AppHealthPanel.tsx` | **哪条都不走**（不在任何 glob 里） | 诊断页 chunk（被 DiagnosticsPage 静态导入）—— 见下 |
+
+⚠️ **只改一边的后果**（这就是"不能只做一半"）：只改 `router/index.tsx` ⇒ glob 仍 eager 把页面钉在主 chunk，
+**chunk 拆不出来**；只改 `main.tsx` ⇒ BUILD-2 修掉的 **19 条警告原样回来**。
+
+⚠️ **`AppHealthPanel` 的最小能力缩减（Lead 已批准）**：它不在任何 glob 里 ⇒ `__DSH_RENDER`
+**不能再按路径挂载它**（它本来也不是可路由页面）。若把它 eager 进 main.tsx，会把它从"诊断页 chunk"
+拖进**主 chunk**（首屏变大）—— 得不偿失。**代价明确、范围最小，且没有动钩子本身**（钩子存废见 U33）。
+
 【改了什么 · 3 个文件】
 | 文件 | 改动 |
 |---|---|
@@ -229,6 +268,10 @@ lazy + Suspense 最可能弄坏的两处）· 详情 `E9-a..f`。
 9.2 ⚠️ `npx prettier --check .` 当前 = **1**，命中 `apps/desktop/e2e/start1-probe.spec.mjs`
     —— 那是 **START-1（task-100，main-migrator）在飞**的新文件，**不是我的**（我改的文件定向 check = 0）。
     虽然 `apps/desktop/e2e` 在本卡 writeScopes 前缀内，但改队友正在写的文件有覆盖风险 ⇒ **只报不改**。
-9.3 START-1 若把 6.4 s 的启动停摆修掉，**本文件的 §2 基线数字会变**；
-    届时第 1 步的「首屏不劣化」需要在新基线上**重测一次**（量具已就位：`first-paint.spec.mjs`）。
+9.3 ⚠️ **收口条件（Lead 2026-10-16 明确挂上）**：START-1（task-100）一旦把 6.4 s 启动停摆修掉，
+    §2 的基线数字就变了 ⇒ 第 1 步的「首屏不劣化」**必须在新基线上重测一次**才算数。
+    量具已就位：`apps/desktop/e2e/first-paint.spec.mjs`（`GEMMA_PERF=1`，6 次取中位；
+    它同时打表 chunk 数 —— 重测时顺带复核 route chunk 仍在）。
+    ⇒ 在 START-1 落地前，本条**保持未闭合**：本文件现有结论只能说「在**当时的**基线下未劣化」，
+      不能当成永久结论。
 
