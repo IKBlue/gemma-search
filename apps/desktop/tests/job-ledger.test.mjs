@@ -274,7 +274,10 @@ test('J5 ⭐ 重启（重开库）后能读到未完成任务**及其游标**', 
   db.close(); // = 进程结束
 
   // = 进程重启：重新打开同一个库（迁移幂等，不许重建表）
-  const reopened = openGsDb({ dbPath });
+  // ⚠️ B2-1b：`openGsDb` 现在**会在开库时结算**（把心跳过期的 running 判 failed）。
+  //    这里要测的是"刚崩、马上重启" ⇒ 注入**同一个模拟时钟**（心跳对它是新鲜的），任务才该还活着；
+  //    "心跳真的过期 ⇒ 判 failed"那条由 J2 / W2 负责（它们期望的就是被判失败）。
+  const reopened = openGsDb({ dbPath, now: c.now });
   try {
     assert.equal(reopened.migration.applied.length, 0, '重开不该再跑迁移（幂等）');
     const unfinished = listUnfinishedJobs(reopened.db);
@@ -345,8 +348,8 @@ test('J6 ⭐⭐ 游标续跑**不重复处理**已处理项（可数夹具 + 中
   assert.equal(advance(db, 2), 2, '第一段处理 A/B');
   assert.deepEqual(processed, ['A', 'B']);
 
-  db.close(); // = 崩了
-  const reopened = openGsDb({ dbPath });
+  db.close(); // = 崩了（马上重启 ⇒ 注入同一个模拟时钟，理由见 J5 的说明）
+  const reopened = openGsDb({ dbPath, now: c.now });
   try {
     assert.equal(advance(reopened.db, 2), 2, '续跑处理 C/D（从断点之后开始）');
     assert.deepEqual(processed, ['A', 'B', 'C', 'D'], '**四项各处理一次，没有重复**');

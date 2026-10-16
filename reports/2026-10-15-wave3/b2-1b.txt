@@ -1,0 +1,99 @@
+================================================================================
+B2-1b 证据 · 把「启动清理」**真正挂上**唯一开库入口（只接线，不碰契约）
+任务板 id: task-96   执行: db-worker   日期: 2026-10-16
+边界：`main/db/open.ts`（唯一接线点）· `main/db/jobs.ts`（结算对坏游标不致命）· 测试 · 证据
+      **未加契约方法** · **未改界面** · 未动 B2-2 之后
+===============================================================================
+
+【结论】
+· `settleUnfinishedJobsOnStartup` 现在由 `openGsDb`（**打开某库 .gs.db 的唯一入口**）调用**恰好一次**：
+  开库时把「运行中但心跳过期」的任务判 `failed`，把仍能续跑的任务连同断点交出来；**只读打开跳过**。
+· **防 P8 两类证据都有**：① 源码扫描断言（恰好一处 + 在唯一入口内 + **结果被赋值且进返回值**）；
+  ② **端到端**：经**真实开库路径**让过期 `running` 变 `failed`（测试里**不直接调** settle）。
+· **能红**：去掉那处调用 ⇒ 6 条接线用例**全红**（原文见 §4）。
+· ⭐ 旁证：接线之后 **B2-1 自己的 J5/J6 立刻红了**（它们假设"重开库不结算"）—— 这本身就是接线生效的证明（§5）。
+· ⚠️ **能力边界没变**：这一步之后**仍然不能在界面上看到进度**（没加契约、没改界面）；
+  变化只有一条 —— **启动时不再有假状态**（库里那条"永远在跑"的 ghost 会被判失败）。
+
+【1. 「打开库」有没有单一入口？—— **有**（所以不需要"先报我"）】
+$ Select-String -Path apps/desktop/src/main/**/*.ts -Pattern 'openGsDb\('
+  · **读写**：`main/items-ipc.ts:276` · `main/library-rebuild.ts:241`
+  · **只读**：`main/library-health.ts:377`（`readOnly: true`）· `main/storage-ports.ts:310`（`readOnly: true`）
+  · 定义：`main/db/open.ts:91`（**唯一实现**）
+⇒ 产品面**只有 `openGsDb` 一个入口**，所有调用方都经由它拿连接 ⇒ 结算写在它内部 **一处** 即可（P1）。
+  没有第二份入口，因此**不需要**造第二份、也不触发"先报我"那条。
+
+【2. 改前 → 改后 → 为何**不是放宽**】
+| # | 位置 | 改前 | 改后 | 为什么不是放宽 |
+|---|---|---|---|---|
+| 1 | `open.ts`（唯一接线点） | `settleUnfinishedJobsOnStartup` **写好但没人调**（B2-1 自己写明的边界） | 开库时调一次；结果进 `OpenGsDbResult.startupSettlement`，失败进 `startupSettlementError` | 新增行为**只在"有过期 running"时才产生写入**；正常库三栏为空（W5 钉住）。**只读跳过** + **失败不致命**（下面两行）都是收紧而非放宽 |
+| 2 | 只读打开 | ——（无结算） | **仍然不结算**（`if (!readOnly)`），且 W3 断言"只读打开后那条 running 仍是 running" | 这是**加约束**：只读连接绝不做 UPDATE（本文件对 mkdir 已是同一态度） |
+| 3 | 结算的失败处理 | 无（没人调） | 结算自己抛错 ⇒ 记进 `startupSettlementError`，**库照常打开** | 一条台账问题不该让**整座库打不开**；但**不静默**（错误字符串在返回值里，与既有的 `walNote` 同一种态度） |
+| 4 | `jobs.ts` 结算的坏游标 | `readCursor` 抛 ⇒ 结算抛 ⇒ （接线后）**开库失败** | 单列 `cursorErrors`（该任务仍在 `resumable` 里、`cursor: null`），**不阻断开库** | 一条坏数据换一座库，代价不对等；且**不静默**（列进 `cursorErrors`，W4 钉住）。`readCursor` 本身**仍然抛**（J5b 不变）——降级只发生在"结算"这一层 |
+| 5 | B2-1 的 J5/J6 夹具 | `openGsDb({ dbPath })`（用真实 `Date.now()`） | `openGsDb({ dbPath, now: c.now })`（注入同一个模拟时钟） | **不是把断言改松**：这两条测的是"**刚崩、马上重启**"（心跳对注入时钟是新鲜的）⇒ 任务该活着；"心跳**真的**过期 ⇒ 判 failed"由 J2/W2 负责。两条路各自都有断言，覆盖面**变宽**了 |
+| 6 | `open.ts` 注释里的引用（DOC-5） | 注释指向 `reports/2026-10-15-wave3/b2-1b.txt` | **自述原因**：把"为什么只在这里"直接写进注释（列出产品调用点与漏一处的后果） | 产品源码不引用逐轮归档（那个文件在写的时候还不存在）；读者不需要跳到归档才知道理由 |
+
+【3. 防 P8：两类证据（注释/调用都不算证据，**源码扫描 + 端到端**才算）】
+① **源码扫描**（`job-wiring.test.mjs` 的 W1，照 SEC-1 的 D7 做法）：
+   · 递归读 `apps/desktop/src/main/**/*.ts`（**扫描面自检**：文件数 ≥20 且必须包含 `db/open.ts`，防止"扫了空目录"的假绿）；
+   · 数调用点（排除定义行）⇒ **恰好 1**，且必须在 `apps/desktop/src/main/db/open.ts`；
+   · **结果被使用**：断言那一行形如 `startupSettlement = settleUnfinishedJobsOnStartup(`（赋值，不是裸调用），
+     且 `open.ts` 里有 `return { … startupSettlement … };`（正则带 `s` 跨行）＋ `startupSettlementError` 在场；
+   · 还必须存在只读分支 `if (!readOnly)`。
+② **端到端**（W2）：造一条 `running` + 心跳停在 T0 的任务 → `db.close()` → **只调 `openGsDb({ dbPath, now: () => T0 + 10min })`**
+   （测试里**没有任何** `settle*` 调用）⇒ 断言 `startupSettlement.failed == ['j-wire']`、库里 `state === 'failed'`、
+   `error` 含"心跳过期"、`progressDone` 仍是 5（不改写历史）、`resumable` 为空；再开一次 ⇒ 不重复判（幂等）。
+   另有 W2b（心跳新鲜 ⇒ 不误杀 + 断点被交出来）· W3（只读不结算）· W4（坏游标不阻断开库）· W5（干净库三栏空）。
+
+【4. 能红（去掉接线 ⇒ 接线用例全红）】
+把 `open.ts` 里那行调用换成一句注释（`// MUTANT：去掉接线`）：
+$ node --test apps/desktop/tests/job-wiring.test.mjs
+  ✖ W1 ⭐⭐ 接线是真接线 … `AssertionError: 产品面必须**恰好一处**调用（散落多处 ⇒ 迟早漏掉一处）：[]`
+     `actual: 0   expected: 1`
+  ✖ W2 ⭐⭐ 端到端 … / ✖ W2b / ✖ W3 / ✖ W4 / ✖ W5      ⇒ `tests 6 · pass 0 · fail 6`
+（W2–W5 也全红是因为 `startupSettlement` 恒为 null ⇒ "结果被使用"这一环断了。）
+⇒ 还原那一行后：`job-wiring 6/6 绿`。
+
+【5. ⭐ 旁证：接线之后 B2-1 的 J5/J6 **立刻红了**
+$`node --test <受影响面 12 个文件>` ⇒ `tests 123 · pass 121 · fail 2`：
+  ✖ J5「重启（重开库）后能读到未完成任务及其游标」—— `AssertionError: 未完成的任务必须还在`
+  ✖ J6「游标续跑不重复处理已处理项」
+原因：这两条夹具的时钟停在 `T0 = 1700000000000`（2023-11-14），而重开库时用的是**真实 `Date.now()`** ⇒
+  心跳"过期了三年" ⇒ **新接线如实把它判成了 failed**。
+⇒ 这**不是**产品回归，而是**接线真的生效**的证明（旧用例假设"重开库不结算"）。
+修法（§2 第 5 行）：夹具注入同一个模拟时钟（"刚崩、马上重启"），并加注释说明"心跳真过期那条由 J2/W2 负责"。
+修完 `tests 123 · pass 123 · fail 0`。
+
+【6. 0 残留 grep（先跑后结论）】
+$ 产品面调用点：`settleUnfinishedJobsOnStartup` ⇒ **恰好 1 处调用**（`open.ts:165`）+ 1 处定义（`jobs.ts`）+ 1 处 import
+$ `Select-String -Path apps/desktop/src/main/**/*.ts -Pattern 'reports/'` ⇒ **我的 `open.ts` 已为 0**；
+  另**六处既有**引用（别卡写的，**不是**我这次引入的）：`app-migrations.ts:3` · `migrations.ts:3` · `import.ts:34` ·
+  `import.ts:179` · `schema-layers.ts:13` · `sqlite-adapter.ts:6`。
+  **实测这六处指向的文件都存在**（`DESIGN-6tables-and-contract.md` / `11a.txt` / `11c.txt` / `s1.txt` 皆 Test-Path=True）
+  ⇒ **今天不是断链**；但按 DOC-5 的口径（产品源码不引用逐轮产物）它们仍是同一类风险 ⇒ **报给 Lead/DOC-5 定夺**，
+  我**没有**顺手改别卡的注释（那会把"顺带修饰"混进本卡，且理由的措辞该由原卡的作者/Lead 定）。
+
+【7. 门禁（本轮实测 · 最终字节）】
+$ node --test job-wiring + job-ledger ⇒ tests **17** · pass **17** · fail **0**
+$ node --test <受影响面 12 个文件>（含 db-schema/db-rebuild/db-import/items-ipc/health-rebuild/index-location…）⇒ **123/123**
+$ node reports/2026-10-15-wave3/s4-accept.mjs ⇒ **PASS 13 · FAIL 0 · SKIP 0**
+$ npx prettier --write <改动文件> ⇒ 0 → npx prettier --check . ⇒ **0（All matched）**
+$ npx tsc --noEmit -p tsconfig.node.json … ⇒ **NODE_TSC=0**
+$ npm run lint ⇒ **0**
+（全量 `npm test` 与冻结门禁由 Lead 跑 —— 纪律 6：同一时刻只跑一个。收到「冻结开始」我会**先回执再停笔**。）
+
+【8. 未做 / 边界（如实写 · P6）】
+· **仍然不能在界面上看到进度**：本卡只接线，**没加契约方法**（`indexStart`/`Cancel`/`Resume` 恢复 = 契约变更、需所有者批准）、
+  **没改界面**。`startupSettlement` 目前只有**开库的调用方**（items-ipc / library-rebuild 等）能拿到，
+  离"用户在界面上看到任务进度/阶段/断点"还有：契约方法 → 界面展示（各一张卡）。
+· 结算**不在进程启动时枚举所有库**：它在"第一次打开某个库"时结算 —— 这是本卡选定的唯一入口语义
+  （卡片的原话就是"打开某库 DB 的唯一入口"）。⇒ 一个**从未被打开**的库，其过期 running 要等到被打开才判失败；
+  这不是漏，是"没有入口就不该猜"。
+· **没测真实进程被杀**（测试是"关库 + 重开 + 注入时钟"模拟），语义覆盖到，机制不同。
+
+【9. 回滚】
+· `open.ts`：删掉 `if (!readOnly) { … settlement … }` 与返回里的两个字段（回到 B2-1 收口时的形状）；
+· `jobs.ts`：`StartupSettlement` 去掉 `cursorErrors`、`settle` 回到 `map(readCursor)`（会重新变成"坏游标拒绝开库"）；
+· 测试：删 `job-wiring.test.mjs`；J5/J6 夹具去掉 `now: c.now`（会再次与接线冲突 ⇒ 不建议单独回滚这一处）。
+· 未跑 git（AGENTS P7）。临时物：`data/_b21b/**`（测试自清）· `data/_verify/*.tsbuildinfo`。
+===============================================================================

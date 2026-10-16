@@ -407,10 +407,17 @@ export interface StartupSettlement {
   failed: JobRow[];
   /** 还能续跑的（queued/running 且心跳新鲜）；`cursor` 已解析 */
   resumable: Array<{ job: JobRow; cursor: unknown }>;
+  /**
+   * 游标**读不出来**的任务（坏 JSON）。
+   * ⚠️ 为什么单列一栏而不是让 `readCursor` 直接抛：B2-1b 把结算接进了「打开库」的**唯一入口**，
+   *    若一个坏游标能让 `openGsDb` 抛错，**整个库就打不开了** —— 一条坏数据换一座库，代价不对等。
+   *    ⇒ 这里**如实列出来**（那条任务仍出现在 `resumable` 里、`cursor` 为 null），既不静默、也不阻断开库。
+   */
+  cursorErrors: Array<{ jobId: string; reason: string }>;
 }
 
 /**
- * **进程启动/打开库之后调一次**（下一张卡接线到真实启动路径）。
+ * **进程启动/打开库时调一次**：B2-1b 起由 `openGsDb`（打开某库 .gs.db 的**唯一入口**）调用。
  * 语义：库里的"在跑"必须与**现实**对齐 —— 死掉的判失败，活着的带着断点交出来。
  */
 export function settleUnfinishedJobsOnStartup(
@@ -418,6 +425,16 @@ export function settleUnfinishedJobsOnStartup(
   input: SweepInput = {},
 ): StartupSettlement {
   const failed = sweepStaleJobs(db, input);
-  const resumable = listUnfinishedJobs(db).map((job) => ({ job, cursor: readCursor(job) }));
-  return { failed, resumable };
+  const resumable: Array<{ job: JobRow; cursor: unknown }> = [];
+  const cursorErrors: Array<{ jobId: string; reason: string }> = [];
+  for (const job of listUnfinishedJobs(db)) {
+    try {
+      resumable.push({ job, cursor: readCursor(job) });
+    } catch (e) {
+      // 坏游标：如实记账，**不让它把"开库"拖垮**（见 StartupSettlement.cursorErrors 的说明）
+      resumable.push({ job, cursor: null });
+      cursorErrors.push({ jobId: job.jobId, reason: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return { failed, resumable, cursorErrors };
 }

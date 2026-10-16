@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { GsDbError, describeError } from './errors.ts';
+import { settleUnfinishedJobsOnStartup, type StartupSettlement } from './jobs.ts';
 import {
   LIBRARY_MIGRATIONS,
   migrate,
@@ -57,6 +58,17 @@ export interface OpenGsDbResult {
   journalMode: string;
   /** WAL 设置失败/退化的原因（空串 = 没问题）—— 不静默：网络盘上 WAL 会退回 delete */
   walNote: string;
+  /**
+   * **任务台账的启动结算**（B2-1b）：把"运行中但心跳过期"的任务判成 `failed`，
+   * 并把仍能续跑的任务连同断点交出来。**只读打开时为 `null`**（只读不该有任何副作用）。
+   * ⚠️ 结果**必须被调用方使用**（别只是调一次就算接好线）—— 界面/契约那一层会用它。
+   */
+  startupSettlement: StartupSettlement | null;
+  /**
+   * 结算**自身**失败的原因（空串 = 没问题）—— 不静默，但**不阻断开库**：
+   * 一条台账问题不该换掉一座库（与 `walNote` 同一种态度：报告事实，继续干活）。
+   */
+  startupSettlementError: string;
 }
 
 /** PRAGMA 读回来的值 → 字符串（读不到就是 'unknown'，不猜成 'wal'） */
@@ -137,7 +149,35 @@ export function openGsDb(options: OpenGsDbOptions): OpenGsDbResult {
       ? readOnlyMigrationResult(db, migrations)
       : migrate(db, { migrations, now });
 
-    return { db, dbPath, created, migration, journalMode, walNote };
+    // ── B2-1b：任务台账的**唯一**接线点 ──────────────────────────────────────────
+    // 为什么在这里、且只在这里：`openGsDb` 是**打开某库 .gs.db 的唯一入口** —— 产品的其它地方都经由
+    //   它拿连接（items-ipc / library-rebuild 走读写，library-health / storage-ports 走只读），
+    //   所以"打开库就该结算一次"写在**这一处**就够。若散到各个调用方去写，迟早会漏一处 ——
+    //   漏掉的那一处就是"界面永远显示一个不存在的进度（而且永远不会前进）"。
+    // 为什么只读跳过：只读打开**不许有副作用**（本文件对 mkdir 已经是这个规矩）；
+    //   而且只读连接根本不该执行 UPDATE。
+    // 为什么不致命：一条台账问题（比如某行 cursor_json 坏了）不该让**整座库打不开**；
+    //   失败如实记进 startupSettlementError，库照常可用。
+    let startupSettlement: StartupSettlement | null = null;
+    let startupSettlementError = '';
+    if (!readOnly) {
+      try {
+        startupSettlement = settleUnfinishedJobsOnStartup(db, { now });
+      } catch (e) {
+        startupSettlementError = `任务台账启动结算失败（库照常打开，结算按空处理）：${describeError(e)}`;
+      }
+    }
+
+    return {
+      db,
+      dbPath,
+      created,
+      migration,
+      journalMode,
+      walNote,
+      startupSettlement,
+      startupSettlementError,
+    };
   } catch (e) {
     try {
       db.close();
