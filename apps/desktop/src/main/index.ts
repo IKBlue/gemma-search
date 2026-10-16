@@ -46,6 +46,7 @@ import { createRevealPort } from './ports.ts';
 import { createLibraryResolverPort, createStoragePorts } from './storage-ports.ts';
 import { runLibraryHealth, runLibraryRebuild } from './library-ipc.ts';
 import { classifyRootSync, probeRoots } from './library-availability.ts';
+import { createDialogPathGate } from './dialog-paths.ts';
 import { applyAvailability, buildLibraryRows, unavailableLibraries } from './library-view.ts';
 import type { LibraryView } from './library-view.ts';
 import { runItemsQuery } from './items-ipc.ts';
@@ -94,6 +95,12 @@ import type { SampleIndex } from '../../../../packages/engine/src/fake.ts';
 import electron from 'electron';
 import type { OpenDialogOptions } from 'electron';
 const { app, BrowserWindow, ipcMain, protocol, nativeImage, dialog, shell, screen } = electron;
+/**
+ * SEC-1：绝对路径入参的**来源闸门**（纵深防御第二道）。口径与两条例外见 main/dialog-paths.ts。
+ * ⚠️ 刻意是**进程内**状态：重启后要再登记同一个目录 ⇒ 重新选一次（选择器就在旁边）。
+ */
+const dialogPaths = createDialogPathGate();
+
 /** 本文件所在目录：dev/预览态是 `<根>/out/main`，打包态在 asar 内 */
 const HERE: string = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1036,6 +1043,10 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
       makeDefault?: unknown;
     };
     if (method === 'collectDirAdd') {
+      // SEC-1：这是契约里第二处接受绝对路径的地方；**没有**取件目录选择器 ⇒ 退到
+      // 「存在且是目录」（已知缺口写在 dialog-paths.ts 文件头，不假装防住了）。
+      const collectGate = dialogPaths.checkCollectDir(String(p.absPath ?? ''));
+      if (!collectGate.ok) return collectGate;
       const r = withAppDb((db) =>
         insertCollectDir(db, {
           absPath: String(p.absPath ?? ''),
@@ -1109,11 +1120,18 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
     if (picked.canceled || !picked.filePaths || !picked.filePaths[0]) {
       return { ok: true, data: { canceled: true, path: null } };
     }
+    // SEC-1：**这是唯一合法的绝对路径来源** —— 记下来，libraryAdd 才会认它（见 dialog-paths.ts）
+    dialogPaths.rememberPicked(picked.filePaths[0]);
     return { ok: true, data: { canceled: false, path: picked.filePaths[0] } };
   }
 
   // libraryAdd
   const p = (params && typeof params === 'object' ? params : {}) as Req<'libraryAdd'>;
+  // SEC-1（纵深防御第二道）：root 必须与**本次会话里系统对话框真的返回过**的目录对账。
+  // ⚠️ 存在且是目录**不够** —— 一个真实存在但不是选出来的目录一样被拒（那正是「对账」多出来的部分）。
+  //    可用性（不存在/不是目录/不可访问）仍由下面的 classifyRootSync 管（U18 的唯一判据，不在这里重复）。
+  const gate = dialogPaths.checkLibraryRoot(String(p.root));
+  if (!gate.ok) return gate;
   const root = path.resolve(String(p.root));
   // ⚠️ U18：库根「能不能用」的判据**只有一份**（main/library-availability.ts）—— 这里也走它。
   //    改前是 `!fs.existsSync(root) || !statSync(root).isDirectory()` 自己的写法，且三种原因被压成同一句
@@ -1189,7 +1207,7 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
 //
 // 形状**只允许** `thumb://<libId>/<uid>@<size>`。
 // 路径绝不从 URL 取，而是由「注册表 + 索引」反查后再做包含校验 —— 这样
-// 渲染进程无法用它读任意文件（它连"一个路径"都传不进来）。
+// 渲染进程无法用它读任意文件：URL 里**没有路径成分**，读哪个文件由「注册表 + 索引」反查后再做包含校验。
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'thumb',

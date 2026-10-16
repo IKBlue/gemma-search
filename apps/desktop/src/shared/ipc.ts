@@ -21,8 +21,18 @@ export const CH_EVENT = 'engine:event';
 
 /**
  * 方法白名单。**未登记的方法一律拒绝**（不落到 default 分支不管）。
- * 注意：没有任何方法接受"绝对路径"，唯一例外是 search.queryImagePath
- * （用户临时选的库外查询图，只读 + 扩展名白名单在引擎里）。
+ *
+ * ⚠️ 路径口径（SEC-1 · 2026-10-16 修正 —— 旧注释写「没有任何方法接受绝对路径，唯一例外是
+ *    search.queryImagePath」是**与实现不符的声明**，别再照抄）：
+ *   绝大多数方法**不接受任何绝对路径** —— 要定位东西就给 `libId`/`uid`，路径由主进程自己算。
+ *   但**确有三处例外**：
+ *     · `search.queryImagePath` —— 用户临时选的库外查询图（只读 + 引擎侧扩展名白名单）；
+ *     · `libraryAdd.root`       —— 必须是 `libraryPickDir` **刚返回**的那个目录（主进程对账）；
+ *     · `collectDirAdd.absPath` —— 取件白名单目录；**目前没有对应选择器**，只校验「存在且是目录」。
+ *   纵深防御（第一道 = isTrustedSender + 严格 CSP + 无远程内容 + 这里的 zod `.strict()` 形状）：
+ *     · `libraryAdd`：主进程 `main/dialog-paths.ts` 的闸门要求 root ∈ **本次会话由对话框返回过的**集合
+ *       ⇒ **存在且是目录也不够**：凭空造的路径（哪怕它真的存在）一律 BAD_REQUEST；
+ *     · `collectDirAdd`：没有选择器 ⇒ 只能退到「存在且是目录」（**已知缺口**，写在那里，不假装防住）。
  */
 export const Methods = {
   search: z
@@ -136,8 +146,10 @@ export const Methods = {
   // 渲染层本就拿不到 `dialog`；这是它唯一的间接通道，且必须由用户点击触发。
   libraryPickDir: z.object({}).strict(),
 
-  // 注册（或更新）一个库：写 userData 注册表并重建引擎。
-  // **不接受任意路径之外的形状**：root 是用户选/拷进来的目录，存在性由主进程校验。
+  // 注册（或更新）一个库：写 app.db 的 library_registry 并重建引擎。
+  // ⚠️ `root` 是**绝对路径**（三处例外之一，见文件头）：它必须来自 `libraryPickDir` 的结果。
+  //    主进程两道判据：**来源对账**（main/dialog-paths.ts）+ **可用性**（main/library-availability.ts）。
+  //    既不是「选了就行」（还要存在/可访问），也不是「存在就行」（还要真的是选出来的）。
   libraryAdd: z
     .object({
       libId: LibId.optional(), // 省略则主进程自动分配（L1、L2…）
@@ -154,8 +166,9 @@ export const Methods = {
    *
    * ⚠️ 为什么走 IPC 而不让渲染层自己算：体检要读 `.gs-index.bin`（引擎五道校验）与只读打开 `.gs.db`；
    *    重建要删/建文件 —— 都是**主进程的活**（渲染层拿不到 fs，也不该拿）。
-   * ⚠️ 参数只有 `libId`：**路径一律不进契约**（由主进程用 T-04 的落点解析）——
-   *    与 item/scan 同一条规矩，渲染进程传不进任何绝对路径。
+   * ⚠️ 参数只有 `libId`：**本方法**的路径一律不进契约（由主进程用 T-04 的落点解析），
+   *    与 item/scan 同一条规矩。（别写成「渲染进程传不进任何绝对路径」—— 契约里确有三处例外，
+   *    见文件头；这里说的是**这两个方法**不受任何路径影响。）
    * ⚠️ `.strict()`：多传字段一律拒。契约 §9.1 说"新增方法/字段=兼容"，但**多传**不是兼容。
    * ⚠️ 本方法**不发事件**（只批了这两个方法）：重建期间的"正在重建元数据"由 UI 忙碌态满足（SPEC §2.3）。
    */
@@ -184,6 +197,11 @@ export const Methods = {
   /** 白名单（含 is_default）；空数组是**合法**的（那表示「还没有允许的目录」，不是错误） */
   collectDirs: z.object({}).strict(),
 
+  /**
+   * ⚠️ `absPath` 是**绝对路径**（三处例外之一，见文件头）。契约里**没有**取件目录选择器
+   * ⇒ 主进程只能校验「存在且是目录」（`main/dialog-paths.ts` 的 checkCollectDir，缺口写在那里）。
+   * 将来加选择器时：把它的返回值喂进同一个闸门，再把这条注释与那里的缺口一起删。
+   */
   collectDirAdd: z
     .object({
       absPath: z.string().min(1).max(4096),

@@ -1,0 +1,115 @@
+==============================================================================
+SEC-1 / task-89 · 「渲染层传不进绝对路径」的声明与实现对账
+日期：2026-10-16 · 执行：main-migrator · 基线门禁 e7fba7e
+==============================================================================
+
+## 0. 事实（第三份审查 S4 指出、Lead 核实）
+  契约里**有三处**接受渲染层传来的绝对路径：
+    · search.queryImagePath  —— 只读 + 引擎侧扩展名白名单（**旧注释承认的唯一例外**）
+    · libraryAdd.root        —— **写入口**：登记库根（旧注释没提）
+    · collectDirAdd.absPath  —— **写入口**：取件白名单（旧注释没提）
+  而 shared/ipc.ts 的注释写着「没有任何方法接受绝对路径，唯一例外是 search.queryImagePath」
+  ⇒ **声明与实现不符**。本卡两手都做：先把声明改成如实，再把实现收紧（纵深防御第二道）。
+
+## 1. 交付物
+  [新增] apps/desktop/src/main/dialog-paths.ts    —— 绝对路径**来源闸门**（唯一实现）
+  [改]   apps/desktop/src/main/index.ts          —— 3 处接线（libraryPickDir 记来源 / libraryAdd 过闸门 / collectDirAdd 过闸门）+ 1 处声明收紧
+  [改]   apps/desktop/src/shared/ipc.ts          —— 声明改成如实：三处例外 + 缓解 + collectDirAdd 的已知缺口
+  [新增] apps/desktop/tests/dialog-paths.test.mjs —— D1–D7
+  SPEC.md **无需改**（见 §6③：SPEC 里没有任何与实现不符的路径声明，grep 为证）。
+
+## 2. 声明：改前 → 改后 → 为何非放宽
+  (a) shared/ipc.ts 文件头（方法白名单）
+      改前：注意：没有任何方法接受"绝对路径"，唯一例外是 search.queryImagePath
+      改后：绝大多数方法不接受任何绝对路径（要定位就给 libId/uid，路径由主进程算）；
+            **确有三处例外**（queryImagePath / libraryAdd.root / collectDirAdd.absPath），逐条写明；
+            并写明第一道防线（isTrustedSender + 严格 CSP + 无远程内容 + zod .strict() 形状）
+            与第二道（libraryAdd 走来源对账；collectDirAdd 无选择器 ⇒ 只校验存在且是目录 = **已知缺口**）。
+      为何非放宽：这是把**与实现不符的声明**改成与实现一致（本项目最反对的就是这类东西）；
+            它不放松任何校验，反而把"例外"与"缺口"写到了明面上，后来者不会再以为只有一处。
+  (b) shared/ipc.ts 的 libraryAdd 注释：旧「不接受任意路径之外的形状」（含糊）
+      → 新：root 是绝对路径（三处例外之一），必须来自 libraryPickDir；主进程两道判据 = 来源对账 + 可用性。
+  (c) shared/ipc.ts 的 collectDirAdd：新增注释说明它没有选择器、只校验存在且是目录、将来加选择器时怎么收口。
+  (d) shared/ipc.ts 的 libraryHealth/libraryRebuild 注释：旧句尾「与 item/scan 同一条规矩，渲染进程传不进任何绝对路径」
+      → 改为「**本方法**的路径一律不进契约 …… 别写成『渲染层传不进任何绝对路径』——契约里确有三处例外」。
+  (e) index.ts 的 thumb:// 注释：旧「渲染进程无法用它读任意文件（它连"一个路径"都传不进来）」
+      → 「URL 里没有路径成分，读哪个文件由『注册表 + 索引』反查后再做包含校验」（去掉笼统括号句，保留真事实）。
+
+## 3. 实现：主进程二次校验（纵深防御第二道）
+  新增 main/dialog-paths.ts（**唯一实现**，import 不到 electron ⇒ node:test 能直接加载）：
+    · rememberPicked(dir)：记下**系统对话框真的返回过**的目录（规范形；Windows 折小写兜底）；
+    · checkLibraryRoot(root)：**先判来源**——不在集合里就 BAD_REQUEST（details.reason=not-from-dialog），
+      ⇒ 真实存在且真是目录的路径（例如 C:\Windows）一样拒；可用性仍由 U18 的 classifyRootSync 管（不重复判据）；
+    · checkCollectDir(absPath)：契约里没有取件目录选择器 ⇒ 只能校验「存在且是目录」，
+      三种原因（不存在 / 不是目录 / 不可访问）复用 U18 的判据与文案，**缺口如实写进文件头**；
+    · 规范化复用 app-db.ts 的 normalizeRootPath（P1：不写第二份）；空/畸形入参一律翻成拒绝，**永不抛**。
+  接线（index.ts，均有源码扫描断言 D7 守着）：
+    · libraryPickDir 成功 → dialogPaths.rememberPicked(path)（**全仓库唯一一处**，D7 数过）；
+    · libraryAdd → if (!gate.ok) return gate;（**拒绝必须真的返回**，不许调了不用）
+    · collectDirAdd → if (!collectGate.ok) return collectGate;
+  为何非放宽：这是**新增**一道判据，旧行为是"形状对就收"；渲染层即便被 XSS 拿下，也只能登记用户刚亲手选过的目录。
+  进程内状态（刻意不落盘）：重启后要再登记同一个目录 ⇒ 重新选一次（选择器就在旁边）；理由写在文件头。
+
+## 4. 能红原文（2 条；注入 ⇒ 必红 ⇒ 还原复绿，副本 data/_sec1/*.bak，未用 git checkout）
+
+### R1 闸门跳过「来源对账」（只留形状校验）
+命令：node --test --test-isolation=none --test-name-pattern="D1 |D2 |D6 " apps/desktop/tests/dialog-paths.test.mjs
+  ✖ D1 ⭐ 没人选过时，凭空构造的绝对路径必须被拒（BAD_REQUEST · not-from-dialog） (1.3875ms)
+  ✖ D2 ⭐ 路径真实存在也不是理由：只有「本次会话选过的」才放行 (0.2239ms)
+  ✖ D6 ⭐ 真实 fs：选 A ⇒ A 放行；**真实存在且真是目录的 B 照样被拒** (0.9771ms)
+  ℹ tests 3
+  ℹ pass 0
+  ℹ fail 3
+  ✖ failing tests:
+  ✖ D1 ⭐ 没人选过时，凭空构造的绝对路径必须被拒（BAD_REQUEST · not-from-dialog） (1.3875ms)
+    AssertionError [ERR_ASSERTION]: ★ 未经对话框的绝对路径必须被拒
+  restored identical = true；复跑 7/7 绿（§5）
+
+### R2 接线把拒绝吞掉（调了但不用结果）
+命令：node --test --test-isolation=none --test-name-pattern="D7 " apps/desktop/tests/dialog-paths.test.mjs
+  ✖ D7 ⭐ 接线扫描：index.ts 真的调了闸门，并把拒绝信封返回出去 (9.819ms)
+  ℹ tests 1
+  ℹ pass 0
+  ℹ fail 1
+  ✖ failing tests:
+  ✖ D7 ⭐ 接线扫描：index.ts 真的调了闸门，并把拒绝信封返回出去 (9.819ms)
+    AssertionError [ERR_ASSERTION]: libraryAdd 的拒绝必须返回给调用方
+      actual: false,
+      expected: true,
+  restored identical = true；复跑 7/7 绿
+
+## 5. 门禁原始输出
+  · tsc -p tsconfig.node.json ⇒ EXIT=0（0 行）
+  · tsc -p tsconfig.web.json  ⇒ EXIT=0（0 行）
+  · dialog-paths  ℹ tests 7 · ℹ pass 7 · ℹ fail 0 · ℹ skipped 0
+  · permissions    ℹ tests 15 · ℹ pass 15 · ℹ fail 0 · ℹ skipped 0
+  · ipc-contract-s6 ℹ tests 3 · ℹ pass 3 · ℹ fail 0 · ℹ skipped 0
+  · adapter        ℹ tests 11 · ℹ pass 11 · ℹ fail 0 · ℹ skipped 0
+  · library-methods ℹ tests 8 · ℹ pass 8 · ℹ fail 0 · ℹ skipped 0
+  · prettier --check（dialog-paths.ts / index.ts / ipc.ts / dialog-paths.test.mjs）⇒ All matched files use Prettier code style!
+  · **未跑全量 npm test / build / e2e**（纪律：跑全量前先问 Lead；同一时刻只有一个 npm test）。
+
+## 6. 0 残留 grep（先跑、贴输出、后结论 —— 纪律 17）
+  ① 原始命中（扫 SPEC/AGENTS/TASKS/PLAN + apps/desktop/src/**.ts|tsx + tests/e2e 的 *.mjs）：
+     dialog-paths.ts:6: //   「渲染进程传不进任何绝对路径」（旧措辞·已作废）⇒ **声明与实现不符**。
+     ipc.ts:25:          * ⚠️ 路径口径（SEC-1 · 2026-10-16 修正 —— 旧注释写「没有任何方法接受绝对路径，唯一例外是
+     ipc.ts:170:         *    与 item/scan 同一条规矩。（别写成「渲染进程传不进任何绝对路径」—— 契约里确有三处例外，
+     ⇒ 三行**全部是引用旧措辞并明确标注作废**的说明，不是声明。
+  ② 排除这三行（自带「旧措辞/旧注释/别写成」标记）后：**0 命中** —— 没有任何当作事实的旧声明残留。
+  ③ SPEC.md 用「传不进|不接受.*路径」再扫一次：**0 命中** ⇒ SPEC 里没有与实现不符的路径声明，无需同步改 SPEC。
+  ④ 闸门实现唯一（P1）：createDialogPathGate 只在 dialog-paths.ts 定义、index.ts 调 1 次；
+     rememberPicked 全仓**只出现 1 处调用**（libraryPickDir），D7 用正则数过（防第二份来源）。
+
+## 7. 已知缺口 / 未决（如实写，不假装防住）
+  · collectDirAdd.absPath **没有**系统选择器 ⇒ 它拿不到"对话框来源"这个证据，只校验「存在且是目录」。
+    这是**已知缺口**：写在 ipc.ts 的契约注释 + dialog-paths.ts 的文件头两处，D5 用例把它钉成事实
+    （没 rememberPicked 也放行 ⇒ 将来加选择器时断言会红，改动本身就是提醒）。
+  · 重启后要再登记同一目录需重新选一次（进程内集合，刻意不落盘）—— 不是遗漏，理由在文件头。
+  · e2e 没有 libraryAdd/collectDirAdd 调用（grep 为证）⇒ 本卡改动不影响 e2e 的库装配方式（走发现，不走登记）。
+
+## 8. 回滚方式
+  · 整卡撤销：撤销该提交（git revert <commit>）；
+  · 只回滚**收紧**（保留如实声明）：删掉 index.ts 里 3 处接线 + dialog-paths.ts；
+  · 只回滚**声明**：把 ipc.ts 文件头改回旧句 —— 不推荐（那就是把"与实现不符的声明"放回去）。
+  · 注入副本：data/_sec1/red-R1.bak（dialog-paths.ts）· data/_sec1/red-R2.bak（index.ts）。
+==============================================================================
