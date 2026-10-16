@@ -6,6 +6,7 @@ import { NavLink } from 'react-router';
 import type { ReactNode } from 'react';
 
 import { cn } from '../ui/cn.ts';
+import type { AnchorHTMLAttributes } from 'react';
 
 export function Brand({
   logo = 'G',
@@ -38,6 +39,13 @@ export function Nav({ children }: { children?: ReactNode }) {
 export type NavItemProps = {
   icon?: ReactNode;
   children?: ReactNode;
+  /** 透传的额外属性（例如 `data-nav`：让 e2e 稳定点到某一项，而不是靠文案） */
+  'data-nav'?: string;
+  /**
+   * 可访问名（门控项用：把「为什么点不动」也念给屏幕阅读器）。
+   * ⚠️ 只有 `title` 不够：`title` 在可访问名计算里优先级最低、会被内容文本覆盖（实测）。
+   */
+  'aria-label'?: string;
   /** 高亮当前项（`to` 存在时与 `NavLink` 自己的 `isActive` **取或**） */
   active?: boolean;
   disabled?: boolean;
@@ -61,12 +69,16 @@ export function NavItem({
   active = false,
   disabled = false,
   title,
+  'aria-label': ariaLabel,
   to,
   onClick,
+  ...rest
 }: NavItemProps) {
   if (to && !disabled) {
     return (
       <NavLink
+        {...(rest as AnchorHTMLAttributes<HTMLAnchorElement>)}
+        aria-label={ariaLabel}
         to={to}
         // `aria-current="page"` 由 **NavLink 自己**加（react-router 的既有行为）——
         // 这正是「当前在哪一页」的正确语义（不是 `aria-pressed`，那是切换按钮）。
@@ -94,6 +106,8 @@ export function NavItem({
   }
   return (
     <a
+      {...(rest as AnchorHTMLAttributes<HTMLAnchorElement>)}
+      aria-label={ariaLabel}
       href="#"
       className={cn(active && 'active', disabled && 'disabled')}
       title={title}

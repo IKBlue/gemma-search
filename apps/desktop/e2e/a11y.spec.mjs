@@ -89,3 +89,26 @@ test('E5-d 图标按钮有可读名字（无障碍名字不是只有图标）', 
     cleanup();
   }
 });
+
+test('E5-e ⭐ IA-1：侧栏「文档」是**门控项**（真窗口里也不可达，且说明含进入条件）', async () => {
+  const { app, cleanup } = await launchWithLibrary();
+  try {
+    const win = await firstWindow(app);
+    // ① 入口在（SPEC §4 说侧栏有「文档」⇒ 界面上就得找得到）
+    const entry = win.locator('[data-nav="docs"]');
+    await expect(entry).toBeVisible({ timeout: 20_000 });
+    // ② 禁用（aria-disabled + href 不是路由）—— 真窗口里证明，不是只读源码
+    await expect(entry).toHaveAttribute('aria-disabled', 'true');
+    await expect(entry).toHaveAttribute('href', '#');
+    // ③ 说明里含**进入条件**（TASKS 🔒 口径），而不是「即将上线」这类空承诺
+    const name = await entry.getAttribute('title');
+    expect(String(name)).toMatch(/10–30|10-30/);
+    expect(String(name)).toMatch(/格式/);
+    expect(String(name)).not.toMatch(/即将上线|敬请期待/);
+    // ④ 门控项**可访问名**里也带原因（title 属性即浏览器给的名字来源；屏幕阅读器念得到）
+    await expect(entry).toHaveAccessibleName(/文档（.*10–30.*）|文档（.*10-30.*）/);
+  } finally {
+    await app.close();
+    cleanup();
+  }
+});

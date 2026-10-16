@@ -1,32 +1,19 @@
-// SearchSidebar —— 侧栏内容（原型：品牌 + 工作区导航 + 当前图库说明）
+// SearchSidebar —— 侧栏内容（品牌 + 工作区导航 + 当前图库说明）
 //
 // **已实现**的导航项给 `to`（走路由，地址栏会变、`NavLink` 自己管 active）；
-// **未实现**的仍然 disabled + title 说明阶段（点了会 toast，不会静默）。
+// **门控项**（未实现）不给 `to` ⇒ `NavItem` 渲染成 disabled + 说明，点了会 toast，不会静默。
 // ⚠️ 「图片详情」不是顶层可达页面 —— 它要 `libId + uid`（`/item/:libId/:uid`），
-//    只能从结果卡点进去，所以这里仍然 disabled。
+//    只能从结果卡点进去，所以它仍是门控项。
 // 视觉值全走类（renderer.css 消费令牌）；图标装饰性 → aria-hidden。
+//
+// ⚠️ 2026-10-16（IA-1）：导航表**搬到 `utils/nav.ts`**（纯数据）。
+//    原因：`.tsx` 在 `node:test` 里加载不了 ⇒「门控项存在且禁用、且写清了进入条件」没法自动化；
+//    现在是纯数据，单测能直接钉（IA1–IA4），组件只剩渲染。
 import Sidebar, { Brand, Nav, NavItem, NavLabel, SideNote } from '../layout/Sidebar.tsx';
 import Progress from '../ui/Progress.tsx';
-import { LABELS, PATHS } from '../router/paths.ts';
+import { NAV, isReachable, navAccessibleName } from '../utils/nav.ts';
 import type { UiNavItem } from '../ui/types.ts';
 import type { LibStatus } from '../hooks/useEngine.ts';
-
-const NAV: readonly UiNavItem[] = [
-  { key: 'search', icon: '⌕', label: '语义搜索', to: '/' },
-  { key: 'detail', icon: '▣', label: '图片详情', phase: 'P3c（从结果卡进入）' },
-  // ⚠️ 2026-10-15（P4-2）：「本地图库」= F2 浏览页（整库浏览 · 筛选 · 排序），**已实现** ⇒ 给它 `to`。
-  //    原来是 `phase: 'P3d'` 的禁用占位；页面名与路径的唯一来源仍是 router/paths.ts。
-  { key: 'browse', icon: '▦', label: LABELS.browse, to: PATHS.browse },
-  // ⚠️ S6（2026-10-15）：`ingest` 已从契约删除（它写的意图层表本轮没建）⇒ 这一项保持**禁用占位**
-  //   （点了给说明、不静默），文案改成"等对应的数据表上线"，别让人以为它有后端。
-  { key: 'ingest', icon: '＋', label: '入库与增量', phase: 'P4（等对应的数据表上线）' },
-  { key: 'tasks', icon: '◴', label: '索引任务', to: '/tasks' },
-  { key: 'records', icon: '↺', label: '操作记录', to: '/activity' },
-  // ⚠️ 2026-10-15（T-15b）：诊断页是**真的可达**的（体检 + 重建元数据），所以它给 `to`；
-  //    下面的「设置」仍是未实现占位（phase）—— 两者别混。页面名与路径的唯一来源都是 router/paths.ts。
-  { key: 'health', icon: '⚕', label: LABELS.health, to: PATHS.health },
-  { key: 'settings', icon: '⚙', label: '设置', phase: 'P3d' },
-];
 
 export type SearchSidebarProps = {
   lib: LibStatus | null;
@@ -53,20 +40,28 @@ export default function SearchSidebar({
       <div>
         <NavLabel>工作区 WORKSPACE</NavLabel>
         <Nav>
-          {NAV.map((item) => (
-            <NavItem
-              key={item.key}
-              icon={item.icon}
-              to={item.to}
-              disabled={!item.to}
-              title={item.to ? undefined : `${item.phase} 尚未实现`}
-              onClick={() => {
-                if (!item.to) onNotImplemented?.(item);
-              }}
-            >
-              {item.label}
-            </NavItem>
-          ))}
+          {NAV.map((item) => {
+            const reachable = isReachable(item);
+            return (
+              <NavItem
+                key={item.key}
+                data-nav={item.key}
+                icon={item.icon}
+                to={item.to}
+                disabled={!reachable}
+                // 门控项的说明要**能被找到**（悬停 = title）+ **能被念出来**（可访问名 = aria-label）——
+                // ⚠️ 只写 title **不够**：`title` 在可访问名计算里优先级最低，会被**内容文本覆盖**
+                //    （实测：`toHaveAccessibleName` 拿到的是「文档」，不是「文档（F7 门控…）」）。
+                title={reachable ? undefined : navAccessibleName(item)}
+                aria-label={reachable ? undefined : navAccessibleName(item)}
+                onClick={() => {
+                  if (!reachable) onNotImplemented?.(item);
+                }}
+              >
+                {item.label}
+              </NavItem>
+            );
+          })}
         </Nav>
       </div>
 
