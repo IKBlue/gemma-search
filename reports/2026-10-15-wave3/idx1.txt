@@ -203,3 +203,17 @@ G8 `function writeIndexBin` 定义数 = 0（重构前的那个写入口已删除
   · 产物再对照（改 usage 之后再跑一遍，out-final3）: index.bin IDENTICAL · items.json IDENTICAL · meta.json IDENTICAL
   · CLI 真跑仍 exit 0 且 RESULT 行逐字相同
 11.5 另记：Lead 确认 `prettier --check .` 的那个红是 apps/desktop/e2e/start1-probe.spec.mjs（START-1 的在飞文件），不是我的。
+
+【11.6 DOC-5 判据②：产品源码不得引用逐轮产物 —— 已修（2026-10-16 追加）】
+· 现场（Lead 门禁 doc5-roundrefs 报 1 命中）：packages/indexer/src/build_index_onnx.ts:155 原文
+    「⚠️ 本卡是**纯重构 + 参数化**：产物字节必须与重构前一致（对照见 reports/…/idx1.txt）。」
+· 为什么是违规：reports/** 是**逐轮产物**（会改名/清理，对新克隆未必存在）⇒ 产品源码引用它天然脆。
+· 修法：**把「为什么」写进注释本身**，删掉指针（不改代码、不改行为）——
+    「产物字节必须与重构前一致。判据是「同一输入 + 同一 built_at 两次构建，index.bin 逐字节相同」
+     —— 不是看某次运行的日志：逐轮产物会改名/清理，对新克隆未必存在，引用它天然脆。」
+· 复验（全跑，不引用旧结论）：
+    node reports/2026-10-15-wave3/doc5-roundrefs.mjs ⇒ **命中 = 0**  ROUNDREFS_EXIT=0
+    npx prettier --check .  ⇒ **0**（All matched）· npm run lint ⇒ **0** · tsc -p tsconfig.node.json ⇒ **0**
+    node --test packages/indexer/tests/*.test.mjs ⇒ tests 13 / pass 13 / fail 0
+    T-00 基线（动了 packages/indexer/** 的硬要求，注释也照跑）⇒ PASS，Top-5 0.7855/0.7852/0.7836/0.7756/0.7751、cos=1.000000 ×2；
+    产物再对照（out-final4）⇒ index.bin / items.json / meta.json 三个 **IDENTICAL**。

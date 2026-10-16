@@ -152,7 +152,8 @@ interface IndexBin {
 // 现在拆成两件事：① `buildIndex(opts)`（可 import、可注入进度/取消/写者）；
 //                ② 文件末尾的 CLI 入口（改成调用 ①，**手工用法与输出逐字不变**）。
 //
-// ⚠️ 本卡是**纯重构 + 参数化**：产物字节必须与重构前一致（对照见 reports/…/idx1.txt）。
+// ⚠️ 本卡是**纯重构 + 参数化**：产物字节必须与重构前一致。判据是「**同一输入 + 同一 built_at 两次构建，
+//    index.bin 逐字节相同**」—— 不是看某次运行的日志：逐轮产物会改名/清理，对新克隆未必存在，引用它天然脆。
 
 export type BuildPhase = 'scan' | 'uid' | 'selftest' | 'model' | 'encode' | 'persist' | 'done';
 
