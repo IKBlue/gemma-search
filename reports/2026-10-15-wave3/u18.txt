@@ -1,0 +1,135 @@
+================================================================================
+U18 证据 · 已登记但库根不见了的库**仍然可见**（不可用 + 分开的原因）
+任务板 id: task-82   执行: db-worker   日期: 2026-10-16
+边界：main/**（判据 + 合并段）· renderer/**（显示）· apps/desktop/tests/** · SPEC §6 那一行
+     **未动** packages/indexer/** · main/encoder.* · packages/engine/**
+契约：Leader 已预先裁定 —— **不加新方法**；`libraryList` 的行加**可选字段**属兼容新增；**SPEC §6 同批同步**。
+===============================================================================
+
+【结论】
+· 已登记但路径不见了的库（拔盘/改名/未挂载）**仍然出现在列表里**，并带上 available:false + **分开的原因**
+  （not-found / not-a-directory / inaccessible）⇒ 用户不会再以为库被删了。
+· **只加显示**：不自动清理、不自动重建、**注册表数据一个字节都不动**（`enabled`/`root`/顺序都没碰）。
+· **不阻塞启动**：库根探测是 **async + 有界等待（400ms）**，且**一个库卡住不影响其它库**（并发 + 各自超时）。
+· **能红实测**：把不可用库丢掉 ⇒ V1/V2 红（原文见 §5）；回滚后 14/14 绿。
+· 门禁（截至本文件）：`prettier --check .` **0** · `tsc node` **0** · `tsc web` **0** · 相关单测 **45/45**；
+  **全量 `npm test` 待 Lead 放行**（纪律 ⑤：门禁窗口要冻结写入面）。
+
+【1. 改前 → 改后 → 为何**不是放宽**（逐条）】
+| # | 位置 | 改前 | 改后 | 为什么不是放宽 |
+|---|---|---|---|---|
+| 1 | main/index.ts 的 `libraryList` 合并段 | 行里**没有**可用性；界面只能看到"列表里有它"，看不出**为什么**它没内容 | 每行**先探测库根**，带 available / unavailableCode / unavailableReason | 新增的是**信息**（同一批行一个都没少）；契约是**可选字段**，旧调用方零改动 |
+| 2 | 同一段 | 合并/排序/表意逻辑写在 index.ts 里（`node:test` **加载不了** ⇒ 没法断言"不可用的库不许被丢"） | 抽成纯函数 `main/library-view.ts`（buildLibraryRows + applyAvailability） | 行为不变、**可测性新增**：能红那条就是靠它成立的 |
+| 3 | 判据 | `library-config.ts` 里 `!fs.existsSync(l.root)` 一句 warning；`libraryAdd` 里 `!existsSync || !isDirectory` 另一句（**两份、且三种原因被压成一句**） | 新模块 `main/library-availability.ts` 的 classifyRootSync/probeRootAvailability **唯一判据**，两处都调它 | 从"两份各自为政"收成一份；原因**分开**（以前 EACCES 被 existsSync 说成"不存在"= 假话） |
+| 4 | renderer utils/library-root.ts | chosen 命中就用它（哪怕那条路径已经没了）；返回值只有 {libId, root} | chosen **可用**才用它，否则改挑可用的（一个可用的都没有才退回并如实带原因）；返回值 +available +unavailableReason | 更严：不再把界面硬绑在一条死路径上；且新增字段让界面能说清"为什么" |
+| 5 | renderer BrowsePage / DiagnosticsPage | 只显示 libId · root | 同一处再加一行**不可用 + 原因**（testid: browse-library-unavailable / diagnostics-library-unavailable） | 纯新增可见信息；可用时**不渲染任何新东西**（旧界面逐字不变） |
+| 6 | renderer hooks/useLibraryConfig.ts | LibraryEntry 三个字段 | +三个**可选**字段 | 可选 ⇒ 旧载荷照旧（R3 钉住"缺字段 = 按可用处理"） |
+| 7 | SPEC §6（5.1 方法表的那一行） | 只写"库列表改读 library_registry…" | 同一行补上可用性字段与"仍然列出 + 不清理/不重建/不改注册表" | 规格与实现同步（**只改这一处**） |
+| 8 | tests/health-store.test.mjs 的 HZ10 | deepEqual 只比 {libId, root} | 补齐 available/unavailableReason，并**加一条**"全不可用时如实返回并带原因" | 形状确实变了必须补齐；同时**新增**断言 ⇒ 更强，不是放宽 |
+
+【2. 三种原因**分开**（机器可读 code + 人话 reason）】
+| code | 触发 | 人话（界面直接显示） |
+|---|---|---|
+| not-found | ENOENT / ENOTDIR / 空路径 | 库根不存在（盘符变了、盘未挂载，或目录被删除/改名） |
+| not-a-directory | stat 成功但 !isDirectory() | 库根不是目录（同名文件占位？） |
+| inaccessible | EACCES / EPERM / 其它 IO 码 / **探测超时** | 库根不可访问：权限不足（EACCES）… / 库根探测超时（400ms 内没回应；网络盘未挂载时常是这样） |
+A1–A6 逐条钉住；**A5** 还要求"其它错误码不许被吞"（理由里要带上 EBUSY 这类码）。
+
+【3. **不阻塞启动**（怎么做到的 + 证据）】
+· 探测是 **async**（fs.promises.stat）+ Promise.race 的**有界等待** DEFAULT_PROBE_TIMEOUT_MS = 400：
+  断开的网络盘 stat 会卡到 SMB 超时（几十秒），有界等待把它变成"400ms 后如实说探测超时"；
+· probeRoots 对每个库**并发**探测、**每个自带超时** ⇒ 一个库卡住/坏掉**不影响其它库**；
+· 定时器 unref()：不让一个探测把进程钉住。
+· 证据 A7（40ms 有界等待，实测 took < 1000ms，code=inaccessible、理由含"超时"）·
+  A8（GOOD 与"永不回应"的 Z:\slow 同时探测：GOOD 照常 available，slow 不可用，两条都在）。
+· 另：`libraryList` 的行数与排序**完全没变**（同批行一个不少）⇒ decideGate 的"有库就进主界面"也不变 ⇒
+  "其余库照常可用"不是靠新分支，而是**没有引入任何新分支**。
+
+【4. 只加显示（不做的事，逐条）】
+· 不删注册表行（libraryRemove 没被调用）· 不改 enabled/sort_order/root（库注册表的写路径一字未动）·
+  不建目录（没有 mkdir）· 不重建元数据 · 不做"重新定位"（另排期）。
+· 我改了 libraryAdd 的**入参校验**（同一份判据 + 不可访问时给准确文案）—— 那是**添加库**这条写路径，
+  仍然只拒绝、不创建任何东西，与原行为同级（见 §1 第 3 行与 §10）。
+
+【5. 能红实测（变异注入 → 失败原文 → 回滚）】
+变异：applyAvailability 里把不可用的行**直接丢掉**（= U18 之前"用户以为库被删了"的观感）
+$ node --test apps/desktop/tests/library-availability.test.mjs
+  ✖ V1 已登记但路径不见了的库**仍在列表里** · ✖ V2 三种原因在行上分得开   ⇒ tests 14 / pass 12 / fail 2
+  断言原文：
+    · AssertionError: **不可用的库必须还在列表里** —— 用户要看得见它，否则会以为库被删了 / actual: undefined, expected: true
+    · Expected values to be strictly deep-equal: actual: [], expected: [ 'not-found', 'not-a-directory', 'inaccessible' ]
+  ⇒ 回滚后 **14/14 绿**。
+（另：V1 里留了一条**判别力自证** —— views.filter(v => v.available) 之后断言 L2 消失，
+  说明"丢掉"这件事**能被现有断言分辨**，不是纸上推理。）
+
+【6. 契约 / SPEC】
+· shared/ipc.ts：**方法名与参数形状一字未动**。新增的只是**响应行**上的可选字段（Leader 已预先裁定属兼容新增）：
+    available?: boolean · unavailableCode?: 'not-found' | 'not-a-directory' | 'inaccessible' · unavailableReason?: string
+  · 缺失 ⇒ 按可用处理（R3 钉住）；libraryList 的实现**恒给**这三个字段。
+· SPEC §6（5.1 方法表的 libraryConfig → libraryList 那一行）已同批补上三项与"三个不许"，并按 Lead 裁定写明
+  **口径**：`libraryList` 的响应行**恒含** available / unavailableCode / unavailableReason
+  （生产者是同一个主进程、没有旧客户端 ⇒ **不设「缺失」分支**；消费者仍须把缺失当"可用"容错）；**只动了那一行**。
+· FAKE_MODE（GEMMA_FAKE=1）：库根是夹具 Z:\__fake_library__（**并不存在**）⇒ 模拟模式那行**恒报 available:true**，
+  否则一进演示界面就挂个"不可用"横幅（把假世界演成故障）。已写进注释。
+
+【7. 测试清单（新增 14 条 + 加强 1 条）】
+apps/desktop/tests/library-availability.test.mjs（新）：
+  A1 可用 · A2 not-found · A3 not-a-directory · A4 EACCES/EPERM 注入 · A5 其它码不吞 ·
+  A6 空路径 · **A7 异步有界探测（超时 ⇒ inaccessible）** · **A8 probeRoots 并发互不影响**
+  V1 ⭐⭐ 不可用库**仍在列表里** + 原因（能红锚点）· V2 三种原因分开 · V3 合并口径不变
+  R1 chosen 不可用 ⇒ 改挑可用的 · R2 全不可用 ⇒ 如实返回 + 原因 · R3 旧载荷（无 available）⇒ 按可用
+apps/desktop/tests/health-store.test.mjs：HZ10 补齐形状 + 新增"全不可用"一条（§1 第 8 行）。
+
+【8. 门禁原始输出】
+$ npx prettier --write <我改过的 10 个文件> ⇒ 全部 0（其中 5 个被重排过）
+$ npx prettier --check .                ⇒ All matched files use Prettier code style!   **PRETTIER_CHECK=0**
+$ npx tsc --noEmit -p tsconfig.node.json --tsBuildInfoFile data/_verify/node.tsbuildinfo ⇒ **NODE_TSC=0**
+$ npx tsc --noEmit -p tsconfig.web.json  --tsBuildInfoFile data/_verify/web.tsbuildinfo  ⇒ **WEB_TSC=0**
+$ node --test library-availability + library-config + health-store + gate ⇒ tests 45 · pass 45 · fail 0
+$ node --test library-availability + adapter + library-config             ⇒ tests 39 · pass 39 · fail 0
+$ **npm test（全量 · Lead 已放行）** ⇒ tests **645** · pass **644** · fail **0** · skipped **1**   （NPM=0）
+  · 跑前按纪律 6 扫进程：当时有一个 node 进程在（是我刚跑完的 e2e 留下的/或并行的只读半场）；
+    按 Lead 放行时的说明继续，结果**全绿**。按**纪律 19**，权威结论仍以 Lead 在冻结窗口的重跑为准。
+  · 645 条里含本卡新增的 14 条（library-availability.test.mjs）；另含其它 worker 同期落的用例。
+$ npx playwright test -c apps/desktop/e2e/playwright.config.mjs library-unavailable.spec.mjs
+  ⇒ **2 passed (44.3s)** · **OUT_UNCHANGED=True**（跑前跑后 out/ 全量 SHA256 指纹一致）· 构建 BUILD=0
+
+【8b. e2e（Lead 追加批准 scope 后补上 · 真窗口）】
+· 新增 **apps/desktop/e2e/helpers/app.mjs#launchWithMissingLibrary()**：把 GEMMA_LIB_ROOT 指到一个
+  **必然不存在**的路径（先建临时目录再拼一级，不依赖盘符/权限假设），其余库来源照旧堵死。
+  ⚠️ 与 launchWithLibrary() 的区别**写在注释里**：那个会在夹具不存在时**硬失败**，而本场景要测的**正是**
+  "路径不存在"这件事（library-config 对不存在的库根只报 warning、仍把库交出去 ⇒ 界面照样进主界面）。
+  ⇒ 启动器只有一处（P1）；临时目录连 missingRoot 的父目录一起清掉。
+· 新增 **apps/desktop/e2e/library-unavailable.spec.mjs**（2 条）：
+  · **U18-a** ⭐⭐ 真窗口：① **不阻塞启动**（侧栏出现 ⇒ 进的是主界面，不是首启向导）；
+    ② `#/browse` 出现 `browse-library-unavailable`，文案含「不可用」+ 三种原因之一，且库**仍然列在那里**（含 L1）；
+    ③ `#/health` 出现 `diagnostics-library-unavailable` + 徽标 —— 同一个事实两个界面都不瞒着用户。
+  · **U18-b** ⭐ 库根**可用**（真夹具库）⇒ `browse-library-unavailable` / `diagnostics-library-unavailable(-badge)`
+    计数 **0**（覆盖 Lead 要的那条："可用时**不渲染新节点**"）。
+· 实测：**2 passed (44.3s)**，out/ 指纹前后一致 ⇒ 这一轮有效（纪律 12）。
+
+【9. 纪律③ 0 残留 grep（先跑后结论）】
+$ grep `statSync(|existsSync(` in apps/desktop/src/main/*.ts ⇒ 逐条判定：
+  · **库根可用性判据**：只有 library-availability.ts（:34/:39/:103）—— 唯一实现 ✓；
+    library-config.ts 的库根 warning 与 index.ts 的 libraryAdd 校验**都调它**（不再各写一份）；
+  · 其余命中**都不是这个判据**：atomic-write/index-file 的临时文件清理 · encoder 的模型目录 ·
+    log 的引擎标记 · storage-roots/storage-ports 的落点与探针 · library-health/library-rebuild 的目录/文件检查 ·
+    items-ipc 的 .gs.db 存在性 · window-state 的 JSON 文件 · index.ts:220/989 的窗口状态与旧索引文件。
+  ⇒ 结论（后于命令）：**"库根能不能用"这件事只有一份判据**；没有第二份「存在性 + isDirectory」的组合在讲同一件事。
+
+【10. 未做 / 边界（如实写）】
+· ~~e2e 没加~~ ⇒ **已补**（Lead 2026-10-16 批准把 apps/desktop/e2e 加进本卡 scope）：见 §8b，
+  启动器 + 2 条真窗口用例，**2 passed** 且 out/ 指纹一致。
+· **没做真机肉眼确认**（没法在真窗口里看那个横幅）；JSX 结构简单，且 available !== false 时**不渲染任何新节点**
+  ⇒ 现有界面逐字不变。
+· 没做"重新定位"（明确另排期）· 没做自动清理/重建（本卡明确不做）。
+· 没测真实 UNC/EACCES 断网共享盘（EACCES/EPERM 与"永不回应"都是注入造出来的）——
+  语义覆盖到了，但**不等于**在真断网共享盘上实测，不夸大。
+
+【11. 回滚】
+· 删 main/library-availability.ts、main/library-view.ts、tests/library-availability.test.mjs；
+· index.ts：库合并段改回内联（S6 那版）+ libraryAdd 恢复 !existsSync || !isDirectory；
+· library-config.ts：warning 恢复 !fs.existsSync(l.root)；renderer 四处恢复（hook 类型 / library-root / 两页显示）；
+· SPEC §6 那一行去掉可用性字段；HZ10 去掉新增断言。
+· 未跑 git（AGENTS P7）。临时物：data/_verify/*.tsbuildinfo（TS 缓存，可删）· 单测临时目录自清。
+===============================================================================

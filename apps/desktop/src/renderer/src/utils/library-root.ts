@@ -16,7 +16,16 @@ import type { LibraryConfigData, LibraryEntry } from '../hooks/useLibraryConfig.
 export type ResolvedLibrary = {
   libId: string;
   root: string;
+  /** U18：库根是否可用（`available` 缺失 ⇒ 按可用处理，向后兼容） */
+  available: boolean;
+  /** 不可用时的人话原因（可用时为 null）—— 界面据它显示「为什么用不了」 */
+  unavailableReason: string | null;
 };
+
+/** U18：`available` 缺失按可用处理（契约口径：可选字段缺失 = 兼容旧载荷） */
+export function isAvailableEntry(e: LibraryEntry): boolean {
+  return e.available !== false;
+}
 
 function pickEntry(data: LibraryConfigData | null | undefined): LibraryEntry | null {
   const list = (data && Array.isArray(data.libraries) ? data.libraries : []).filter(
@@ -24,11 +33,14 @@ function pickEntry(data: LibraryConfigData | null | undefined): LibraryEntry | n
   );
   if (list.length === 0) return null;
   const chosen = data?.chosen;
-  if (typeof chosen === 'string' && chosen) {
-    const hit = list.find((e) => e.libId === chosen || e.root === chosen);
-    if (hit) return hit;
-  }
-  return list[0];
+  const chosenHit =
+    typeof chosen === 'string' && chosen
+      ? list.find((e) => e.libId === chosen || e.root === chosen)
+      : undefined;
+  // U18：用户选中的库**可用**就用它；它不可用时**不要硬用**（整个界面会卡在一条死路径上）——
+  // 改挑一个可用的；一个可用的都没有才退回它，那时界面会**如实显示它为什么不可用**。
+  if (chosenHit && isAvailableEntry(chosenHit)) return chosenHit;
+  return list.find(isAvailableEntry) ?? chosenHit ?? list[0];
 }
 
 /**
@@ -40,5 +52,13 @@ export function resolveLibrary(data: LibraryConfigData | null | undefined): Reso
   if (!entry) return null;
   const libId = typeof entry.libId === 'string' ? entry.libId.trim() : '';
   if (!libId) return null;
-  return { libId, root: typeof entry.root === 'string' ? entry.root : '' };
+  return {
+    libId,
+    root: typeof entry.root === 'string' ? entry.root : '',
+    available: isAvailableEntry(entry),
+    unavailableReason:
+      typeof entry.unavailableReason === 'string' && entry.unavailableReason
+        ? entry.unavailableReason
+        : null,
+  };
 }

@@ -45,6 +45,9 @@ import type { BoundsDecision } from './window-state.ts';
 import { createRevealPort } from './ports.ts';
 import { createLibraryResolverPort, createStoragePorts } from './storage-ports.ts';
 import { runLibraryHealth, runLibraryRebuild } from './library-ipc.ts';
+import { classifyRootSync, probeRoots } from './library-availability.ts';
+import { applyAvailability, buildLibraryRows, unavailableLibraries } from './library-view.ts';
+import type { LibraryView } from './library-view.ts';
 import { runItemsQuery } from './items-ipc.ts';
 import type { ItemsQueryParams } from './items-ipc.ts';
 import { crashUnhealthyState, installCrashPolicy } from './crash-policy.ts';
@@ -266,18 +269,6 @@ function withAppDb<T>(
  * app.db 里的库元数据（enabled / sort_order）。
  * **缺行 = 默认启用**：绿地口径下只有"用户显式停用/排序过"的库才有行（注册表记录的是用户意图）。
  */
-/** `libraryList` 里一个库的形状（发现结果 + app.db 里的用户意图） */
-interface LibraryView {
-  libId: string;
-  root: string;
-  label: string;
-  source: string;
-  enabled: boolean;
-  sortOrder: number;
-  itemCount: number | null;
-  registered: boolean;
-}
-
 /** app.db 操作失败 → 失败信封（**永不抛**；userMessage 恒非空） */
 function appDbErrorEnvelope(why: string, what: string): Envelope {
   return {
@@ -870,6 +861,11 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
               sortOrder: 0,
               itemCount: null,
               registered: false,
+              // 模拟模式的库根是**夹具**（Z:\__fake_library__ 并不存在）⇒ 不探测、恒报可用：
+              // 否则演示模式一进来就挂个"不可用"横幅，那是把假世界演成了故障。
+              available: true,
+              unavailableCode: null,
+              unavailableReason: null,
             },
           ],
           collect: { dirs: {}, default: '' },
@@ -882,38 +878,35 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
     }
     // app.db 的 library_registry 是**用户意图**的权威（enabled / sort_order / display_name）；
     // 库根仍来自四条发现来源（env / 注册表 / config / 自举）—— 两者合并，缺行 = 默认启用。
+    // 合并本身是**纯函数**（main/library-view.ts，可被 node:test 覆盖）。
     const r = librariesResolved();
     const meta = registryMeta();
-    const libraries: LibraryView[] = r.libraries.map((l) => {
-      const row = meta.get(l.libId);
-      return {
-        libId: l.libId,
-        root: l.root,
-        label: row ? row.displayName : l.label,
-        source: l.source,
-        enabled: row ? row.enabled : true,
-        sortOrder: row ? row.sortOrder : 0,
-        itemCount: typeof l.count === 'number' ? l.count : null,
-        registered: row !== undefined,
-      };
+    const rows = buildLibraryRows({
+      discovered: r.libraries,
+      registry: [...meta.values()].map((row) => ({
+        libId: row.libId,
+        root: row.root,
+        displayName: row.displayName,
+        enabled: row.enabled,
+        sortOrder: row.sortOrder,
+      })),
     });
-    // 登记过、但四条来源都没发现它（盘没挂 / 被移走）⇒ **也要列出来**：
-    // 否则用户会以为「明明加过，怎么没了」（绿地口径下不猜，只如实显示）。
-    for (const row of meta.values()) {
-      if (!libraries.some((l) => l.libId === row.libId)) {
-        libraries.push({
-          libId: row.libId,
-          root: row.root,
-          label: row.displayName,
-          source: 'registry',
-          enabled: row.enabled,
-          sortOrder: row.sortOrder,
-          itemCount: null,
-          registered: true,
-        });
-      }
+    // ⚠️ U18：**每行都探测一次库根能不能用**（异步 + 有界等待，见 library-availability.ts）。
+    //    已登记但路径不见了的库**照样留在列表里**，只是带上「不可用 + 原因」——
+    //    以前它虽然也在列表里，但界面看不出它为什么没内容，用户会以为库被删了。
+    //    `Promise.all` 且每个探测自带超时 ⇒ **一个库卡住不影响其它库**（不阻塞启动）。
+    const probes = await probeRoots(rows.map((row) => row.root));
+    const libraries: LibraryView[] = applyAvailability(rows, probes);
+    const down = unavailableLibraries(libraries);
+    if (down.length) {
+      // 记一条诊断：日志能看出「这次有 N 个库不可用」，不静默
+      log(
+        '[库] 不可用',
+        down.length,
+        '个：',
+        down.map((v) => v.libId + '(' + String(v.unavailableCode) + ')').join(' '),
+      );
     }
-    libraries.sort((a, b) => a.sortOrder - b.sortOrder || a.libId.localeCompare(b.libId));
     return {
       ok: true,
       data: {
@@ -1122,14 +1115,21 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
   // libraryAdd
   const p = (params && typeof params === 'object' ? params : {}) as Req<'libraryAdd'>;
   const root = path.resolve(String(p.root));
-  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+  // ⚠️ U18：库根「能不能用」的判据**只有一份**（main/library-availability.ts）—— 这里也走它。
+  //    改前是 `!fs.existsSync(root) || !statSync(root).isDirectory()` 自己的写法，且三种原因被压成同一句
+  //    （EACCES 时 existsSync 也是 false ⇒ 不可访问会被说成「不存在」，那是**假话**）。
+  const rootState = classifyRootSync(root);
+  if (!rootState.available) {
     return {
       ok: false,
       error: {
         code: 'LIB_NOT_FOUND',
-        message: `目录不存在：${root}`,
-        userMessage: '这个目录不存在，或不是文件夹。请重新选择。',
-        details: { root },
+        message: rootState.reason + '：' + root,
+        userMessage:
+          rootState.code === 'inaccessible'
+            ? '这个目录访问不了（权限或网络问题）。请检查权限，或换一个目录。'
+            : '这个目录不存在，或不是文件夹。请重新选择。',
+        details: { root, code: rootState.code },
       },
     };
   }

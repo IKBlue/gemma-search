@@ -312,9 +312,19 @@ export default function BrowsePage() {
             <div className="panel mb-4" data-testid="browse-library">
               {lib ? (
                 <div className="text-caption text-ink">
-                  <span className="mono">{lib.libId}</span>
-                  <span className="muted"> · </span>
-                  <span className="mono break-all">{lib.root || '（库根未知）'}</span>
+                  <div>
+                    <span className="mono">{lib.libId}</span>
+                    <span className="muted"> · </span>
+                    <span className="mono break-all">{lib.root || '（库根未知）'}</span>
+                  </div>
+                  {/* U18：库根不可用时**如实说**（以前它要么不可见、要么只能靠"列表是空的"猜）。
+                      只显示，不做任何自动清理/重建 —— 登记数据一个字节都不动。 */}
+                  {lib.available ? null : (
+                    <p className="err small mt-1" data-testid="browse-library-unavailable">
+                      这个库当前不可用：{lib.unavailableReason || '库根不可访问'}。
+                      它仍然登记在册（列表里能看到它），内容不会被自动删除。
+                    </p>
+                  )}
                 </div>
               ) : (
                 <p className="muted small">

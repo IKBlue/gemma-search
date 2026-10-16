@@ -33,6 +33,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { classifyRootSync } from './library-availability.ts';
+
 /** 注册表格式版本（结构变更时递增，读端据此判断） */
 export const REGISTRY_VERSION = 1;
 export const REGISTRY_FILE = 'library-registry.json';
@@ -419,10 +421,13 @@ export function resolveLibraries({
     return { dirs: { ...DEFAULT_COLLECT.dirs }, default: DEFAULT_COLLECT.default };
   })();
 
-  // 库根存在性：**如实报**，但不在这里判失败（引擎的 indexStatus 会给出结构化状态）
+  // 库根可用性：**如实报**，但不在这里判失败（引擎的 indexStatus 会给出结构化状态）。
+  // ⚠️ U18：判据与 `libraryList` 的 `available/unavailableCode` **同一份**（main/library-availability.ts），
+  //    别在这里再写一遍 existsSync 的另一种说法（P1）；文案也顺带分开了「不存在 / 不是目录 / 不可访问」。
   for (const l of libraries) {
-    if (!fs.existsSync(l.root)) {
-      warnings.push(`库根不存在：${l.libId} → ${l.root}（盘符变了或盘未挂载？）`);
+    const a = classifyRootSync(l.root);
+    if (!a.available) {
+      warnings.push(`库根不可用（${String(a.code)}）：${l.libId} → ${l.root} —— ${a.reason}`);
     }
   }
 

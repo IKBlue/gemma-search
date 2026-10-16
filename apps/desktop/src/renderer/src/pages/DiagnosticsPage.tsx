@@ -224,9 +224,24 @@ export default function DiagnosticsPage() {
               <div className="mb-1 font-semibold text-ink">当前库</div>
               {lib ? (
                 <div className="text-caption text-ink">
-                  <span className="mono">{lib.libId}</span>
-                  <span className="muted"> · </span>
-                  <span className="mono break-all">{lib.root || '（库根未知）'}</span>
+                  <div>
+                    <span className="mono">{lib.libId}</span>
+                    <span className="muted"> · </span>
+                    <span className="mono break-all">{lib.root || '（库根未知）'}</span>
+                    {lib.available ? null : (
+                      <span className="err" data-testid="diagnostics-library-unavailable-badge">
+                        {' '}
+                        · 不可用
+                      </span>
+                    )}
+                  </div>
+                  {/* U18：诊断页是用户"出事时"会来看的地方 ⇒ 原因写在这里，别让他去翻日志 */}
+                  {lib.available ? null : (
+                    <p className="err small mt-1" data-testid="diagnostics-library-unavailable">
+                      {lib.unavailableReason || '库根不可访问'}
+                      。库的登记没有被改动，也不会自动清理或重建。
+                    </p>
+                  )}
                 </div>
               ) : (
                 <p className="muted small">

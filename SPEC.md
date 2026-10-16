@@ -386,7 +386,7 @@
 
 | 方法 | 变化 |
 |---|---|
-| `libraryConfig` → **`libraryList`** | 库列表改读 `library_registry`（含 `enabled` / `compat_key` / `sort_order`）；`userData/library-registry.json` 退役 |
+| `libraryConfig` → **`libraryList`** | 库列表改读 `library_registry`（含 `enabled` / `compat_key` / `sort_order`）；`userData/library-registry.json` 退役。**行上带可用性**（2026-10-16 · U18 · **属兼容新增**）：`available: boolean` + `unavailableCode: 'not-found' \| 'not-a-directory' \| 'inaccessible' \| null` + `unavailableReason: string \| null`。已登记但库根不见了的库（拔盘/改名）**仍然列在表里**并写明原因（**不**自动清理、**不**自动重建、**不**改注册表数据）。**口径**：`libraryList` 的响应行**恒含**这三个字段（生产者就是同一个主进程、没有旧客户端），**不设「缺失」分支**（少一个分支 = 少一处将来会漂的地方）；消费者仍**必须**把缺失当作「可用」容错（对旧载荷/夹具向后兼容）。 |
 | `scan` | 写 `asset` + `asset_file`（**扫描是文件事实的唯一写入口**） |
 | `item` · `itemPaths` | 读 `asset` + `asset_file`（旧 `items` 宽表口径**废弃**） |
 | `indexStatus` | 读 `asset_index_state`（状态由时刻**派生**，不存枚举） |

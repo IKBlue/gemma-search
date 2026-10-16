@@ -14,8 +14,23 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { invoke as apiInvoke } from '../adapter/api.ts';
 
-/** 一个已登记的库（只声明界面用到的字段；其余原样透出） */
-export type LibraryEntry = { libId?: string; root?: string; label?: string };
+/**
+ * 一个已登记的库（只声明界面用到的字段；其余原样透出）。
+ *
+ * ⚠️ U18：主进程现在会带上**可用性** —— 已登记但库根不见了的库（拔盘/改名）**仍会出现在列表里**，
+ *    只是标记为不可用。三个字段都是**可选**的，**缺失按可用处理**（向后兼容：旧载荷/旧夹具不受影响）。
+ *    · available          —— false = 库根当前不可用；
+ *    · unavailableCode    —— 稳定的机器可读原因（not-found / not-a-directory / inaccessible）；
+ *    · unavailableReason  —— 给人看的一句话（界面直接显示，不去解析它）。
+ */
+export type LibraryEntry = {
+  libId?: string;
+  root?: string;
+  label?: string;
+  available?: boolean;
+  unavailableCode?: string;
+  unavailableReason?: string;
+};
 
 /** `libraryConfig` 的响应载荷（本 hook 消费的部分） */
 export type LibraryConfigData = {

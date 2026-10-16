@@ -327,6 +327,8 @@ test('HZ9：checkLabel 认不出来就**原样返回 id**（不猜、不吞）',
 });
 
 test('HZ10：resolveLibrary —— chosen 优先、缺 libId 归 null（界面据此禁用按钮，不编一个假 libId）', () => {
+  // ⚠️ U18（2026-10-16）：返回对象**多了两个字段**（available / unavailableReason）——
+  //    形状确实变了，所以这里的 deepEqual 也补齐（**断言变强**：现在连可用性一起钉住，不是放宽）。
   assert.deepEqual(
     resolveLibrary({
       libraries: [
@@ -335,12 +337,23 @@ test('HZ10：resolveLibrary —— chosen 优先、缺 libId 归 null（界面�
       ],
       chosen: 'L2',
     }),
-    { libId: 'L2', root: 'X:\\b' },
+    { libId: 'L2', root: 'X:\\b', available: true, unavailableReason: null },
   );
   assert.deepEqual(
     resolveLibrary({ libraries: [{ libId: 'L1', root: 'X:\\a' }] }),
-    { libId: 'L1', root: 'X:\\a' },
+    { libId: 'L1', root: 'X:\\a', available: true, unavailableReason: null },
     '没给 chosen 时取第一个',
+  );
+  // U18：available:false 的行要把原因带上（界面据此显示「为什么用不了」）
+  assert.deepEqual(
+    resolveLibrary({
+      libraries: [
+        { libId: 'L9', root: 'Z:\\gone', available: false, unavailableReason: '库根不存在（…）' },
+      ],
+      chosen: 'L9',
+    }),
+    { libId: 'L9', root: 'Z:\\gone', available: false, unavailableReason: '库根不存在（…）' },
+    '全不可用时如实返回并带原因',
   );
   assert.equal(resolveLibrary({ libraries: [] }), null);
   assert.equal(

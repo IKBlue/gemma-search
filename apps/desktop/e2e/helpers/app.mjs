@@ -73,6 +73,42 @@ function rmTmp(...dirs) {
 }
 
 /**
+ * 启动一个「**已登记但库根不见了**」的应用（U18 场景）。
+ *
+ * 复现方式：把 `GEMMA_LIB_ROOT` 指到一个**不存在**的路径、其余库来源照旧堵死。
+ * ⚠️ 这里**故意不做** `launchWithLibrary()` 那种"夹具必须存在"的硬失败 ——
+ *    本场景要测的**正是**"路径不存在"这件事：`library-config` 对不存在的库根只报一条 warning、
+ *    仍然把库交出去（所以界面照样进主界面），而 U18 要求**界面上看得见它 + 写明原因**。
+ * ⇒ 断言「主界面里出现不可用横幅」才算过；若哪天库被静默丢掉，这条会红。
+ *
+ * @returns `{ app, cleanup, missingRoot }`（`missingRoot` 供断言/排障时打印）
+ */
+export async function launchWithMissingLibrary() {
+  const userData = tmpDir('userdata');
+  const dataDir = tmpDir('data');
+  const cfgPath = writeBareConfig(userData, dataDir);
+  // 一个**必然不存在**的库根：先建一个临时目录再往里拼一级（不依赖任何盘符/权限假设）
+  const missingRoot = path.join(tmpDir('missing-root'), 'lib-does-not-exist');
+
+  const app = await launchApp({
+    // 三条"堵住别的库来源"的理由同 launchWithoutLibrary；只有 GEMMA_LIB_ROOT 是非空但不存在
+    env: {
+      GEMMA_CONFIG: cfgPath,
+      GEMMA_LIB_ROOT: missingRoot,
+      GEMMA_COLLECT_DIRS: '',
+      GEMMA_FAKE: '',
+    },
+    extraArgs: [`--user-data-dir=${userData}`],
+  });
+
+  return {
+    app,
+    missingRoot,
+    cleanup: () => rmTmp(userData, dataDir, path.dirname(missingRoot)),
+  };
+}
+
+/**
  * 启动一个"**没有库**"的应用 → 应该看到首启向导。
  *
  * ⚠️ `GEMMA_LIB_ROOT: ''` 是刻意的：`launchApp` 会用 `process.env` 打底，
