@@ -206,12 +206,50 @@ CREATE TABLE IF NOT EXISTS activity (
 
 const APP_V3: readonly string[] = Object.freeze([...T_ACTIVITY]);
 
+/**
+ * **应用层** `recent_query` —— 搜索历史（B2-5 建错了位置，**B2-5FIX 搬到这里**）。
+ * 字段照抄设计基线 `reports/2026-10-15-schema-diff/SPEC-COMPACT.md` §「recent_query [v1.2 新增] · 字段 7」。
+ *
+ * ⚠️ **为什么是应用级**：`SPEC.md:173` 把它列在**应用级**（与 `app_setting` · `activity` 同组）。
+ *    语义也对得上：它记的是**跨库检索历史** —— 基线字段 `scope_lib_id` 的说明是「当时的检索范围。
+ *    **NULL = 全部库**」⇒ 它本来就不属于某一个库。放库级会**每个库各存一份**，而**删库重建
+ *    （SPEC §2.1 允许）会把搜索历史一起丢掉** —— 那不是"丢掉可重建"，而是"丢掉不该丢的"。
+ * ⚠️ 库级那张旧表由库级链 **v7** 删掉（**不搬运**，口径写在那边）⇒ 全仓**只有这一张** `recent_query`。
+ *
+ * 逐字段的"为什么"（照抄基线）：
+ *   · `query_id` **PK** —— nanoid；
+ *   · `kind` CHECK text/image —— **文字搜与以图搜图要分开记**，否则重跑时不知道拿什么当输入；
+ *   · `text` 可空 —— 查询文本（`kind='text'` 时非空）；
+ *   · `image_ref` 可空 —— 以图搜图时的参考图 **uid**（存 uid 不存绝对路径：路径会变，uid 不会）；
+ *   · `scope_lib_id` 可空 —— 当时的检索范围；**NULL = 全部库**；重跑时要能还原当时的范围，否则结果对不上，
+ *     用户会以为索引坏了；
+ *   · `result_count` 可空 —— 当时命中数（用于显示与"结果变少了"的对照）；
+ *   · `at_ms` NOT NULL + **DESC 索引** —— 查询时刻；历史列表按时间倒序看。
+ */
+const T_APP_RECENT_QUERY: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS recent_query (
+  query_id      TEXT    PRIMARY KEY NOT NULL,
+  kind          TEXT    CHECK (kind IN ('text', 'image')),
+  text          TEXT,
+  image_ref     TEXT,
+  scope_lib_id  TEXT,
+  result_count  INTEGER,
+  at_ms         INTEGER NOT NULL
+);`,
+  'CREATE INDEX IF NOT EXISTS idx_recent_query_at ON recent_query (at_ms DESC);',
+];
+
+const APP_V4: readonly string[] = Object.freeze([...T_APP_RECENT_QUERY]);
+
 export const APP_MIGRATIONS: readonly Migration[] = Object.freeze([
   Object.freeze({ version: 1, name: 'greenfield-app-3', statements: APP_V1 }),
   // B2-6：`app_setting` 走**应用级自己的链**（版本号与库级链各算各的，绝不混用）
   Object.freeze({ version: 2, name: 'batch2-app-setting', statements: APP_V2 }),
   // B2-8：`activity` 同样走应用级链（SPEC.md:173 把它列在应用级）
   Object.freeze({ version: 3, name: 'batch2-activity', statements: APP_V3 }),
+  // B2-5FIX：`recent_query` 从库级搬到这里（库级那条旧表由库级链 v7 删掉）
+  Object.freeze({ version: 4, name: 'batch2-recent-query', statements: APP_V4 }),
 ]);
 
 /** 本程序知道的**应用级**最高版本（从清单派生） */

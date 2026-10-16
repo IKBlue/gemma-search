@@ -1,0 +1,102 @@
+================================================================================
+B2-5FIX 证据 · 把 `recent_query` 从**库级**挪到**应用级**（修正 B2-5 的跨库错位）
+任务板 id: task-109   执行: db-worker   日期: 2026-10-16
+边界：`main/db/{migrations,app-migrations,schema-layers,migration-engine}.ts` · 测试 · 证据
+      **未加契约方法** · **未改界面**
+===============================================================================
+
+【结论】
+· `recent_query` 现在**只存在于 `app.db`**（应用级链 **v4**）；库级那张旧表由**库级链 v7 删掉**。
+· 依据：`SPEC.md:173` 把它列在**应用级**（它记的是**跨库**检索历史 —— `scope_lib_id` 为 NULL = 全部库）。
+· ⚠️ **对卡面的一处偏离（重要）**：卡面写"库级链 v6 **去掉** `recent_query`"，我**没有改 v6 的语句** ——
+  见 §1：改已跑过的迁移对已升级的库**静默不生效**，而且会让"派生清单"与真实库**漂**。改用 **v7 `DROP`**，
+  并让**派生器**支持 `DROP`（净表集 / 净索引）。这是本卡的核心技术决定。
+· 「已升级的库」的处置 = **不搬运**（应用级新表**从空开始**；库级旧表删掉）——**定一处、写进注释、也写进测试**（F2）。
+· **能红三组**（原文见 §5）· `b2-5.txt` 已加**修正公告**（原文一字未删）。
+· 门禁（本轮实测）：受影响面 **167/167** · **s4 19/0/0** · `prettier --check` **0** · `tsc` node/web **0** · `lint` **0**。
+
+【1. ⚠️ 为什么**不**按卡面"v6 去掉它"，而是新加 v7 删掉 —— 以及为什么派生必须跟着改】
+· 迁移清单**只增不改**（本项目从 B2-1 起反复确立）：已升级的库按**版本号**判断要不要跑；
+  把 v6 的语句改掉，对**已经跑到 v6 的库完全无效**（版本号没变 ⇒ 不会再跑）⇒ 那些库里 `recent_query` **永远留着**。
+· 更糟的是**派生**：`LIBRARY_TABLES`/EXPECTED_TABLES 是从 DDL 文本派生的 ⇒ 改掉 v6 之后派生会说"没有这张表"，
+  而真实库（老库）**有** ⇒ **清单与事实漂**（G2 的"派生 == 真实"会红，或者更坏：漂了没人发现）。
+· ⇒ 正确做法：**v7 = `DROP TABLE IF EXISTS recent_query;`**（幂等），派生器新增
+  `droppedTableNames()` 并改成**净表集 = CREATE − DROP**；索引同理（`DROP TABLE` 会连带删掉挂在它上面的索引，
+  所以 `ddlIndexNames` 也扣掉"挂在被删表上的索引"）。
+· 这三处改动都**不是放宽**：它们让"派生 == 真实"这条断言在**有 DROP 的链**下继续成立；
+  少扣一处就会立刻红（我第一次忘了扣索引，G2 当场报出 `idx_recent_query_at` 多出来 ✓ 它红了，这是对的）。
+
+【2. ⭐「已升级的库」怎么办：**不搬运**（口径定一处 · 写在注释 · 也写在测试里）】
+| 选项 | 代价 / 收益 | 采用 |
+|---|---|---|
+| **搬运**（库级 → 应用级） | 需要**同时打开两个数据库文件**、逐库读再写 `app.db` ⇒ 属**启动期编排**，且跨两文件**没有原子性**（中途失败 = 搬了一半）。收益 = 保住一份**搜索历史**（过程性便利数据，不是用户资产） | ❌ |
+| **不搬运**（应用级新表空起 + 库级旧表删掉） | 一次**明确且有界**的数据丢弃（只有"检索历史"这一种），换来**一份真相**（不再有两张同名表） | ✅ |
+· 口径写在 `main/db/migrations.ts` 的 `LIBRARY_V7` 注释里（含"若将来确实要搬"的**一次性脚本做法**，与迁移分开写清）：
+  ① 先让应用级 v4 建表；② 每个库读到 `recent_query` 的行；③ `INSERT OR IGNORE` 进 `app.db`；④ 核对行数后再跑 v7（或手动 DROP）。
+  **本卡不实现**它（理由见上），但把路写清，免得后来者以为"数据是自动搬过来的"。
+· **测试也钉住**：F2 —— 造一个 v6-only、带一行旧历史的库 ⇒ 升到 v7 后**库级不再有该表**；应用级新表**是空的**（= 不搬运）。
+
+【3. 四步与连带（改前 → 改后 → 为何非放宽）】
+| # | 位置 | 改前 | 改后 | 为什么不是放宽 |
+|---|---|---|---|---|
+| 1 | `migrations.ts` | v1–v6 | **v7 `batch2-drop-recent-query-from-library`**（`DROP TABLE IF EXISTS recent_query;`）；v6 的**语句一字未动**，只加修正标注 | 加新迁移（幂等）；改旧迁移对已升级库静默无效 ⇒ 这才真能去掉 |
+| 2 | `migration-engine.ts` | 只派生 CREATE | 加 `droppedTableNames()`；`migrations.ts` 改**净表集**；测试的 `ddlIndexNames` 扣掉被删表上的索引 | 派生与真实必须一致；少扣就红（已实测） |
+| 3 | `app-migrations.ts` | 应用链 v1–v3 | **v4 `batch2-recent-query`** 建表 + `idx_recent_query_at` | 序号从**应用级链**派生；与库级链各算各的 |
+| 4 | `schema-layers.ts` | `recent_query` 在 **process** | 挪到 **app**（process 只剩 `recent_view`） | 层 == 物理文件（G1/G2 钉住）；按 SPEC 的物理归属 |
+| 5 | `db-schema.test.mjs` | `KEPT_LIBRARY` 含它 | 移出 `KEPT_LIBRARY`、加进 `KEPT_APP`；`ddlIndexNames` 支持 DROP | 清单跟事实走；索引派生与真实一致 |
+| 6 | `app-db.test.mjs` D1 | 应用表清单无它 | 加 `recent_query`（只列名字、不写数量） | 同上 |
+| 7 | `search-history.test.mjs` S1/S5/S6 | 都在**库级**库上读/写 `recent_query` | S1 按库拆开（`recent_query` 读 app、`recent_view` 读库级 + 反向断言）；S5 改到 app；S6 拆成"库级两张 / 应用级一张" + 钉 v7 那一格 | 断言读到**正确的那个库**才有意义；并新增"库级没有它"的反向断言 |
+| 8 | 同文件 | —— | **新增 F1/F2/F3**（落点 · 升级路径 · 一份真相机械证明） | 纯新增；把"修正"本身钉住 |
+| 9 | `b2-5.txt` | 结论说 `recent_query` 在库级/过程层 | **文首加"修正公告"**：原结论有误、已修正、并写明**哪些没错**（`asset_name_fts`/`recent_view`） | **不删原文**（留痕），只加公告；卡面明确要求 |
+
+【4. `recent_view` **没有**被误伤（不是一刀切）】
+`SPEC.md:171` 明确「**库级·过程**：`recent_view`」⇒ 它留在库级（`LIBRARY_TABLES` 含它、process 层含它、
+应用级库里**没有**它）。F1 同时断言这两件事 ⇒ 修正只动了错的那一张。
+
+【5. ⭐ 能红（三组 · 注入 ⇒ 必红 ⇒ 还原 ⇒ 复绿）】
+① **把 `recent_query` 放回库级**（`schema-layers` 从 app 挪回 process）：
+   `✖ S6 … recent_query 落 app.db   actual: false   expected: true`
+   s4 同轮：`FAIL S4-U1`（db-schema）+ `FAIL S4-U7`（search-history）⇒ `PASS 17 · FAIL 2` ⇒ **两条守卫独立抓到**。
+② **去掉 v7 的 `DROP`**（库级会留着那张表）：
+   `✖ F1 … 库级库里不许有 recent_query（它记的是跨库历史）   actual: true   expected: false`
+   `✖ F3 … 库级链恰好有一条 DROP（v7）`
+③ **去掉应用级 v4**（表没人建）：
+   `✖ F1 … 应用级库里必须有 recent_query   actual: false   expected: true` · `✖ F3 …`
+⇒ 三组还原后：`search-history 9/9` · `db-schema 12/12` · 全受影响面 **167/167** · `s4 19/0/0`。
+
+【6. 0 残留 grep（先跑后结论）】
+$ `recent_query` 在 `main/` 的落点：`db/app-migrations.ts`（应用级 DDL + 注释）· `db/migrations.ts`（v6 的历史 CREATE + v7 的 DROP + 注释）·
+  `db/schema-layers.ts`（app 层点名 + 注释）⇒ 没有第三处；
+$ 派生（运行时）：`LIBRARY_TABLES` **不含** `recent_query` · `EXPECTED_TABLES` **不含** · `APP_TABLES` **含** ·
+  `appLayerTables()` **含** · `tablesInLayer('process')` **不含**（探针脚本原文见 §7）。
+$ 注入残留：`MUTANT` 标记全部还原（三处：层、v7 的 DROP、应用级 v4 条目）——正证见 §7。
+
+【7. 派生与还原的正证（探针输出 + 关键行）】
+$ node data/_b5fix/probe.mjs（只读探针，跑完即弃）
+  `LIBRARY_TABLES ["asset","asset_export","asset_file","asset_index_state","asset_name_fts","asset_user_meta","health_finding","health_run","job","recent_view"]`
+  `APP_TABLES ["activity","app_meta","app_setting","collect_dir","library_registry","recent_query"]`
+  `process ["asset_index_state","job","health_run","health_finding","recent_view"]`
+  `LIB versions [1,2,3,4,5,6,7]  TARGET 7`
+⇒ 库级**没有**它、应用级**有**它，两条链版本各自连续。
+
+【8. 门禁（本轮实测 · 最终字节）】
+$ node --test <受影响面 18 个文件> ⇒ **167/167 · fail 0**
+$ node reports/2026-10-15-wave3/s4-accept.mjs ⇒ **PASS 19 · FAIL 0 · SKIP 0**（S4-U7 覆盖本卡改的那组）
+$ npx prettier --write <本卡改动文件> ⇒ 0 → npx prettier --check . ⇒ **0（All matched files use Prettier code style!）**
+$ npx tsc --noEmit -p tsconfig.node.json … ⇒ **0** ｜ tsconfig.web.json … ⇒ **0** ｜ `npm run lint` ⇒ **0**
+（全量 `npm test` 与冻结门禁由 Lead 跑 —— 纪律 6；收到「冻结开始」我会**先回执再停笔**。）
+
+【9. 未做 / 边界（如实写 · P6）】
+· **旧搜索历史按 §2 的口径丢弃**（不搬运）⇒ 已升级的真实库里那几行历史**不会**出现在应用级新表里。
+  这是**明确决定**、不是事故；要保住它们只能按 §2 的一次性脚本做法（本卡不实现）。
+· `recent_query` **仍然没有 API** ⇒ **界面上仍看不到搜索历史**（能力边界不变：表在正确的库里了，接线未做）。
+· `recent_view` / `asset_name_fts` **一字未动**。
+· 没做真实旧库的搬运演练（本卡只做了 v6→v7 的**升级路径**用例 F2）。
+
+【10. 回滚】
+· `migrations.ts`：删 v7 与其入链（库级回到 v6 的状态）；v6 的标注可留（它是有价值的历史说明）；
+· `app-migrations.ts`：删 `T_APP_RECENT_QUERY`/`APP_V4` 与清单里 v4 条目；`schema-layers.ts`：把 `recent_query` 挪回 process；
+· `migration-engine.ts`：`droppedTableNames` 可留（它是对的），但 `migrations.ts` 的净表集要跟着回；
+· 测试与 `b2-5.txt` 的公告一并回退（**不建议**：那会退回"两张同名表在不同库里"的状态）。
+· 未跑 git（AGENTS P7）。临时物：`data/_b5fix/**`（探针，跑完即弃）· `data/_b25/**`（测试自清）· `data/_verify/*.tsbuildinfo`。
+===============================================================================

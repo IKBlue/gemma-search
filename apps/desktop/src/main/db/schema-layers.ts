@@ -50,17 +50,18 @@ export const SCHEMA_LAYERS: Readonly<Record<SchemaLayer, readonly string[]>> = O
   fact: Object.freeze(['asset', 'asset_file', 'asset_name_fts']),
 
   /**
-   * 过程层：编码状态 + **任务台账** + **体检台账** + **搜索历史 / 续看** —— 尽量留，丢了能重算
-   * （体检历史丢了 = 少一份对账依据；搜索历史/续看丢了 = 少一份便利，都不至于让用户误解数据；
+   * 过程层：编码状态 + **任务台账** + **体检台账** + **续看** —— 尽量留，丢了能重算
+   * （体检历史丢了 = 少一份对账依据；续看丢了 = 少一份便利，都不至于让用户误解数据；
    *   `health_run` 通过 `job_id` 关联 `job`，不复制进度字段 —— 见 migrations.ts 的 T_HEALTH 说明；
-   *   `recent_query` / `recent_view` 归这里，**不是**意图层：它们是"系统记的最近行为"，不是用户标的注）
+   *   `recent_view` 归这里：它是"**某个库里**最近看过什么"，**属于那个库** ⇒ 库级。
+   *   ⚠️ B2-5FIX：`recent_query` **不在这里**（原来放错了）—— 它记的是**跨库**检索历史
+   *   （`scope_lib_id` 为 NULL = 全部库），`SPEC.md:173` 把它列在**应用级** ⇒ 已挪到下面的 app 层。）
    */
   process: Object.freeze([
     'asset_index_state',
     'job',
     'health_run',
     'health_finding',
-    'recent_query',
     'recent_view',
   ]),
 
@@ -81,7 +82,17 @@ export const SCHEMA_LAYERS: Readonly<Record<SchemaLayer, readonly string[]>> = O
    *   （这一句只有把 activity 放 `app.db` 才自洽）。⚠️ `README.md:32` 把 activity 归"过程层"是**按层语义**分的，
    *   与本仓"层 == 物理文件"的规则冲突 ⇒ **以 SPEC 为准**（AGENTS §0），落在应用层。
    */
-  app: Object.freeze(['app_meta', 'library_registry', 'collect_dir', 'app_setting', 'activity']),
+  app: Object.freeze([
+    'app_meta',
+    'library_registry',
+    'collect_dir',
+    'app_setting',
+    'activity',
+    // B2-5FIX：`recent_query` 从**库级/过程层**挪到这里 —— `SPEC.md:173` 把它列在应用级
+    //   （它记的是**跨库**检索历史，`scope_lib_id` 为 NULL = 全部库 ⇒ 不属于某一个库）。
+    //   库级那张旧表由库级链 **v7** 删掉（不搬运）；全仓只有这一张。
+    'recent_query',
+  ]),
 });
 
 /** 一层里的表名（副本，防调用方改到常量；空层返回空数组） */

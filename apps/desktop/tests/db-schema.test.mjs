@@ -72,10 +72,17 @@ const KEPT_LIBRARY = [
   'asset_export',
   'asset_user_meta',
   'asset_name_fts',
-  'recent_query',
   'recent_view',
 ];
-const KEPT_APP = ['app_meta', 'collect_dir', 'library_registry', 'app_setting', 'activity'];
+// B2-5FIX：`recent_query` 从库级挪到应用级（SPEC.md:173）⇒ 出现在这一份里
+const KEPT_APP = [
+  'app_meta',
+  'collect_dir',
+  'library_registry',
+  'app_setting',
+  'activity',
+  'recent_query',
+];
 /** 仍未建的表（随功能上线；它们现在一张都不许被建出来）—— `job`(B2-1) / `health_run`+`health_finding`(B2-2) 已建出，从本表移走 */
 const DEFERRED_TABLES = ['tag', 'asset_tag', 'collection', 'collection_item'];
 
@@ -140,12 +147,26 @@ function uniqueIndexColumns(db, table) {
   }
   return out;
 }
-/** 从 DDL 文本里取出 idx_* 索引名（证明索引也是 DDL 派生、且真的建出来了） */
+/**
+ * 从 DDL 文本里取出 idx_* 索引名（证明索引也是 DDL 派生、且真的建出来了）。
+ * ⚠️ B2-5FIX：`DROP TABLE` 会**连带删掉挂在那张表上的索引** ⇒ 派生必须把这类索引也扣掉，
+ *    否则清单里会留着一个真实库里并不存在的索引名（G2 的"派生 == 真实"会当场红 —— 它红了，这是对的）。
+ */
 function ddlIndexNames(migrations) {
   const sql = migrations.flatMap((m) => m.statements).join('\n');
-  const hits =
-    sql.match(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?idx_[A-Za-z0-9_]+/g) || [];
-  return [...new Set(hits.map((s) => s.replace(/^.*?(idx_[A-Za-z0-9_]+)$/, '$1')))].sort();
+  const dropped = new Set(
+    [...sql.matchAll(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)/gi)].map(
+      (m) => m[1],
+    ),
+  );
+  const names = [];
+  for (const hit of sql.matchAll(
+    /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(idx_[A-Za-z0-9_]+)\s+ON\s+([A-Za-z_][A-Za-z0-9_]*)/gi,
+  )) {
+    if (dropped.has(hit[2])) continue;
+    names.push(hit[1]);
+  }
+  return [...new Set(names)].sort();
 }
 function openLibrary(label) {
   return openGsDb({ dbPath: path.join(freshDir(label), LIB_DB), now });

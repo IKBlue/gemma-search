@@ -92,13 +92,14 @@ test('D1 ⭐ 打开即建库：app.db 在 <userData>/app.db，应用级表齐全
     .map((r) => r['name']);
   for (const t of APP_TABLES)
     assert.ok(names.includes(t), '缺表：' + t + '（实得 ' + names.join(',') + '）');
-  // 只列名字、不写数量（B2-6 起多了 app_setting，B2-8 起多了 activity）
+  // 只列名字、不写数量（B2-6 加 app_setting · B2-8 加 activity · B2-5FIX 把 recent_query 挪进来）
   assert.deepEqual([...APP_TABLES].sort(), [
     'activity',
     'app_meta',
     'app_setting',
     'collect_dir',
     'library_registry',
+    'recent_query',
   ]);
   // app_meta 单行 + 版本
   const meta = readAppMeta(app.db);

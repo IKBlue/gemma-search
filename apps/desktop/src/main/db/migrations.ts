@@ -24,6 +24,7 @@ import {
   SCHEMA_VERSION_LEDGER,
   bootstrapLedger,
   createdTableNames,
+  droppedTableNames,
   migrateWithLedger,
   targetVersionOf,
   uniqueSorted,
@@ -435,8 +436,35 @@ const LIBRARY_V5: readonly string[] = Object.freeze([...T_USER_META]);
 /**
  * v6：**搜索与历史**（B2-5：`asset_name_fts` · `recent_query` · `recent_view`）。
  * 同一条规矩：**加表 = 加一条新迁移**，不回头改 v1–v5；本条 DDL 全部 `IF NOT EXISTS` ⇒ 可重复执行。
+ * ⚠️ **B2-5FIX 就地标注（语句一个字都没动）**：本条建的 `recent_query` **位置错了** ——
+ *    `SPEC.md:173` 把它列在**应用级**（它记的是**跨库**检索历史，`scope_lib_id` 为 NULL 表示"全部库"），
+ *    而这里把它建进了**库级** `.gs.db` ⇒ 每个库各存一份、删库重建还会把它一起丢掉。
+ *    **修正方式 = 新加一条 v7 把它删掉 + 在应用级链 v4 重建**（见 `app-migrations.ts`），
+ *    **不是**改本条语句：改已跑过的迁移对已升级的库**静默不生效**（v6 跑过的库照样留着那张表，
+ *    而派生清单会以为它不在 ⇒ 清单与真实库当场漂）。
  */
 const LIBRARY_V6: readonly string[] = Object.freeze([...T_SEARCH]);
+
+/**
+ * v7：**把位置建错的 `recent_query` 从库级删掉**（B2-5FIX）。
+ *
+ * ── 「已升级的库」怎么办：**不搬运**（新表从空开始），旧的那张**删掉** ──────────────────
+ * 选项与取舍（口径就定在这里，测试见 `search-history.test.mjs` 的 F2）：
+ *   · **搬运**（库级 → 应用级）需要**同时打开两个数据库文件**、逐库读再写进 `app.db` —— 那是**启动期编排**，
+ *     且跨两文件没有原子性（中途失败就是"搬了一半"）。收益是保住一份**搜索历史**（过程性便利数据，
+ *     不是用户资产：用户不会因为少了三条历史记录而误解自己的库）。
+ *   · ⇒ 本卡选**不搬运**：应用级的新表**从空开始**；库级旧表在本条里**删掉** ⇒ **一份真相**（不再有两张同名表）。
+ *     这是一次**明确且有界**的数据丢弃（只有"检索历史"这一种），**写在注释里、也写在测试里**，不是静默的。
+ *   · **若将来确实要搬**（例如所有者要求）：做法是**一次性脚本**，与迁移分开 ——
+ *     ① 先让应用级 v4 把表建出来；② 对每个库：`SELECT * FROM <库>/.gs.db` 的 `recent_query` ⇒
+ *     `INSERT OR IGNORE INTO <userData>/app.db` 的 `recent_query`；③ 核对行数后再让 v7 跑（或手动 `DROP`）。
+ *     **本卡不实现**它（理由见上），只把口径写清，免得后来者以为"数据是自动搬过来的"。
+ * ⚠️ `DROP TABLE` 会**一并删掉它的索引**（`idx_recent_query_at`），不需要单独 `DROP INDEX`。
+ */
+const LIBRARY_V7: readonly string[] = Object.freeze([
+  // 幂等：`IF EXISTS` ⇒ 全新库（跑完 v6 建出来、紧接着被 v7 删掉）与老库都能重复跑
+  'DROP TABLE IF EXISTS recent_query;',
+]);
 
 export const LIBRARY_MIGRATIONS: readonly Migration[] = Object.freeze([
   Object.freeze({ version: 1, name: 'greenfield-library-3', statements: LIBRARY_V1 }),
@@ -445,6 +473,12 @@ export const LIBRARY_MIGRATIONS: readonly Migration[] = Object.freeze([
   Object.freeze({ version: 4, name: 'batch2-asset-export', statements: LIBRARY_V4 }),
   Object.freeze({ version: 5, name: 'batch2-asset-user-meta', statements: LIBRARY_V5 }),
   Object.freeze({ version: 6, name: 'batch2-search-history', statements: LIBRARY_V6 }),
+  // B2-5FIX：把 B2-5 建错位置的 recent_query 从库级删掉（应用级链 v4 重建，见 app-migrations.ts）
+  Object.freeze({
+    version: 7,
+    name: 'batch2-drop-recent-query-from-library',
+    statements: LIBRARY_V7,
+  }),
 ]);
 
 /** 本程序知道的**库级**最高版本（从清单派生，不另写数字） */
@@ -452,17 +486,35 @@ export const TARGET_SCHEMA_VERSION: number = targetVersionOf(LIBRARY_MIGRATIONS)
 
 // ---------------------------------------------------------------- 应有表清单（从 DDL 派生）
 
-/** 库级业务表（**从 DDL 派生**，不手写第二份清单）—— v1 三张 + v2 的 `job` = 4 张 */
+/**
+ * 库级业务表（**从 DDL 派生**，不手写第二份清单）= **CREATE 的名字 − DROP 的名字**。
+ * ⚠️ B2-5FIX：清单只增不改 ⇒ "去掉一张建错的表"只能靠新加一条 `DROP TABLE` 迁移；
+ *    派生必须跟着减，否则"派生 == 真实库"那条断言会当场红（那正是它该有的反应）。
+ */
+function netLibraryTableNames(statements: readonly string[]): string[] {
+  const dropped = new Set(droppedTableNames(statements));
+  return createdTableNames(statements).filter((n) => !dropped.has(n));
+}
+
 export const LIBRARY_TABLES: readonly string[] = Object.freeze(
   uniqueSorted(
-    LIBRARY_MIGRATIONS.flatMap((m: Migration): string[] => createdTableNames(m.statements)),
+    netLibraryTableNames(
+      LIBRARY_MIGRATIONS.flatMap((m: Migration): readonly string[] => m.statements),
+    ),
   ),
 );
 
-/** 库级虚拟表（本轮没有 FTS；第二批的 asset_name_fts 会在这里出现，影子表按它排除） */
+/**
+ * 库级虚拟表（第二批起是 `asset_name_fts`；影子表按它排除）。
+ * ⚠️ 同样要减掉被 `DROP` 掉的虚表（与 `LIBRARY_TABLES` 同一条规矩）。
+ */
 export const LIBRARY_VIRTUAL_TABLES: readonly string[] = Object.freeze(
   uniqueSorted(
-    LIBRARY_MIGRATIONS.flatMap((m: Migration): string[] => virtualTableNames(m.statements)),
+    (() => {
+      const all = LIBRARY_MIGRATIONS.flatMap((m: Migration): readonly string[] => m.statements);
+      const dropped = new Set(droppedTableNames(all));
+      return virtualTableNames(all).filter((n) => !dropped.has(n));
+    })(),
   ),
 );
 

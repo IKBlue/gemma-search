@@ -5,7 +5,9 @@
 //   ② FTS5 **真的建出来了、真的能搜**，而且用的是 **trigram**（**真子串** —— 基线写的就是"子串搜"）；
 //   ③ **同步只有一处**（P1）：同步逻辑是**三条触发器**，业务代码里没有第二处（源码扫描 + 行为三条路径都要到）;
 //   ④ `recent_view` 1:1（uid 就是主键）· `recent_query` 的 kind 枚举与可空语义；
-//   ⑤ 层级：`asset_name_fts` 属**事实层**、`recent_query`/`recent_view` 属**过程层**（先核对了基线四层表）；
+//   ⑤ 层级：`asset_name_fts` 属**事实层**、`recent_view` 属**过程层**、**`recent_query` 属应用层**
+//      ⚠️ B2-5FIX：`recent_query` 原来被放进库级/过程层（依据 README.md:32 的四层表），
+//      但 `SPEC.md:173` 把它列在**应用级**（它记的是跨库检索历史）⇒ 已修正（库级链 v7 删旧表 + 应用级 v4 重建）。
 //   ⑥ v6 迁移 · 幂等（虚表 + 触发器都能重复建）· 旧库升级不回归。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -14,6 +16,7 @@ import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
+  APP_TABLES,
   EXPECTED_TABLES,
   LIBRARY_MIGRATIONS,
   LIBRARY_TABLES,
@@ -22,6 +25,7 @@ import {
   openGsDb,
   readSchemaVersion,
 } from '../src/main/db/index.ts';
+import { appDbPath, openAppDb } from '../src/main/app-db.ts';
 import { createJob } from '../src/main/db/jobs.ts';
 import {
   appLayerTables,
@@ -46,6 +50,14 @@ function freshDb(label, migrations) {
     ? openGsDb({ dbPath, migrations, now: () => T0 })
     : openGsDb({ dbPath, now: () => T0 });
   return { dbPath, db: opened.db, opened };
+}
+/** 应用级 app.db（B2-5FIX：`recent_query` 落在这里） */
+function freshApp(label) {
+  const dir = path.join(TMP, label + '-' + ++seq);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  const opened = openAppDb({ userDataDir: dir, now: () => T0 });
+  return { dir, dbPath: appDbPath(dir), db: opened.db };
 }
 after(() => {
   try {
@@ -112,26 +124,44 @@ test('S1 ⭐⭐ recent_query（7 字段）/ recent_view（3 字段）的列集 =
   const rv = baselineFields(/^##\s+recent_view\b/);
   assert.equal(rq.size, 7, '设计基线 §59 说 recent_query 是 7 个字段行，实得 ' + String(rq.size));
   assert.equal(rv.size, 3, '设计基线 §171 说 recent_view 是 3 个字段行，实得 ' + String(rv.size));
-  const { db } = freshDb('S1');
+  // ⚠️ B2-5FIX：这两张表**不在同一个数据库里** —— `recent_query` 属**应用级**（`app.db`），
+  //    `recent_view` 属**库级**（`.gs.db`）⇒ 列集要各自从**正确的那个库**里读，否则这条断言会"绿得没意义"。
+  const check = (db, table, want) => {
+    const cols = columnsOf(db, table);
+    assert.deepEqual(
+      [...cols].sort(),
+      [...want].sort(),
+      table + ' 的列与设计基线逐字对上（多/少都红）',
+    );
+    assert.deepEqual(
+      cols.filter((c) => !want.has(c)),
+      [],
+      table + ' 里出现设计基线没写的列（自造字段？）',
+    );
+  };
+  const lib = freshDb('S1-lib');
+  const app = freshApp('S1-app');
   try {
-    for (const [table, want] of [
-      ['recent_query', rq],
-      ['recent_view', rv],
-    ]) {
-      const cols = columnsOf(db, table);
-      assert.deepEqual(
-        [...cols].sort(),
-        [...want].sort(),
-        table + ' 的列与设计基线逐字对上（多/少都红）',
-      );
-      assert.deepEqual(
-        cols.filter((c) => !want.has(c)),
-        [],
-        table + ' 里出现设计基线没写的列（自造字段？）',
-      );
-    }
+    check(lib.db, 'recent_view', rv);
+    check(app.db, 'recent_query', rq);
+    // 反向：库级库里**不该**有 recent_query（修正前它在库级）、应用级库里不该有 recent_view
+    const libNames = lib.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+      .all()
+      .map((r) => r.name);
+    assert.equal(
+      libNames.includes('recent_query'),
+      false,
+      'B2-5FIX：recent_query 不该再出现在库级',
+    );
+    const appNames = app.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+      .all()
+      .map((r) => r.name);
+    assert.equal(appNames.includes('recent_view'), false, 'recent_view 是库级的，不该在应用级');
   } finally {
-    db.close();
+    lib.db.close();
+    app.db.close();
   }
 });
 
@@ -290,8 +320,9 @@ test('S4 recent_view：1:1（uid 是主键）· CASCADE · view_count 默认 1 �
   }
 });
 
-test('S5 recent_query：kind 只认 text/image；text/image_ref/scope/result_count 可空；at_ms 必填 + DESC 索引', () => {
-  const { db } = freshDb('S5');
+test('S5 recent_query（**应用级**）：kind 只认 text/image；text/image_ref/scope/result_count 可空；at_ms 必填 + DESC 索引', () => {
+  // ⚠️ B2-5FIX：从**应用级**库里查它（它记的是跨库检索历史）
+  const { db } = freshApp('S5');
   try {
     const ins = db.prepare(
       'INSERT INTO recent_query (query_id, kind, text, image_ref, scope_lib_id, result_count, at_ms) VALUES (?,?,?,?,?,?,?)',
@@ -350,25 +381,45 @@ test('S6 ⭐⭐ 迁移与分层：v6 · 版本派生 · 事实层/过程层归�
     'batch2-search-history',
     '搜索与历史是 v6（钉自己那一格）',
   );
-  for (const t of ['asset_name_fts', 'recent_query', 'recent_view']) {
+  // ⚠️ B2-5FIX：v7 是"把建错位置的 recent_query 从库级删掉"——也钉住它自己那一格
+  assert.equal(
+    LIBRARY_MIGRATIONS[6].name,
+    'batch2-drop-recent-query-from-library',
+    'v7 是 B2-5FIX 的删除迁移',
+  );
+  for (const t of ['asset_name_fts', 'recent_view']) {
     assert.ok(LIBRARY_TABLES.includes(t), 'LIBRARY_TABLES 必须含 ' + t);
     assert.ok(EXPECTED_TABLES.includes(t), '应有清单必须含 ' + t);
     assert.ok(schemaTables().includes(t), '四组点名必须含 ' + t);
     assert.ok(libraryLayerTables().includes(t), t + ' 落在库级 .gs.db');
     assert.equal(appLayerTables().includes(t), false, t + ' 不许落在 app.db');
   }
+  // B2-5FIX：`recent_query` 反过来 —— 在**应用级**，且库级派生清单里**没有**它
+  assert.ok(APP_TABLES.includes('recent_query'), 'APP_TABLES 必须含 recent_query');
+  assert.ok(schemaTables().includes('recent_query'), '四组点名必须含 recent_query');
+  assert.ok(appLayerTables().includes('recent_query'), 'recent_query 落 app.db');
+  assert.equal(libraryLayerTables().includes('recent_query'), false, 'recent_query 不许再落库级');
+  assert.equal(
+    LIBRARY_TABLES.includes('recent_query'),
+    false,
+    '库级派生清单里不该有它（派生已扣掉 v7 的 DROP —— 这正是那条 DROP 的作用）',
+  );
   // 层归属（基线四层分类表 README.md:31-32）
   assert.ok(LIBRARY_VIRTUAL_TABLES.includes('asset_name_fts'), 'asset_name_fts 是虚拟表');
   assert.ok(
     tablesInLayer('fact').includes('asset_name_fts'),
     'asset_name_fts 属**事实层**（可重建）',
   );
-  for (const t of ['recent_query', 'recent_view']) {
-    assert.ok(
-      tablesInLayer('process').includes(t),
-      t + ' 属**过程层**（尽量留，丢了只是少一份历史）',
-    );
-  }
+  // 过程层只剩 recent_view（recent_query 已挪去应用层）
+  assert.ok(
+    tablesInLayer('process').includes('recent_view'),
+    'recent_view 属过程层（"某个库里看过什么"）',
+  );
+  assert.equal(
+    tablesInLayer('process').includes('recent_query'),
+    false,
+    'recent_query 已不在过程层',
+  );
   // 旧库升级：只跑到 v5 的库 ⇒ 没有这三张表；再打开 ⇒ 只跑缺的那些；老数据还在
   const old = freshDb('S6-v5', LIBRARY_MIGRATIONS.slice(0, 5));
   try {
@@ -418,4 +469,108 @@ test('S6 ⭐⭐ 迁移与分层：v6 · 版本派生 · 事实层/过程层归�
   } finally {
     /* 已在上面关过 */
   }
+});
+
+// ============================================================ F 系列：B2-5FIX（`recent_query` 挪到应用级）
+
+test('F1 ⭐⭐ 落点修正的机械证明：库级库里**没有** recent_query / 应用级库里有；recent_view 不受影响', () => {
+  const lib = freshDb('F1-lib');
+  const app = freshApp('F1-app');
+  try {
+    const libTables = lib.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+      .all()
+      .map((r) => r.name);
+    const appTables = app.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+      .all()
+      .map((r) => r.name);
+    assert.equal(
+      libTables.includes('recent_query'),
+      false,
+      '库级库里不许有 recent_query（它记的是跨库历史）',
+    );
+    assert.equal(appTables.includes('recent_query'), true, '应用级库里必须有 recent_query');
+    // recent_view **没错**（SPEC.md:171 明确「库级·过程」）⇒ 别把对的也改坏
+    assert.equal(libTables.includes('recent_view'), true, 'recent_view 仍在库级');
+    assert.equal(appTables.includes('recent_view'), false, 'recent_view 不该跑到应用级');
+  } finally {
+    lib.db.close();
+    app.db.close();
+  }
+});
+
+test('F2 ⭐⭐ 升级路径：v6-only 的库（旧搜索历史在库级）升到 v7 ⇒ 库级不再有该表；应用级新表**是空的**（不搬运）', () => {
+  // ① 造一个"修正前"的库（只跑到 v6）并塞一行旧历史
+  const old = freshDb('F2-v6', LIBRARY_MIGRATIONS.slice(0, 6));
+  try {
+    assert.equal(readSchemaVersion(old.db), 6);
+    old.db
+      .prepare('INSERT INTO recent_query (query_id, kind, text, at_ms) VALUES (?,?,?,?)')
+      .run('old-1', 'text', '蓝天', T0);
+    assert.equal(
+      old.db.prepare('SELECT COUNT(*) n FROM recent_query').get().n,
+      1,
+      '修正前的库里确实有那张表、那行历史',
+    );
+  } finally {
+    old.db.close();
+  }
+  // ② 用完整链（含 v7）再打开 ⇒ v7 把它删掉
+  const up = openGsDb({ dbPath: old.dbPath, now: () => T0 });
+  try {
+    assert.equal(readSchemaVersion(up.db), TARGET_SCHEMA_VERSION);
+    assert.deepEqual(
+      up.migration.applied.map((m) => m.version),
+      LIBRARY_MIGRATIONS.map((m) => m.version).filter((v) => v > 6),
+      '只跑缺的那条 v7',
+    );
+    const names = up.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+      .all()
+      .map((r) => r.name);
+    assert.equal(
+      names.includes('recent_query'),
+      false,
+      'v7 之后库级不再有 recent_query（旧历史随之删除）',
+    );
+    assert.equal(names.includes('recent_view'), true, 'recent_view 不受 v7 影响');
+  } finally {
+    up.db.close();
+  }
+  // ③ 应用级那边：表在、但**从空开始** —— 这就是"不搬运"的口径（写在 migrations.ts 的 v7 注释里）
+  const app = freshApp('F2-app');
+  try {
+    assert.equal(
+      app.db.prepare('SELECT COUNT(*) n FROM recent_query').get().n,
+      0,
+      '不搬运：旧搜索历史不跟过来（一次**明确且有界**的丢弃，不是静默的）',
+    );
+  } finally {
+    app.db.close();
+  }
+});
+
+test('F3 ⭐ 一份真相（机械）：库级链只有 v6 建 + v7 删（历史语句不许改），净表集不含它；应用级链恰好建一次', () => {
+  const libSrc = fs.readFileSync(path.join(MAIN, 'db', 'migrations.ts'), 'utf8');
+  const appSrc = fs.readFileSync(path.join(MAIN, 'db', 'app-migrations.ts'), 'utf8');
+  // v6 的历史语句**不许改**：改了它对已升级的库静默不生效（这正是"为什么用 v7 删"的理由）
+  assert.ok(
+    /CREATE TABLE IF NOT EXISTS recent_query/.test(libSrc),
+    'v6 里那条历史 CREATE 必须原样保留（改已跑过的迁移对已升级的库无效）',
+  );
+  assert.equal(
+    (libSrc.match(/DROP TABLE IF EXISTS recent_query/g) ?? []).length,
+    1,
+    '库级链恰好有一条 DROP（v7）',
+  );
+  assert.equal(
+    (appSrc.match(/CREATE TABLE IF NOT EXISTS recent_query/g) ?? []).length,
+    1,
+    '应用级链恰好建一次',
+  );
+  // 净结果（派生）：库级没有、应用级有
+  assert.equal(LIBRARY_TABLES.includes('recent_query'), false, '库级净表集不含它');
+  assert.equal(EXPECTED_TABLES.includes('recent_query'), false, '库级"应有表清单"也不含它');
+  assert.ok(APP_TABLES.includes('recent_query'), '应用级清单含它');
 });

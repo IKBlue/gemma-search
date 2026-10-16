@@ -158,6 +158,25 @@ export function createdTableNames(statements: readonly string[]): string[] {
   return names;
 }
 
+/**
+ * `DROP TABLE` 的表名（B2-5FIX 起需要）。
+ *
+ * ⚠️ 为什么派生必须**减掉**它：迁移清单是**只增不改**的（改已跑过的迁移对已升级的库**静默不生效**），
+ *    所以"把一张建错的表从库里去掉"只能是**新加一条 `DROP TABLE` 的迁移**。
+ *    如果派生只数 `CREATE`，就会得出"它还在"的结论，而**全新库**跑完整条链之后它其实**不在** ⇒
+ *    派生清单与真实库不一致（G2 那条"派生 == 真实"的断言会红，或者更糟：真的漂了却没人发现）。
+ *    ⇒ **净表集 = CREATE 的名字 − DROP 的名字**。
+ */
+const DROP_TABLE_RE: RegExp = /DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)/gi;
+
+export function droppedTableNames(statements: readonly string[]): string[] {
+  const names: string[] = [];
+  for (const sql of statements) {
+    for (const match of sql.matchAll(DROP_TABLE_RE)) names.push(match[1]);
+  }
+  return names;
+}
+
 /** 只取虚拟表名（FTS5 的**影子表**要按它排除，见 db-schema 测试） */
 export function virtualTableNames(statements: readonly string[]): string[] {
   const names: string[] = [];
