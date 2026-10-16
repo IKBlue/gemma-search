@@ -42,7 +42,7 @@ export function writeIndexFixture(
   const vecs = [];
   const outItems = [];
   items.forEach((it, i) => {
-    // 向量必须是 **L2 归一化** 的 —— 真实索引就是这样（SPEC-identity §6.2 normalization:"l2"），
+    // 向量必须是 **L2 归一化** 的 —— 真实索引就是这样（`SPEC.md` §2.2（GSIDX 格式） normalization:"l2"），
     // 引擎用点积当余弦。用未归一化的 fixture 会让"余弦=1"这类断言失真，
     // 也会掩盖归一化相关的真 bug。
     const raw = new Float32Array(dim);

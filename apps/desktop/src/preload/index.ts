@@ -4,7 +4,7 @@
 // `sandbox: true` 的渲染进程**不加载 ESM preload**。
 //
 // 只暴露三个成员，**不暴露 ipcRenderer 本体**、不暴露 require / process / fs。
-// 渲染进程能做的事 = 这三个成员能做的事（SPEC-security §5）。
+// 渲染进程能做的事 = 这三个成员能做的事（`AGENTS.md` §1（preload `.cjs` / `sandbox: true` 硬约束））。
 //
 // 2026-10-14：由 index.js 转为 index.ts（全量 TypeScript）。**暴露面仍然恰好三个** —— E2E E0 会真窗口核对。
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';

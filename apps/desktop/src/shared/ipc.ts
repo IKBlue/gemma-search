@@ -15,7 +15,7 @@ export const LibId = z.string().regex(/^[A-Za-z0-9_-]{1,32}$/, '库 id 形状不
 export const Uid = z.string().regex(/^[0-9a-f]{12}$/, 'uid 形状不合法');
 export const Size = z.union([z.literal(128), z.literal(256), z.literal(512)]);
 
-/** 通道名（只开两个，见 SPEC-security §2） */
+/** 通道名（只开两个，见 `SPEC.md` §5.1） */
 export const CH_INVOKE = 'engine:invoke';
 export const CH_EVENT = 'engine:event';
 
@@ -51,7 +51,7 @@ export const Methods = {
    *
    * ⚠️ **为什么单独一个方法，而不是往 `item` 里加字段**（所有者决定）：
    *   把绝对路径混进 `item`，等于**每一次取元数据都顺带把库内路径交出去**；
-   *   而 P3c（图片详情）确实要显示它们（`ROADMAP.md:221` / `UI-REVIEW-and-migration.md:235`）。
+   *   而 P3c（图片详情）确实要显示它们（`TASKS.md` §1（P3c） / `SPEC.md` §4）。
    *   ⇒ 给它一个**语义就是"要路径"**的只读方法，暴露面收在明处、可审计。
    *   引擎侧仍走完整的库根包含校验与符号链接校验。
    * 契约 §9.1：冻结后**新增**方法/字段 = 兼容。
@@ -215,7 +215,7 @@ export const Methods = {
 
 export const METHOD_NAMES = Object.freeze(Object.keys(Methods));
 
-/** 单次调用的载荷上限（SPEC-security §2.1 第 5 条） */
+/** 单次调用的载荷上限（`SPEC.md` §5.1 第 5 条） */
 export const MAX_PAYLOAD_BYTES = 1024 * 1024;
 
 // ============================================================================

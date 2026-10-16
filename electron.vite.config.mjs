@@ -22,7 +22,7 @@
 //    所以把 `package.json` 的 dependencies 全部列为 external，运行时从 node_modules 解析。
 // 3) **preload 必须是 CJS**。`package.json` 是 `"type": "module"`，electron-vite 于是
 //    默认把 main/preload 都产出 ESM；但 `sandbox: true` 的渲染进程**不加载 ESM preload**
-//    （SPEC-security §5 要求 sandbox，所以这里显式把它压回 CJS + `.cjs` 扩展名）。
+//    （`AGENTS.md` §1（preload `.cjs` / `sandbox: true` 硬约束） 要求 sandbox，所以这里显式把它压回 CJS + `.cjs` 扩展名）。
 // 4) **插件版本跟着 Vite 走**：本工程是 Vite 7（electron-vite 5），
 //    所以 `@vitejs/plugin-react` 锁 **^5**（v6 的 peer 要求 Vite 8，装了会 ERESOLVE）。
 // 5) **Tailwind 只加在渲染层**（2026-10-13，T3）。它是**构建期**插件：`tailwindcss()` 扫源码
@@ -50,7 +50,7 @@ const desktop = (...parts) => resolve(root, 'apps', 'desktop', ...parts);
  * 为什么：dev 态的页面来自 `http://localhost:5173`，HMR 走 `ws://` 长连接。
  * `connect-src 'self'` 是否覆盖同源的 `ws:` 在各实现间并不一致，一旦不覆盖，
  * 表现是"页面能开但热更新静默失效"——很难往 CSP 上想。
- * 生产态（`file://`）保持 SPEC-security §5 的严格 CSP，一个字都不改。
+ * 生产态（`file://`）保持 `AGENTS.md` §1（preload `.cjs` / `sandbox: true` 硬约束） 的严格 CSP，一个字都不改。
  */
 function devCspRelax() {
   return {

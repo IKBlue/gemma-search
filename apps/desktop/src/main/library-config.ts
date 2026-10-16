@@ -43,7 +43,7 @@ export const REGISTRY_FILE = 'library-registry.json';
 const LIB_ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
 
 /**
- * 取件目录的**规格兜底值**（来自 SPEC-app §9 与 SPEC-transactions §7，不是本项目现编的）。
+ * 取件目录的**规格兜底值**（来自 `SPEC.md` §2 与 §2.1，不是本项目现编的）。
  *
  * ⚠️ P3（2026-10-13）：这是**兜底**，不再是"唯一值"。解析顺序见 `resolveLibraries`：
  * **`GEMMA_COLLECT_DIRS` 环境变量 > 注册表 > `config.json` > 本兜底**。

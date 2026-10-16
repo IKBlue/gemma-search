@@ -192,7 +192,10 @@ test('C5 ⭐ 生产态不自动打开 DevTools；手动 F12 路径仍在', () =>
 
   const code = maskComments(fs.readFileSync(INDEX_TS, 'utf8'));
   assert.equal(/openDevTools\s*\(/.test(code), false, 'index.ts 不许出现自动打开 DevTools 的调用');
-  assert.ok(/toggleDevTools\s*\(/.test(code), 'F12 的手动开关必须还在（SPEC-security §9 决定 3）');
+  assert.ok(
+    /toggleDevTools\s*\(/.test(code),
+    'F12 的手动开关必须还在（本机自用工具的既有取舍（旧安全文档已随 v2 清除） 决定 3）',
+  );
   assert.ok(/devTools:\s*true/.test(code), '能力保留：devTools:true 不被关掉（只是不许自动开）');
 
   // 策略接线必须是"一份"：index.ts 不许再自己挂 process.on 的这两个事件

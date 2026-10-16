@@ -7,7 +7,7 @@
 //   放进 store，归约函数 `reduceEvent` 就是**纯函数**，可以喂合成事件在 `npm test` 里断言。
 //
 // ── 契约依据 ──────────────────────────────────────────────────────────
-//   `CONTRACT-engine-v1.md` §3「长任务：进度 / 取消 / 续跑 / 失败清单」：
+//   `SPEC.md` §5「长任务：进度 / 取消 / 续跑 / 失败清单」：
 //     · 进度至少每 500 ms 一次；**`done/total` 单调不减**（取消时会停在某值）
 //     · 取消后最多 2 s 内发出 `index.done{ok:false}` 或 `index.failed`
 //     · 续跑按 `compat` 判定；不等则不复用**并在事件里说明原因**（不许静默）
@@ -23,7 +23,7 @@ import { create } from 'zustand';
 export type TaskPhase = { key: string; label: string };
 
 /**
- * 阶段条的五步（`UI-REVIEW-and-migration.md:241`：扫描 → 配对 → 编码 → 校验 → 落盘）。
+ * 阶段条的五步（`SPEC.md` §4：扫描 → 配对 → 编码 → 校验 → 落盘）。
  *
  * ⚠️ **与契约的差异，如实记下**：契约 §3 里 `phase` 只举了 `"encode" | "scan" | "finalize"` 三个，
  *    而界面规格要五步。这里按**五步**做（规格是界面的依据），并**容忍未知值** ——

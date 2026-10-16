@@ -1,8 +1,8 @@
-// packages/engine/src/uid.ts —— 素材稳定标识（SPEC-identity §2，已冻结）
+// packages/engine/src/uid.ts —— 素材稳定标识（`SPEC.md` §1.2（asset.uid），已冻结）
 //
 //   uid = sha1( lib_id + "|" + rel_dir + "|" + stem ).slice(0, 12)
 //
-// ⚠️ 这里**只能有一份实现**（P1）。曾经把种子换成"图像内容 sha1"，被 SPEC-identity §1 明确否决：
+// ⚠️ 这里**只能有一份实现**（P1）。曾经把种子换成"图像内容 sha1"，被 SPEC.md §1.1（数据模型总览）明确否决：
 //    内容相同的两张图会拿到同一个 uid ⇒ rowByUid 把两条折成一行 ⇒ **条目数与索引行数不等**。
 //    实测库里真有 5 组内容完全相同的图，所以那不是理论风险。
 //
@@ -29,7 +29,7 @@ export function relDirOf(relPath: string): string {
 }
 
 /**
- * SPEC-identity §2 的冻结公式。
+ * `SPEC.md` §1.2（asset.uid） 的冻结公式。
  * relDir 传 '.' / null / undefined 都按空串处理 —— 与既有实现（引擎测试里的两处副本、构建器）逐字一致。
  */
 export function uidOf(libId: string, relDir: string | null | undefined, stem: string): string {

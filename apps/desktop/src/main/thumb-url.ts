@@ -1,13 +1,13 @@
 // apps/desktop/src/main/thumb-url.ts —— `thumb://` 的形状解析与尺寸白名单
 //
-// 为什么单独成模块（这是 SPEC-security §8 的 S4–S6）：
+// 为什么单独成模块（这是 `SPEC.md` §5.3）：
 // `main/index.ts` import 了 `electron`，`node:test` 加载不了它 ⇒ 这个协议处理器
 // 在写这份文件之前**零自动化覆盖**。而它是渲染进程唯一能"指定读哪个文件"的表面，
 // 恰恰最该被测。抽出来的先例是 `main/ports.ts` 与 `main/library-config.ts`。
 //
 // ⚠️ **本模块的安全属性（三条，都必须能测）**：
 //   1. **纯函数，不碰文件系统**。它只做"形状 + 白名单"判定。
-//      路径是由「注册表 + 索引」反查出来的，**绝不从 URL 取** —— 见 SPEC-security §3。
+//      路径是由「注册表 + 索引」反查出来的，**绝不从 URL 取** —— 见 `SPEC.md` §5.3。
 //      所以 `thumb://../../windows/win.ini` 在**这一层**就被拒，且**没有发生过任何读取**
 //      （测试用注入的假 fs 计数器证明，不是靠状态码推断）。
 //   2. **尺寸只能来自白名单**（§8 的 S5）。`@999` 直接 400，不进入下游。
@@ -92,7 +92,7 @@ export function parseThumbUrl(rawUrl: string, io: ThumbIo | null = null): ParseT
  * 失败时的状态码映射 —— **形状/尺寸/URL 层面的错 ⇒ 400；库无法还原 ⇒ 404**。
  *
  * 为什么把它单独抽成一个纯函数：这个映射就是 §8 的 S4/S5/S6 三条的**可执行契约**
- * （`SPEC-security.md` §3：`libId` 不在注册表 ⇒ 404；`uid`/`size` 形状错 ⇒ 400）。
+ * （`SPEC.md` §5.3：`libId` 不在注册表 ⇒ 404；`uid`/`size` 形状错 ⇒ 400）。
  *
  * ⚠️ **签名收两个"事实"，而不是"一个状态码 + libId"** —— 旧签名让 400 分支**永远走不到**：
  * 旧写法 `thumbFailureStatus(p.ok ? 400 : p.status, libId)` 里，`p.ok === false` 时

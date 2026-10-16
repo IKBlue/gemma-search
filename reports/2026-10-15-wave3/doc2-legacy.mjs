@@ -8,12 +8,13 @@ const EXT = /\.(mjs|js|cjs|ts|tsx|json|css|html|md)$/;
 //    否则「MIGRATION-PLAN.md 已改自述」这种**自述句**会被误计（我的第一版正是这么错的，被 --calibrate 拦下）。
 const LEGACY = ['SPEC-security','SPEC-app','SPEC-identity','SPEC-transactions','CONTRACT-engine-v1','MIGRATION-PLAN','UI-REVIEW-and-migration','DESIGN-app-details','DESIGN-tokens','DEBT-CLEANUP','STACK-AUDIT','AUDIT-FINAL','stack-evidence','ROADMAP'];
 const RE = new RegExp('(?<![\\w./-])(' + LEGACY.join('|') + ')(?:\\.md)?\\s*(?:§\\s*[\\dPF]|:\\s*\\d+)', 'g');
-function detect(line) { const hits = []; let m; RE.lastIndex = 0; while ((m = RE.exec(line)) !== null) hits.push(m[1]); return hits; }
+function detect(lineIn) { const line = lineIn.split('`').join(''); const hits = []; let m; RE.lastIndex = 0; while ((m = RE.exec(line)) !== null) hits.push(m[1]); return hits; }
 function calibrate() {
   const cases = [
     ['// 已知引用：SPEC-security §8', 1],
     ['// 已知引用：DESIGN-app-details:414 的态度', 1],
     ['// 已知引用：UI-REVIEW-and-migration.md §1/§9', 1],
+    ['// 已知引用（第四形态，名字后有反引号）：（`SPEC-security.md` §3：libId 不在注册表 ⇒ 404）', 1],
     ['// 已知提及（非引用，应计 0）：MIGRATION-PLAN.md 已改自述', 0],
     ['// 已知正常：SPEC.md §5（新指针）', 0],
     ['// 已知正常：docs/archive/prototype/（现存）', 0],

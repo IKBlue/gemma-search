@@ -44,7 +44,7 @@ export type TimerHandle = ReturnType<typeof setTimeout>;
 export type SetTimerFn = (fn: () => void, ms: number) => TimerHandle;
 export type ClearTimerFn = (handle: TimerHandle) => void;
 
-/** 样例索引里的一条条目（**外部 JSON**：字段按 SPEC-identity §5，这里列实际用到的） */
+/** 样例索引里的一条条目（**外部 JSON**：字段按 `SPEC.md` §1.2（条目 = asset 表；items.json 是旧口径载体，不是事实来源），这里列实际用到的） */
 export interface FixtureItem {
   libId: string;
   uid: string;
@@ -765,7 +765,7 @@ export function createFakeKit({
     return out;
   }
 
-  // ── 事务（操作记录，契约 §2.11 / SPEC-transactions §9）─────────────────────
+  // ── 事务（操作记录，契约 §2.11 / `SPEC.md` §2.1）─────────────────────
   /**
    * 事务台账。**内存态**：`mutate`/`ingest` 会往前面插新记录，`undo` 会把状态改成 `undone`。
    * 初值来自 fixture 的 `transactions.items` —— 其中一条刻意是 `recovery_needed`，

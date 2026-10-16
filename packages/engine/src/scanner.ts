@@ -98,7 +98,7 @@ export interface ScanResult {
 
 /** scanLibrary() 的入参 */
 export interface ScanOptions {
-  /** 算 uid 用的库 id（SPEC-identity §2 的种子之一；空串也可以，只是换一个种子域） */
+  /** 算 uid 用的库 id（`SPEC.md` §1.2（asset.uid） 的种子之一；空串也可以，只是换一个种子域） */
   libId?: string;
   /** 跳过明细最多列几条（计数不受影响） */
   maxSkippedListed?: number;

@@ -184,7 +184,7 @@ export function crashUnhealthyState(): CrashUnhealthyState {
  * 生产态**不自动打开** DevTools —— 本函数是这条口径的唯一落点，返回值**恒 false**。
  *
  * 为什么"不自动开"而不是"关掉 DevTools"：
- *   · SPEC-security §9 决定 3 保留了 `devTools: true` + **F12 手动开关**（本机自用工具，
+ *   · 本机自用工具的既有取舍（旧安全文档已随 v2 清除） 决定 3 保留了 `devTools: true` + **F12 手动开关**（本机自用工具，
  *     排障收益 > 风险）⇒ 关掉能力会把排障路也关掉；
  *   · 但**自动打开**不一样：它把开发者界面直接推给最终用户，并拖慢启动。
  *   ⇒ 结论：能力保留、**自动打开禁止**。

@@ -6,7 +6,7 @@
 //
 // 设计要点（**就地自述**：旧设计文档已随 v2 清除，不再外链）：
 //   · 配对：**同目录 + 同名主干**（不跨目录），图 .jpg/.jpeg/.png，包 .zip/.rar
-//   · UID：`sha1(lib_id|目录|主干)[:12]`（SPEC-identity §2 冻结公式）
+//   · UID：`sha1(lib_id|目录|主干)[:12]`（`SPEC.md` §1.2（asset.uid） 冻结公式）
 //          不依赖图像字节 —— 内容相同的两张图仍是两条素材（本库有 5 组这种）
 //   · 重采样：安装 `resize_compat.mjs`，把 Node 侧钉成与 PIL 等价的那一套（preprocessing v2）
 //   · 格式：index.bin = MAGIC + u32 headerLen + headerJSON + float32 块（count × dim）
@@ -44,7 +44,7 @@ interface LibrarySlot {
   arc?: LibrarySlotFile;
 }
 
-/** 一条素材。uid 在扫描后按 SPEC-identity §2 计算；vectorSource 只在走了回退解码时有值。 */
+/** 一条素材。uid 在扫描后按 `SPEC.md` §1.2（asset.uid） 计算；vectorSource 只在走了回退解码时有值。 */
 interface LibraryItem {
   folder: string;
   stem: string;
@@ -105,7 +105,7 @@ interface RuntimeInfo {
   gpu_source: string;
 }
 
-/** index.bin 的 header（SPEC-identity §6.2） */
+/** index.bin 的 header（`SPEC.md` §2.2（GSIDX 格式）） */
 interface IndexHeader {
   format_version: number;
   compat_key_version: number;
@@ -153,7 +153,7 @@ const LIMIT = parseInt(arg('limit', '0'), 10);
 const SAVE_EVERY = parseInt(arg('save-every', '200'), 10);
 const REBUILD = has('rebuild');
 const LIB_ID = arg('lib-id', 'L1');
-// 权重精度：决定向量，进 compat（SPEC-identity §6.3）
+// 权重精度：决定向量，进 compat（`SPEC.md` §1.4（向量与索引））
 const WEIGHTS_DTYPE = arg('weights-dtype', 'fp32');
 const MODEL_REPO = arg('model-repo', 'onnx-community/embeddinggemma-2-ONNX');
 
@@ -165,7 +165,7 @@ if (!MODEL_DIR || !LIB_ROOT || !OUT_DIR) {
   process.exit(2);
 }
 
-// SPEC-identity §6.2 / §6.3 的版本号与常量
+// `SPEC.md` §2.2（GSIDX 格式） / §6.3 的版本号与常量
 const FORMAT_VERSION = 1; // index.bin 布局版本
 const COMPAT_KEY_VERSION = 1; // 兼容性判定规则版本
 // v2（2026-10-10）：重采样实现改用 `resize_compat`（按 PIL 规则分方向）——
@@ -201,7 +201,7 @@ if (MAGIC.length !== 8) throw new Error('MAGIC 必须是 8 字节，实际 ' + M
 const LEN_OFF = MAGIC.length; // u32 headerLen 的位置
 const HEAD_OFF = MAGIC.length + 4; // headerJSON 的起始位置
 
-// ---------------- 元数据辅助（SPEC-identity §6.2）----------------
+// ---------------- 元数据辅助（`SPEC.md` §2.2（GSIDX 格式））----------------
 
 /** 从模型路径里取出钉住的 40 位 revision。取不到就返回 null —— 调用方必须报错，不许猜。 */
 function parseRevisionFromPath(p: string): string | null {
@@ -304,7 +304,7 @@ function readEffectivePreprocessing(
   return meta;
 }
 
-/** SPEC-identity §6.3 的兼容性判定键 —— 一个字符串，便于比对与写进索引 */
+/** `SPEC.md` §1.4（向量与索引） 的兼容性判定键 —— 一个字符串，便于比对与写进索引 */
 function compatKey(h: IndexHeader): string {
   return [
     h.model_repo,
@@ -530,16 +530,16 @@ async function main() {
     log(`  --limit ${LIMIT} → 本次只处理 ${items.length} 条`);
   }
 
-  // 计算 UID —— **必须**用 SPEC-identity §2 冻结的公式：
+  // 计算 UID —— **必须**用 `SPEC.md` §1.2（asset.uid） 冻结的公式：
   //     uid = sha1( lib_id + "|" + rel_dir + "|" + stem ).slice(0, 12)
   //
-  // ⚠️ 这里曾经写成 sha1(图像字节)：那正是 SPEC-identity §1 **明确否决**的原设计
+  // ⚠️ 这里曾经写成 sha1(图像字节)：那正是 SPEC.md §1.1（数据模型总览）**明确否决**的原设计
   //    （"相同图像字节不代表同一条素材"）。后果不是"不够好"而是**真出错**：
   //    实测库里有 5 组内容完全相同的图（sha1 相同），内容哈希会给出**相同 uid**，
   //    于是 rowByUid 把两组折叠成一行 → 一条向量行被孤立、条目数与行数不等，
   //    A 项"条目数 = 3594"必然失败。
   //    用 (目录, 主干) 作种子则天然唯一，内容重复也不影响。
-  log('计算 UID（sha1(lib_id|rel_dir|stem) 前 12 位，SPEC-identity §2）…');
+  log('计算 UID（sha1(lib_id|rel_dir|stem) 前 12 位，`SPEC.md` §1.2（asset.uid））…');
   const t0 = now();
   const uidSeen = new Map<string, string>();
   for (const it of items) {
@@ -604,7 +604,7 @@ async function main() {
   });
   log(`  载入完成 ${((now() - tLoad) / 1000).toFixed(1)}s`);
 
-  // ---------- 元数据（SPEC-identity §6.2）：必须在续跑判定之前建好 ----------
+  // ---------- 元数据（`SPEC.md` §2.2（GSIDX 格式））：必须在续跑判定之前建好 ----------
   const revision = parseRevisionFromPath(MODEL_DIR);
   if (!revision) {
     throw new Error(`无法从 --model 路径解析出 40 位 model revision：${MODEL_DIR}
@@ -670,7 +670,7 @@ async function main() {
   // 且 meta 缺 compat（旧格式）一律判为不可复用 —— 宁可重编码，也不混用不同配置的向量。
   //
   // 复用表**按 relPath 作键**，不按 uid：uid 的算法改动（本次就从内容哈希改成
-  // SPEC-identity §2 的 (lib_id,目录,主干)）会让所有旧 uid 失效，从而白白丢掉
+  // `SPEC.md` §1.2（asset.uid） 的 (lib_id,目录,主干)）会让所有旧 uid 失效，从而白白丢掉
   // 已经编码好的行。relPath 是同一次扫描里的稳定键，与 uid 方案无关。
   const old = REBUILD ? null : readIndexBin(INDEX_BIN);
   let oldMeta = null;

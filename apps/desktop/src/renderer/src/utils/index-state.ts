@@ -1,7 +1,7 @@
 // utils/index-state.ts —— 「这条素材的索引状态」四档（Operation 层，纯函数）
 //
 // ── 为什么是**派生**的，而不是引擎字段 ────────────────────────────────────
-//   `DESIGN-app-details.md:407` 要求每条标「已编码 / 待编码 / 待重编码 / 已从索引移除」。
+//   `SPEC.md` §4 要求每条标「已编码 / 待编码 / 待重编码 / 已从索引移除」。
 //   我第一版把它做成引擎 `item` 的字段 —— **那是错的**，理由两条：
 //     ① 真实引擎的 `item`（`packages/engine/src/engine.mjs:427+`）**没有**这个字段。
 //        在 fake 里造一个 ⇒ 页面"模拟模式能跑、真库上拿到 `undefined`"（最坏的假绿）。
@@ -88,7 +88,7 @@ export function deriveIndexState(item: IndexStateItem, scanDiff: ScanDiff = null
 
 /**
  * 需要一次差分扫描才能判的档位 —— 界面据此决定要不要提示「检查变更」。
- * 刻意**不自动扫**：全库 stat 一遍是重活，且用户没要求时不该发生（`DESIGN-app-details.md:414`
+ * 刻意**不自动扫**：全库 stat 一遍是重活，且用户没要求时不该发生（**既有设计态度**：
  * 对"变更"的态度就是不自动动它）。
  */
 export function needsScanToDecide(item: IndexStateItem): boolean {

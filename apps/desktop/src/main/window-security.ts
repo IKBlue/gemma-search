@@ -1,7 +1,7 @@
 // apps/desktop/src/main/window-security.ts —— 窗口姿态的两个决策 + 调用来源判定
 //
 // 为什么单独成模块：`main/index.ts` import 了 `electron`，`node:test` 加载不了它。
-// 于是 `SPEC-security` §8 的 S11/S12/S13 **一条测试都没有** —— 而这三条恰好是
+// 于是 `SPEC.md` §6 的 S11/S12/S13 **一条测试都没有** —— 而这三条恰好是
 // "渲染进程能去哪里、能不能开新窗口、iframe 能不能冒充主窗口"这类**边界**判定。
 // 抽出来之后，这些判定可以用**普通对象**喂真值，不必启动 Electron。
 //

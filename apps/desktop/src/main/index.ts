@@ -1,6 +1,6 @@
 // apps/desktop/src/main/index.ts —— Electron 主进程（P2）
 //
-// 职责（SPEC-security §2–§5）：
+// 职责（`SPEC.md` §5）：
 //   · 组装引擎（注入 ONNX 编码器端口）—— 库来源见 library-config.ts（D2 修复）
 //   · 只开两个 IPC 通道：engine:invoke / engine:event
 //   · 每个调用先做**来源校验**，再过**zod 白名单**，最后才打引擎
@@ -101,7 +101,7 @@ const HERE: string = path.dirname(fileURLToPath(import.meta.url));
 const DEV_RENDERER_URL: string = process.env.ELECTRON_RENDERER_URL || '';
 
 /**
- * 模拟模式（契约 `CONTRACT-engine-v1.md` §8「UI 用的测试数据与模拟接口」）。
+ * 模拟模式（契约 `SPEC.md` §5「UI 用的测试数据与模拟接口」）。
  *
  * ⚠️ **只由显式环境变量打开**，绝不因为"检测到没有库"之类的条件自动生效 ——
  * 那会让"以为在看真库、其实在看样例"成为可能，而本项目最危险的失败模式就是**静默**。
@@ -1185,7 +1185,7 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
   };
 }
 
-// ---------------------------------------------------------------- thumb:// 协议（SPEC-security §3）
+// ---------------------------------------------------------------- thumb:// 协议（`SPEC.md` §5.3）
 //
 // 形状**只允许** `thumb://<libId>/<uid>@<size>`。
 // 路径绝不从 URL 取，而是由「注册表 + 索引」反查后再做包含校验 —— 这样
@@ -1201,10 +1201,10 @@ protocol.registerSchemesAsPrivileged([
 // 这里不再保留第二份路径拼法（两份迟早漂移，而缓存路径漂移＝缓存静默失效）。
 
 // ⚠️ 形状解析、尺寸白名单**与失败状态码映射**已抽到 `main/thumb-url.ts`
-// （SPEC-security §8 的 S4–S6）。抽出去的理由只有一个：`index.ts` import 了 electron，
+// （`SPEC.md` §5.3）。抽出去的理由只有一个：`index.ts` import 了 electron，
 // `node:test` 加载不了它 ⇒ 这段代码本来**零自动化覆盖**。它是渲染进程唯一能"指定读哪个文件"的表面。
 // **行为变更（唯一一处，已记录）**：原实现把"库 id 无法还原"与"形状不对"合并成 400；
-// 按 `SPEC-security.md` §3 的表（`libId` 不在注册表 ⇒ 404）现在拆成 404。这是**对齐 §3**。
+// 按 `SPEC.md` §5.3 的表（`libId` 不在注册表 ⇒ 404）现在拆成 404。这是**对齐 §3**。
 async function listRegisteredLibIds(): Promise<string[]> {
   const eng = engine;
   if (!eng) return [];
@@ -1359,7 +1359,7 @@ function createWindow(): electron.BrowserWindow {
       allowRunningInsecureContent: false,
       spellcheck: false,
       webviewTag: false,
-      devTools: true, // 决定 3：生产态也保留（理由见 SPEC-security §9）
+      devTools: true, // 决定 3：生产态也保留（理由见 本机自用工具的既有取舍（旧安全文档已随 v2 清除））
     },
   });
   winRef.win = win;
@@ -1456,7 +1456,7 @@ function createWindow(): electron.BrowserWindow {
     log('[renderer]', e.level ?? '', e.message ?? '');
   });
 
-  // F12 → DevTools（生产态也留：本机自用工具，排障收益 > 风险，见 SPEC-security §9 决定 3）
+  // F12 → DevTools（生产态也留：本机自用工具，排障收益 > 风险，见 本机自用工具的既有取舍（旧安全文档已随 v2 清除） 决定 3）
   // ⚠️ DF-6：**只有这一条手动路径** —— 生产态**不自动打开** DevTools。
   //    口径落点是 crash-policy.shouldAutoOpenDevTools()（恒 false），并由单测做源码扫描守着；
   //    要改成"自动开"必须同时改那个函数与扫描断言。

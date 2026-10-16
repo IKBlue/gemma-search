@@ -2,7 +2,7 @@
 //
 // 这条测试补的是**最虚的一层**。移除前，`verify_main_wiring.mjs` 测过 S11/S12，但它是
 // **用假 `electron` 加载产物、手工调用抓到的回调** —— 能证明"我们的判定函数对"，
-// **不能证明"Chromium 真的会调它、真的会拦住"**。`SPEC-security.md` §8.1 自己也写着
+// **不能证明"Chromium 真的会调它、真的会拦住"**。`SPEC.md` §6 自己也写着
 // 「真窗口行为未实测」。本文件就是那句"未实测"的兑现。
 //
 // 覆盖：S11（`window.open` 被 deny）· S12（外部导航被 preventDefault）
@@ -100,7 +100,7 @@ test('E3-c 导航到未知 hash 不产生控制台错误（渲染层没被路由
 //    仍然会拿到 `window.api`（preload 是按 webContents 挂的，不是按路径）。
 //    本条**不断言它是"对的"**，只把当前行为钉住，避免它无声变化；
 //    真正收紧需要在 SPEC 层决策（例如限定到具体 renderer 目录）。
-test('E3-d 边界：`file://` 导航是**前缀放行**（SPEC-security §8.1 已记录，此处钉住现状）', async () => {
+test('E3-d 边界：`file://` 导航是**前缀放行**（`SPEC.md` §6 已记录，此处钉住现状）', async () => {
   const { app, cleanup } = await launchWithLibrary();
   try {
     const win = await firstWindow(app);

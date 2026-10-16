@@ -95,7 +95,7 @@ export function bandOf(score: number, mode: string): string {
   return 'low';
 }
 
-/** L2 归一化。索引里的行已是 L2（SPEC-identity §6.2 `normalization:"l2"`），点积即余弦。 */
+/** L2 归一化。索引里的行已是 L2（`SPEC.md` §2.2（GSIDX 格式） `normalization:"l2"`），点积即余弦。 */
 export function l2norm(v: Float32Array): Float32Array {
   let n = 0;
   for (let i = 0; i < v.length; i++) n += v[i] * v[i];
@@ -332,7 +332,7 @@ export function createEngine({
     const rowToRel = new Map<number, unknown>();
     for (const it of items) {
       const rel = relOf(it);
-      // 条目缺 uid 本不该发生（uid 是索引主键，SPEC-identity §2）；原 JS 会把 undefined 当键塞进去，
+      // 条目缺 uid 本不该发生（uid 是索引主键，`SPEC.md` §1.2（asset.uid））；原 JS 会把 undefined 当键塞进去，
       // 这里落成空串 —— 两种都**取不到**任何真实 uid，语义等价。
       byUid.set(it.uid ?? '', it);
       if (it.vectorRow != null) rowToRel.set(it.vectorRow, rel);
@@ -820,7 +820,7 @@ export function createEngine({
      *
      * ⚠️ **为什么单独一个方法，而不是往 `item` 里加字段**（所有者 2026-10-13 决定）：
      *   `item` 是"索引元数据"。把绝对路径混进去，等于**每一次取元数据都顺带把库内路径交出去**；
-     *   而本应用确实需要显示这两条路径（`ROADMAP.md:221` 的 P3c 验收 · `UI-REVIEW-and-migration.md:235` 流程 2）。
+     *   而本应用确实需要显示这两条路径（`TASKS.md` §1（P3c）的验收 · `SPEC.md` §4（界面规格）流程 2）。
      *   ⇒ 给它一个**有名字、有文档、语义就是"要路径"**的只读方法，把暴露面收在明处、可审计。
      *   这也解掉了 `absPathFor` 那条注释与实际需求之间的冲突（见本文件里 `absPathFor` 的说明）。
      *
@@ -855,7 +855,7 @@ export function createEngine({
      * 而契约里此前**没有**任何列/查事务的方法 ⇒ 界面侧无数据源。补上这一个只读方法。
      *
      * 返回值里的 `blocked` 表示"有未收尾事务" —— 此时**任何写方法都会被 `RECOVERY_NEEDED` 挡住**，
-     * 界面据此把「待处理」提到显眼处（`SPEC-transactions.md:141`）。
+     * 界面据此把「待处理」提到显眼处（`SPEC.md` §2.1 写入不变式）。
      *
      * ⚠️ 真实模式**没有实现事务日志** ⇒ 如实返回 `INTERNAL`，不返回空数组假装"没有事务"。
      */

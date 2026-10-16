@@ -105,7 +105,7 @@ test('IA2 ⭐ 四分区**永远都在**，且分区名与规格逐字一致（UI
   assert.deepEqual(
     groups.map((g) => g.title),
     ['取件', '维护（复用向量）', '维护（需重编码，须提示）', '危险区'],
-    '分区名必须与 UI-REVIEW-and-migration.md:236 一致',
+    '分区名必须与 `SPEC.md` §4 一致',
   );
   // 即使某个分区没有动作，分区本身也要出现 —— 少一个分区会让人以为"这个应用没有那类操作"
   const empty = groupActions([]);

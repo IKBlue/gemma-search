@@ -26,7 +26,7 @@ export const HEAD_OFF = MAGIC.length + 4; // 12
 export type IndexHeader = Record<string, unknown>;
 
 /**
- * items.json 里的一行（SPEC-identity §5）。
+ * items.json 里的一行（`SPEC.md` §1.2（条目 = asset 表；items.json 是旧口径载体，不是事实来源））。
  *
  * 字段**全部可选**：这是外部 JSON，缺字段是"数据不完整"，该由调用方按契约判定并报错，
  * 不该由读函数替它兜底。这里把实际用到过的字段列出来，是为了让访问它们的地方有类型；
@@ -176,14 +176,14 @@ export function readIndexBin(file: string): IndexBin {
 
 /**
  * 运行期确认"这是一行条目"：条目表的每一行都必须是对象
- * （数组 / 字符串 / 数字都不是合法条目 —— SPEC-identity §5）。
+ * （数组 / 字符串 / 数字都不是合法条目 —— `SPEC.md` §1.2（条目 = asset 表；items.json 是旧口径载体，不是事实来源））。
  * 全字段可选 ⇒ 对象天然满足 IndexItem，这个谓词是诚实的、不是把断言伪装成检查。
  */
 function isIndexItem(v: unknown): v is IndexItem {
   return typeof v === 'object' && v !== null;
 }
 
-/** 读 items.json（条目表）。格式见 SPEC-identity §5。 */
+/** 读 items.json（条目表）。格式见 `SPEC.md` §1.2（条目 = asset 表；items.json 是旧口径载体，不是事实来源）。 */
 export function readItems(file: string): IndexItem[] {
   if (!fs.existsSync(file)) throw fail(ERR.INDEX_MISSING, `条目表不存在：${file}`, { file });
   const raw = fs.readFileSync(file, 'utf8');

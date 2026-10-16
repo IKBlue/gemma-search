@@ -1,4 +1,4 @@
-// apps/desktop/tests/permissions.test.mjs —— SPEC-security §8 的传输层权限用例
+// apps/desktop/tests/permissions.test.mjs —— `SPEC.md` §6 的传输层权限用例
 //
 // 为什么现在才有这个文件：本表 16 条此前**零自动化**（`SPEC.md` §6 自己写着
 // "P2 验收未通过"）。根因很实际 —— `main/index.mjs` import 了 `electron`，`node:test` 加载不了它，
@@ -7,7 +7,7 @@
 // `tools/verify_app_build.mjs`（**已移除 2026-10-13**）（结构断言）与 `tools/verify_renderer_dom.mjs`（**已移除 2026-10-13**）（jsdom 行为断言），
 // **不在这里用假 electron 冒充** —— 那证明不了接线到底有没有接上。
 //
-// 覆盖映射（编号与 SPEC-security §8 表格一致）：
+// 覆盖映射（编号与 `SPEC.md` §5.1 方法表一致）：
 //   S1 未登记方法          → validateCall
 //   S2 未知字段(zod strict) → validateCall
 //   S3 libId/uid 形状        → validateCall
@@ -189,7 +189,7 @@ test('S4：thumb:// 路径穿越被拒，且**解析阶段零文件读取**（�
 });
 
 test('S6：失败状态码映射 —— 形状/尺寸错 ⇒ 400；库无法还原 ⇒ 404（可执行契约）', async () => {
-  // 为什么单独立一条：这个映射就是 S4/S5/S6 的**契约本体**（SPEC-security §3 的表）。
+  // 为什么单独立一条：这个映射就是 S4/S5/S6 的**契约本体**（`SPEC.md` §5.1 的表）。
   // 第一次交付时它留在 handleThumb 里、只在文档里写成"index.mjs 回 404"——
   // 独立复核把产物里的 404 改成 200，**没有任何断言会响**（blocker B2）。
   // 抽成纯函数后，改坏它必然变红；而**调用点**由 `tools/verify_main_wiring.mjs`（**已移除 2026-10-13**） 用真实产物覆盖。

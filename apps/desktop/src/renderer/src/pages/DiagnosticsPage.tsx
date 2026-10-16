@@ -156,7 +156,7 @@ export default function DiagnosticsPage() {
   const libId = lib?.libId ?? '';
 
   // ⚠️ **不自动体检**：跑一次要读索引 + 只读开 .gs.db（大库上是重活），
-  //    用户没要求时不该发生 —— 同 ItemPage 的「检查变更」（DESIGN-app-details:414 的态度）。
+  //    用户没要求时不该发生 —— 同 ItemPage 的「检查变更」（**既有设计态度**：用户没要求时不自动动它）。
   const onCheck = useCallback(() => {
     if (!libId) {
       show('还没有可体检的库', 'err');

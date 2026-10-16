@@ -1,4 +1,4 @@
-// apps/desktop/tests/window-security.test.mjs —— SPEC-security §8 的 S11 / S12 / S13
+// apps/desktop/tests/window-security.test.mjs —— `SPEC.md` §6 的 S11 / S12 / S13
 //
 // ⚠️ **这些断言覆盖的是"决策"，不是"接线"**。
 // `index.mjs` 有没有真的把 `setWindowOpenHandler` / `will-navigate` 注册上，本文件**证明不了** ——

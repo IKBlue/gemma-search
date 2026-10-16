@@ -43,7 +43,7 @@ const ROOT = (() => {
   }
 })();
 
-/** 按 SPEC-identity §7 写一个最小合法索引，用于构造各种损坏样本。 */
+/** 按 `SPEC.md` §2.2 写一个最小合法索引，用于构造各种损坏样本。 */
 function writeIndex(file, { count, dim, header = {}, breakFooter = null, truncate = 0 } = {}) {
   const body = Buffer.alloc(count * dim * 4);
   for (let i = 0; i < count * dim; i++) body.writeFloatLE((i % 7) / 7, i * 4);

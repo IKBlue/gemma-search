@@ -1,4 +1,4 @@
-// packages/engine/tests/uid.test.mjs —— UID 规则的单元与整库断言（SPEC-identity §2 冻结）
+// packages/engine/tests/uid.test.mjs —— UID 规则的单元与整库断言（`SPEC.md` §1.2（asset.uid） 冻结）
 //
 // 为什么要整库断言：uid 是索引主键。碰撞不会报错，只会让两条素材共用一行向量
 // （rowByUid 折叠）→ 条目数与行数不等、搜索少一条。这正是"静默错误"，必须显式测。
@@ -53,7 +53,7 @@ test('uid: 根目录下的素材 rel_dir 为空串（不是 "."）', () => {
 });
 
 test('uid: 黄金向量（锁住当前行为，改动即报警）', () => {
-  // 由 SPEC-identity §2 的公式直接算出并钉住。
+  // 由 `SPEC.md` §1.2（asset.uid） 的公式直接算出并钉住。
   // 这不是"参考实现的输出"，而是**冻结规则的可检测锚点**：
   // 若将来有人无意改了分隔符/大小写/截断长度，这条会立刻失败。
   assert.equal(

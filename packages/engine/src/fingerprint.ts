@@ -1,4 +1,4 @@
-// core/fingerprint.ts —— 库指纹 v1（SPEC-identity §5）
+// core/fingerprint.ts —— 库指纹 v1（SPEC.md §1.5 库）
 //
 //   fingerprint_v1 = sha1( "v1\n" + join("\n", sorted(rel\tsize\tmtime_ms\text)) )
 //

@@ -20,7 +20,7 @@ import type { MethodName } from '../../../shared/ipc.ts';
 /**
  * preload 的暴露面（`apps/desktop/src/preload/index.ts`）。
  *
- * preload 只 exposeInMainWorld 三个东西，且**不暴露 ipcRenderer 本体**（SPEC-security §5）。
+ * preload 只 exposeInMainWorld 三个东西，且**不暴露 ipcRenderer 本体**（`AGENTS.md` §1（preload `.cjs` / `sandbox: true` 硬约束））。
  * 这是全仓**唯一**一处 `window.api` 的类型声明 —— 与"唯一接触点"同一条纪律：
  * 类型也不该在第二个地方被重新描述一遍（P1）。
  */

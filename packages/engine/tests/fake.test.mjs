@@ -543,7 +543,7 @@ test('F14 ⭐ `transactions`（契约 §2.11）：列出事务、可按 txId 查
     assert.equal(pending.canUndo, true);
     assert.equal(pending.canRollback, true);
 
-    // 按 id 查（SPEC-transactions §9 的"据 id 查询状态"）
+    // 按 id 查（`SPEC.md` §2.1 的"据 id 查询状态"）
     const one = await engine.transactions({ txId: 'tx-2f9c' });
     assert.equal(one.data.transactions.length, 1);
     assert.equal(one.data.transactions[0].txId, 'tx-2f9c');
