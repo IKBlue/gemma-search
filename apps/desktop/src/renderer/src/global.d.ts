@@ -17,16 +17,21 @@ declare module '*.css' {
  * Vite 的 `import.meta.glob`（**构建期**替换成静态映射）。
  *
  * 类型刻意写得比 Vite 的完整签名**窄而准**：本仓库只用它把 `pages/` 与 `ui/` 下的组件
- * 收集成「源码相对路径 → 模块」，而且**只用 `{ eager: true }` 这一种形态** ——
- * 见 `main.tsx` 的 `PAGES` / `COMPONENTS` 与那里的长注释。
+ * 收集成「源码相对路径 → 模块」，**两种形态各对应一条腿**（见 `main.tsx` 的 glob 分组注释）：
  *
- * ⚠️ 2026-10-16（BUILD-2）：**之前这里声明的是非 eager 形态**（`() => Promise<unknown>`）。
- *    改成 eager 不是"放宽类型"，而是**跟着实现走**：那 19 个模块本来就都被静态导入
- *    （`router/index.tsx`、`App.tsx`、`Sidebar.tsx`、各页引 `ui/*`），
- *    非 eager 的动态 import 一个 chunk 都拆不出来，只换来 19 条 Rollup 警告。
- *    ⇒ 非 eager 的形态本仓库**不再使用**，故这里**只声明 eager 这一种**；
- *      将来真要用（比如给某个页面做真 lazy），把它加回来并写明理由即可。
+ *   · **非 eager**（默认）⇒ `路径 → () => Promise<模块>`：**按需加载**。
+ *     现用于**路由页**（`ROUTE_PAGES`），配合 `router/index.tsx` 的 `React.lazy` 切出 route chunk。
+ *   · **eager: true** ⇒ `路径 → 模块`：构建期就求值好（**静态**，进主 chunk）。
+ *     现用于**非路由页**（`STATIC_PAGES`）与被各页静态引用的 `ui/*`（`COMPONENTS`）。
+ *
+ * ⚠️ 两种形态**同时**存在不是"类型放宽"，而是**如实描述两个不同的 glob**——
+ *    谁用哪一种由「这个模块的另一条腿是静态还是动态」决定，规则见 main.tsx 的长注释。
+ *    声明与实现不符时 `tsc` 会当场红（BUILD-2 改 eager 时就先红在这里：TS2554），
+ *    这正是这条声明该有的作用。
  */
 interface ImportMeta {
-  glob(pattern: string, options: { eager: true }): Record<string, unknown>;
+  /** 非 eager（默认）：按需加载 —— 返回「路径 → () => Promise<模块>」 */
+  glob(pattern: string | string[]): Record<string, () => Promise<unknown>>;
+  /** eager：构建期求值 —— 返回「路径 → 模块」 */
+  glob(pattern: string | string[], options: { eager: true }): Record<string, unknown>;
 }

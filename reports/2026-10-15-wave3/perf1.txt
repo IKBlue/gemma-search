@@ -1,0 +1,234 @@
+PERF-1 · 第 0 步：首屏计时基线（**先立基线，还没改代码**）
+日期 2026-10-16 · 类型：**本轮实测** · 任务卡：task-99 · 执行者：renderer-migrator
+
+================================================================
+0. 结论速览
+================================================================
+① 基线已立并可复跑：**6 次启动取中位**，离散度极小（first-paint 6190–6224 ms，σ≈10 ms）✅
+② 交付了卡片点名的四项：**冷启动到可交互**（中位）· `body.innerHTML` 长度 · 控制台错误数 · 产物 chunk 清单 ✅
+③ ⚠️ **第 0 步顺手撞出一个真问题（不是本卡范围）**：与 2026-10-15 的 T-19 基线相比，
+   `首窗口 + domcontentloaded` 从 **688/663 ms → 6415 ms**（≈ **9.4×**），
+   而且**用权威仪器 T-19b（perf.spec.mjs）复现**，不是我这个新量具的假象。详见 §4。
+④ ⇒ 对第 1 步的直接含义：**这个 head-line 数字不可能被"拆 chunk"推动**（6.1 s 花在渲染层文档加载，
+   不是 1.2 MB 的解析）⇒ 第 1 步的硬证据只能是**产物里真的出现按路由切分的 chunk**，首屏按口径写「不变」。
+
+================================================================
+1. 怎么复跑（两步）
+================================================================
+~
+npm run build
+$env:GEMMA_PERF='1'
+npx playwright test -c apps/desktop/e2e/playwright.config.mjs first-paint.spec.mjs
+# 读输出：[perf1] TABLE 是结论表，[perf1] RAW 是逐次原始数据
+~
+量具：`apps/desktop/e2e/first-paint.spec.mjs`（本卡新增；默认 `GEMMA_PERF` 未设 ⇒ **skip**，
+不给全量 e2e 加时间）。它启 **6 次**真实窗口（真实模式 + 夹具库 lib-mini），取**中位数**。
+
+================================================================
+2. 首屏基线（中位数 · 6 次启动）
+================================================================
+| 指标 | 中位数 | 说明 |
+|---|---|---|
+| **first-paint**（相对 navigationStart，**主口径**） | **6190 ms** | 浏览器自己记录的绘制时间戳 |
+| first-contentful-paint | (缺) | ⚠️ file:// 下 Chromium **不产出**该条目（实测；已按"缺"处理，不再显示 NaN） |
+| domInteractive（HTML 解析完） | 32.1 ms | 文档本身很小，解析几乎瞬时 |
+| DOMContentLoaded | 6133.5 ms | **含主 chunk 的取回+解析+执行** |
+| **DCL − domInteractive** | **6101.4 ms** | ⭐ **首屏的 98% 都在这条缝里** |
+| loadEventEnd | 6134.3 ms | |
+| 首窗口出现（harness 墙钟） | 6472.4 ms | `firstWindow()` 内部等 DCL |
+| **主界面 #query 可见（harness 墙钟）** | **6642.5 ms** | 「冷启动到可交互」 |
+| `launch()` 返回（harness 墙钟） | 371.4 ms | 与 T-19 的 395/410 ms 同量级 ✓ |
+| `body.innerHTML` 长度 | **7332** | 6 次全部一致 ⇒ 界面**真的渲染出来了** |
+| 控制台错误合计 | **0** | 6 次 × 0 |
+| 渲染层 JS chunk 数 | **1** | ⭐ 第 1 步的对照基线 |
+| 渲染层 JS chunk 合计 | **1,245,068 B** | |
+| 最慢资源（resource timing） | (没有 resource 条目) | ⚠️ 见 §4 的口径限制 |
+
+主进程日志时间线（同一批运行的 run 1；每条 = 该行 − 日志首行）：
+~
+app ready          67 ms
+窗口已创建         220 ms
+引擎阶段完成       195 ms
+库就绪（indexStatus ok） 6428 ms
+编码器就绪（载入完成）   (缺：本轮没检索，未载模型)
+~
+⚠️ 注意**因果**：渲染层 DCL 在 6133 ms，而 React 挂载后才会发第一次 `indexStatus` ⇒
+   「库就绪 6428 ms」是**渲染层晚挂载的结果，不是原因**。主进程在 114 ms 就建好窗口了。
+
+原始数据：`data/_perf1/baseline3.txt`（含 `[perf1] RAW` 的逐次数组）。
+
+================================================================
+3. 交叉核对：用**权威仪器** T-19b 跑同一台机器
+================================================================
+`perf.spec.mjs`（T-19b，2026-10-15 那份 T-19 基线的**同一个**量具）本轮复跑：
+~
+冷启动 harness：launch() 返回            315 ms
+冷启动 harness：首窗口+domcontentloaded  6415 ms
+冷启动 harness：主界面 #query 可见       6679 ms
+冷启动 日志：app ready                    66 ms
+冷启动 日志：窗口已创建                  114 ms
+冷启动 日志：引擎阶段完成                 80 ms
+冷启动 日志：库就绪                      6471 ms
+冷启动 日志：编码器就绪                  8627 ms（本轮启动期就把模型载入了）
+~
+它与我的新量具**互相印证**（6415/6415、6679/6643）⇒ 基线不是量具伪影。
+（原始输出：`data/_perf1/t19b-rerun.txt`）
+
+================================================================
+4. ⚠️ 与 T-19（2026-10-15）对照：**首窗口 + DCL 从 ~0.67 s 变成 6.4 s**
+================================================================
+| 指标 | T-19（2026-10-15，run1/run2） | 本轮（T-19b 复跑） | 变化 |
+|---|---|---|---|
+| `launch()` 返回 | 395 / 410 ms | 315 ms | 同量级 |
+| **首窗口 + domcontentloaded** | **688 / 663 ms** | **6415 ms** | **≈ 9.4×** |
+| **主界面 #query 可见** | **963 / 876 ms** | **6679 ms** | **≈ 7.5×** |
+| 库就绪（日志） | 769 / 682 ms | 6471 ms | ≈ 9× |
+| 编码器就绪（日志） | 2797 / 2730 ms | 8627 ms | ≈ 3× |
+
+（T-19 的数字是**引用既有证据** `reports/2026-10-15-wave3/19.txt`，不是本轮实测。）
+
+**已经能排除的**：
+· **不是**我这个新量具的问题 —— 权威仪器 T-19b 复现同样的 6.4 s；
+· **不是**"空 data 目录做首次 DB 初始化"—— T-19b 用**预建的 .gs.db + 真库 3594 条**，一样 6.4 s；
+· **不是** 1.2 MB 主 chunk 的解析执行 —— 那最多几百毫秒，解释不了 6.1 s 的整段空档。
+
+**还没归因的**：`domInteractive(32 ms) → DCL(6133 ms)` 这段 6.1 s 空档**花在哪**。
+线索与限制：
+· `performance.getEntriesByType('resource')` 在渲染层里是**空的**（连主 chunk 都没有 resource 条目）
+  ⇒ 拿不到"哪个资源慢"的直接证据；
+· 主进程日志在这段时间里**没有任何里程碑行**（窗口 114 ms 建好，下一个里程碑就是渲染层挂载后的 6471 ms）；
+· `responseEnd` ≈ 19 ms（HTML 取回很快），所以慢的不是文档本身。
+
+⇒ **判断：这是渲染层"文档加载到模块脚本执行"之间的停摆，根因大概率在 main/Electron 的窗口显示
+  或加载路径上，不在 `renderer/src`** —— 而 `apps/desktop/src/main/**` **不在 task-99 的 writeScopes 里**
+（本卡可改 `renderer/src` · `e2e` · `reports`）。所以**我停在这里报告，没有越界去改主进程**。
+
+================================================================
+5. 对第 1 步（按路由拆 chunk）的含义
+================================================================
+· 「首屏变快」这个验收**在本基线口径下几乎不可能达成** —— 6.1 s 与主 chunk 大小无关；
+· 但第 1 步**仍然值得做**，而且它的硬证据本来就不是计时，而是卡片写明的那条**机械判据**：
+  产物里**真的出现按路由切分的 chunk**（当前基线：**1 个 chunk / 1,245,068 B**）；
+· 验收应当写成：「chunk 数 ≥ 2 且出现 route chunk」+「首屏**不劣化**（在噪声范围内）」，
+  而不是"更快"——否则就是拿一个被 6.1 s 主导的数字去证明一件它测不到的事（P6）。
+
+================================================================
+6. 量具自身的两个 bug（第 0 步当场抓到并修掉，如实记）
+================================================================
+1. `launchReturnMs` 第一版量出 **0.0003 ms** —— 因为 t0 取在 `launchWithLibrary()` **之后**。
+   修：t0 提到调用之前 ⇒ 现在 371 ms，与 T-19 的 395/410 ms 对得上。
+2. `first-contentful-paint` 第一版显示 **NaN** —— `median([])` 是 NaN 而我没有空集分支。
+   修：空集返回 `null`、"缺"显示；并把**主口径换成 `first-paint`**（该条目实测存在）。
+⇒ 这两条正说明"量具本身也要先自证"：没有它们，我会拿一个 0.0003 ms 的假数字去当基线。
+
+================================================================
+7. 未决 / 请你定
+================================================================
+7.1 ⚠️ **要不要先处理这 6.4 s？** 它比"拆 chunk"大两个数量级。但它不在本卡 writeScopes
+    （main/Electron 侧）⇒ 我只能报。三个选项：
+    (a) 另开一张卡专门查/修这个启动停摆（建议：那才是真正的首屏收益）；
+    (b) 本卡照原计划做第 1 步（拆 chunk），验收按 §5 的写法（机械判据 + 不劣化）；
+    (c) 先只把基线归档，暂停 PERF-1 等启动问题定性。
+7.2 若走 (b)：第 1 步会**同时**动到 `main.tsx` 的 eager glob —— 因为 BUILD-2 的
+    `import.meta.glob(..., { eager: true })` 正是把 19 个页面/组件**静态**钉进主 chunk 的那一步；
+    要让路由 chunk 真的出现，pages 的 glob 必须回到非 eager，而那只在**静态导入被移除之后**
+    才不会重新产生 BUILD-2 修掉的那 19 条警告 ⇒ 两件事是**耦合**的，我会一并处理并说明。
+
+—— 原始输出：`data/_perf1/{baseline3.txt, t19b-rerun.txt, after-lazy.txt, after-lazy2.txt,
+   after-lazy-perf.txt, e2e-after-lazy.txt, canred-static-search.txt}`（Tee-Object 默认 UTF-16LE）。
+
+================================================================
+8. 第 1 步（**已实现**）：路由级页面按需加载 —— 机械判据达成
+================================================================
+（Lead 裁定走 (a)+(b)：(a) 6.4 s 启动停摆另开 START-1/task-100；(b) 本卡的拆 chunk 继续做，
+  验收按 §5 的写法 —— 「chunk ≥ 2 且含 route chunk」+「首屏不劣化」，**不写"更快"**。）
+
+【改了什么 · 3 个文件】
+| 文件 | 改动 |
+|---|---|
+| `renderer/src/router/index.tsx` | 6 个页面的**静态导入 → `() => import(...)` 加载器 + `React.lazy`**；每条路由的 element 包一层 `<Suspense fallback={<RouteFallback/>}>`；启动期断言由「组件是函数」改成「**加载器是函数**」（判据强度不变） |
+| `renderer/src/main.tsx` | glob 按「这条腿是谁」**分三组**（见下）；`__DSH_RENDER` 同时支持 eager（模块对象）与非 eager（loader）两种形态 |
+| `renderer/src/global.d.ts` | `ImportMeta.glob` **两种形态都声明**（非 eager / eager）—— 声明与实现一一对应 |
+
+【⚠️ 耦合：为什么不能只做一半（卡片明确要求写进证据）】
+Rollup 只在「**同一个模块既静态导入、又动态导入**」时警告，而**静态那条腿会把模块钉进主 chunk**。
+⇒ 规则只有一条：**一个模块只能走一条腿**。按这条腿把 main.tsx 的 glob 分成三组：
+· **路由页（6 个）→ 动态**：`ROUTE_PAGES`（**非 eager**，逐个列出）配合 router 的 `React.lazy`；
+· **非路由页 LibraryGate / FirstRunWizard → 静态**：`STATIC_PAGES`（eager）—— 它们被 `App` / `LibraryGate`
+  静态导入，本来就在主 chunk；
+· **ui/*（10 个）→ 静态**：`COMPONENTS`（eager）—— 被各页与 `search/*` 大量静态引用。
+⚠️ **刻意不写 `./pages/*.tsx` 一把抓**：那样会把上面 3 个非路由页也纳入动态 glob ⇒ 再造出"动态+静态"。
+⚠️ `pages/AppHealthPanel.tsx` **不在任何 glob 里**：它是 `DiagnosticsPage` 内部的面板（被诊断页静态导入），
+   而诊断页自己是 lazy 的 ⇒ 它自然落在**诊断页那个 chunk**。
+   若把它 eager 进 main.tsx，会把它从"诊断页 chunk"拖进**主 chunk**（首屏变大）—— 得不偿失。
+   **代价（有意的最小能力缩减，如实记）**：`__DSH_RENDER` 不能再按路径挂载它（它本来也不是可路由页面）。
+⚠️ **只改一边的后果**（这就是"不能只做一半"）：
+   · 只改 `router/index.tsx` ⇒ glob 仍 eager 把页面钉在主 chunk，**chunk 拆不出来**；
+   · 只改 `main.tsx` ⇒ BUILD-2 修掉的 **19 条警告原样回来**。
+
+【⭐ 机械判据：达成】
+~
+改前：渲染层 JS  **1 个 chunk** · 1,245,068 B
+改后：渲染层 JS **12 个 chunk** · 合计 1,252,647 B，其中
+  index-CwMTjVDF.js          1,078,345 B  ← 主 chunk，**−166,723 B（−13.4%）**
+  BrowsePage-CDxeVFjM.js        83,565 B  ┐
+  DiagnosticsPage-B2HyxhMq.js   23,966 B  │ **按路由切分的 route chunk**
+  ItemPage-DCVg8Wah.js          20,448 B  │
+  SearchPage-DXycINJw.js        19,573 B  │
+  TasksPage-DwY0mgk0.js          2,372 B  │
+  ActivityPage-B8YvSmLR.js       2,368 B  ┘
+  useDocumentTitle-*.js 13,200 B · search-*.js 4,827 B · useEngine-*.js 1,803 B ·
+  useToast-*.js 1,141 B · library-root-*.js 1,039 B（路由页共享的块）
+~
+⇒ **chunk 数 ≥ 2 且含 route chunk** ✓（主 chunk 小 13.4%；合计只多 7,579 B 的切分开销）
+
+【构建警告：仍然是 0】
+改后 `Select-String 'is dynamically imported'` = **0** —— BUILD-2 修掉的 19 条**没有回来**。
+（原始输出：`data/_perf1/after-lazy2.txt`）
+
+【能红（证明判据承重，不是巧合）】
+把**一条** lazy 退回静态（`search: lazy(LOADERS.search)` → 直接静态导入 `SearchPage`）：
+~
+warnings = 1   (!) pages/SearchPage.tsx is dynamically imported by … but also statically imported by …
+SearchPage chunk **GONE**（被并回主 chunk）· chunk 数 **12 → 7**
+~
+随后**逐字节**还原：`router/index.tsx` sha256 前=后=`483957e6afd1022c`（identical: true）。
+⇒ 判据**能红**：退回一条，route chunk 当场消失、警告当场回来。
+
+【首屏：不劣化（按卡片口径，**不写"更快"**）】
+| 指标 | 第 0 步基线 | 改后 | 判读 |
+|---|---|---|---|
+| **first-paint**（主口径，renderer 内部） | 6190 ms | **6204 ms** | **+14 ms，在 σ≈10 ms 噪声内** ⇒ **不劣化** |
+| DCL | 6133.5 ms | 6135.2 ms | 同上（+1.7 ms） |
+| 主界面 #query 可见（harness 墙钟） | 6642 ms | 6877 ms | ⚠️ +235 ms，但**本轮离散度明显更大**（含一个 7259 ms 离群值）且该指标含 Electron 启动方差 ⇒ **判为噪声**，既不作为"变慢"也不作为"变快"的证据 |
+| `body.innerHTML` 长度 | 7332 | 7332 | 一致（界面确实渲染） |
+| 控制台错误 | 0 | **0** | 一致 |
+
+【真窗口 e2e：关键路径全绿】
+~
+$ npx playwright test -c apps/desktop/e2e/playwright.config.mjs smoke.spec.mjs routing.spec.mjs item-detail.spec.mjs
+16 passed (2.3m)   E2E_EXIT=0
+~
+覆盖：启动 `E0` · 导航 `E2-a..e` / `E6-a..c`（含「侧栏点索引任务真的导航」与「窗口标题随路由变」——
+lazy + Suspense 最可能弄坏的两处）· 详情 `E9-a..f`。
+（原始输出：`data/_perf1/e2e-after-lazy.txt` · `data/_perf1/after-lazy-perf.txt`）
+
+【残留 grep（先跑后结论）】
+~
+· router/index.tsx 里的**静态页面导入**：0 处（只剩 `() => import(...)` 的加载器）
+  —— BUILD-2 之后那 6 条 `import X from '../pages/X.tsx'` 已全部消失。
+· 非 eager 的 glob：只有 `ROUTE_PAGES`（路由页 6 个，逐个列出）；eager 的是 `STATIC_PAGES` 与 `COMPONENTS`。
+· 定向 prettier：本次 4 个文件（main.tsx / router/index.tsx / global.d.ts / first-paint.spec.mjs）=> All matched。
+~
+
+================================================================
+9. 第 1 步之后的未决
+================================================================
+9.1 `npm test` **不在本轮实测** —— 按纪律由 Lead 的冻结门禁覆盖（同一时刻只允许一个人跑；
+    冻结窗口里的结论才权威）。本文件**不写**测试数字。
+9.2 ⚠️ `npx prettier --check .` 当前 = **1**，命中 `apps/desktop/e2e/start1-probe.spec.mjs`
+    —— 那是 **START-1（task-100，main-migrator）在飞**的新文件，**不是我的**（我改的文件定向 check = 0）。
+    虽然 `apps/desktop/e2e` 在本卡 writeScopes 前缀内，但改队友正在写的文件有覆盖风险 ⇒ **只报不改**。
+9.3 START-1 若把 6.4 s 的启动停摆修掉，**本文件的 §2 基线数字会变**；
+    届时第 1 步的「首屏不劣化」需要在新基线上**重测一次**（量具已就位：`first-paint.spec.mjs`）。
+
