@@ -1,0 +1,77 @@
+================================================================================
+FRMAP-1 证据（task-128 · 2026-10-17 · storage-worker）· **只读：未改代码/文档，未跑写操作**
+================================================================================
+输入：`D:\USERS\Desktop\PRD\docs\build\modellens`（14 文档 · 22 FR / 66 AC / 41 任务，2026-10-17）
+方法：逐条读 FR（`01-spec.md:235-680` 的 22 个 ### FR 段）⇒ 在**本仓**找证据（文件:行号 / IPC 方法名 / e2e 用例名 / 表名）。
+⚠️ 边界：**没有运行应用**；状态来自 **代码 + 测试 + e2e 用例名 + PRE-RELEASE.md**。凡未实测的推断标【判断，非实测】。
+
+【0. 一个结构性发现（先说，因为它影响整张表怎么读）】
+  他们的 66 条 AC 是**功能验收**（Given/When/Then）；我们的 `s4-accept.mjs` 是**DB/schema 契约套件**（S4-U1..U11 跑单测文件 + S4-A*/FK 验 DDL/FK），
+  我们的**功能**验收散落在 **e2e 用例名**（如 E9-a / E10-a / E13-c / E14-a）与 PRE-RELEASE 的能力清单里。
+  ⇒ **追溯表这件事本身是我们的真缺口**：没有一张「FR/能力 → e2e 用例」的映射矩阵（他们的 22 FR/66 AC 正好可以当脚手架）。
+
+【1. 22 FR 映射表】
+  状态口径：✅ = 有实现且有自动化证据 · ⚠️ = 部分（后端/数据层在，或 UI/接线缺）· ❌ = 没有
+  成本量级：**小**（≤1 张卡，纯接线/文案）· **中**（1-2 张卡的 UI 或新模块）· **大**（要新架构/全库重算）
+
+  | FR | 一句话 | 状态 | 我们的证据 / 缺口 | 成本 |
+  |---|---|---|---|---|
+  | FR-001 | 图片输入：拖拽 + 文件选择 | ⚠️ | 文件选择有（`pages/SearchPage.tsx` 唯一 1 处相关），**拖拽 ❌**（产品源码 `onDrop/dragover` 0 命中）；粘贴见 FR-002 | 小 |
+  | FR-002 | 剪贴板粘贴查询 | ❌ | `clipboard` 在 `apps/desktop` **全域 0 命中** | 小 |
+  | FR-003 | 全局热键区域截图查询 | ❌ | `Tray|globalShortcut|desktopCapturer` 在 `apps/desktop` **0 命中**；截图相关命中只在 reports/docs/archive | 大 |
+  | FR-004 | 局部框选查询 | ❌ | 产品源码 `crop|框选` 仅 **3 处且全是 dialog 路径校验**（`main/dialog-paths.ts`），无裁剪/坐标换算 | 中-大 |
+  | FR-005 | 以图搜图检索与结果呈现（三通道+Top-K+判定） | ⚠️ | 核心在：`packages/engine/src/engine.ts:443-460`（mode=image/text）、`BANDS` :40、`bandOf` :96；SearchPage+Gallery+`m0-real.spec.mjs`。**三通道无**：`migrations.ts:89` 明确「本批**不加** content_hash_kind/value（去重要真算哈希）」 | 中 |
+  | FR-006 | 结果定位：打开文件夹并选中 | ⚠️ | 主进程有能力（`main/ports.ts` 4 处 shell 相关）；但 `shared/ipc.ts` 的 18 个方法**无 reveal/showItem**、渲染层无按钮 ⇒ **链路未通** | 小 |
+  | FR-007 | 复制路径 / 复制文件 / 导出素材包 | ⚠️ | 导出素材包 ✅（`main/db/exports.ts` + `asset_export` 表 + s4-U5）；**复制路径 ❌**（渲染层 `clipboard` 0 命中）；复制文件 ❌ | 小 |
+  | FR-008 | 同名素材包识别与展示 | ✅ | 域核心：`asset_file` 配对 + `item-detail.spec.mjs` E9-a 断言「无预览/无同名包」文案 | — |
+  | FR-009 | 库根管理与增量索引 | ⚠️ | 库增删/启停/体检/重建 ✅（ipc `libraryAdd/Remove/SetEnabled/Health/Rebuild`）；扫描+进度+取消/续跑 ✅（`tasks.spec.mjs` E10-b 真窗口）；**relink ❌**（PRE-RELEASE「库重新定位 未做」）；失败重试 ⚠️ | 中 |
+  | FR-010 | 模型包导入与契约校验 | ⚠️ | 模型目录 + `onnx/model.onnx` 判据 + compat ✅（`storage-roots.ts:264` 等）；**导入 UI / sha256 / space_id 校验 ❌**（我们只有目录指向，没有「包」概念） | 中 |
+  | FR-011 | 收藏 | ✅ | `asset_user_meta` 表 + `main/db/user-meta.ts` + `ui/MetaBlock.tsx` + `e2e/meta.spec.mjs`(13 处) | — |
+  | FR-012 | 搜索历史 | ⚠️ | 后端 ✅：`recent_query` 表 + ipc `recentQueries` + `tests/search-history.test.mjs`(S4-U7)；**渲染层 0 命中** ⇒ 界面未接 | 小 |
+  | FR-013 | 以文搜图（多语言） | ✅ | `engine.ts` mode=text + `encodeText`(:175) + 查询路径 :450；T-00 基线实测「北欧吊灯」Top-5（模型侧多语言） | — |
+  | FR-014 | 设置与模型包状态 | ❌ | **设置中心未做**（PRE-RELEASE §3「设置中心 未做（P4-4）」）；`app_setting` 表已落地（B2）⇒ 数据层在、界面缺 | 中 |
+  | FR-015 | 空结果与「库里没有接近的」 | ⚠️ | `band`/`bandOf` 三档 + 空态文案（`search/Gallery.tsx:63`「没有匹配的素材」）；**`no_close_match` 0 命中**、无「最近 N 条仅供参考」 | 小-中 |
+  | FR-016 | 库内选图与最近查询 | ⚠️ | `recentQueries` 后端在（同 FR-012）；**「以这张再搜」❌**（渲染层无入口） | 小-中 |
+  | FR-017 | 托盘与快捷键帮助 | ❌ | `Tray|globalShortcut` 在 `apps/desktop` **0 命中** | 中 |
+  | FR-018 | 库条目浏览与详情 | ✅ | `pages/BrowsePage.tsx` + `e2e/browse.spec.mjs`(6 条 E14-a..h)；`pages/ItemPage.tsx` + `e2e/item-detail.spec.mjs`(6 条) | — |
+  | FR-019 | 条目批量管理 | ⚠️ | 数据层齐：`tag`/`asset_tag`/`collection`/`collection_item`/`asset_export` + `main/db/exports.ts`；**批量忽略/移除索引/批量复制 UI ❌** | 中 |
+  | FR-020 | 模型运行仪表盘 | ⚠️ | `pages/DiagnosticsPage.tsx` + `AppHealthPanel.tsx` + ipc `appHealth` + `e2e/app-health.spec.mjs`；**P95/渠道分布/资源告警 ❌** | 中 |
+  | FR-021 | 后台任务队列 | ⚠️ | `job` 表（进度/心跳/断点）+ `main/db/jobs.ts`(20 处) + E10-b ✅；**队列语义（排序/上限/去重/暂停恢复）❌** | 中 |
+  | FR-022 | 任务中心 | ⚠️ | `pages/TasksPage.tsx` + E10-a/E10-b（开始/取消/续跑 + 进度区 + ETA 抖动处理）✅；列表/详情/通知/徽标 ❌ | 小-中 |
+
+  **统计**：✅ 5（FR-008/011/013/018 + 无其余）· ⚠️ 12 · ❌ 5（FR-002/003/004/014/017）。
+  ⚠️ 注意：⚠️ 里有一类是「**后端已就绪、只差接线**」（FR-006/007/012/013 部分/015/016/022）—— 这类**成本显著低于从零做**。
+
+【2. Lead 点名的四条 —— 逐条核实（结论：**四条都没有**）】
+  (1) **感知哈希（pHash）**：❌ **确认没有**。
+      · `pHash|perceptual|dhash|ahash|平均哈希` 在 `packages/engine/src` 只命中 `fingerprint.ts` 的 **`deepHashImages()`**；
+      · 读实现：`fingerprint.ts:139-161` ⇒ **`sha1(文件字节)`**＝**精确内容哈希**，不是感知哈希（对缩放/重编码不具备近重复能力）；
+      · 而且它**产品侧无调用点**（grep 只命中定义本身）；
+      · `migrations.ts:89` 写明「本批**不加** `content_hash_kind/value`（去重要真算哈希）」⇒ **连精确哈希列都没建**。
+      ⇒ 结论：**精确哈希通道与近重复通道都缺**（FR-005 的 AC-011 三态因此不可达）；我们现有的「指纹」是**库指纹**（`:3`，path+size+mtime 的 sha1），不是图片指纹。
+  (2) **局部框选查询**：❌ **没有**。产品源码 `crop|框选|Crop|region` 仅 3 处，全是 `dialog-paths.ts` 里「对话框选出的目录」校验，与图像裁剪无关。
+  (3) **`no_close_match` 明确终态**：❌ **没有**。全仓 `no_close_match|NO_CLOSE_MATCH` **0 命中**；现有是 band 三档（high/mid/low）+ 一句空态文案，**没有「库里没有接近的 → 展示最近 N 条仅供参考」这个终态**（FR-015 的 AC-031 不可达）。
+  (4) **托盘 + 全局热键**：❌ **没有**。`Tray|globalShortcut|global-shortcut|desktopCapturer|clipboard` 在 **`apps/desktop` 全域 0 命中**（含 main/preload/renderer/e2e/tests）。
+      （注：`data/` 与 `reports/` 里有大量 Tray/截图字样，那是 UI 稿与历史报告，**不是实现**。）
+
+【3. 前 5 条最该补（按「用户价值 ÷ 成本」，并考虑我们已有的原料）】
+  1. **FR-002 剪贴板粘贴**（成本小）—— 最高频入口「网页/聊天里看到就搜」；我们目前连粘贴都没有，而 Electron 侧 `clipboard` 读位图是十几行。
+  2. **FR-015 `no_close_match` 终态 + shortfall 列表**（成本小-中）—— 直接掐掉「把最近邻误当命中」这类误导，
+     而我们已经**有 band 与空态文案**，只差一个终态与「最近 N 条仅供参考」的呈现：**属「接线级」而非「新建模块」**。
+  3. **FR-012 最近查询接 UI（外加 FR-016 以图再搜）**（成本小）—— `recent_query` 表 + `recentQueries` IPC + `search-history.test.mjs` **都已存在**，
+     渲染层 `recentQueries` **0 命中** ⇒ 纯接线；接完 FR-016 的「以这张再搜」也多半只是复用同一条数据。
+  4. **FR-006 结果定位 + FR-007 复制路径**（成本小）—— `main/ports.ts` 已有 shell 定位能力、`itemPaths` 已返回绝对路径；
+     缺的是 **IPC 一个方法 + 卡片一个按钮**。这是「看到结果 → 一步用到工作里」的最小闭环。
+  5. **FR-009 relink（库重新定位）**（成本中）—— 盘符变化/换盘是真实痛点（我们已有 `library-availability.ts` 的「不可用+原因」基础），
+     但**没有 relink 动作** ⇒ 用户只能重建。价值高、成本中等，且能复用现有可用性判定。
+
+  为什么不是那三条「大」的（FR-003 截图 / FR-004 框选 / FR-017 托盘+热键）：
+  它们用户价值确实高，但**成本大**（截图要 overlay + 多屏 DPI + 热键冲突；框选要原图坐标换算 + 编码路径；托盘要生命周期改造），
+  而且**与「检索正确性」这条主线正交** —— 当前更该先把「结果可信 + 一步可用」补完（前 4 条全属这一类）。
+
+【4. 我没做/未验证的（P6 边界）】
+  · 没运行应用，因此「UI 是否有我没找到的入口」存在漏判可能；状态判定基于**代码/测试/用例名**，不是逐条手点；
+  · 「成本量级」是**量级判断**（小/中/大），不是工时估算；
+  · 未评估 10 万级库的性能类 FR（FR-020 的 P95/渠道分布）；
+  · 未把 66 条 AC 逐条映射（本轮按 22 FR 粒度；若需要，可用同一方法展开——工作量约 3 倍）。
+================================================================================
