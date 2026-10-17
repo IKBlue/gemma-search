@@ -66,7 +66,8 @@ test('C2b ⭐ U35 恢复的三个方法**真的回到白名单**：有 schema、
   const payloads = {
     indexStart: { libId: 'L1', device: 'cpu', seq: 3, rebuild: false },
     indexCancel: { jobId: 'j-1' },
-    indexResume: { jobId: 'j-1' },
+    // ⚠️ 2026-10-17 · IDX-2b：libId 是**可选**新增（跨重启续跑要用）；这里带上它证形状接受
+    indexResume: { jobId: 'j-1', libId: 'L1' },
   };
   for (const [name, payload] of Object.entries(payloads)) {
     assert.ok(METHOD_NAMES.includes(name), name + ' 必须回到白名单（U35）');
@@ -80,6 +81,15 @@ test('C2b ⭐ U35 恢复的三个方法**真的回到白名单**：有 schema、
   }
   // 形状是 strict 的：多塞字段要被拒（证明不是"登记了个空壳"）
   assert.equal(validateCall('indexStart', { libId: 'L1', bogus: 1 }).ok, false);
+  // libId 是**可选**的：不带也得过（不破坏既有调用），带了也必须过（跨重启续跑）
+  assert.equal(validateCall('indexResume', { jobId: 'j-1' }).ok, true);
+  assert.equal(validateCall('indexResume', { jobId: 'j-1', libId: 'L1' }).ok, true);
+  assert.equal(
+    validateCall('indexResume', { libId: 'L1' }).ok,
+    true,
+    'libId 单独给也应允许（jobId 也可省）',
+  );
+  assert.equal(validateCall('indexResume', { jobId: 'j-1', bogus: 1 }).ok, false);
 });
 
 test('C3 白名单是**唯一闸门**：未登记名字（含已删除的）一律拒绝，且理由一致', () => {

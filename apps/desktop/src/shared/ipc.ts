@@ -153,8 +153,17 @@ export const Methods = {
   /** 取消一个索引任务（jobId 省略 = 取消当前那个 —— 与 fake.ts 的 FakeJobRequest 一致） */
   indexCancel: z.object({ jobId: z.string().min(1).max(64).optional() }).strict(),
 
-  /** 续跑（能否复用由引擎按 compat 判定，不在契约层） */
-  indexResume: z.object({ jobId: z.string().min(1).max(64).optional() }).strict(),
+  /**
+   * 续跑（能否复用由构建器按 compat 判定，不在契约层）。
+   * ⚠️ 2026-10-17 · IDX-2b（Lead 授权 · U35 同一批的**兼容新增**）：多一个可选 `libId`。
+   *    为什么加：**引擎没有任何持久状态**（零依赖、不碰 SQLite），进程重启后内存里没有该 job 的履历 ⇒
+   *    只给 `jobId` 时引擎无法知道「续哪个库」。main 从 job 行里读出 libId 一起传即可；
+   *    同进程内仍有履历时不传也照常工作（可选 = 不破坏既有调用）。
+   *    不加的后果：跨重启续跑是个半个功能（界面有按钮、真用不了）。
+   */
+  indexResume: z
+    .object({ jobId: z.string().min(1).max(64).optional(), libId: LibId.optional() })
+    .strict(),
 
   // ---- 库：读（library_registry + 发现来源）与写（library_registry 是唯一写入口）----
   // 基线 §2.2：`libraryConfig` → **`libraryList`**（改名，不留两套）。

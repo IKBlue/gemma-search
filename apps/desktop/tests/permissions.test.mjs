@@ -371,7 +371,8 @@ test('S15b ⭐ U35 恢复的三个方法：validateCall **真跑**必须放行�
   const accepted = {
     indexStart: { libId: 'L1', device: 'cpu' },
     indexCancel: { jobId: 'j-1' },
-    indexResume: { jobId: 'j-1' },
+    // IDX-2b：libId 可选（跨重启续跑用）；带不带都必须能过
+    indexResume: { jobId: 'j-1', libId: 'L1' },
   };
   for (const [name, payload] of Object.entries(accepted)) {
     assert.ok(METHOD_NAMES.includes(name), name + ' 必须回到白名单（U35）');

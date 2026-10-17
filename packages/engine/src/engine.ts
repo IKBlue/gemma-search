@@ -15,6 +15,9 @@ import { compatComplete, compatEqual, compatKey, compatReason } from './compat.t
 import { LibraryRegistry, resolveInLibrary, resolveQueryImage } from './library.ts';
 import { fingerprintV1 } from './fingerprint.ts';
 import { createFakeKit } from './fake.ts';
+import { createIndexJobs } from './index-jobs.ts';
+import type { IndexingPorts } from './index-ports.ts';
+import type { IndexStartRequest, IndexJobRefRequest } from './index-jobs.ts';
 import { isReservedLibraryName } from './gs-names.ts';
 import type { EngineEntry, IndexBin, IndexItem } from './index.ts';
 import type { StoragePorts } from './storage-ports.ts';
@@ -201,6 +204,12 @@ export interface EngineOptions {
    * 传了哪一项，哪一路就改走端口；三项互相独立。
    */
   storage?: StoragePorts | null;
+  /**
+   * 真实索引构建端口（IDX-2b）：**不传 ⇒ 真实模式如实返回 INTERNAL「IDX-2b 未接线」**
+   * （与 IDX-2a 逐字一致）。传了 ⇒ indexStart/indexCancel/indexResume 真的跑构建。
+   * ⚠️ 引擎不 import indexer、不碰路径：modelDir/outDir 由主进程适配器自己补（见 index-ports.ts）。
+   */
+  indexing?: IndexingPorts | null;
 }
 
 /**
@@ -214,12 +223,7 @@ export interface EngineRegistry {
   requireExistingRoot(libId: string): void;
 }
 
-/** 长任务登记的形状（`api._jobs`；真实编码在 indexStart 实现） */
-export interface JobState {
-  kind: string;
-  libId: string;
-  cancelled: boolean;
-}
+/** 长任务登记的形状见 index-jobs.ts 的 `IndexJob`（占位 `JobState` 已随真实实现删除） */
 
 /** 检索请求（契约 §2.1） */
 export interface ImageRef {
@@ -273,6 +277,7 @@ export function createEngine({
   shell = null, // { reveal(absPath) } —— P2 注入（Electron shell.showItemInFolder）
   fake = false, // ⭐ 契约 §8 的模拟模式：无模型、无真实库。见 fake.ts 头注释
   storage = null, // 存储端口（T-16a）：不传 ⇒ 旧布局，行为与改造前逐字一致
+  indexing = null, // 真实索引构建端口（IDX-2b）：不传 ⇒ 真实模式如实 INTERNAL（IDX-2a 行为不变）
 }: EngineOptions = {}) {
   // ── 模拟模式（契约 §8）────────────────────────────────────────────────
   // `fake: true` ⇒ 用 fixtures/sample-index.json 造一个**零真实文件系统**的库；
@@ -308,7 +313,15 @@ export function createEngine({
   const idxRoot =
     indexDir || path.join(config.data_dir || path.join(process.cwd(), 'data'), 'libraries');
   const cache = new Map<string, EngineEntry>(); // libId -> { header, items, vectors, meta, byUid, rowToRel }
-  const jobs = new Map<string, JobState>(); // jobId -> { kind, libId, cancelled }
+  // 长任务登记**只有一处**（P1）：原来的占位 Map 已由 index-jobs.ts 的任务管理器取代
+  //（旧 JobState 的注释说「真实编码在 indexStart 实现」—— 现在真的实现了）。
+  const indexJobs = createIndexJobs({
+    registry,
+    emit: (ev) => onEvent(ev),
+    now,
+    ports: indexing,
+    newJobId: () => crypto.randomUUID(),
+  });
 
   function dirOf(libId: string): string {
     return path.join(idxRoot, libId);
@@ -908,10 +921,15 @@ export function createEngine({
     //    主进程也读这份清单来给出**一致的**用户文案（`main/index.mjs`）——
     //    这样"哪些没做"全仓只有一处定义（P1）。
     ...pendingMembers(UNIMPLEMENTED_METHODS, { message: '这个功能还没做好。' }),
-    ...pendingMembers(INDEX_JOB_METHODS, {
-      message: '索引任务在真实模式下还没接线（IDX-2b 接入）；模拟模式可用 GEMMA_FAKE=1 演示。',
-      details: { plannedIn: 'IDX-2b' },
-    }),
+    // ── 索引任务三方法（U35 回到契约；IDX-2b 起**真实实现**）────────────────
+    // 模拟模式仍走 fakeKit（IDX-2a 的行为不变）；真实模式走注入的构建器（indexing 端口）。
+    // ⚠️ 未接线（无 indexing）时 index-jobs 内部抛 INTERNAL（message 含 IDX-2b）—— 与 IDX-2a 逐字一致。
+    indexStart: (req: IndexStartRequest = {}) =>
+      envelope(async () => (fakeKit ? fakeKit.indexStart(req) : ok(indexJobs.start(req)))),
+    indexCancel: (req: IndexJobRefRequest = {}) =>
+      envelope(async () => (fakeKit ? fakeKit.indexCancel(req) : ok(indexJobs.cancel(req)))),
+    indexResume: (req: IndexJobRefRequest = {}) =>
+      envelope(async () => (fakeKit ? fakeKit.indexResume(req) : ok(indexJobs.resume(req)))),
     reveal: ({ libId, uid, target = 'archive' }: RevealRequest = {}) =>
       envelope(async () => {
         const id = libId ?? '';
@@ -944,7 +962,10 @@ export function createEngine({
         return ok({ revealed: true, path: abs });
       }),
     /** 长任务的通用取消入口（P1 只登记；实际编码在 indexStart 实现） */
-    _jobs: jobs,
+    _jobs: indexJobs._jobs,
+    /** 同进程任务履历（测试/诊断用；跨进程复用由构建器决定） */
+    _jobHistory: indexJobs._history,
+    _indexJobs: indexJobs,
     _cache: cache,
     _onEvent: onEvent,
     /** 模拟模式的内部句柄（`fake:false` 时为 `null`）—— 供测试断言"零真实 fs"与收尾定时器 */

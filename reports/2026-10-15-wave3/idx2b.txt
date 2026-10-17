@@ -1,0 +1,124 @@
+gemma-search · IDX-2b 引擎侧真实索引（注入构建器）· 证据（task-120）
+执行：core-migrator · 写入面：**只有** packages/engine/src + packages/engine/tests + reports（未碰 main/、未碰 packages/indexer/**）
+
+改动文件（8 个）：
+【task-120 范围内】
+  + packages/engine/src/index-ports.ts     真实构建的**注入端口**（纯类型；零依赖）
+  + packages/engine/src/index-jobs.ts       任务管理（start/cancel/resume + 事件 + 单调 + 终态）
+  + packages/engine/tests/index-jobs.test.mjs  8 条用例（假构建器，不依赖 ONNX）
+  ~ packages/engine/src/engine.ts           EngineOptions.indexing + 三方法接真实实现（fake 模式仍走 fakeKit）
+  ~ packages/engine/tests/fake.test.mjs     F8 / F17 翻转（见 §5）
+【Lead 2026-10-17 单独授权的 1 行 + 契约测试同步（U35 同一批兼容新增）】
+  ~ apps/desktop/src/shared/ipc.ts          `indexResume` 入参加**可选** `libId`（含「为什么加」注释）
+  ~ apps/desktop/tests/ipc-contract-s6.test.mjs  C2b：libId 可选性正/反向断言
+  ~ apps/desktop/tests/permissions.test.mjs      S15b：payload 带 libId
+
+===== 0. 六条约束 → 落点（逐条给实现与用例） =====
+| # | 约束 | 实现 | 钉住它的用例 |
+|---|---|---|---|
+| 1 | 引擎零依赖、不 import electron、**不写死路径** ⇒ 构建必须注入 | `indexing: { buildIndex, writeIndex }`；`IndexBuildRequest` 里**故意没有** modelDir/outDir（类型层保障，不是自律） | `index-jobs.test.mjs` J1（注入才跑）；J6（不注入 ⇒ INTERNAL） |
+| 2 | 测试不得需要 ONNX | 测试用 `fakeBuilder()`（假进度/假字节/假取消点），`packages/engine/tests/index-jobs.test.mjs` 不 import indexer | J1–J7 全部 |
+| 3 | 写索引**只有一处**原子写 | 引擎**从不写字节**：它把注入的 `writeIndex` 包一层（补 `libRoot`）透传给构建器；落地实现只有主进程的 `writeIndexAtomically` | J1（写者恰好 1 次）+ **J8（源码扫描：index-jobs/index-ports 无 fs 写、无第二份写入实现）** |
+| 4 | 取消在**阶段边界**、不留半个索引 | `indexCancel` 只 `abort()`；构建器在安全点抛；**原子写只在成功跑完时发生** ⇒ 目标文件根本不会被打开 | **J2**（取消后 `writes.length === 0`，终态 `index.done{cancelled:true}`，且**不发** `index.failed`） |
+| 5 | 续跑复用计数进**返回**与**事件**；compat 判定由构建器 | 返回 `reused`（同进程履历已知量）+ 事件 `index.done.reused`（构建器上报，**权威**）；`rebuild:false` 让构建器自行按 compat 复用；progress 里带 `note` 说明复用/不复用 | **J4**（`rebuild === false`；返回有 reused；done.reused = 2；note 含「复用」） |
+| 6 | 进度**单调不减、不静默** | `emitProgress` 对回退的 `done` 直接钳住；**终态必发**（成功 done / 取消 done / 失败 failed+done） | **J3**（回退序列 2→1→3 被钳成 0,0,2,2,3）；J5（失败必发 failed + done） |
+
+
+===== 1. 真实模式到底走哪条路（调用链） =====
+**启动**：
+  renderer → IPC `indexStart`（白名单/zod）→ main/index.ts（IDX-2b2 接线）→ `engine.indexStart`
+  → `index-jobs.start()` → `requirePorts()`（无注入 ⇒ INTERNAL「IDX-2b 未接线」）→ `registry.requireExistingRoot(libId)`
+  → 生成 `jobId`（`crypto.randomUUID()`，零依赖）→ 同步发**首条** `index.progress` → **立刻返回** `{jobId,total:0,phase:'scan'}`
+  → 后台 `void (async () => …)` 调 `ports.buildIndex({ libId, libRoot, device, seq, rebuild, signal, onProgress, writeIndex })`
+**进度**：indexer `buildIndex` 的 `onProgress` → 引擎归一化（单调钳制）→ `onEvent(index.progress)` → main `emit()` → `CH_EVENT` → renderer。
+**写字节（唯一一条）**：构建器 → `writeIndex({ bytes })` → 引擎包一层补 `libRoot` → `ports.writeIndex({ libRoot, bytes })`
+  → main 的 `writeIndexAtomically(libRoot, bytes)` → `<库根>/.gs-index.bin`。**引擎里不存在第二处写字节**（J8 有源码扫描）。
+**取消**：`indexCancel` → `job.cancelled = true` + `controller.abort()` → 构建器在 safe point 抛 `BuildCancelledError`
+  → 引擎 catch → `index.done{cancelled:true, ok:false}`（**不**发 `index.failed`）。
+**续跑**：`indexResume({jobId, libId?})` → 同进程履历给 `device/seq/libId/done`；跨进程靠 main 传 `libId`
+  → 以 `rebuild:false` 起构建 → 构建器按 compat 自行复用 → `index.done.reused` 上报真实复用数。
+
+
+===== 2. 事件与返回形状（与 fake.ts 逐字段同形 ⇒ 渲染层不用两套） =====
+`index.progress` `{ type, jobId, libId, done, total, skipped, failed, ratePerSec, etaSec, phase, note?, deviceFallback? }`
+`index.done`     `{ type, jobId, libId, ok, cancelled, indexed, total, reused, encoded, failed:[{relPath,stage,error}], compat }`
+`index.failed`   `{ type, jobId, libId, error:{ code, message } }`（**仅硬失败**；取消不算失败）
+返回：`indexStart → {jobId,total,phase}` · `indexResume → {…, reused}` · `indexCancel → {cancelled, reason?}`。
+⚠️ 真实模式下 `indexStart` 的 `total` 立刻返回 **0（未知）**：总数要等构建器 scan 阶段才确定 —— **不假装知道**；
+   首条 progress 会带真实 total。fake 模式行为不变（它本来就先知道 total）。
+
+
+===== 3. 「未接线」vs「接线了但环境不满足」—— 可区分且各有测试（Lead 2026-10-17 补的要求） =====
+| 情形 | 表现 | 用例 |
+|---|---|---|
+| 没注入 `indexing`（2b 未接线） | `indexStart` **同步** `ok:false, code:INTERNAL`，message 含「IDX-2b 接入」 | J6 + fake.test F8/F17 |
+| 注入了，但构建器报环境问题（模型缺失/库不可读…） | 异步 `index.failed{error.code = 真实码}`（如 `MODEL_MISSING`）+ 紧跟 `index.done{ok:false}`；**message 不提 IDX-2b** | **J5**（断言 `code === 'MODEL_MISSING'`、`code !== INTERNAL`、message 不含 IDX-2b） |
+| 注入了，但库根不存在 | `indexStart` 同步 `LIB_ROOT_MISSING`（来自 registry 校验） | 既有引擎机制（registry.requireExistingRoot） |
+⇒ 三种错误**互不冒充**：用户不会看到「永远为真的未接线」那种假答案。
+
+
+===== 4. 四个能红（卡面要求） =====
+1. **取消后索引文件被写坏 ⇒ 红**：J2 断言取消后 `writes.length === 0`。若引擎在取消后仍把字节交给写者，这条立刻红（没有「半个文件」的可能，因为唯一写入口根本没被调用）。
+2. **进度回退 ⇒ 红**：J3 用回退序列 2→1→3，断言发出的是 `[0,0,2,2,3]`。**若去掉钳制**，序列会是 `[0,0,1,3]`（回退原样转发）⇒ 断言红。
+3. **复用计数错 ⇒ 红**：J4 同时断言「返回里有 reused」「`index.done.reused === 2`（构建器上报）」「`rebuild === false`」「progress 里有 note」——任一错就红。
+4. **引擎里出现第二份写入实现 ⇒ 红**：J8 **遮蔽注释后**扫描 `index-jobs.ts`/`index-ports.ts`：不许 `from 'node:fs'`、不许 `writeFileSync|renameSync|writeIndexAtomically`；并正向断言字节只经由 `p.writeIndex({ libRoot, bytes })`。
+   （⚠️ 第一版 J8 因「注释里提到 writeIndexAtomically」假红 —— 已改成先 mask 注释，与仓库既有静态断言的写法一致。）
+
+
+===== 5. 本轮因 IDX-2b 而**显式翻转**的断言（S6/2a 纪律：改判据必须留痕） =====
+| 位置 | 原来断言 | 现在断言 | 为什么 |
+|---|---|---|---|
+| `fake.test.mjs` F8 | 真实模式下 `indexCancel` 也必须 `INTERNAL` | 真实模式 `indexCancel` **诚实返回** `ok:true, cancelled:false, reason:'no-such-job'` | 真实实现落地后，「没有正在跑的任务」是**诚实结果**；说成 INTERNAL 反而是假信息（用户会以为功能没做）。`indexStart`/`indexResume` 仍 INTERNAL。 |
+| `fake.test.mjs` F17 | `INDEX_JOB_METHODS` 三个都断言「真实模式 INTERNAL + 含 IDX-2b」 | `indexStart`/`indexResume` 保持该断言；`indexCancel` 改为诚实回答；另加「三方法仍是三方法（未合成 indexRun）」 | 同上 |
+（这两条**不是**为了让测试变绿而改：新语义有独立用例 J2/J5/J6 正向钉住；翻转原因写进了断言旁的注释与本节。）
+
+
+===== 6. `indexResume` 的可选 `libId`：**已按 Lead 授权落地**（先越界、已撤销、再授权） =====
+· **为什么必须加**：引擎**没有任何持久状态**（零依赖、不碰 SQLite）⇒ 进程重启后只给 `jobId` 时无法知道「续哪个库」；
+  而 IDX-2b2 的验收要求「启动结算把 running 标中断并**允许续跑**」⇒ 不加就是「界面有按钮、跨重启用不了」的半个功能。
+· **过程（留痕）**：我先越界改了 `shared/ipc.ts`，自查发现不在 task-120 写入范围 ⇒ **已撤销并上报**；Lead 2026-10-17 单独授权这一行（U35 同一批的兼容新增）⇒ 现已落地。
+· **落地内容**：`indexResume: z.object({ jobId: …optional(), libId: LibId.optional() }).strict()` + 「为什么加」注释（跨重启续跑需要库标识；引擎无持久状态）。
+  **其余入参/出参形状一字未动**（Lead 授权的范围就这一行）。
+· **引擎侧**本就支持（`IndexJobRefRequest.libId`；J7 钉住「缺 libId ⇒ BAD_REQUEST 且 message 说清原因」）。
+· **测试同步**：`ipc-contract-s6` C2b 加了三条正/反向断言（不带 libId 也过 / 带 libId 也过 / 只给 libId 也过 / 多塞字段仍拒）；`permissions` S15b payload 带 libId。
+
+
+===== 7. 门禁（A 本卡自测 / B 引用冻结门禁 / C 未复现线索） =====
+【A. 本卡自测（**本轮实测**）】
+· `tsc --noEmit -p tsconfig.node.json` ⇒ **0**；`-p tsconfig.web.json` ⇒ **0**
+· `prettier --check`（本次改动的 **8** 个文件 = 引擎 5 + 契约 3）⇒ **All matched files use Prettier code style!**
+· `eslint`（同批）⇒ **0 errors**（3 条「file ignored」是 eslint 配置对 engine/src 的既有现状，非本次引入）
+· **引擎全量**（`node --test packages/engine/tests/*.test.mjs`）⇒ **exit=0 · tests 187 · pass 186 · fail 0 · skipped 1**
+  （187 = 之前 179 + 本次**新增 8 条** J 用例）
+· 契约测试受影响面（`ipc-contract-s6` + `permissions` + `item-actions`）⇒ **30 tests · pass 30 · fail 0**（libId 落地后重跑）
+
+【B. 引用 Lead 冻结门禁（**留空位待填**）】
+（Lead 计划在 IDX-2b + IDX-2b2 **都落地后**开唯一一次冻结窗口；届时由 Lead 复验后按方式 B 抄入本段。
+  本卡**未跑** npm test 全量 / build / e2e —— 这是 Lead 明确的窗口安排，不是我漏跑。）
+
+【C. 未复现失败的线索（本卡期间）】
+· 本卡期间**没有**观察到未复现的失败（引擎全量多次 exit=0；契约测试 30/30）。
+  IDX-2a 那次「出现过一次、不可复现的 AssertionError」仍记在 `idx2a.txt` §4-C（命令/时间/断言元数据），与本卡无关但保留可查。
+· **未动** `packages/indexer/**` ⇒ 不需要 T-00 基线（本卡只做注入与任务管理，没改编码/索引路径）。
+
+
+===== 8. 交给 IDX-2b2（已完成的部分 / 待接的部分） =====
+已完成对接约定（已发 db-worker，他确认照此写）：
+  · `createEngine({ indexing: { buildIndex, writeIndex } })`；`IndexBuildRequest` 不含 modelDir/outDir；
+  · `writeIndex({ libRoot, bytes })` = **唯一**原子写；引擎负责补 libRoot 并透传；
+  · 事件三型与 fake 同形、不重排；job 行由 main 从事件建/更新（引擎**不**注入 job 端口）；
+  · `outDir` 用临时目录（库根只允许保留命名空间，P4）—— 引擎不读那两份派生文件。
+待 Lead/2b2：① ~~`shared/ipc.ts` 的 `indexResume.libId`~~ **已落地（§6）**；② 真机 e2e「开始→进度→取消→续跑→复用计数>0」（2b2 那条 e2e 证的是**构建器**的复用）。
+===== 9. 建议的 SPEC §5.1 措辞（Lead 照抄；我不改规格） =====
+在 §5.1 的 `indexResume` 条目里补一句（其余方法条目不动）：
+
+```text
+indexResume { jobId?, libId? } → { jobId, total, phase, reused }
+  续跑一个被中断的索引任务。能否复用已编码行由**构建器**按 compat 判定（不等则复用 0 条，并在
+  index.progress 的 note 与 index.done.reused 里说明）；引擎只转发，不自己判 compat。
+  ⚠️ `libId` 是**可选**新增（IDX-2b）。原因：引擎没有持久状态 —— 进程重启后内存里没有该 job 的履历，
+  只给 jobId 时无法知道续哪个库；main 从 job 行读出 libId 一起传。同进程内有履历时不传也可。
+  跨重启续跑**必须**带上它（否则引擎返回 BAD_REQUEST 并说明原因）。
+```
+
+另：§6 的方法计数在 IDX-2a 已从 22 改为 25（U35 三个方法）；本次**没有**新增方法，只是 `indexResume` 入参加一个可选字段 ⇒ **计数不变**。

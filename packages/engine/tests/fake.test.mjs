@@ -385,12 +385,15 @@ test('F7 `RECOVERY_NEEDED` 那条路可演示：有未收尾事务时写操作�
 
 // ============================================================ ⑤ 真实模式不许假装成功
 
-test('F8 ⭐ `fake:false`（真实模式）下 `indexStart`/`mutate` 如实返回 `INTERNAL`，**不假装成功**', async () => {
+test('F8 ⭐ `fake:false`（真实模式）下未接线的索引启动 / 写操作如实返回 `INTERNAL`，**不假装成功**', async () => {
+  // ⚠️ 2026-10-17 · IDX-2b **翻转**：原来这里把 `indexCancel` 也断言成 INTERNAL。
+  //   真实实现落地后，「没有正在跑的任务」是**诚实结果**（{cancelled:false, reason:'no-such-job'}），
+  //   不是「未接线」—— 说成 INTERNAL 反而是假信息。indexCancel 的新断言在本用例后半段；
+  //   真正的取消语义（停在阶段边界、不写半个索引）在 index-jobs.test.mjs 的 J2。
   const engine = createEngine({ config: {}, encoder: null });
   for (const [m, req] of [
     ['indexStart', { libId: 'L1' }],
-    ['indexCancel', { jobId: 'x' }],
-    ['indexResume', { jobId: 'x' }],
+    ['indexResume', { jobId: 'x', libId: 'L1' }],
     ['mutate', { libId: 'L1', op: 'rename' }],
     ['ingest', { libId: 'L1', sourcePaths: [] }],
   ]) {
@@ -399,6 +402,11 @@ test('F8 ⭐ `fake:false`（真实模式）下 `indexStart`/`mutate` 如实返�
     assert.equal(r.error.code, ERR.INTERNAL, `${m} 应如实报 INTERNAL，实得 ${r.error.code}`);
     assert.ok(r.error.userMessage, `${m} 的 userMessage 必须非空`);
   }
+  // 取消：没有在跑的任务 ⇒ 诚实回答（既不是假装成功，也不是 INTERNAL）
+  const c = await engine.indexCancel({ jobId: 'x' });
+  assert.equal(c.ok, true, '没有在跑的任务是诚实结果，不是错误');
+  assert.equal(c.data.cancelled, false);
+  assert.equal(c.data.reason, 'no-such-job');
   assert.equal(engine._fake, null, '真实模式下不该有 fake kit');
 });
 
@@ -644,9 +652,11 @@ test('F17 ⭐⭐ `UNIMPLEMENTED_METHODS` + `INDEX_JOB_METHODS` 与假套件**逐
     assert.ok(r.error.userMessage, `${m} 的错误信封要有 userMessage`);
   }
 
-  // 索引任务三方法（U35）：真实模式必须**如实**说是 IDX-2b，而不是笼统的「还没做好」
+  // 索引任务三方法（U35 / IDX-2b）：真实模式下要分两种情形（**不许混为一谈**）
+  //   · indexStart / indexResume：没注入构建器 ⇒ 如实 INTERNAL 且说明 IDX-2b（不静默成功）
+  //   · indexCancel：没有在跑的任务 ⇒ 诚实回答 cancelled:false（翻转见 F8 的注释）
   const engine2 = createEngine({ config: {}, encoder: null });
-  for (const m of INDEX_JOB_METHODS) {
+  for (const m of ['indexStart', 'indexResume']) {
     const r = await engine2[m]({ libId: 'L1', device: 'cpu' });
     assert.equal(r.ok, false, `真实模式 ${m} 不许静默成功（P6）`);
     assert.equal(r.error.code, ERR.INTERNAL, `真实模式 ${m} 应是 INTERNAL`);
@@ -657,6 +667,11 @@ test('F17 ⭐⭐ `UNIMPLEMENTED_METHODS` + `INDEX_JOB_METHODS` 与假套件**逐
     );
     assert.ok(r.error.userMessage, `${m} 的错误信封要有 userMessage`);
   }
+  assert.equal(INDEX_JOB_METHODS.length, 3, '三方法仍然是三方法（未合成 indexRun）');
+  const cancel = await engine2.indexCancel({ jobId: 'x' });
+  assert.equal(cancel.ok, true);
+  assert.equal(cancel.data.cancelled, false);
+  assert.equal(cancel.data.reason, 'no-such-job');
 
   // 模拟模式下这**每一个**都要真的能调通（不是 undefined）
   const { engine: fake } = fakeEngine();
