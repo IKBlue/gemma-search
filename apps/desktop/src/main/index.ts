@@ -45,6 +45,7 @@ import type { BoundsDecision } from './window-state.ts';
 import { createRevealPort } from './ports.ts';
 import { createLibraryResolverPort, createStoragePorts } from './storage-ports.ts';
 import { runLibraryHealth, runLibraryRebuild } from './library-ipc.ts';
+import { runMetaGet, runMetaSet } from './meta-ipc.ts';
 import { recordCollectBatch } from './collect-ledger.ts';
 import { createIndexingPorts } from './index-adapter.ts';
 import { createIndexJobRecorder } from './index-jobs.ts';
@@ -935,7 +936,10 @@ function registerIpc(): void {
       v.method === 'appMeta' ||
       v.method === 'appHealth' ||
       v.method === 'libraryHealth' ||
-      v.method === 'libraryRebuild'
+      v.method === 'libraryRebuild' ||
+      // WIRE-C：条目标注读写（库级表；实现体在 main/meta-ipc.ts，metaGet 只读、缺库不代建）
+      v.method === 'metaGet' ||
+      v.method === 'metaSet'
     ) {
       const res = await handleLibraryMethod(v.method, v.params);
       log(`invoke ${v.method} ${Date.now() - started}ms → ${resultCode(res)}`);
@@ -1048,6 +1052,30 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
       legacyLibrariesDir: path.join(DATA_DIR, 'libraries'),
     };
     return method === 'libraryHealth' ? runLibraryHealth(input) : runLibraryRebuild(input);
+  }
+
+  // ---- 条目标注（WIRE-C）：评分/备注/收藏 ----
+  // 实现体在 main/meta-ipc.ts（不 import electron ⇒ 可被 node:test 直接覆盖）。
+  // ⚠️ 只读/写打开的纪律在那边：metaGet 只读且缺库不代建；metaSet 缺库明确 DB_MISSING（不代建）。
+  if (method === 'metaGet' || method === 'metaSet') {
+    const p = (params && typeof params === 'object' ? params : {}) as {
+      libId?: unknown;
+      uid?: unknown;
+      rating?: number | null;
+      note?: string | null;
+      isFavorite?: boolean;
+    };
+    const r = librariesResolved();
+    const input = {
+      libId: String(p.libId ?? ''),
+      uid: String(p.uid ?? ''),
+      libraries: r.libraries.map((l) => ({ libId: l.libId, root: l.root })),
+      userDataDir: USER_DATA_DIR,
+      legacyLibrariesDir: path.join(DATA_DIR, 'libraries'),
+    };
+    return method === 'metaGet'
+      ? runMetaGet(input)
+      : runMetaSet({ ...input, rating: p.rating, note: p.note, isFavorite: p.isFavorite });
   }
 
   if (method === 'libraryList') {

@@ -69,6 +69,32 @@ export const Methods = {
   itemPaths: z.object({ libId: LibId, uid: Uid }).strict(),
 
   /**
+   * `metaGet` / `metaSet` —— **条目标注**（评分/备注/收藏）读写（WIRE-C · 所有者已批，U35 同批）。
+   *
+   * 三条**语义判断**（写进 SPEC §6 的措辞）：
+   *   ① **`rating` 为 NULL = 未评分**（**不是 0**）：0 分与"没评过"必须能分开 ——
+   *      把未评分算成 0，"最低分"这类统计会得出相反结论。
+   *   ② **`note` 空串 ≠ NULL**：`""` = 用户**清空过**；`null` = **从未填写**（两者是不同事实）。
+   *   ③ **`metaSet` 部分更新**：**不传的字段不动**；清空要显式传 `null`（rating/note）；
+   *      收藏用 `false` 取消。这样"只改收藏"不会把评分/备注一起冲掉。
+   */
+  metaGet: z.object({ libId: LibId, uid: Uid }).strict(),
+
+  /**
+   * 部分更新：`rating` / `note` 允许 `null`（= 清空）；**不传 = 不动**。
+   * `isFavorite` 是布尔（false = 取消收藏）；表里 NOT NULL DEFAULT 0，没有"未设置"这一档。
+   */
+  metaSet: z
+    .object({
+      libId: LibId,
+      uid: Uid,
+      rating: z.number().int().min(1).max(5).nullable().optional(),
+      note: z.string().max(4000).nullable().optional(),
+      isFavorite: z.boolean().optional(),
+    })
+    .strict(),
+
+  /**
    * `items` —— **只读列表**（F2「逛整库」的读路径；2026-10-15 · S8 · SPEC §5.1，属兼容新增）。
    *
    * 为什么需要它：`scan` 只给**差异**（new/missing/changed）、`search` 空查询直接 BAD_REQUEST、

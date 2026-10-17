@@ -28,6 +28,7 @@ import Main from '../layout/Main.tsx';
 import PageHead from '../layout/PageHead.tsx';
 import Topbar from '../layout/Topbar.tsx';
 import Button from '../ui/Button.tsx';
+import MetaBlock from '../ui/MetaBlock.tsx';
 import ConfirmDialog from '../ui/ConfirmDialog.tsx';
 import Toast from '../ui/Toast.tsx';
 import SearchSidebar from '../search/SearchSidebar.tsx';
@@ -344,6 +345,9 @@ export default function ItemPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* ── 组织：评分/备注/收藏（WIRE-C）—— 全部走 adapter（组件内不碰 window.api）── */}
+                {libId && uid ? <MetaBlock libId={libId} uid={uid} /> : null}
 
                 {/* ── 动作四分区（规格 UI-REVIEW:236）───────────────────────
                   分区**永远四个都在** —— 少一个会让人以为「这个应用没有那类操作」。

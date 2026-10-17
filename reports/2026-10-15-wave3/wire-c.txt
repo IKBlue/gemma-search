@@ -1,0 +1,110 @@
+================================================================================
+WIRE-C 证据（**第 1 段：主干接线**）· 条目标注读写（评分/备注/收藏）
+任务板 id: task-113   执行: db-worker   日期: 2026-10-17
+第 2 段（详情页「组织」块 UI + 真窗口 e2e + SPEC 措辞）**尚未做** —— 见文末。
+===============================================================================
+
+【第 1 段结论】
+· 契约新增 `metaGet` / `metaSet`（`shared/ipc.ts`，本轮只有我改它）。
+· 库级读写层 `main/db/user-meta.ts`（**唯一**写入口；部分更新按动态列实现）。
+· IPC 实现 `main/meta-ipc.ts`（不 import electron ⇒ 可 node:test 直测）+ `main/index.ts` 白名单/分发。
+· 单测 M1–M7 **7/7 绿**；三组能红**实测**并逐字节还原（hash 相同）；tsc node/web 0 · lint 0 · prettier 0。
+
+【契约与三条语义（SPEC 建议措辞）】
+```
+metaGet { libId, uid } → { rating: number|null, note: string|null, isFavorite: boolean, updatedAt: number|null }
+metaSet { libId, uid, rating?, note?, isFavorite? } → { applied: string[] }
+```
+SPEC 建议措辞（供 Lead 落笔）：
+· 「`metaGet` 返回该条目标的**标注**：`rating` 为 1..5 的整数；**null 表示未评分**（与 0 分不同）。
+  `note` 为备注文本；**空串表示用户清空过备注，null 表示从未填写**。`isFavorite` 为收藏。
+  `updatedAt` 为最近一次写入时刻（毫秒）；从未写过则为 null。」
+· 「`metaSet` **部分更新**：只写请求里**出现**的字段；要清空 `rating`/`note` 就显式传 `null`；
+  `isFavorite: false` 表示取消收藏。返回 `applied`（实际写入的字段名，界面可据此提示）。」
+· 「库元数据（`.gs.db`）不存在时：`metaGet` 返回空标注且**不创建**元数据；`metaSet` 返回 `DB_MISSING`
+  （先重建元数据，再保存标注）。」
+
+【三条打开纪律（E2E-RED-1 的 warmup 回归同族问题）】
+· `metaGet` **只读打开**（`openGsDb({readOnly:true})`）：读一下不许顺手建库/升级；
+· `metaGet` 遇到 `.gs.db` 不存在 ⇒ **根本不打开**，返回空标注；
+· `metaSet` 遇到 `.gs.db` 不存在 ⇒ **明确 `DB_MISSING`**，不代建。
+M5 用例用"库目录里没有 .gs.db"实测：读后/写失败后 `.gs.db` **都不存在**。
+
+【单测 M1–M7（本轮实测 · 7/7）】
+M1 roundtrip · M2 **NULL≠0**（未评分 null；0 被 setUserMeta 与 DDL CHECK 双层拒）·
+M3 **空串≠NULL**（`''` 与 null 可区分）· M4 **部分更新**（applied 只列实际写的、未传字段保留）·
+M5 **只读+不代建** · M6 **唯一写入口**（源码扫描：只允许 db/user-meta.ts）·
+M7 **偏索引**（EXPLAIN QUERY PLAN 命中 idx_meta_favorite）。
+
+【三组能红（实测原文 · 全部还原）】
+① M2 —— **未评分写成 0**（`if (!row) return { … rating: 0 … }`）
+```
+✖ M2 ⭐⭐ rating **NULL = 未评分**，不是 0；0 分不许写进来
+  AssertionError [ERR_ASSERTION]: 未评分必须是 null
+    actual: 0,
+    expected: null,
+```
+② M3 —— **空串并成 null**（`vals.push(input.note === '' ? null : input.note)`）
+```
+✖ M3 ⭐⭐ note **空串 ≠ NULL**："" = 用户清空过，null = 从未填写
+  AssertionError [ERR_ASSERTION]: 清空后是空串，不是 null
+    actual: null,
+    expected: '',
+```
+③ M6 —— **第二处写入口**（新增 `main/_mutant_meta.ts` 含 `UPDATE asset_user_meta …`）
+```
+✖ M6 ⭐⭐ 唯一写入口（源码扫描）：INSERT/UPDATE asset_user_meta 只许出现在 db/user-meta.ts
+  AssertionError [ERR_ASSERTION]: asset_user_meta 的写入口只能是 db/user-meta.ts（§2.3 · P1）
+    actual: [ '_mutant_meta.ts', 'user-meta.ts' ],
+    expected: [ 'user-meta.ts' ],
+```
+还原证据：①② 用注入前原文换回；③ 临时文件已删；`db/user-meta.ts` 还原后 **SHA256 与注入前相同**；
+复跑 `user-meta.test.mjs` ⇒ **7/7 绿**（REPLAY=0）。
+
+【第 1 段门禁（本轮实测）】
+`npm test`（本卡相关）⇒ user-meta 7/7 · `tsc` node ⇒ 0 · `tsc` web ⇒ 0 · `npm run lint` ⇒ 0 · `prettier --check .` ⇒ 0
+
+【第 1 段修正（Lead 2026-10-17 裁定）：缺库 = **未知**，不是「没有」⇒ 选 (a) DB_MISSING】
+· 原实现：缺库时 `metaGet` 返回空标注（`rating:null, note:null, isFavorite:false`）。
+  ⚠️ 语义错误：`rating:null` = 「用户没评过」，而缺库 = 「**我读不到、不知道**」；`isFavorite:false` 更糟 ——
+  界面会显示"未收藏"，用户会放心点下去、把 false 真的写进库 ⇒ **把「未知」说成「没有」**（与 warmup 那次同族）。
+· **选 (a)**：缺库 ⇒ 与 `metaSet` 对称地返回 `DB_MISSING`。为什么不是 (b) 加 `available` 字段：
+  那要每个 UI 调用点都多判一次（多一次误用机会），而且"只在失败态有意义"的字段容易漂；`DB_MISSING` 让界面只有
+  "标注不可用"一个分支 —— **少一个字段、少一次误用**。
+· `metaGet` 仍然**只读打开**、且缺库时**根本不打开**（不代建）——这两条没变。
+· M5 跟着加强：① 缺库 ⇒ `ok:false` + `DB_MISSING`；② 读后 `.gs.db` 仍不存在；③ **区分性断言**：
+  「缺库（ok:false）」vs「有库但未评分（ok:true + rating:null）」**ok 不同** ⇒ 界面不可能把"未知"渲染成"未评分"。
+· 门禁（改后实测）：user-meta **7/7** · `tsc` node **0** · `lint` **0** · prettier **0**。
+
+【SPEC 建议措辞（补一条）】
+· 「`metaGet` 在库元数据不存在时返回 `DB_MISSING`（**不是**空标注）：`rating: null` 表示用户未评分，
+  与"读不到"必须区分；界面在 `DB_MISSING` 时应显示「标注不可用」，**不得**显示为未评分/未收藏。」
+
+【第 2 段（详情页「组织」块 + 真窗口 e2e）—— 已完成】
+· 组件 `renderer/src/ui/MetaBlock.tsx`（新）+ 接入 `pages/ItemPage.tsx`（组织块在动作四分区之前）：
+  评分 1..5（★☆ + 清除评分）· 备注 textarea + 保存 + 「清为未填写」· 收藏按钮（aria-pressed）。
+  **全部走 Operation 层 `useEngine().invoke`**（= adapter 唯一入口），组件里不出现 `window.api`（AGENTS §2）。
+· **`DB_MISSING` 界面分支**：`data-testid="meta-block" data-meta-unavailable="yes"` + 「标注不可用（库不可用）：<userMessage>」，
+  且**不渲染**评分/收藏控件（e2e 断言 `meta-rate-4` / `meta-favorite` count=0）—— 不把"未知"渲染成"未评分/未收藏"。
+· **真窗口 e2e**（`e2e/meta.spec.mjs`，真库夹具 copy + 生产导入 `.gs.db` + 旧 `index.bin` 补成 `.gs-index.bin`）：
+  ① 点 4 星 ⇒ `4 / 5`；**reload + 重新进详情页** ⇒ `meta-rate-4 aria-pressed=true`（**持久化**）；
+  ② 收藏 ⇒ true；reload 仍 true；再点取消 ⇒ false；reload 仍 false；
+  ③ 备注写一段再**清空保存** ⇒ reload 后 `meta-note` 值为 **空串**，标签显示「（已清空）」
+     —— **空串 ≠ NULL 在真窗口的对应物**（不是只留在单测）；
+  ④ 关掉应用、删 `.gs.db`（Windows 上应用占着库删不掉 ⇒ 必须先关）、**再开一次**真窗口 ⇒「标注不可用」可见、
+     评分/收藏控件 count=0。
+  实测：`1 passed (7.6s)`。
+· 过程中踩到并记下：❶ 详情页要能取到条目必须有 `.gs-index.bin`（先只拷了 items/meta ⇒ 详情页走不到组织块）；
+  ❷ 删 `.gs.db` 必须**先关应用**（Windows 文件占用 EBUSY）；❸ e2e 前必须 `npm run build`（跑 out/ 产物）。
+
+【能红（第 2 段 · 引用第 1 段同源 mutant）】
+Lead 要求的两组"旧写法"正是第 1 段已实测的两条（改的是**同一份** `db/user-meta.ts`，UI/e2e 与单测走同一条数据层）：
+① **把 null 当 0**（`if (!row) return { rating: 0 … }`）⇒ `✖ M2 … 未评分必须是 null · actual: 0 · expected: null`
+② **把空串当 null**（`vals.push(input.note === '' ? null : input.note)`）⇒ `✖ M3 … 清空后是空串，不是 null · actual: null · expected: ''`
+两者注入后均**逐字节还原**（`db/user-meta.ts` SHA256 与注入前相同）+ 复跑绿。第 2 段未再重复跑同一对 mutant。
+
+【收口门禁（本轮实测）】
+`prettier --check .` **0** · `npm run lint` **0** · `tsc` node **0** · `tsc` web **0** · `build` **0** ·
+`user-meta` 单测 **7/7** · `e2e/meta.spec.mjs` **1 passed (7.6s)**。
+（全量 `npm test`/e2e 由 Lead 开冻结窗口跑。）
+===============================================================================
