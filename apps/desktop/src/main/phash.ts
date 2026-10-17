@@ -59,3 +59,33 @@ export function hammingHex(a: string | null, b: string | null): number | null {
   }
   return dist;
 }
+
+/**
+ * 把 **9×8 的 32 位位图**（BGRA，行优先，无行填充）转成 72 字节灰度（Rec.709 luma）。
+ *
+ * 为什么单独一个纯函数：`nativeImage.toBitmap()` 的字节序与"取哪三个通道"这一步**最容易错**，
+ * 而它又不该只能在真窗口里验证 ⇒ 抽成纯函数，单测用**合成 BGRA** 钉住：
+ *   · 纯红 (R=255) ⇒ round(0.2126×255)=54；纯蓝 (B=255) ⇒ round(0.0722×255)=18（两值不同 ⇒ 通道序可断言）；
+ *   · 长度不对 ⇒ **抛**（调用方据此返回 null，绝不产出一个假哈希）。
+ *
+ * ⚠️ 字节序：Electron 的 `toBitmap()` 在 Windows 上返回 **BGRA**（Skia N32）。本函数按 BGRA 读；
+ *   换平台/换 Electron 版本若字节序变化，**单测不会红**（它只钉住"给定 BGRA 会得到什么"），
+ *   要靠真窗口 e2e 的「同图两尺寸汉明 ≤2」兜住"整条解码链还算不算同一个哈希"。
+ */
+export function bgraToGray(bgra: Uint8Array): Uint8Array {
+  const need = PHASH_GRAY_BYTES * 4;
+  if (!(bgra instanceof Uint8Array) || bgra.length !== need) {
+    throw new Error(
+      'bgraToGray 需要 ' + String(need) + ' 字节的 9×8 BGRA 位图，实得 ' + String(bgra?.length),
+    );
+  }
+  const out = new Uint8Array(PHASH_GRAY_BYTES);
+  for (let i = 0; i < PHASH_GRAY_BYTES; i++) {
+    const o = i * 4;
+    const b = bgra[o];
+    const g = bgra[o + 1];
+    const r = bgra[o + 2];
+    out[i] = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
+  }
+  return out;
+}

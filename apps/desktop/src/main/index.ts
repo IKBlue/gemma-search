@@ -51,6 +51,9 @@ import { recordCollectBatch } from './collect-ledger.ts';
 import { recordSearchQuery } from './search-history.ts';
 import { createIndexingPorts } from './index-adapter.ts';
 import { createIndexJobRecorder } from './index-jobs.ts';
+import { backfillPhash } from './db/phash.ts';
+import { bgraToGray, PHASH_GRAY_BYTES, PHASH_H, PHASH_W } from './phash.ts';
+import { openGsDb } from './db/open.ts';
 import type { CollectOutcomeRow } from './collect-ledger.ts';
 import { classifyRootSync, probeRoots } from './library-availability.ts';
 import { createDialogPathGate } from './dialog-paths.ts';
@@ -548,6 +551,105 @@ function libDbPathOf(libId: string): string | null {
   }
 }
 
+// ---------------------------------------------------------------- 感知哈希回填（PHASH-1a 落地）
+//
+// 为什么在**外壳**做：解码要 Electron 的 `nativeImage`（Chromium 编解码器），而引擎是零依赖、
+// 传输无关的（AGENTS §1）；PHASH-1a 早已把解码做成**注入接口**（`main/phash.ts` 的 PhashDecoder），
+// 这里只是把生产实现交进去 —— 不在别处写第二份解码器（P1）。
+//
+// 触发点（本卡落地口径）：
+//   · **启动后 / 每次库列表变化**（`buildEngine()` 成功即排一次，1.2 s 延迟避开首屏）；
+//   · **有界**：每库每趟最多 `PHASH_BACKFILL_LIMIT` 行 —— 回填本身幂等+可断点（只挑 phash IS NULL），
+//     没算完的下次继续，绝不一次把 3594 条卡在启动路径上；
+//   · **不代建**：`.gs.db` 不存在就跳过（U6 的同一条纪律：不静默造库）；
+//   · 失败只记日志（**不影响检索**）。
+const PHASH_BACKFILL_LIMIT = 400;
+const PHASH_BACKFILL_DELAY_MS = 1200;
+let phashBackfillTimer: ReturnType<typeof setTimeout> | null = null;
+const phashBackfillInFlight = new Set<string>();
+
+/**
+ * 生产解码器：`nativeImage` → 9×8 → BGRA → Rec.709 灰度。
+ * 坏图/缺图/形状不对 ⇒ **null**（绝不伪造；NULL 在库里表示"坏图/缺图/未算"三态）。
+ */
+async function decodeGray9x8(absPath: string): Promise<Uint8Array | null> {
+  const img = nativeImage.createFromPath(absPath);
+  if (img.isEmpty()) return null;
+  // 缩放参数**写死**（quality:'good'）：dHash 比较的是相邻像素的相对大小 ⇒ 不同滤波会改 bit；
+  // 不许依赖运行时默认值（不同 Electron 版本默认值可能漂移）。
+  const small = img.resize({ width: PHASH_W, height: PHASH_H, quality: 'good' });
+  const bgra = small.toBitmap();
+  if (!bgra || bgra.length !== PHASH_GRAY_BYTES * 4) return null;
+  return bgraToGray(bgra);
+}
+
+/** 排一次回填（多次调用合并成一趟；不阻塞调用方） */
+function schedulePhashBackfill(libs: ReadonlyArray<{ libId: string; root: string }>): void {
+  if (FAKE_MODE || libs.length === 0) return;
+  if (phashBackfillTimer) clearTimeout(phashBackfillTimer);
+  phashBackfillTimer = setTimeout(() => {
+    phashBackfillTimer = null;
+    void runPhashBackfill(libs);
+  }, PHASH_BACKFILL_DELAY_MS);
+  // 不让一个维护定时器把进程钉住（Electron 主进程里 unref 存在；类型上需要窄化一次）
+  (phashBackfillTimer as unknown as { unref?: () => void }).unref?.();
+}
+
+/** 逐库回填（串行；同一库单飞，避免多个 buildEngine 叠出并发写） */
+async function runPhashBackfill(
+  libs: ReadonlyArray<{ libId: string; root: string }>,
+): Promise<void> {
+  // 落点由**唯一实现**（storage-ports 的 resolver）解析，不在这里另拼一份路径规则（P1）。
+  // 传入的 libs 就是本次要回填的库清单 ⇒ 不依赖 RESOLVED 的时序。
+  let storageOf: (libId: string) => { dbPath: string };
+  try {
+    const port = createLibraryResolverPort({
+      libraries: libs.map((l) => ({ libId: l.libId, root: l.root, label: l.libId })),
+      userDataDir: USER_DATA_DIR,
+      legacyLibrariesDir: path.join(DATA_DIR, 'libraries'),
+    });
+    storageOf = (libId) => port.storageOf(libId);
+  } catch (e) {
+    log('!! [phash] 解析库落点失败（本趟不回填）:', stackText(e));
+    return;
+  }
+  for (const lib of libs) {
+    if (phashBackfillInFlight.has(lib.libId)) continue;
+    phashBackfillInFlight.add(lib.libId);
+    try {
+      const dbPath = storageOf(lib.libId).dbPath;
+      if (!dbPath || !fs.existsSync(dbPath)) continue; // 不代建
+      const opened = openGsDb({ dbPath });
+      try {
+        const res = await backfillPhash(opened.db, {
+          libRoot: lib.root,
+          decode: decodeGray9x8,
+          limit: PHASH_BACKFILL_LIMIT,
+          onProgress: ({ processed }) => {
+            // 进度不静默，但也不刷屏：每 100 条一条日志
+            if (processed % 100 === 0) log('[phash] 回填进度', lib.libId, processed);
+          },
+        });
+        if (res.done || res.nulled || res.failed) {
+          log(
+            '[phash] 回填完成',
+            lib.libId,
+            'done=' + String(res.done),
+            'nulled=' + String(res.nulled),
+            'failed=' + String(res.failed),
+          );
+        }
+      } finally {
+        opened.db.close();
+      }
+    } catch (e) {
+      log('!! [phash] 回填失败（**不影响检索**）:', lib.libId, stackText(e));
+    } finally {
+      phashBackfillInFlight.delete(lib.libId);
+    }
+  }
+}
+
 /** 引擎事件 →（**先记账，再原样转发**；记账失败也必须转发） */
 function onEngineEvent(evt: unknown): void {
   try {
@@ -721,6 +823,9 @@ function buildEngine(): ResolveLibrariesResult {
   for (const d of r.diagnostics) log('[cfg]', d);
   for (const w of r.warnings) log('[cfg][warn]', w);
   log('[cfg] 取件白名单', JSON.stringify(r.collect.dirs), '默认', r.collect.default);
+  // PHASH-1a 落地：排一次感知哈希回填（启动后 / 库列表变化后；有界、幂等、可断点）。
+  // 失败只记日志，**不影响检索与启动** —— 见 schedulePhashBackfill 的注释。
+  schedulePhashBackfill(r.libraries.map((l) => ({ libId: l.libId, root: l.root })));
   return r;
 }
 

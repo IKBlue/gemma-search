@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 import { openGsDb } from '../src/main/db/open.ts';
 import { backfillPhash, listPhashPending, readPhash, writePhash } from '../src/main/db/phash.ts';
-import { dHashHex, hammingHex, PHASH_GRAY_BYTES } from '../src/main/phash.ts';
+import { dHashHex, hammingHex, bgraToGray, PHASH_GRAY_BYTES } from '../src/main/phash.ts';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const TMP = path.join(ROOT, 'data', '_phash1', 'p-' + process.pid);
@@ -120,4 +120,44 @@ test('P3 ⭐⭐ 回填幂等 + 可断点 + **不静默**（每条回调进度；
   } finally {
     lib.opened.db.close();
   }
+});
+
+// ============================================================ 生产解码链的纯函数部分（PHASH-1a 落地）
+
+test('P4 ⭐⭐ BGRA→灰度：Rec.709 系数 + **通道序**都可断言（纯红 54 / 纯蓝 18 / 纯绿 182）', () => {
+  const bgra = new Uint8Array(PHASH_GRAY_BYTES * 4);
+  const put = (i, r, g, b) => {
+    bgra[i * 4] = b; // B
+    bgra[i * 4 + 1] = g; // G
+    bgra[i * 4 + 2] = r; // R
+    bgra[i * 4 + 3] = 255; // A（不参与 luma）
+  };
+  put(0, 255, 0, 0); // 纯红 ⇒ round(0.2126×255) = 54
+  put(1, 0, 0, 255); // 纯蓝 ⇒ round(0.0722×255) = 18
+  put(2, 0, 255, 0); // 纯绿 ⇒ round(0.7152×255) = 182
+  put(3, 255, 255, 255); // 白 ⇒ 255
+  put(4, 0, 0, 0); // 黑 ⇒ 0
+  const gray = bgraToGray(bgra);
+  assert.equal(gray[0], 54, '纯红：0.2126×255');
+  assert.equal(gray[1], 18, '纯蓝：0.0722×255（与红不同 ⇒ 通道序被这条钉住）');
+  assert.equal(gray[2], 182, '纯绿：0.7152×255');
+  assert.equal(gray[3], 255);
+  assert.equal(gray[4], 0);
+  // 形状不对 ⇒ 抛（调用方据此返回 null，绝不伪造哈希）
+  assert.throws(() => bgraToGray(new Uint8Array(10)), /9×8/);
+});
+
+test('P5 ⭐ 整链等价：把同一张图的灰度写成 BGRA ⇒ bgraToGray 必须逐字节还原 ⇒ dHash 相同', () => {
+  const rampGray = ramp(0);
+  const bgra = new Uint8Array(PHASH_GRAY_BYTES * 4);
+  for (let i = 0; i < PHASH_GRAY_BYTES; i++) {
+    const v = rampGray[i];
+    bgra[i * 4] = v;
+    bgra[i * 4 + 1] = v;
+    bgra[i * 4 + 2] = v;
+    bgra[i * 4 + 3] = 255;
+  }
+  const back = bgraToGray(bgra);
+  assert.deepEqual(Array.from(back), Array.from(rampGray), '灰度写入再读出必须逐字节相同');
+  assert.equal(dHashHex(back), dHashHex(rampGray), '同一画面 ⇒ 同一个哈希');
 });

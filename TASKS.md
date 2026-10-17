@@ -125,7 +125,7 @@
 
 | 卡 | 内容 | 状态 | 证据 |
 |---|---|---|---|
-| **PHASH-1a** | 感知哈希 dHash：纯算法（解码注入）+ 迁移 v10（`asset_file.phash`，NULL=坏图/缺图/未算）+ 唯一写入口/幂等回填 | **在飞（WIP 已提交 `eeb3d5f`）· 未落地**：生产 `nativeImage` 解码、回填调用方、真窗口 e2e 未做；传导红已修 | `reports/2026-10-15-wave3/phash-1a.txt` · `phash-1a-conduction-fix.txt` |
+| **PHASH-1a** | 感知哈希 dHash：纯算法（解码注入）+ 迁移 v10（`asset_file.phash`，NULL=坏图/缺图/未算）+ 唯一写入口/幂等回填 | 完成（本轮落地）：生产 `nativeImage` 解码（`decodeGray9x8` + 纯函数 `bgraToGray`）+ 回填调用方（buildEngine 后 1.2 s 排程、每库每趟 400 行、同库单飞、不代建）+ 真窗口 e2e（同图两尺寸汉明 ≤2 · 坏图 NULL · 日志 `nulled=1`）。门禁：prettier 0 · lint 0 · tsc 0 · 单测 **830/829/0/1** · build 0（WARN 0）· e2e **74 passed / 4 skipped / 0 failed**。**阈值 k 不在本卡定**（等 EVAL-1 基线） | `reports/2026-10-15-wave3/phash-1a.txt` · `phash-1a-conduction-fix.txt` · `phash-1a-landing.txt` |
 | **EVAL-1** | 召回评测集 55 条 + 唯一采样/评分器 + 5 条测试（可复现、倒序能红、空集必抛） | **在飞（WIP 已提交 `389cf9a`）· 基线未产出**：真实库有 20 张 `.jpg` 实为 BMP ⇒ 跑分脚本第一步就崩（修法：走 `packages/indexer/src/bmp_decode.ts` 的 BMP 回退） | `reports/2026-10-15-wave3/eval-1.txt` |
 | **TRACE-1** | 能力 ↔ e2e 追溯矩阵（25 行/7 组；9 个 IPC 方法 e2e=0） | 完成（只读） | `reports/2026-10-15-wave3/trace-1.txt` + `trace-1-matrix.mjs` |
 | **FRMAP-1** | modellens 22 FR 逐条缺口表（✅5 ⚠️12 ❌5） | 完成（只读） | `reports/2026-10-15-wave3/frmap-1.txt` |

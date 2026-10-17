@@ -1,0 +1,59 @@
+================================================================================
+PHASH-1a **落地**证据 · 生产 nativeImage 解码 + 回填调用方 + 真窗口 e2e · 2026-10-17 · Lead
+================================================================================
+背景：`reports/2026-10-15-wave3/phash-1a.txt` 里 task-130 保持 in_progress 的三条「未落地」：
+  ① 生产解码器（nativeImage）没接 ② 真窗口 e2e 没写 ③ 回填的调用方没接。
+本文件把这三条逐条关掉；**阈值 k 仍不在本卡定**（PHASH-1b 等 EVAL-1 基线）。
+
+【1. 生产解码器（①）】
+· `main/phash.ts` 新增**纯函数** `bgraToGray(bgra)`：9×8 BGRA 位图 → 72 字节 Rec.709 灰度。
+  为什么抽纯函数：`nativeImage.toBitmap()` 的字节序/通道选取是最容易错的一步，而它不该只能在真窗口里验证。
+· `main/index.ts` 新增 `decodeGray9x8(absPath)`（**唯一生产解码器**，不写第二份）：
+  `nativeImage.createFromPath` → `isEmpty()` 即 null（坏图/缺图）→ `resize({width:9,height:8,quality:'good'})`
+  （参数**写死**）→ `toBitmap()` → 长度必须 = 72×4，否则 null（**不伪造**）→ `bgraToGray`。
+· 单测（`phash.test.mjs` 新增）：
+  P4 ⭐⭐ BGRA→灰度：纯红 54 / 纯蓝 18 / 纯绿 182（**通道序**与 Rec.709 系数同时被钉住）；长度错 ⇒ 抛；
+  P5 ⭐ 整链等价：同一画面写成 BGRA 再读回 ⇒ 逐字节相同 ⇒ dHash 相同。
+  `node --test phash.test.mjs` ⇒ **5/5 pass**。
+
+【2. 回填调用方（②）】
+· `main/index.ts` 新增 `schedulePhashBackfill(libs)`，在 **`buildEngine()` 成功后**排一次（启动首个 IPC /
+  库列表变化都会走 buildEngine）：
+  · **1.2 s 延迟**：避开首屏/首个检索（启动预算是硬约束，回填不是首屏必需品）；
+  · **每库每趟 ≤ 400 行**（`PHASH_BACKFILL_LIMIT`）：回填本就有界/幂等/可断点（只挑 `phash IS NULL`），
+    3594 条会跨多趟渐进补齐，**绝不把启动挂在全库解码上**；
+  · **同库单飞**（in-flight Set）：多次 buildEngine 不叠出并发写；
+  · **不代建**：`.gs.db` 不存在就跳过（U6 的同一条纪律）；
+  · 落点由 `storage-ports` 的 resolver（**唯一实现**）解析，不另拼路径规则；
+  · 失败只记日志，**不影响检索**；完成时记 `[phash] 回填完成 <libId> done=… nulled=… failed=…`（不静默）。
+· 模拟模式（GEMMA_FAKE）不排：假世界没有真实文件，算出来的哈希是假的（宁可没有，也不要假数据）。
+
+【3. 真窗口 e2e（③）】
+`apps/desktop/e2e/phash.spec.mjs`（新增，真 Electron + 真 nativeImage + 真回填排程）：
+· 临时库 3 行预览：同一张**有方向性图案**的 PNG 的 64px 与 400px 两个尺寸 + 1 个坏文件（字节不是图片）；
+· 启动真窗口（`GEMMA_LIB_ROOT` 指向该库、`GEMMA_FAKE=''`）⇒ 渲染层首个 IPC 触发 buildEngine ⇒ 1.2 s 后回填；
+· 断言：① 两行真图 `phash` 被填成 16 位小写 hex（**生产解码器真的接上了**）；
+        ② 同图 64px vs 400px 的汉明距离 **≤2**（同一画面的哈希，而不是每张图一个随机值）；
+        ③ 坏图行保持 **NULL**，且**不是** `0000000000000000`（绝不用 0 哈希冒充已算）；
+        ④ 应用日志出现 `[phash] 回填完成` 且 `nulled=1`（坏图走 nulled 而不是被静默丢掉）。
+· 实测：`npx playwright test -c … phash` ⇒ **1 passed（10.1 s）**。
+
+【4. 门禁（本轮实测 · 全量 · 命令 + 原始输出摘）】
+~
+npx prettier --check .   => All matched files use Prettier code style!        PRETTIER=0
+npm run lint             => LINT=0
+npm run typecheck        => TC=0
+npm test                 => ℹ tests 830 · ℹ pass 829 · ℹ fail 0 · ℹ skipped 1  TEST=0
+npm run build            => BUILD=0 · **WARNINGS=0** · 三端齐备
+npx playwright test -c … => **74 passed / 4 skipped / 0 failed** · E2E=0（4.4 min；总数 78 = 上轮 77 + 新 phash 1）
+~
+
+【5. 边界（如实 · P6）】
+· **阈值 k 仍未定**：本卡只保证"能算、能存、能读、真的在跑"；PHASH-1b 的排序阈值**必须等 EVAL-1 基线**
+  （卡面要求，不许抄一个数字）。
+· 回填触发点 = **启动后 / 库列表变化后**，不是定时任务；每趟 400 行 ⇒ 3594 条需要多趟（渐进，不阻塞）。
+· e2e 只覆盖 **PNG**。`nativeImage` 理论上也能解 BMP（Chromium 编解码），但**本卡没有为该路径留下实测证据** ⇒
+  不声称"BMP 的 phash 已验证"（EVAL-1 基线若要覆盖 BMP，另附证据）。
+· `toBitmap()` 的字节序按 Windows/Electron 现状取 **BGRA**；单测钉的是"给定 BGRA 得到什么"，
+  平台字节序若变化要靠 e2e 的"同图两尺寸 ≤2"兜（注释已写明）。
+================================================================================
