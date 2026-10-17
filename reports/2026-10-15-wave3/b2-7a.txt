@@ -1,0 +1,127 @@
+================================================================================
+B2-7a 证据 · `tag` + `asset_tag`（意图层 · **多对多**）
+任务板 id: task-110   执行: db-worker   日期: 2026-10-17
+边界：`main/db/migrations.ts` · `main/db/schema-layers.ts` · 测试 · 证据
+      **未加契约方法** · **未改界面**
+===============================================================================
+
+【结论】
+· 两张表落地（`tag` 3 字段 · `asset_tag` 3 字段 = 设计基线的字段行）+ **库级链 v8** + `idx_asset_tag_tag`。
+· ⭐ **层级先核对了基线**（卡面要求别照抄卡面）：两处证据**一致**，没有冲突 ——
+  `SPEC.md:172`「库级·**意图**：… · **tag** · **asset_tag** · …」+ 设计基线 `README.md:33`「**意图层（必须留）**：… tag · asset_tag …」
+  ⇒ **库级 `.gs.db` + 意图层**（用户自己做的组织，重建元数据绝不能抹掉）。
+· ⭐⭐ **多对多是机械证明的**（§4）：`(uid, tag_id)` 复合主键 ⇒ 同条可 N 标签 / 同标签可 N 条 / **同一对不许重复**；
+  删标签或删素材 ⇒ 关联行**真的消失**（CASCADE），**不是 SET NULL**（§5）。
+· ⭐ **与 `asset_user_meta` 的 1:1 明确不同**，并**机械说明为什么不合并 `is_favorite`**（§6 · P1）。
+· 字段出处机械证明（T1：解析 §206/§214 ↔ 真 DDL 双向）· 约束（T2）· 升级路径（T8）。
+· **能红三组（四支）**：① 去点名 ⇒ T6 红 + `s4` `A14`/`U1`/`U10` 三条独立红 · ②a 拆复合主键 ⇒ T3 红 ·
+  **②b 去掉 CASCADE ⇒ T4 红（`FOREIGN KEY constraint failed`）** · ③ 去掉 `name` UNIQUE ⇒ T2 红。
+· 门禁（本轮实测）：受影响面 **175/175** · **s4 20/0/0**（含新增 S4-U10）· `prettier --check .` **0** · `tsc` node/web **0** · `lint` **0**。
+
+【1. ⭐ 层级核对（两处证据一致 —— 与 activity/recent_query 那两张不同，这里没有冲突）】
+| 证据 | 说法 | 采用 |
+|---|---|---|
+| `SPEC.md:172`（第二批归属表） | 「库级·**意图**：`asset_user_meta` · `tag` · `asset_tag` · `collection` · `collection_item` · `asset_export`」 | ✅ |
+| 设计基线 `README.md:33`（四层分类表） | 「**意图层（必须留）**：… · `tag` · `asset_tag` · …」 | ✅ |
+⇒ 两处**都说库级 + 意图层** ⇒ 落 `.gs.db` + `tablesInLayer('intent')`。**没有需要按 §0 裁决的分歧**（这点如实记：不是每张表都有冲突）。
+
+【2. 字段与"为什么"（照抄设计基线 §206 / §214）】
+| 表 | 字段 | 类型/约束 | 为什么（照抄基线） |
+|---|---|---|---|
+| `tag` | `tag_id` | TEXT **PK** | nanoid；**不用自增：跨库合并标签时会撞** |
+| | `name` | TEXT NOT NULL **UNIQUE** | 单用户 ⇒ 唯一约束**只到 name**，不需要 Immich 的 `(userId, value)` 复合唯一 |
+| | `created_at_ms` | INTEGER NOT NULL | 用于「**最近用的标签**」排序 —— 比字母序有用得多 |
+| `asset_tag` | `uid` | TEXT NOT NULL **FK asset.uid PK(1/2) CASCADE** | 与 `tag_id` 组成复合主键 ⇒ **天然防止同一标签重复贴在同一条上** |
+| | `tag_id` | TEXT NOT NULL **FK tag.tag_id PK(2/2) CASCADE** | 标签 |
+| | `added_at_ms` | INTEGER NOT NULL | 贴上时刻 |
+· 判据：T1 从 `SPEC-COMPACT.md` **解析**这两节（不手写第二份清单）与真 DDL **双向**对照 ⇒ 多/少都红。
+· ⚠️ 两列**显式 NOT NULL**：SQLite 的 rowid 表里复合主键列**默认允许 NULL**，不留神能插进 `(NULL, tag)`
+  这种"不指向任何素材的关联"，还能重复插（NULL 互不相等）⇒ T3 用 `PRAGMA table_info` 钉住两列 `notnull = 1`。
+· ⚠️ `name` 的 UNIQUE **区分大小写**（不写 `COLLATE NOCASE`）：基线只要求 `UNIQUE(name)`；折叠会让"显示名"与
+  "用于比较的值"纠缠，属写入口该决定的事，不是 DDL 静默改语义的地方（已写进注释）。
+
+【3. 为什么是"关联表"而不是给 `asset` 加一列 `tags TEXT`（注释里也写了）】
+把标签塞进 `asset` 的 TEXT 列（逗号分隔/JSON）会带来三个具体故障：
+① 「按标签找素材」变成**全表 LIKE 扫描**（索引用不上）；② 改名标签要**逐行重写字符串**（改漏一处就出现两个近义标签）；
+③ 无法表达"贴上的时刻"（`added_at_ms`），也没有约束能防重复贴。⇒ 规范化两张表 + 复合主键是唯一不产生这三种故障的形状。
+· 另加 `idx_asset_tag_tag (tag_id)`：复合主键的索引前缀是 `uid` ⇒「这条素材有哪些标签」走得通，
+  但「**这个标签下有哪些素材**」走不到 ⇒ 反向要单独一条索引（标签卡的**全部用途**——筛/统计/批量——都落在反向上）。
+
+【4. ⭐⭐ 多对多的机械证明（T3）】
+| 要证明的 | 怎么证（机械） | 结果 |
+|---|---|---|
+| 同一条素材**可挂 N 个标签** | 给 `aa…01` 贴 t1、t2 两行 | 都成功 |
+| 同一个标签**可挂 N 条素材** | t1 贴到 `aa…01` 与 `aa…02` | 都成功 |
+| **同一对不许重复** | 再贴一次 `(aa…01, t1)` | **被拒**（`UNIQUE|PRIMARY KEY`）⇒ 复合主键是承重的 |
+| 主键的**顺序**是 `(uid, tag_id)` | `PRAGMA table_info` 的 `pk` 序号排序 | `['uid','tag_id']`（与基线 §214 的 1/2 与 2/2 一致） |
+| 两列都 NOT NULL | `notnull` 标志 | `[1, 1]`（堵住 `(NULL, tag)` 那条缝） |
+
+【5. ⭐⭐ 删除语义：**两侧都 CASCADE**，不是 SET NULL（T4）】
+· 前提断言：`PRAGMA foreign_keys === 1`（本仓适配层默认开 ⇒ CASCADE 是**真会执行**的，不是纸面声明）。
+· 删**标签** t1（原有关联 3 条中占 2 条）⇒ `asset_tag` 只剩 1 条 ⇒ **2 条被带走**；
+  并断言"没有 NULL 残留"（`uid IS NULL OR tag_id IS NULL` 计数 = 0）⇒ **不是 SET NULL**。
+· 删**素材** `aa…01` ⇒ 剩余关联也归零。
+· 反证外键真的会拒：贴到不存在的 `tag_id` / 不存在的 `uid` ⇒ 都是 `FOREIGN KEY constraint failed`。
+· 为什么**不能**用 SET NULL（注释里写清）：复合主键两列 NOT NULL ⇒ SET NULL 会把行写成非法值（会被约束拒），
+  而且"一条 `(NULL, tag)` 的关联"本身没有意义。
+· **能红②b** 就是拿掉这里的一条 `ON DELETE CASCADE` ⇒ 删标签时直接 `FOREIGN KEY constraint failed`（见 §8）。
+
+【6. ⚠️ 与 `asset_user_meta` 的边界 · 为什么不合并 `is_favorite`（P1 · T5/T7）】
+| | `asset_user_meta`（B2-3） | `asset_tag`（本卡） |
+|---|---|---|
+| 关系 | **1:1** —— `uid` **就是主键** ⇒ 一条素材**最多一行** | **N:M** —— 复合主键 `(uid, tag_id)` ⇒ 同条素材**可 N 行** |
+| 承载什么 | 评分/备注/**收藏**（`is_favorite` 是**那一行里的一个布尔**） | 横切组织：贴了哪些标签、何时贴 |
+| 机械对照（T5） | 同 uid 插第二行 ⇒ **被拒** | 同 uid 插 2 行 ⇒ 都成功（计数 = 2） |
+**为什么不合并**（注释 + T7 机械钉住）：
+1. 一个**布尔**会变成**一行的存在性** ⇒ 取消收藏 = 删行？那"曾经收藏过"与"从没收藏"就分不出来，
+   而收藏按四层定义属于**必须留**的意图层 ⇒ 删行会丢历史；
+2. 「筛收藏」是高频查询 ⇒ 要**特判特殊标签**（索引/统计/界面都开叉）；现有偏索引 `idx_meta_favorite … WHERE is_favorite = 1` 就是为它建的；
+3. 收藏在 `asset_user_meta` 里**已经有一份真相** ⇒ 再来一份 = **P1 的第二份定义**。
+· T7 的机械断言：`is_favorite` 出现在 `asset_user_meta` 的列里、**不在** `tag` 的列里；
+  且 `tag` 里没有任何 `favorite/star/like/mark` 类列（把"第二套标记"这条路钉死）。
+
+【7. 四件套与连带（改前 → 改后 → 为何非放宽）】
+| # | 位置 | 改前 | 改后 | 为什么不是放宽 |
+|---|---|---|---|---|
+| 1 | `migrations.ts` | v1–v7 | **v8 `batch2-tags`**（`T_TAG` + `T_ASSET_TAG`） | 加表 = 加新迁移；**不回头改 v1–v7** |
+| 2 | 派生 | —— | `LIBRARY_TABLES`/`EXPECTED_TABLES` 自动含两张（从 DDL 派生，**不手写数量**） | 无数字需要改；派生即真 |
+| 3 | `schema-layers.ts` | 意图层 2 张 | 意图层 += `tag` · `asset_tag` | 按两处一致证据的物理归属；G1 强制全覆盖 |
+| 4 | `db-schema.test.mjs` | `KEPT_LIBRARY` 10 名 · `DEFERRED` 4 名 | 加两名字（**不写数量**）· 未建清单改成 `['collection','collection_item']` | 清单与事实同步；"未建与已建互斥"这条关系断言原样 |
+| 5 | `s4-accept.mjs` | 白名单 10 · 未建 4 | 白名单 += 两张（**同一份**）· 未建 -= 两张 · **新增 S4-U10** | 白名单仍是显式登记；新单测纳入同一门禁 |
+| 6 | 测试 | —— | **新增 `tag.test.mjs` T1–T8** | 纯新增，把多对多/删除语义/1:1 边界钉住 |
+
+【8. ⭐ 能红（四支 · 注入 ⇒ 必红 ⇒ 还原 ⇒ 复绿）】
+① **意图层去掉点名**：`✖ T6 … tag 落在库级 .gs.db  actual: false`；
+   `s4` 同轮：`FAIL S4-U1`（db-schema）+ `FAIL S4-U10`（tag）+ `FAIL S4-A14` ⇒ `PASS 17 · FAIL 3` ⇒ **三条守卫独立抓到**。
+②a **拆掉复合主键**：`✖ T3 … Missing expected exception: (uid, tag_id) 是复合主键 ⇒ 同一对不能重复`
+   ⇒ 同一标签能重复贴在同一条上（多对多的"不许重复"当场失效）。
+②b **去掉一条 `ON DELETE CASCADE`**：`✖ T4 … Error: FOREIGN KEY constraint failed`（删标签直接被外键拦下）
+   ⇒ **证明 CASCADE 是承重的**，不是装饰。
+③ **去掉 `tag.name` 的 UNIQUE**：`✖ T2 … Missing expected exception: name 唯一（单用户 ⇒ 唯一约束只到 name）`。
+⇒ 四支还原后：`tag 8/8` · `db-schema+app-db 20/20` · 受影响面 **175/175** · `s4 20/0/0`。
+
+【9. 0 残留 grep（先跑后结论）】
+$ `tag` / `asset_tag` 在 `main/` 的落点：`db/migrations.ts`（`T_TAG`/`T_ASSET_TAG` 的 DDL + 注释 · v8 入链）·
+  `db/schema-layers.ts`（意图层点名 + 注释）⇒ **没有第二份 DDL**；`MUTANT` 标记全无（四支注入全部还原）。
+$ 派生正证：`LIBRARY_TABLES` 含 `tag`/`asset_tag` · `EXPECTED_TABLES` 含 · `tablesInLayer('intent')` 含这两个 ·
+  `appLayerTables()` **不含** · `LIBRARY_MIGRATIONS[7].name === 'batch2-tags'`。
+
+【10. 门禁（本轮实测 · 最终字节）】
+$ node --test <受影响面 19 个文件> ⇒ **175/175 · fail 0**
+$ node reports/2026-10-15-wave3/s4-accept.mjs ⇒ **PASS 20 · FAIL 0 · SKIP 0**（含新增 S4-U10）
+$ npx prettier --write <本卡改动文件> ⇒ 0 → `npx prettier --check .` ⇒ **0（All matched files use Prettier code style!）**
+$ npx tsc --noEmit -p tsconfig.node.json … ⇒ **0** ｜ tsconfig.web.json … ⇒ **0** ｜ `npm run lint` ⇒ **0**
+（全量 `npm test` 与冻结门禁由 Lead 跑 —— 纪律 6；收到「冻结开始」我会**先回执再停笔**。）
+
+【11. 未做 / 边界（如实写 · P6）】
+· **只落地表**：`tag`/`asset_tag` **没有 API**（没有打标签/取消标签/按标签查的函数）⇒ **界面看不到标签**。
+· 因此 `db-schema.test.mjs` 只加**关系断言**（清单/层/复合主键/CASCADE 由单测覆盖），**没有**"写入者唯一入口"那类断言
+  （没有写入者就无从断言；打标签 API 落地那张卡应同步把 `asset_tag` 的写入口钉进 D4 口径）。
+· 没做真实"打标签 → 检索 → 按标签筛"的端到端（本卡不含写入路径与界面）。
+· 没动 `collection`/`collection_item`（**明天**的卡：B2-7b）。
+
+【12. 回滚】
+· `migrations.ts`：删 `T_TAG`/`T_ASSET_TAG`/`LIBRARY_V8` 与清单里 v8 条目；`schema-layers.ts`：意图层去掉两个名字；
+· `db-schema.test.mjs`/`s4-accept.mjs`：清单与白名单改回、删 S4-U10；删 `tag.test.mjs`。
+· 未跑 git（AGENTS P7）。临时物：`data/_b27a/**`（测试自清）· `data/_b27a_out.txt`（本次测试输出）· `data/_verify/*.tsbuildinfo`。
+===============================================================================

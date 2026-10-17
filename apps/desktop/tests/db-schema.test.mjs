@@ -73,6 +73,9 @@ const KEPT_LIBRARY = [
   'asset_user_meta',
   'asset_name_fts',
   'recent_view',
+  // B2-7a：意图层的标签（多对多）
+  'tag',
+  'asset_tag',
 ];
 // B2-5FIX：`recent_query` 从库级挪到应用级（SPEC.md:173）⇒ 出现在这一份里
 const KEPT_APP = [
@@ -84,7 +87,7 @@ const KEPT_APP = [
   'recent_query',
 ];
 /** 仍未建的表（随功能上线；它们现在一张都不许被建出来）—— `job`(B2-1) / `health_run`+`health_finding`(B2-2) 已建出，从本表移走 */
-const DEFERRED_TABLES = ['tag', 'asset_tag', 'collection', 'collection_item'];
+const DEFERRED_TABLES = ['collection', 'collection_item'];
 
 let seq = 0;
 function freshDir(label) {

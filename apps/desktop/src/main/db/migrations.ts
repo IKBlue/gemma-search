@@ -461,6 +461,84 @@ const LIBRARY_V6: readonly string[] = Object.freeze([...T_SEARCH]);
  *     **本卡不实现**它（理由见上），只把口径写清，免得后来者以为"数据是自动搬过来的"。
  * ⚠️ `DROP TABLE` 会**一并删掉它的索引**（`idx_recent_query_at`），不需要单独 `DROP INDEX`。
  */
+
+/**
+ * **意图层** `tag` + `asset_tag`（B2-7a · 标签）。
+ * 字段照抄设计基线 `reports/2026-10-15-schema-diff/SPEC-COMPACT.md`：
+ *   · `tag`（§206「[本轮] · 字段 3」）· `asset_tag`（§214「[本轮] · 字段 3」）。
+ *
+ * ── 层归属：**先核对了基线**（两份证据一致，没有冲突）─────────────────────────────
+ *   · `SPEC.md:172`「库级·**意图**：asset_user_meta · **tag** · **asset_tag** · collection · …」
+ *   · 设计基线 `README.md:33`「**意图层（必须留）**：asset_user_meta · **tag** · **asset_tag** · …」
+ *   ⇒ 库级 `.gs.db` + **意图层**（用户自己做的组织，重建元数据绝不能抹掉）。
+ *   （对比 `activity`/`recent_query` 那两张：它们两处证据**冲突**、按 SPEC 判到应用级；这张没有冲突。）
+ *
+ * ── 为什么要这张"关联表"，而不是在 `asset` 上加一列 `tags TEXT` ────────────────────
+ *   标签是**横切组织**：一条素材可挂多个标签、一个标签可挂多条素材 ⇒ **多对多**。
+ *   把标签塞进 `asset` 的某个 TEXT 列（逗号分隔 / JSON）会带来三个具体故障：
+ *     ① "按标签找素材"变成**全表 LIKE 扫描**（索引用不上）；
+ *     ② 改名标签要**逐行重写字符串**（改一处漏一处就出现两个近义标签）；
+ *     ③ 无法表达"贴上的时刻"（`added_at_ms`），也没法靠约束防止重复贴。
+ *   ⇒ 规范化的两张表 + 复合主键，是这里唯一不产生上面三种故障的形状。
+ *
+ * ── ⚠️ 与 `asset_user_meta` 的边界（P1：为什么**不**把 `is_favorite` 与标签合并）──────
+ *   `asset_user_meta` 是 **1:1**（`uid` 就是主键 ⇒ 一条素材**最多一行**），`is_favorite` 是那**一行里的一个布尔**；
+ *   `asset_tag` 是 **N:M**（复合主键 ⇒ 同一条素材**可以 N 行**）。
+ *   若把收藏也编码成"一个特殊标签"，就等于：
+ *     ① 一个**布尔**变成**一行的存在性**（取消收藏 = 删行？那"曾经收藏过"与"从没收藏"就分不出来，
+ *        而收藏按 §定义是"用户做过的标注"，属于**必须留**的那一类，删行会丢历史）；
+ *     ② "筛收藏"这条高频查询要**特判特殊标签**（索引/统计/界面都要开叉）；
+ *     ③ 收藏在 `asset_user_meta` 里已经有一份真相 ⇒ 再来一份 = **P1 的第二份定义**。
+ *   ⇒ 结论：**不合并**。测试 T5/T7 用机械断言把这条边界钉住（1:1 的行数上限 vs N:M 的多行；
+ *     `is_favorite` 只出现在 `asset_user_meta` 的列里，不出现在 `tag` 里）。
+ *
+ * ── 删除语义（与 1:1 那张表**相同**的地方只有 CASCADE，方向不同）────────────────────
+ *   两列外键**都** `ON DELETE CASCADE`（基线 §214 明写）：删标签 ⇒ 它的关联行跟着走；删素材 ⇒ 同样。
+ *   **不是 SET NULL** —— 复合主键的两列都 NOT NULL，SET NULL 在这里直接把行写成非法值（会被约束拒），
+ *   而且"一条 (NULL, tag) 的关联"本身没有意义。测试 T4 机械证明两边都真删了（行数归零），
+ *   而不是把 `tag_id` 置空。
+ *   ⚠️ `PRAGMA foreign_keys` 在本仓**默认开**（`sqlite-adapter.ts`：`enableForeignKeyConstraints: options.enableForeignKeys !== false`）
+ *      ⇒ CASCADE 是**真会执行**的，不是只在纸面声明。
+ */
+const T_TAG: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS tag (
+  tag_id        TEXT    PRIMARY KEY NOT NULL,
+  name          TEXT    NOT NULL UNIQUE,
+  created_at_ms INTEGER NOT NULL
+);`,
+  // ⚠️ 本表**不加**额外索引：`name` 的 UNIQUE 自带索引（按名查标签走它），
+  //    而 `tag` 是**小表**（单用户几十个标签）⇒ `created_at_ms` 上再加普通索引不划算（排序走小表扫描）。
+  // ⚠️ `name` 的 UNIQUE **区分大小写**（SQLite TEXT 默认）—— 基线只要求 UNIQUE(name)，
+  //    **不**加 `COLLATE NOCASE`：大小写折叠会让"显示名"与"用于比较的值"纠缠在一起，
+  //    属于写入口（去重/规范化）该决定的事，不是 DDL 该静默改语义的地方。
+  // ⚠️ `tag_id` 不用自增：**跨库合并标签**时自增 id 会撞（基线原话）。nanoid 由写入口生成。
+];
+
+const T_ASSET_TAG: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS asset_tag (
+  uid         TEXT    NOT NULL REFERENCES asset (uid) ON DELETE CASCADE,
+  tag_id      TEXT    NOT NULL REFERENCES tag (tag_id) ON DELETE CASCADE,
+  added_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (uid, tag_id)
+);`,
+  // 复合主键 `(uid, tag_id)` 本身就是"同一标签不许重复贴在同一条上"的**约束级**保证（不需要写入口自觉）。
+  // ⚠️ 两列都**显式 NOT NULL**：SQLite 的 rowid 表里复合主键列**默认允许 NULL**，
+  //    不留神就能插进 `(NULL, tag)` 这种"不指向任何素材的关联"、甚至重复插多次（NULL 互不相等）。
+  //
+  // ⚠️ 这个索引**不是自造字段**，是给"**按标签找素材**"这条横切查询用的：
+  //    复合主键的索引前缀是 `uid` ⇒ "这条素材有哪些标签"走得通，但"这个标签下有哪些素材"走不到
+  //    ⇒ 反向要单独一条 `tag_id` 索引。标签卡的全部用途（筛/统计/批量操作）都落在反向上。
+  'CREATE INDEX IF NOT EXISTS idx_asset_tag_tag ON asset_tag (tag_id);',
+];
+
+/**
+ * v8：**意图层** 的标签（B2-7a：`tag` · `asset_tag`）。
+ * 同一条规矩：**加表 = 加一条新迁移**，不回头改 v1–v7；本条 DDL 全部 `IF NOT EXISTS` ⇒ 可重复执行。
+ */
+const LIBRARY_V8: readonly string[] = Object.freeze([...T_TAG, ...T_ASSET_TAG]);
+
 const LIBRARY_V7: readonly string[] = Object.freeze([
   // 幂等：`IF EXISTS` ⇒ 全新库（跑完 v6 建出来、紧接着被 v7 删掉）与老库都能重复跑
   'DROP TABLE IF EXISTS recent_query;',
@@ -479,6 +557,8 @@ export const LIBRARY_MIGRATIONS: readonly Migration[] = Object.freeze([
     name: 'batch2-drop-recent-query-from-library',
     statements: LIBRARY_V7,
   }),
+  // B2-7a：意图层的标签（tag + asset_tag；多对多，删除语义见 T_ASSET_TAG 的说明）
+  Object.freeze({ version: 8, name: 'batch2-tags', statements: LIBRARY_V8 }),
 ]);
 
 /** 本程序知道的**库级**最高版本（从清单派生，不另写数字） */

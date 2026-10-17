@@ -75,6 +75,8 @@ const SECOND_BATCH_BUILT = [
   'recent_view',
   'app_setting',
   'activity',
+  'tag',
+  'asset_tag',
 ];
 let seq = 0;
 
@@ -178,6 +180,8 @@ runTestFile(path.join(ROOT, 'apps/desktop/tests/search-history.test.mjs'), 'S4-U
 runTestFile(path.join(ROOT, 'apps/desktop/tests/app-setting.test.mjs'), 'S4-U8');
 // B2-8：`activity` 的字段保真 + **与 asset_export 的 1:N 边界**（跨两库：activity 1 行 / export N 行 / 同一 batch_id）。
 runTestFile(path.join(ROOT, 'apps/desktop/tests/activity.test.mjs'), 'S4-U9');
+// B2-7a：`tag` + `asset_tag` 的字段保真 + **多对多语义**（复合主键 · 两侧 CASCADE · 与 1:1 的对照）。
+runTestFile(path.join(ROOT, 'apps/desktop/tests/tag.test.mjs'), 'S4-U10');
 console.log('');
 
 // ================================================================ B. 验收级判据
@@ -214,7 +218,7 @@ check('S4-A14', 'DDL 建出的表 == 四层点名（双向），**张数从真�
 
     // 仍未建的表：这份**清单**是第二/第三批的输入，但它的**长度不再断言**（随功能上线而变）。
     //   改钉两条真判据：① 清单里的表一张都不许被建出来；② 已建出的表不许出现在清单里。
-    const NOT_BUILT = ['tag', 'asset_tag', 'collection', 'collection_item'];
+    const NOT_BUILT = ['collection', 'collection_item'];
     assert(NOT_BUILT.length > 0, '未建清单不能为空（否则这条检查变成恒真）');
     eq(NOT_BUILT.filter((n) => grouped.includes(n)), [], '被标为「未建」的表却已经建出来了 ⇒ 清单必须同步');
     // ⚠️ ACC-1 的教训：**不再逐个写死**（原来这里点名 `job`，B2-2 一来就得改）。

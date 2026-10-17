@@ -67,12 +67,15 @@ export const SCHEMA_LAYERS: Readonly<Record<SchemaLayer, readonly string[]>> = O
 
   /**
    * 意图层：用户自己做的（评分 · 备注 · 收藏 · 标签 · 集合 · 导出历史）—— **必须留**，丢了没法重算。
-   * 两张表落在这里（都先核对了基线四层分类表 `README.md:33`）：
+   * 四张表落在这里（都**先核对了基线**四层分类表 `README.md:33` + `SPEC.md:172`「库级·意图」）：
    *   · `asset_export`（B2-2）= 「我在什么时候把哪一条导出到了哪个目录」；
-   *   · `asset_user_meta`（B2-3）= 条目的**评分/备注/收藏** —— 用户自己做的标注。
-   * 两者都是**用户做过的事**，重建元数据绝不能抹掉（对比过程层的定义"丢了能重算"：编码状态、体检台账）。
+   *   · `asset_user_meta`（B2-3）= 条目的**评分/备注/收藏**（**1:1**，`uid` 就是主键）；
+   *   · `tag` + `asset_tag`（B2-7a）= **标签**（横切组织，**N:M**，复合主键 `(uid, tag_id)`）。
+   * 它们都是**用户做过的事**，重建元数据绝不能抹掉（对比过程层的定义"丢了能重算"：编码状态、体检台账）。
+   * ⚠️ 标签**不并进** `asset_user_meta`：一个是"单条上的一个布尔"，一个是"多对多的组织" ——
+   *   合并会让收藏的"取消/历史"变成删行（详见 `migrations.ts` 的 T_TAG 说明与测试 T5/T7）。
    */
-  intent: Object.freeze(['asset_export', 'asset_user_meta']),
+  intent: Object.freeze(['asset_export', 'asset_user_meta', 'tag', 'asset_tag']),
 
   /**
    * 应用层：跨库的配置与全局安全边界（不参与库级重建）
