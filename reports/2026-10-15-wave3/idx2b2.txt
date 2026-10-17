@@ -110,3 +110,23 @@ $ npm run build ⇒ **0**（e2e 前必须 build：见 §4-③）
   indexResume 的 libId 补齐；
 · 未跑 git（AGENTS P7）。临时物：data/_idx2b2/**（探针与日志）· data/_idx-*/data/_idx-userdata-*（e2e 自清）。
 ===============================================================================
+
+===================== 引用既有证据（冻结门禁 · 非本轮实测） =====================
+⚠️ 口径：下面这组数字**不是我本轮跑出来的**，是 Lead 在**干净窗口**跑的冻结门禁，原文归档在
+reports/2026-10-15-wave3/gate-ba86afa.txt（本文件只**引用**，不冒充"本轮实测"，AGENTS §4 证据协议第 3 条）。
+
+COMMIT=ba86afa
+  prettier --check .   => 0（All matched files use Prettier code style!）
+  lint                 => 0
+  npm test             => tests 794 / pass 793 / fail 0 / skipped 1
+  typecheck            => 0（node + web）
+  build（不预置 TEMP）  => 0 · WARNINGS=0
+  e2e                  => Total: 75 tests in 23 files · passed=71 / skipped=4 / other=0
+                          did_not_run=0 · 逐文件平账（23 个文件）· ACCOUNTING=0
+  s4-accept            => PASS 21 · FAIL 0 · SKIP 0
+
+· 与本节前文的对应关系：mutant 注入与单测/真窗口 e2e 是本轮**实测**的；
+  **全量门禁**这一层以冻结窗口的 ba86afa 为准 —— 两者不重复声称。
+· main == origin/main == ba86afa · 工作树干净。
+===============================================================================
+

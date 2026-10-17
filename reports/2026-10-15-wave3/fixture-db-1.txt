@@ -144,3 +144,31 @@ FIXTURE-DB-1 取证（task-124 · 2026-10-17 · storage-worker）· **只读，�
      与**手动误放**；若将来某条路径重新产生它，守卫会**自动**覆盖（判据来自 `gs-names`）。
    · `.gitignore` 兜底仍在（规则按 `gs-names` 口径），与守卫**双保险**。
 ================================================================================
+
+================================================================================
+【九、权威冻结门禁 —— **引用 Lead 冻结门禁 `ba86afa`，非本轮实测**（方式 B · 证据协议第 3 条）】
+  ⚠️ 以下**不是我**跑出来的，而是 Lead 在「队友全部空闲、工作树干净」的冻结窗口里跑的：
+    prettier --check .   => 0（All matched）
+    lint                 => 0
+    npm test             => **794 / pass 793 / fail 0 / skipped 1**
+    typecheck            => 0（node + web）
+    build（不预置 TEMP）  => 0 · WARNINGS=0
+    e2e                  => **75 tests · 71 passed / 4 skipped / 0 other · did_not_run=0 · 账平**
+    s4-accept            => PASS 21 / FAIL 0 / SKIP 0
+
+  · 窗口状态：`main == origin/main == ba86afa` · 工作树干净 · 队友全部空闲
+  · 全量日志已归档：**`reports/2026-10-15-wave3/gate-ba86afa.txt`**（按 Lead 2026-10-17 的新规：**门禁日志不再放 `data/`**）
+
+  ⭐ 对本卡最有意义的两点：
+  ① **e2e 那行是「三段账平」的产物**：`75 tests · 71 passed / 4 skipped / 0 other · did_not_run=0 · 账平`
+     ⇒ `test-count-1` 的守卫（`e2e-accounting-check.mjs`）在**权威窗口里**第一次被正式采用并账平；
+     4 skipped 与我的分析一致（GEMMA_PERF 门控），**没有 did_not_run**（即没有被中断/被过滤的用例）。
+  ② `npm test 794` 覆盖了本卡新增的 **2 条守卫**（`fixture-runtime-artifacts.test.mjs` 的 FX1/FX2）
+     ⇒ 守卫在**全量门禁**里跑着（不是只在 e2e 或只在本地跑）。
+
+  【本卡最终状态】
+   · (A) 库根改副本（`makeFixtureLibCopy`）· 两处 spec 同步 · `.gitignore` 兜底 · 残留 `.gs.db` 已删；
+   · 机械守卫 FX1/FX2 已进 `npm test`；能红已验（文件级，见 §八 2b）；端到端负结果已如实记录（§八 2a）；
+   · 全仓（除 data/out）`.gs.db*` = 0；夹具目录只剩 `CR/ VR/ manifest.json`。
+   · ⏸ 唯一「未在冻结前由我跑」的是全量 `npm test` —— 现由上述**引用**覆盖。
+================================================================================

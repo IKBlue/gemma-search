@@ -80,3 +80,16 @@ U31 复核 + 落地证据（task-116 · 2026-10-17 · storage-worker）
     ⇒ 本卡改动**被全量门禁覆盖**（不是我单独跑的那 28 条在自说自话）。
   · 归属写法：本轮**我自己**跑过的仍是上一节那组（28/28 + tsc 0 + lint 0 + prettier 0），**两者不混写**。
 ================================================================================
+
+【⑰ 更新的冻结窗口 —— **引用 Lead 冻结门禁 `ba86afa`，非本轮实测**（取代 ⑯ 中的 `2b44ce4` 作为“最新一次”）】
+  说明：⑯ 记的是 `2b44ce4` 那轮；本轮 `ba86afa` 是**更新的一次**；两笔**都标“引用”**，不混为本轮实测。数字：
+    prettier --check .   => 0（All matched）
+    lint                 => 0
+    npm test             => **794 / pass 793 / fail 0 / skipped 1**
+    typecheck            => 0（node + web）
+    build（不预置 TEMP）  => 0 · WARNINGS=0
+    e2e                  => **75 tests · 71 passed / 4 skipped / 0 other · did_not_run=0 · 账平**
+    s4-accept            => PASS 21 / FAIL 0 / SKIP 0
+  · `main == origin/main == ba86afa` · 工作树干净 · 全量日志归档 `reports/2026-10-15-wave3/gate-ba86afa.txt`
+  · 本卡的 storage-roots 28 条 + 新守卫 2 条都在 `npm test 794` 里。
+================================================================================
