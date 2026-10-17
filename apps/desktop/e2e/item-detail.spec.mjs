@@ -270,3 +270,41 @@ test('E9-f 未知 uid ⇒ 如实报错，不白屏（错误码要露出来）', 
     cleanup();
   }
 });
+
+/**
+ * UX-1b：复制路径。
+ *
+ * 判据（卡面原话）：「复制路径」的验收点不是"按钮点了没报错"，而是
+ * **复制进去的是绝对路径**。所以这条用 Playwright 的 Electron 主进程求值去读**真实剪贴板**
+ * （`electron.clipboard.readText()`）逐字比对 —— 不是在页面上找一句"已复制"就算过。
+ *
+ * 用模拟模式（`launchFake`）：样例索引里的路径是固定的 `Z:\__fake_library__\...`，
+ * 于是"应该是哪条绝对路径"可以写死、可复跑；真实模式下同一件事受本机盘符影响。
+ */
+test('E9-g ⭐ 复制路径：剪贴板里逐字等于**绝对路径**（图路径 + 包路径）', async () => {
+  const { app, cleanup } = await launchFake();
+  try {
+    const win = await firstWindow(app);
+    await openItem(win, 'a00000000001');
+    await expect(win.getByRole('heading', { name: 'VR-101' })).toBeVisible({ timeout: 20_000 });
+
+    // ① 图路径
+    await win.getByTestId('copy-image-path').click();
+    await expect(win.locator('#toast')).toHaveText('已复制图路径');
+    const copiedImage = await app.evaluate(({ clipboard }) => clipboard.readText());
+    expect(copiedImage, '复制进去的必须是**绝对路径**（不是相对路径、不是 thumb:// URL）').toBe(
+      'Z:\\__fake_library__\\VR\\VR-101.jpg',
+    );
+    expect(copiedImage, '形状必须真的是绝对路径').toMatch(/^[A-Za-z]:\\/);
+
+    // ② 包路径（两条路径是**两段不同的文本**，不许复制成同一条）
+    await win.getByTestId('copy-archive-path').click();
+    await expect(win.locator('#toast')).toHaveText('已复制包路径');
+    const copiedArchive = await app.evaluate(({ clipboard }) => clipboard.readText());
+    expect(copiedArchive).toBe('Z:\\__fake_library__\\VR\\VR-101.rar');
+    expect(copiedArchive).not.toBe(copiedImage);
+  } finally {
+    await app.close();
+    cleanup();
+  }
+});

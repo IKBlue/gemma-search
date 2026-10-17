@@ -1,0 +1,51 @@
+================================================================================
+UX-1b 证据 · 复制路径 + **定位如实报错** · 2026-10-17 · Lead
+================================================================================
+卡面（HANDOFF「2026-10-17 暂停点」→ 已建未派）：
+  · 「复制路径」验收点 = **复制进去的是绝对路径**（不是"按钮点了没报错"）；
+  · 「定位」验收点**不是**"打开了文件夹"，而是**文件不存在时返回错误**
+    （`shell.showItemInFolder` 返回 void ⇒ 调用成功 ≠ 定位到）；
+  · **不动契约**：`reveal` / `itemPaths` 已有，本卡不新增 IPC 方法。
+
+【1. 做了什么（写入面）】
+| 文件 | 变更 |
+|---|---|
+| `apps/desktop/src/renderer/src/utils/clipboard.ts` | **新增**：复制文本的唯一实现（Operation 层）。现代路径 `navigator.clipboard.writeText`；权限被拒时降级 `document.execCommand('copy')`；**失败返回 `{ok:false,reason}`，绝不静默**；依赖注入 ⇒ node:test 可测 |
+| `apps/desktop/tests/clipboard.test.mjs` | **新增** 6 条单测（C1 逐字相同 / C2 被拒后走降级 / C3 两条都失败如实报错 / C4 空内容一次都不碰剪贴板 / C5 降级抛错不外漏 / C6 纯 Node 下如实失败） |
+| `apps/desktop/src/renderer/src/pages/ItemPage.tsx` | 两条绝对路径的行尾加「复制」按钮（`data-testid=copy-image-path` / `copy-archive-path`）；`MetaRow` 加可选 `action`；失败走 err 提示（不自动消失） |
+| `apps/desktop/e2e/item-detail.spec.mjs` | **新增 E9-g**：点复制后用 Playwright 的 **Electron 主进程**读**真实剪贴板**（`electron.clipboard.readText()`），逐字断言 = `Z:\__fake_library__\VR\VR-101.jpg` / `.rar`，并断言形状匹配 `/^[A-Za-z]:\\/` |
+| `apps/desktop/e2e/m0-real.spec.mjs` | 在「素材尚未落盘」的时刻点「定位」⇒ 断言**错误提示**「素材文件找不到了」出现，且**不许**出现成功口径「已请求」（真窗口 + 真 IPC + 真引擎） |
+
+【2. 门禁（本轮实测 · 干净窗口 · 无并发写入）】
+命令与原始输出（摘；完整日志在 data/_gate-2026-10-17-resume/，不入库的临时证据）：
+~
+npx prettier --check .        => All matched files use Prettier code style!   PRETTIER=0
+npm run lint                  => LINT=0
+npm run typecheck             => TC=0
+npm test                      => ℹ tests 820 · ℹ pass 819 · ℹ fail 0 · ℹ skipped 1   TEST=0
+npm run build                 => BUILD=0 · **WARNINGS=0**（门禁自己数 `(!)` 条数）· 三端产物齐备
+npx playwright test -c …      => 73 passed / 4 skipped / 0 failed · E2E=0（3.7 min）
+~
+
+定向证据（先单跑，再全量）：
+~
+npx playwright test … item-detail  => 7 passed（含新 E9-g）· EXIT=0
+npx playwright test … m0-real      => 1 passed（含新「定位如实报错」断言）· EXIT=0
+~
+单测能红（反向验证 C4 的判据，不靠"看着对"）：
+  · 把 `copyText` 的「空串直接拒绝」改成放行 ⇒ C4 会因 `w.calls.length === 1` 变红（本卡按纪律未留 mutant，
+    以 C4 的断言本身说明它抓什么：**"复制成功但什么都没进去"是最坏的一种假成功**）。
+
+【3. 与规格/契约的关系】
+· `SPEC.md` §4 只规定「定位按钮文案只说已请求定位（系统未回报结果）」—— 本条**未改**，仍然遵守；
+  新增的「复制路径」没有改 SPEC 的任何阈值/行为（FRMAP-1 里它属 FR-007 的缺口，不是规格变更）。
+· **契约零变更**：`clipboard` 是渲染进程本地能力；没有新增 IPC 方法，preload 暴露面不变
+  （`invoke`/`onEvent`/`platform`）。`reveal` 的「文件不存在 ⇒ ITEM_MISSING_ON_DISK」是引擎**既有**行为
+  （`packages/engine/src/engine.ts:933-962`），本卡只补了**界面侧**的 e2e 证据。
+
+【4. 边界（如实）】
+· 复制的是**绝对路径字符串**；「复制文件本身」（FR-007 的另一半）不在本卡，未做。
+· E9-g 走**模拟模式**：断言的是接线与剪贴板真值；真实盘符下的路径由 m0-real 的真实库流程覆盖（M0 全绿）。
+· 未在真机上人工点一遍（本会话只有自动化证据）；错误提示的**读屏播报**由既有 V-16 断言
+  （`copy.test.mjs` CP-4：err ⇒ role=alert）保证，本条没有新增播报逻辑。
+================================================================================

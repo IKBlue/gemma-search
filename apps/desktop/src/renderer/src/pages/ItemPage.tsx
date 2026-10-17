@@ -42,6 +42,7 @@ import type { ScanDiff } from '../utils/index-state.ts';
 import { buildItemActions, groupActions, reencodeBadge } from '../utils/item-actions.ts';
 import type { ItemAction } from '../utils/item-actions.ts';
 import { humanSize, humanTime } from '../utils/format.ts';
+import { copyText } from '../utils/clipboard.ts';
 import type { SearchItem, SearchErrorish } from '../search/types.ts';
 
 /** `item` 方法的 data（本页用到的字段；其余原样忽略） */
@@ -74,11 +75,14 @@ function MetaRow({
   children,
   mono = false,
   title,
+  action,
 }: {
   label: string;
   children: ReactNode;
   mono?: boolean;
   title?: string;
+  /** 行尾动作（UX-1b：复制绝对路径）。不传则是纯只读行 */
+  action?: ReactNode;
 }) {
   return (
     <div
@@ -89,6 +93,7 @@ function MetaRow({
       <span className={`min-w-0 flex-1 break-all text-ink${mono ? ' mono' : ''}`} title={title}>
         {children}
       </span>
+      {action ? <span className="shrink-0">{action}</span> : null}
     </div>
   );
 }
@@ -178,10 +183,32 @@ export default function ItemPage() {
     [data.item, requestCollect],
   );
 
+  /**
+   * 复制一条**绝对路径**（UX-1b）。
+   *
+   * 判据（卡面）：复制进去的必须是**绝对路径**本身（由 `itemPaths` 给的 `imagePath` / `archivePath`），
+   * 不拼字符串、不把相对路径拼上库根再猜。业务能力在 Operation 层（`utils/clipboard.ts`），
+   * 这里只决定「复制哪一段」与「失败怎么说」。
+   *
+   * ⚠️ 成功文案只说「已复制」：Electron 的剪贴板写入**不回报失败细节**，失败由 `copyText` 返回；
+   *    不许写成「已粘贴到资源管理器」这种没发生的因果（同 `reveal` 的 V-16 教训）。
+   */
+  const copyPath = useCallback(
+    async (label: string, absPath: string): Promise<void> => {
+      const r = await copyText(absPath);
+      show(r.ok ? `已复制${label}` : `复制${label}失败：${r.reason}`, r.ok ? 'info' : 'err');
+    },
+    [show],
+  );
+
   const item = data.item;
   const archive = item ? archiveOf(item) : null;
   const indexState = deriveIndexState(item, scanDiff);
   const groups = groupActions(buildItemActions({ item, indexState }));
+  // 两条绝对路径（契约 §2.2a）。空串 = 引擎没给（例如压缩包不存在 / itemPaths 失败）⇒ 不显示复制按钮，
+  // 也不把「复制空串」做成一个假成功。
+  const imagePath = data.paths?.imagePath || '';
+  const archivePath = data.paths?.archivePath || '';
 
   // ⚠️ 三个**早返回**：`data.loading` / `data.error` / `item === null` 都与下面分支里逐字相同的 JSX。
   //    为什么必须提前返回（2026-10-14 转 TSX 实测）：`item` 来自 `data.item`，
@@ -323,11 +350,43 @@ export default function ItemPage() {
                     </MetaRow>
 
                     {/* 两条**绝对路径**（契约 §2.2a）。取不到就如实写，不拼字符串假装有 */}
-                    <MetaRow label="图路径" mono title={data.paths?.imagePath || ''}>
-                      {data.paths?.imagePath || <span className="muted">（未提供）</span>}
+                    <MetaRow
+                      label="图路径"
+                      mono
+                      title={imagePath}
+                      action={
+                        imagePath ? (
+                          <Button
+                            size="sm"
+                            data-testid="copy-image-path"
+                            title="复制这条绝对路径"
+                            onClick={() => copyPath('图路径', imagePath)}
+                          >
+                            复制
+                          </Button>
+                        ) : null
+                      }
+                    >
+                      {imagePath || <span className="muted">（未提供）</span>}
                     </MetaRow>
-                    <MetaRow label="包路径" mono title={data.paths?.archivePath || ''}>
-                      {data.paths?.archivePath || <span className="muted">（无）</span>}
+                    <MetaRow
+                      label="包路径"
+                      mono
+                      title={archivePath}
+                      action={
+                        archivePath ? (
+                          <Button
+                            size="sm"
+                            data-testid="copy-archive-path"
+                            title="复制这条绝对路径"
+                            onClick={() => copyPath('包路径', archivePath)}
+                          >
+                            复制
+                          </Button>
+                        ) : null
+                      }
+                    >
+                      {archivePath || <span className="muted">（无）</span>}
                     </MetaRow>
                     <MetaRow label="相对路径" mono>
                       {item.relPath}

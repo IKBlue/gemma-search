@@ -144,6 +144,15 @@ test('M0 ⭐⭐ 真窗口端到端：启动 → 库就绪 → 检索 → 详情 
     );
     expect(uids.length, '应当能从卡片上读出 uid').toBeGreaterThan(0);
 
+    // ②b UX-1b：定位必须**如实报错**。
+    //   判据（卡面原话）：定位的验收点不是"打开了文件夹"，而是**文件不存在时返回错误**。
+    //   此刻素材还**没落盘**（落盘在下一步）⇒ 引擎查不到文件 ⇒ 返回 ITEM_MISSING_ON_DISK，
+    //   界面必须把"素材文件找不到了"显示出来，而**不许**弹成功口径的"已请求定位"。
+    await cards.first().getByRole('button', { name: '定位' }).click();
+    const locateAlert = win.getByRole('alert');
+    await expect(locateAlert).toContainText('素材文件找不到了', { timeout: 20_000 });
+    await expect(locateAlert).not.toContainText(/已请求/);
+
     // 按 items.json 的 relPath 落素材（真 JPEG + 同名包）
     const byUid = new Map(items.map((i) => [i.uid, i]));
     let materialized = 0;
