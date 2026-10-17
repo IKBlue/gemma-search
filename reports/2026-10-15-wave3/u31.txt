@@ -64,5 +64,19 @@ U31 复核 + 落地证据（task-116 · 2026-10-17 · storage-worker）
      其它门禁（本轮实测）：`tsc --noEmit -p tsconfig.node.json` ⇒ **0** · `npm run lint` ⇒ **0** ·
      `prettier --check .` ⇒ 先 **1**（`storage-roots.test.mjs`，本轮改的）⇒ 对该文件 `--write` ⇒ 复验 **0（All matched）**
 
-  【待补】Lead 冻结门禁（提交哈希 + 七行数字）—— 收到后追加到本节下方，标注「引用」。
+  【已补】**引用 Lead 冻结门禁 `2b44ce4`，非本轮实测**（方式 B · 证据协议第 3 条）
+  ⚠️ 以下数字**不是我这个 worker 本轮跑出来的**，而是 Lead 在「无人写入的干净窗口」里跑的权威门禁：
+
+    prettier --check .   ⇒ 0（All matched）
+    npm run lint         ⇒ 0
+    npm test             ⇒ **770 / pass 769 / fail 0 / skipped 1**
+    npm run typecheck    ⇒ 0（node + web）
+    build（不预置 TEMP） ⇒ EXIT=0 · WARNINGS=0
+    e2e                  ⇒ 69 passed / 4 skipped / 0 failed（3.5m）
+    s4-accept.mjs        ⇒ PASS 21 / FAIL 0 / SKIP 0
+
+  · 窗口状态：`main == origin/main == 2b44ce4` · 工作树干净（只剩外部流程未跟踪的 `UI/`）。
+  · ⭐ 这轮全量单测 **770 / 769 / 0 / 1 里包含了本卡的 `storage-roots` 28 条**（我改的那份测试），
+    ⇒ 本卡改动**被全量门禁覆盖**（不是我单独跑的那 28 条在自说自话）。
+  · 归属写法：本轮**我自己**跑过的仍是上一节那组（28/28 + tsc 0 + lint 0 + prettier 0），**两者不混写**。
 ================================================================================

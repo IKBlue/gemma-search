@@ -53,15 +53,39 @@ gemma-search · IDX-2a 索引任务三方法回到契约（U35，所有者 2026-
 ⇒ 契约测试对「白名单少了恢复的方法」**真的会红**（不是只靠文档）。
 
 
-===== 4. 门禁（本轮实测） =====
+===== 4. 门禁（A 本卡自测 · B **引用** Lead 冻结门禁 2b44ce4 · C 一条未复现失败的线索） =====
+【A. 本卡执行期间的自测（本轮实测）】
 · `tsc --noEmit -p tsconfig.node.json` ⇒ **error TS = 0**；`-p tsconfig.web.json` ⇒ **error TS = 0**
 · `prettier --check`（本次改动的 7 个源文件）⇒ **All matched files use Prettier code style!**（exit 0）
 · `eslint`（同一批文件）⇒ **exit 0**（`packages/engine/src` 与 `shared/ipc.ts` 被 eslint 配置忽略，属既有现状）
-· 引擎全量（`node --test packages/engine/tests/*.test.mjs`）⇒ **连续两次 exit=0、无 ✖**（179 tests / 178 pass / 1 skipped 是上个任务的基线数字）
-  ⚠️ 本轮曾出现**一次**未复现的失败（第一次跑时 tail 里有一条 AssertionError，未捕获到用例名），随后连续两次全绿；
-     若后续复现需单独追查 —— **不**把「没复现」说成「不存在」。
+· 引擎全量（`node --test packages/engine/tests/*.test.mjs`）⇒ **连续两次 exit=0、无 ✖**
 · desktop 受影响面（ipc-contract-s6 / permissions / item-actions / items-ipc / library-methods）⇒ **53 tests · pass 53 · fail 0**
-· **未跑**：`npm test` 全量、`npm run e2e`、`build` —— 按卡片纪律等你开窗口（e2e 会起 Electron，且 ENC-1 在跑）。
+
+【B. 引用 Lead 冻结门禁 `2b44ce4`（干净窗口 · 权威门禁；**引用**，非本轮我跑的）】
+（原文照抄 Lead 2026-10-17 回报；`main == origin/main == 2b44ce4`，工作树干净）
+  prettier --check .   => 0（All matched）
+  npm run lint         => 0
+  npm test             => 770 / pass 769 / fail 0 / skipped 1
+  npm run typecheck    => 0（node + web）
+  build（不预置 TEMP） => EXIT=0 · WARNINGS=0
+  e2e                  => 69 passed / 4 skipped / 0 failed（3.5m）
+  s4-accept.mjs        => PASS 21 / FAIL 0 / SKIP 0
+⇒ 本卡的 `npm test` 全量 / e2e / build 三项由上述冻结门禁覆盖（**引用**，不写成「我本轮实测」）。
+
+【C. 一条「未复现失败」的可查线索（不算通过、不算失败；下次出现时用来核对是不是同一条）】
+· 命令：`node --test --test-isolation=none "packages/engine/tests/*.test.mjs" 2>&1 | Select-Object -Last 7`
+· 时间：**2026-10-17 12:30–12:35（+08:00）**（本卡 e2e/单测收尾阶段，约在 lead 提交 `2b44ce4` 之前 10 分钟内）
+· 当时看到的、能确认的**断言元数据**（tail 截断，未能捕获用例名与断言文案）：
+    generatedMessage: false
+    code: 'ERR_ASSERTION'
+    actual: false
+    expected: true
+    operator: 'strictEqual'
+    diff: 'simple'
+  ⇒ 特征：某条 `assert.equal(x, true)` 型断言（`strictEqual`，actual=false / expected=true）。
+· 之后**同一命令连续两次 exit=0 无 ✖**；Lead 的 `npm test` **770 通过 / 0 失败**（含引擎全量）也未见该失败。
+· 处置：**不**把它记成通过，也**不**记成失败 —— 记为「出现过一次、不可复现」；若再次出现，用上面三行元数据
+  （`strictEqual` / actual=false / expected=true）与命令、时间对账，判断是同一条还是新的。
 
 
 ===== 5. 建议的 SPEC §6 措辞（由你落笔，我不改规格） =====

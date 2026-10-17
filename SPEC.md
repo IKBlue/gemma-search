@@ -394,6 +394,23 @@
 
 **新增**：`librarySetEnabled` · `libraryReorder` · `libraryRemove` · `collectDirs` · `collectDirAdd` · `collectDirRemove` · `collectDirSetDefault` · `appMeta`（诊断页显示应用级版本）
 
+**恢复（2026-10-17 所有者批准 · U35 · **第 23–25 个方法** · 属兼容新增）** —— 索引任务三方法。它们此前按 S6 基线「诚实桩清理」被**删除**；现在 `job` 表与索引构建器（IDX-1 已把构建器变成可导入函数）就位，恢复它们 = 让「在应用里建索引」这条主线成立：
+
+`text`
+indexStart  { libId?, device?, seq?, rebuild? }  →  { jobId, total, phase, reused? }
+  开始一次索引任务。进度通过 index.progress / index.done 事件推送（单调不减、不静默）。
+  真实实现：IDX-2b 接入；在此之前真实模式**如实返回 INTERNAL**（message 含「IDX-2b」），模拟模式可完整演示。
+
+indexCancel { jobId? }  →  {}
+  取消任务；jobId 省略 = 取消当前任务。取消在**阶段边界**生效（不打断正在写的那一批）。
+
+indexResume { jobId? }  →  { jobId, total, phase, reused? }
+  续跑。能否复用已有结果由引擎按 **compat** 判定：不等则**不复用**并在返回/事件里说明原因。
+`
+
+· **方法计数 22 → 25**（`shared/ipc.ts` 白名单仍是唯一来源）；
+· ⚠️ **真实模式不静默成功**（P6）：在 IDX-2b 接线前，真实模式返回 `INTERNAL` 且 message 含「IDX-2b」，`details.plannedIn='IDX-2b'`，由测试钉住；
+· 「已知未接线」清单因此**只剩 3 个写操作**：`ingest` · `mutate` · `transactions`。
 **`appHealth`（只读 · 2026-10-16 所有者批准 · **第 22 个方法** · 属兼容新增）** —— 把「本次进程出现过未处理异常」这件**只活在主进程里**的事接到界面上（DF-6 的配套；设计稿 `reports/2026-10-15-wave3/appHealth-demo.html`）。
 签名：`appHealth {}` → `{ unhealthy: boolean, count: number, reason: string | null, firstAt: string | null }`。
 · **只读**：不改任何状态（界面只在启动 + 打开诊断面板时各查一次）；
@@ -412,7 +429,7 @@
 
 **删除**（对应的表本轮不存在 ⇒ **不为不存在的表开接口**）
 
-- 6 个诚实桩：`ingest` · `mutate` · `transactions` · `indexStart` · `indexCancel` · `indexResume`
+- 3 个诚实桩：`ingest` · `mutate` · `transactions`（`indexStart` / `indexCancel` / `indexResume` 已按 U35 **恢复**，见上节）
 - 文档类方法（F7 门控；表进第二批）
 
 **保留（既有能力，不依赖未建的表）** —— 2026-10-15 Lead 裁定 **U21**
