@@ -28,7 +28,13 @@ import Toast from '../ui/Toast.tsx';
 import SearchSidebar from '../search/SearchSidebar.tsx';
 import { LABELS } from '../router/paths.ts';
 import { useDocumentTitle } from '../utils/useDocumentTitle.ts';
-import { resolveLibrary } from '../utils/library-root.ts';
+import {
+  decideWriteGate,
+  deriveReadScope,
+  deriveWriteTarget,
+  describeScope,
+  describeWriteTarget,
+} from '../utils/library-scope.ts';
 import useLibraryConfig from '../hooks/useLibraryConfig.ts';
 import useToast from '../hooks/useToast.ts';
 import AppHealthPanel from './AppHealthPanel.tsx';
@@ -152,8 +158,19 @@ export default function DiagnosticsPage() {
   } = useHealthStore();
 
   // 库从哪来：唯一来源是主进程的 libraryConfig（与 LibraryGate 同一条路，不另开一份）
-  const lib = resolveLibrary(configData);
-  const libId = lib?.libId ?? '';
+  //
+  // ⚠️ 2026-10-17（U32）：这里**不再是同一个变量**。以前 `lib` 既当「体检看的库」又当
+  //    「重建写到哪个库」——于是多库时用户根本说不清「我重建的是哪一个」。现在：
+  //      · `scope`      —— 看得见的范围（体检对象），可以是「全部库」；
+  //      · `writeTarget`—— 写落点（重建目标），**必须是一个具体且可用的库**，未定就是 null。
+  //    两者由 `utils/library-scope.ts` 的纯函数派生，闸门 `decideWriteGate` 也测得到（U32 单测）。
+  const scope = deriveReadScope(configData);
+  const writeTarget = deriveWriteTarget(configData);
+  const writeGate = decideWriteGate(scope, writeTarget);
+  // 体检是**读**操作：范围有默认视野就够了（读错再读一次）
+  const libId = scope.kind === 'lib' ? scope.libId : '';
+  // 详情块（不可用原因等）只对"具体库"有意义
+  const lib = scope.kind === 'lib' ? scope : null;
 
   // ⚠️ **不自动体检**：跑一次要读索引 + 只读开 .gs.db（大库上是重活），
   //    用户没要求时不该发生 —— 同 ItemPage 的「检查变更」（**既有设计态度**：用户没要求时不自动动它）。
@@ -221,7 +238,17 @@ export default function DiagnosticsPage() {
 
             {/* ── 当前库（体检/重建都只对它生效）──────────────────────── */}
             <div className="panel" data-testid="diagnostics-library">
-              <div className="mb-1 font-semibold text-ink">当前库</div>
+              <div className="mb-1 font-semibold text-ink">库</div>
+              {/* ⚠️ U32：**两处各自可见** —— 「范围」（读）与「写落点」（写）不许一个变量兼职。
+                  多库且没指定落点时，上一行是默认视野、下一行明确写「未定」。 */}
+              <div className="text-caption text-ink" data-testid="diagnostics-scope">
+                <span className="muted">范围（体检看的库）：</span>
+                <span className="mono">{describeScope(scope)}</span>
+              </div>
+              <div className="text-caption text-ink" data-testid="diagnostics-write-target">
+                <span className="muted">写落点（重建写到哪）：</span>
+                <span className="mono">{describeWriteTarget(writeTarget)}</span>
+              </div>
               {lib ? (
                 <div className="text-caption text-ink">
                   <div>
@@ -268,9 +295,18 @@ export default function DiagnosticsPage() {
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Button
                   variant="primary"
-                  onClick={() => requestRebuild(libId)}
-                  disabled={!gate.allowed || !libId}
-                  title={gate.allowed ? '先弹确认框，确认后才真的执行' : gate.reason}
+                  onClick={() => {
+                    // U32：**只往写落点写**。落点未定（null）⇒ 这里什么都不发（按钮也是禁用的）
+                    if (writeTarget) requestRebuild(writeTarget.libId);
+                  }}
+                  disabled={!gate.allowed || !writeGate.allowed}
+                  title={
+                    !writeGate.allowed
+                      ? writeGate.reason
+                      : gate.allowed
+                        ? '先弹确认框，确认后才真的执行'
+                        : gate.reason
+                  }
                   data-action="rebuild"
                 >
                   重建元数据…
@@ -281,9 +317,13 @@ export default function DiagnosticsPage() {
                     正在重建元数据…（跑完会自动复检一次）
                   </span>
                 ) : null}
-                {!busy && !gate.allowed && libId ? (
-                  <span className="muted small" data-testid="rebuild-gate">
-                    {gate.reason}
+                {!busy && (!writeGate.allowed || !gate.allowed) ? (
+                  <span
+                    className="muted small"
+                    data-testid="rebuild-gate"
+                    data-gate={!writeGate.allowed ? 'write-target' : 'health'}
+                  >
+                    {!writeGate.allowed ? writeGate.reason : gate.reason}
                   </span>
                 ) : null}
               </div>

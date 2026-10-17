@@ -1,0 +1,125 @@
+U32 · **范围（scope）**与**写落点（currentLib）**拆成两个变量
+日期 2026-10-17 · 类型：**本轮实测** · 任务卡：task-117 · 执行者：renderer-migrator
+
+================================================================
+0. 结论速览（两栏）
+================================================================
+【本轮实测】
+| 项 | 结果 |
+|---|---|
+| **两个状态真的分开了** | `ReadScope` 与 `WriteTarget` 是两个类型、两条派生路径（`deriveReadScope` / `deriveWriteTarget`）；多库未指定时**范围有默认视野、落点 = null**（U32-a 断言两者不相等） |
+| ⭐ **组合约束能红** | scope=全部库 且 target=null ⇒ `decideWriteGate().allowed === false` 且文案含「目标库」（U32-b） |
+| **界面上两处各自可见** | 诊断页新增 `data-testid="diagnostics-scope"`（范围）与 `diagnostics-write-target`（写落点）两行；重建按钮改由**写落点**闸门控制 |
+| **能红** | 「合并版」参照实现（一个变量兼职）在同一份数据上把落点悄悄填成 L1 ⇒ 同一条判据给出**相反**答案（U32-c，见 §3） |
+| 单测 | `node --test apps/desktop/tests/library-scope.test.mjs` ⇒ **tests 11 / pass 11 / fail 0** |
+| `npm run typecheck` | **0** |
+| `npm run lint` | **0** |
+| `npx prettier --check`（改动的 3 个文件） | **0** |
+| 关键 e2e | health / library-unavailable / item-detail（取件落点相关）见 §5 |
+
+【引用 —— **非本轮实测**】（**待填**：引用 Lead 下一次冻结门禁 · 哈希 + 七行）
+| 项 | 值 |
+|---|---|
+| 提交哈希 | **_待填_**（「三张卡落地后唯一一次冻结窗口」） |
+| `prettier --check .` | **_待填_** |
+| `npm run lint` | **_待填_** |
+| `npm test` | **_待填_** |
+| `npm run typecheck` | **_待填_** |
+| `build`（不预置 TEMP/TMP） | **_待填_** |
+| 全量 `e2e` | **_待填_** |
+| `s4-accept.mjs` | **_待填_** |
+
+> ⚠️ **为什么这里是空位而不是数字**：卡面要求「`npm test` 先问我」，Lead 裁定**此刻不开窗口** ——
+> 当时 `core-migrator` 正在飞 **IDX-2a**（契约恢复 + 引擎），树上有他的半成品 ⇒ 此刻跑全量可能**假红**，
+> 更糟的是可能**顺手改到他的文件**、让人分不清"是谁改绿的"。
+> ⇒ 等 **IDX-2a / U32 / DOC-6 三张卡都落地后**，Lead 开**唯一一次**冻结窗口；届时把哈希与七行填进上表。
+> 按 AGENTS §4 证据协议第 3 条：**不写不是本轮实测的数字**，也**不拿别人的结论冒充本轮实测**。
+
+================================================================
+1. 改了什么（3 个文件 + 1 个测试）
+================================================================
+| 文件 | 改动 |
+|---|---|
+| `renderer/src/utils/library-scope.ts` | **新增**。Operation 层纯函数：`ReadScope`（可含「全部库」）与 `WriteTarget`（**只有具体库**，类型上就没有 'all'）两个状态 + `deriveReadScope` / `deriveWriteTarget` / `decideWriteGate` / `describeScope` / `describeWriteTarget` |
+| `renderer/src/pages/DiagnosticsPage.tsx` | 不再用 `resolveLibrary` 的**同一个** `lib` 兼职：体检用 `scope`、重建用 `writeTarget`；面板拆出「范围」「写落点」两行；重建按钮 `disabled={!gate.allowed \|\| !writeGate.allowed}`，`onClick` 只在 `writeTarget` 非空时发 IPC |
+| `apps/desktop/tests/library-scope.test.mjs` | **新增** 11 条断言（U32-a…f2），含组合约束与能红 |
+| （未改）`utils/library-root.ts` | `resolveLibrary` **保留**：它仍是"挑一个默认库"的读语义来源，现在只被 `deriveReadScope` 复用同一套挑选顺序 —— **不是第二份实现**（本模块只做"读/写两条语义"的区分，挑选顺序没有重写） |
+
+**没碰契约、没碰 DB、没碰 main**（卡面边界）。
+
+================================================================
+2. 两个变量为什么必须分开（可解释性，不是措辞）
+================================================================
+以前**同一个** `lib` 既当「体检看哪个库」又当「重建写到哪个库」⇒ 多库时用户无法回答
+「我这次重建写进的是哪一个」。而读与写的**容错完全不同**：
+· **读**错一次，再读一次就行 ⇒ 范围可以有默认视野（多库时取第一个可用的做默认视野是合理的）；
+· **写**错会落到用户没指定的地方，无法"再写一次"抵掉 ⇒ 落点**不许猜**。
+
+⇒ 本卡据此把两条语义**分开成两个状态**，并让写操作只认落点：
+`decideWriteGate` **只看 `target`**；scope 是全部库**不会**让写变得更允许，也不会被当落点
+（"不许拿全部库当落点"因此是**结构上**成立的，不是靠一处特判）。
+
+================================================================
+3. 能红（同一条判据考两种实现，给出相反答案）
+================================================================
+~
+// 「合并版」参照实现（= U32 之前的写法：一个变量兼职）
+const merged = () => { const s = deriveReadScope(data); ... return { scope: s, target: {libId: s.libId} } }
+// 同一份数据（两个库、用户没指定）：
+deriveWriteTarget(data)            => null            // 两变量版：落点未定
+merged().target.libId              => 'L1'            // 合并版：**替用户挑了**落点
+
+decideWriteGate(realScope, null)          => { allowed: false }   // 应然
+decideWriteGate(mergedScope, mergedTarget)=> { allowed: true  }   // 合并版放行 ← 判据抓住它
+~
+⇒ 谁把两者合并回去，**U32-b 的断言（`allowed === false`）实测就是 true ⇒ 必红**。
+（测试里用 `assert.notEqual(mergedGate.allowed, realGate.allowed)` 把这件事钉住；
+  不是写一条注定失败的断言 —— 那种"能红"只会让套件变红，不是判据。）
+
+================================================================
+4. 单测（11/11）
+================================================================
+~
+$ node --test apps/desktop/tests/library-scope.test.mjs
+✔ U32-a 多库且未指定 ⇒ 范围有默认视野，但写落点未定（两个状态不一致）
+✔ U32-b 组合约束：scope=全部库 且 writeTarget 未定 ⇒ 写操作不可执行且提示选目标库
+✔ U32-b2 边界：scope 是具体库、但 writeTarget 仍未定 ⇒ 一样不可执行（判据只看 target）
+✔ U32-b3 scope=全部库 + 落点明确 ⇒ 允许（scope 不会把落点变成"全部"）
+✔ U32-c 能红：把两者合并回一个变量 ⇒ 同一条判据给出相反答案（必红）
+✔ U32-d 单库 ⇒ 范围与落点都是它，写操作放行（不制造无谓阻塞）
+✔ U32-e chosen 指定的可用库 ⇒ 落点就是它（用户指定过，不算猜）
+✔ U32-e2 chosen 指向不可用的库 + 还有别的可用库 ⇒ 落点仍是 null（不许写进不可用库）
+✔ U32-e3 chosen 的库不可用、且全库只有它 ⇒ 落点为 null，闸门给出"不可用"原因
+✔ U32-f 界面两处文案各自独立：范围说 L1，落点说"未定"
+✔ U32-f2 无库 ⇒ 范围是「全部库」、落点是「未定」、写被拒
+ℹ tests 11 · pass 11 · fail 0
+~
+
+⚠️ **写测试时真抓到一处设计缺陷并改掉了实现**（如实记）：第一版 `deriveWriteTarget` 规则是
+"全库只有一个可用的 ⇒ 用它"，于是「用户明确选了 LB（不可用）+ 还有 L2 可用」时会把落点悄悄换成 L2。
+U32-e2 当场红 ⇒ 改成：**chosen 指过但不可用 ⇒ 落点一律 null**（不许换库顶上，且要把不可用如实告诉用户）。
+—— 这正是"判据先写、实现后改"的价值：不是先实现再编测试。
+
+================================================================
+5. 门禁与 e2e
+================================================================
+~
+$ npm run typecheck                     => TSC_EXIT=0
+$ npm run lint                          => LINT_EXIT=0
+$ npx prettier --check <3 个改动文件>    => 0
+$ npx playwright test -c apps/desktop/e2e/playwright.config.mjs health.spec.mjs library-unavailable.spec.mjs item-detail.spec.mjs
+  => **14 passed (1.4m) · E2E_EXIT=0**（health 9 + library-unavailable + item-detail 6 条中命中 14）
+~
+为什么挑这三条：诊断页的重建闸门被改了 ⇒ `health.spec.mjs` 直接依赖
+`[data-action="rebuild"]` **可用**；`library-unavailable.spec.mjs` 依赖
+`diagnostics-library` / `-unavailable` / `-badge` 三处 testid 仍按"具体库"渲染；
+`item-detail.spec.mjs` 覆盖取件/动作分区（写类操作的界面侧）。
+
+================================================================
+6. 未决 / 交接
+================================================================
+6.1 `npm test` 与**全量** e2e：按卡面要求**先问 Lead 开窗口**，本文件不写这些数字。
+6.2 浏览页（`BrowsePage`）仍用 `resolveLibrary` 的单一库作为**读**范围 —— 它是纯读页面，
+    没有写落点，所以**不在本卡**拆分范围内（拆它是另一件事，且会让读语义变复杂）。
+6.3 真正"多库 + 未指定落点"的分支只有单测覆盖（e2e 夹具都是单库）——
+    这是**已知覆盖边界**：界面上的"未定 ⇒ 按钮禁用 + 写明原因"没法用现有夹具在真窗口里演一遍。
