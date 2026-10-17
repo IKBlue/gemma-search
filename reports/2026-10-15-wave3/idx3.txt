@@ -199,3 +199,38 @@ restored=True · rebuild=0 · rerun= 2 passed (7.7s)
 每条都是独立进程、单独一个 `edit`（**不用 pwsh 改源码** —— pwsh 会把 .tsx 弄坏，见 §8 的工具坑），
 备份 → 改 → build（只看 `$LASTEXITCODE`）→ 只跑受影响的 spec → 还原 → **sha256 逐字节比对** →
 重建 → 复跑绿。三条的 `restored` 全为 True，还原后 `rebuild=0`、复跑全绿。
+
+================================================================
+9. LINT-L6（task-126）：用户文案兜底第二份 —— 修掉
+================================================================
+【L6 原文（冻结门禁 3b06099 唯一一条红）】
+~
+✖ L6 ⭐ 用户文案兜底只允许在 Adapter 里出现一次（P2 的机械判据）
+~
+
+【⚠️ 命中处**不是** Lead 猜的 useIndexTasks.ts —— 如实报】
+真正命中：`pages/TasksPage.tsx:181`
+~
+(outcome.error as { userMessage?: string }).userMessage ?? '引擎没给原因'
+~
+⇒ 这是 Adapter 之外的**第二份** userMessage 兜底 ⇒ L6 红。
+`hooks/useIndexTasks.ts` 里**没有**这类写法（三处都是 `onToast?.(r.error.userMessage, 'err')`，直接用、无兜底运算符）。
+
+【修法（唯一正解，不是改措辞糊过去）】
+· 删掉那句 `?? '引擎没给原因'`，改成只有一个取法的 `errorText()`：
+  取 Adapter 归一后的 userMessage；取不到就如实说「失败（无详情）」——**不编原因**。
+· ❌ 没有改措辞骗 L6、❌ 没有放宽 L6（判据一行未动）。
+
+【验证（本轮实测）】
+~
+node --test apps/desktop/tests/layering.test.mjs  => tests 8 / pass 8 / fail 0
+  ✔ L6  ⭐ 用户文案兜底只允许在 Adapter 里出现一次   ← **由红转绿**
+  ✔ L6b ⭐⭐ 判据本身要准
+tsc --noEmit -p tsconfig.node.json                => 0
+tsc --noEmit -p tsconfig.web.json                 => 0
+npm run build                                     => 0
+npx playwright test … tasks.spec.mjs              => 2 passed (8.0s) · EXIT=0
+~
+
+⚠️ 全量 `npm test` **未跑**（纪律：跑全量前先问）⇒ 卡面验收的「794 / fail 0」留给 Lead 冻结门禁；
+本轮只证明**红的那条已转绿**且周边未破。

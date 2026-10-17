@@ -175,12 +175,7 @@ export default function TasksPage() {
             {outcome ? (
               <div className="mt-2 text-caption" data-testid="tasks-outcome">
                 {outcome.error ? (
-                  <p className="err">
-                    索引失败：
-                    {String(
-                      (outcome.error as { userMessage?: string }).userMessage ?? '引擎没给原因',
-                    )}
-                  </p>
+                  <p className="err">索引失败：{errorText(outcome.error)}</p>
                 ) : cancelled ? (
                   <p className="tone-warn">已取消（停在 ' + done + ' 条；索引文件未写入）</p>
                 ) : null}
@@ -216,4 +211,17 @@ export default function TasksPage() {
       </Main>
     </AppShell>
   );
+}
+/**
+ * 失败原因的**唯一取法**：只取 Adapter 归一后的 `userMessage`。
+ *
+ * ⚠️ LINT-L6（P2 机械判据）：`userMessage` 的**兜底只允许在 adapter/api.ts 一处** ——
+ *   这里**不许**写 `userMessage || '…'` / `?? '…'`（那是第二份定义，L6 会抓，而且是真问题：
+ *   同一件事两处定义，主进程改了语义就会漂）。
+ * ⚠️ 但也**不许编一句像人话的兜底**（"索引失败，请重试"之类）：那会让用户以为系统知道原因。
+ *   Adapter 承诺 `userMessage` 非空，所以走不到"无详情"这一支；真走到了就**如实说没有详情**。
+ */
+function errorText(err: unknown): string {
+  const um = err && typeof err === 'object' ? (err as { userMessage?: unknown }).userMessage : null;
+  return typeof um === 'string' && um ? um : '失败（无详情）';
 }
