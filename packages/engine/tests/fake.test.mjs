@@ -15,7 +15,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-import { createEngine, BANDS, UNIMPLEMENTED_METHODS } from '../src/engine.ts';
+import { createEngine, BANDS, UNIMPLEMENTED_METHODS, INDEX_JOB_METHODS } from '../src/engine.ts';
 import { ERR } from '../src/errors.ts';
 import { COMPAT_FIELDS } from '../src/compat.ts';
 import { loadSampleIndex, DEFAULT_FIXTURE_PATH, createFakeKit } from '../src/fake.ts';
@@ -614,12 +614,17 @@ test('F16 ⭐ 真实模式 `transactions` 如实返回 `INTERNAL`（不返回空
   assert.ok(r.error.userMessage);
 });
 
-test('F17 ⭐⭐ `UNIMPLEMENTED_METHODS` 与假套件**逐一对得上**，且真实模式全部 INTERNAL', async () => {
+test('F17 ⭐⭐ `UNIMPLEMENTED_METHODS` + `INDEX_JOB_METHODS` 与假套件**逐一对得上**，且真实模式全部 INTERNAL', async () => {
   // 防"两边漂移"：假套件里少接一个 ⇒ 契约 §8 的演示能力缺一块，而且缺得**静默**
   //（界面会拿到 INTERNAL，看起来像"没实现"，其实是"套件里名字写错了"）。
+  //
+  // ⚠️ 2026-10-17 · U35：索引任务三方法已从 UNIMPLEMENTED_METHODS 移到 INDEX_JOB_METHODS
+  //    （回到契约、模拟模式可演示、真实实现在 IDX-2b）⇒ 这里两份都要逐一对账。
+  //    原断言：6 个全在 UNIMPLEMENTED_METHODS 里；现断言：3 个写操作 + 3 个索引任务，**并集**与假套件键一一对应。
+  const pending = [...UNIMPLEMENTED_METHODS, ...INDEX_JOB_METHODS];
   const { engine: fake0 } = fakeEngine();
   try {
-    for (const m of UNIMPLEMENTED_METHODS) {
+    for (const m of pending) {
       assert.equal(
         typeof fake0._fake[m],
         'function',
@@ -639,10 +644,24 @@ test('F17 ⭐⭐ `UNIMPLEMENTED_METHODS` 与假套件**逐一对得上**，且�
     assert.ok(r.error.userMessage, `${m} 的错误信封要有 userMessage`);
   }
 
+  // 索引任务三方法（U35）：真实模式必须**如实**说是 IDX-2b，而不是笼统的「还没做好」
+  const engine2 = createEngine({ config: {}, encoder: null });
+  for (const m of INDEX_JOB_METHODS) {
+    const r = await engine2[m]({ libId: 'L1', device: 'cpu' });
+    assert.equal(r.ok, false, `真实模式 ${m} 不许静默成功（P6）`);
+    assert.equal(r.error.code, ERR.INTERNAL, `真实模式 ${m} 应是 INTERNAL`);
+    assert.match(
+      r.error.message,
+      /IDX-2b/,
+      `真实模式 ${m} 要说清真实实现何时接：${r.error.message}`,
+    );
+    assert.ok(r.error.userMessage, `${m} 的错误信封要有 userMessage`);
+  }
+
   // 模拟模式下这**每一个**都要真的能调通（不是 undefined）
   const { engine: fake } = fakeEngine();
   try {
-    for (const m of UNIMPLEMENTED_METHODS) {
+    for (const m of pending) {
       const r = await fake[m]({ libId: 'L1' });
       assert.notEqual(r, undefined, `模拟模式 ${m} 返回了 undefined —— 假套件没接上`);
       assert.equal(r.ok, true, `模拟模式 ${m} 应能演示：${JSON.stringify(r.error)}`);

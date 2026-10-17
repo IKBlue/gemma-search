@@ -135,6 +135,26 @@ export const Methods = {
   //   继续挂着就是「看起来能用」的假承诺。等表上线时**重新登记**（新增方法 = 兼容改动，§9.1）。
   //   ⚠️ 引擎侧那 6 个桩**保留**（packages/engine/src/engine.ts 的 UNIMPLEMENTED_METHODS）：
   //      它们是引擎自己的诚实桩；白名单删掉后**自然不可达**，删它们只会牵动 fake.ts 与 e2e，收益为零。
+  //
+  // ✅ 2026-10-17 · U35（所有者「批」）：**三个索引任务方法恢复登记**（indexStart / indexCancel / indexResume）。
+  //   形状**照引擎 fake.ts 已实现的** StartJobRequest / StartJobResult / FakeJobRequest，不新造第二套
+  //   （IDX-2b 接线真实实现时形状不用再改）。ingest / mutate / transactions **仍不在契约里**。
+  //   ⚠️ 真实模式目前**没有**实现 ⇒ 引擎如实返回 INTERNAL，message 说明「IDX-2b 接入」，绝不静默成功（P6）。
+  //      钉住位置：packages/engine/tests/fake.test.mjs F17 · e2e fake-mode.spec.mjs E8-d / E8-f。
+  indexStart: z
+    .object({
+      libId: LibId.optional(),
+      device: z.string().max(64).optional(),
+      seq: z.number().int().min(0).max(1_000_000).optional(),
+      rebuild: z.boolean().optional(),
+    })
+    .strict(),
+
+  /** 取消一个索引任务（jobId 省略 = 取消当前那个 —— 与 fake.ts 的 FakeJobRequest 一致） */
+  indexCancel: z.object({ jobId: z.string().min(1).max(64).optional() }).strict(),
+
+  /** 续跑（能否复用由引擎按 compat 判定，不在契约层） */
+  indexResume: z.object({ jobId: z.string().min(1).max(64).optional() }).strict(),
 
   // ---- 库：读（library_registry + 发现来源）与写（library_registry 是唯一写入口）----
   // 基线 §2.2：`libraryConfig` → **`libraryList`**（改名，不留两套）。

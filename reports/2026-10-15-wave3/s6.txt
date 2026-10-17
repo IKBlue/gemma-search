@@ -5,6 +5,17 @@ S6 证据 · IPC 契约重列（删 6 诚实桩 + libraryConfig→libraryList + 
 写入范围（Lead 已扩）：apps/desktop/src/{shared,main,renderer} · apps/desktop/{tests,e2e}
 ===============================================================================
 
+⚠️⚠️ **修正公告（IDX-2a / task-118 · 2026-10-17 追加，原文一字未删）** ⚠️⚠️
+· **【原结论已被所有者改写】** 本文件 §1 说 indexStart / indexCancel / indexResume 已从契约删除（7 个名字之一）。
+  所有者 2026-10-17（TASKS.md **U35**，原文「批」）**批准恢复**这三个方法 ⇒ 契约**重新登记**它们
+  （shared/ipc.ts 白名单 + zod 形状；形状照引擎 fake.ts 已实现的 StartJobRequest / StartJobResult / FakeJobRequest）。
+· **没有变的部分**：ingest / mutate / transactions 三个写操作桩**仍不在契约里**；
+  libraryConfig → libraryList 的改名不变；§2.2 的其余口径不变。
+· **真实模式口径**：三个方法目前**只有模拟模式可演示**；真实模式由引擎**如实**返回 INTERNAL 并说明
+  「IDX-2b 接入」（**绝不静默成功**，P6）。属**兼容新增**（SPEC §9.1）；SPEC §6 由**所有者**同步。
+· 下文凡涉及「这三个方法已删除 / 不可达 / 模拟模式也必须 BAD_REQUEST」的断言与说明，**均以本公告为准**。
+  逐条翻转表（原来断言什么 → 现在断言什么 → 为什么）= reports/2026-10-15-wave3/idx2a.txt。
+
 【结论】
 · 契约重列完成：白名单 **20 个方法**（删 7 个名字 / 新增 9 个 / 保留 11 个），**删旧名不留两套**。
 · 主进程：新增应用级 `main/app-db.ts`（app.db 3 张表的**唯一写入口**），`library* / collectDir* / appMeta` 全部接线；

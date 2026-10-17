@@ -1,0 +1,90 @@
+gemma-search · IDX-2a 索引任务三方法回到契约（U35，所有者 2026-10-17「批」）· 证据（task-118）
+执行：core-migrator · 写入面：shared/ipc.ts · engine.ts · 单测/e2e · 证据（未碰 DB / indexer / 渲染层）
+
+改动文件（9 个）：
+  ~ packages/engine/src/engine.ts          UNIMPLEMENTED_METHODS 移出三方法 + 新增 INDEX_JOB_METHODS + 生成器合并为一份
+  ~ apps/desktop/src/shared/ipc.ts          三方法回到白名单 + zod 形状（照 fake.ts 的 StartJobRequest/FakeJobRequest）
+  ~ packages/engine/tests/fake.test.mjs     F17 翻转（两份清单并集对账 + 真实模式 IDX-2b 文案）
+  ~ apps/desktop/tests/ipc-contract-s6.test.mjs   C1 翻转 · C2/C3 清单缩小 · 新增 C2b 正向
+  ~ apps/desktop/tests/permissions.test.mjs       S15 清单缩小 · 新增 S15b 正向
+  ~ apps/desktop/tests/item-actions.test.mjs      indexStart 从 gone 移到正向断言
+  ~ apps/desktop/e2e/fake-mode.spec.mjs           E8-d / E8-f 翻转
+  ~ reports/2026-10-15-wave3/s6.txt               **只加「修正公告」段**（原文一字未删）
+  （渲染层 0 改动：TaskPage 文案与 item-actions 动作属 IDX-3 —— 见 §5）
+
+
+===== 0. 两个决定的回应（Lead 要我确认的） =====
+1. **形状：同意「三个都恢复」，不合成 `indexRun`**。理由：① `fake.ts` 已把三者分别实现（进度/取消/resume 的 compat 判定），
+
+
+===== 1. 逐条翻转表（原来断言什么 → 现在断言什么 → 为什么） =====
+| # | 位置 | 原来（S6 · 2026-10-15） | 现在（U35 · 2026-10-17） | 为什么 |
+|---|---|---|---|---|
+| 1 | `apps/desktop/tests/ipc-contract-s6.test.mjs` C1 | 白名单集合 == 22 个（不含三方法） | 集合 == 25 个（含 indexStart/indexCancel/indexResume） | 所有者批准恢复登记 |
+| 2 | 同文件 C2 | 「已删除的 7 个名字」都不在白名单（6 桩 + libraryConfig） | 只剩 **4 个**（ingest/mutate/transactions + libraryConfig）；三个恢复的改由 C2b **正向**钉住 | 负向断言保留给仍然删除的；恢复的必须正着断言（否则「删了」与「没登记」分不开） |
+| 3 | 同文件 C3 | 未登记名字（含三方法）一律拒绝 | 同上（只留 4 个 + exec/__proto__/constructor）；保留下来的方法仍能过（对照） | 同上；拒绝理由断言未改 |
+| 4 | 同文件 **C2b（新增）** | —— | 三方法**真的**在白名单、有 zod 形状、合法载荷过 `validateCall`、多塞字段被 `.strict()` 拒 | 防「登记了个空壳」：只有负向断言时，白名单加个名字也能全绿 |
+| 5 | `apps/desktop/tests/permissions.test.mjs` S15 | 7 个已删除方法 `validateCall` **真跑**必须全拒 | 4 个（去掉三方法） | 同上 |
+| 6 | 同文件 **S15b（新增）** | —— | 三方法 `validateCall` **真跑**必须放行 | 与 S15 成对，才有判别力 |
+| 7 | `apps/desktop/tests/item-actions.test.mjs`（解析器自检） | gone = mutate/indexStart/libraryConfig | gone = mutate/libraryConfig；**正向**断言 indexStart 在白名单 | U35；解析器自检仍防「悄悄失效」 |
+| 8 | `apps/desktop/e2e/fake-mode.spec.mjs` E8-d | 模拟模式下 indexStart 必须 `BAD_REQUEST` | 模拟模式下 indexStart **成功**（jobId 匹配 `/^j-fake-/`）；`exec` 仍 `BAD_REQUEST`；libraryList 仍可用 | 恢复后它合法；**负向断言原样保留**，只加正向 |
+| 9 | 同文件 E8-f | 真实模式下 indexStart 必须 `BAD_REQUEST` | 真实模式 **`INTERNAL`** + `message` 含 IDX-2b + `userMessage` 非空 | 恢复后已过白名单，但真实实现未接线 ⇒ **如实**（P6：不静默成功） |
+| 10 | `packages/engine/tests/fake.test.mjs` F17 | 假套件键 == `UNIMPLEMENTED_METHODS`（6）；真实模式全部 INTERNAL；模拟模式全部 ok | 假套件键 == `UNIMPLEMENTED_METHODS ∪ INDEX_JOB_METHODS`；真实模式：3 个写操作 INTERNAL（笼统文案）+ 3 个索引任务 INTERNAL 且 message 含 IDX-2b；模拟模式全部 ok | 清单拆分后逐一对账不能只管一份 |
+| 11 | `reports/2026-10-15-wave3/s6.txt` | §1 明确写「三方法已删除」 | **原文一字未改**；文首追加**修正公告**段（引用本翻转表） | 纪律：基线证据不许改原文（照 `b2-5.txt` 的做法） |
+| 12 | `renderer/**` + `e2e/tasks.spec.mjs:29-31`（**本卡不改**） | TasksPage 写「契约里已经没有 …」；tasks.spec 断言这段文案；item-actions 里 reencode 标 `op:null` | 不变 | 渲染层属 **IDX-3**（本卡边界）；因此这些**现在仍然绿**（文案没变），但文案**已过期** ⇒ IDX-3 必须一并改 |
+
+
+===== 2. 契约形状（照 fake.ts 已实现的，不新造） =====
+| 方法 | 入参（zod，全部 `.strict()`） | 出参（引擎返回，运行时） |
+|---|---|---|
+| `indexStart` | `{ libId?: LibId, device?: string(≤64), seq?: int 0..1e6, rebuild?: boolean }` | `{ jobId, total, phase, reused? }` |
+| `indexCancel` | `{ jobId?: string(1..64) }`（省略 = 取消当前那个） | `unknown`（成功即已取消） |
+| `indexResume` | `{ jobId?: string(1..64) }` | 同 `indexStart` |
+形状来源：`packages/engine/src/fake.ts:203-215`（`StartJobRequest`/`StartJobResult`）与 `:248`（`FakeJobRequest`）—— 未新增第二套定义。
+进度事件：`index.progress` / `index.done`（fake.ts 已发；单调不减由 fake 的现有用例 F4/F6b/F8 钉住，本卡未改语义）。
+
+
+===== 3. 能红（原始输出） =====
+把 `indexStart` 从 `shared/ipc.ts` 的白名单里**临时删掉**：
+✖ C1 ⭐⭐ 白名单 = 基线 §2.2 的 20 个 + S8 的 items + U27 的 appHealth = 22 个（集合相等，多一个少一个都红）
+✖ C2b ⭐ U35 恢复的三个方法**真的回到白名单**：有 schema、能过 validateCall（正向对照）
+ℹ tests 4 · pass 2 · fail 2
+还原后：ℹ tests 4 · pass 4 · fail 0
+⇒ 契约测试对「白名单少了恢复的方法」**真的会红**（不是只靠文档）。
+
+
+===== 4. 门禁（本轮实测） =====
+· `tsc --noEmit -p tsconfig.node.json` ⇒ **error TS = 0**；`-p tsconfig.web.json` ⇒ **error TS = 0**
+· `prettier --check`（本次改动的 7 个源文件）⇒ **All matched files use Prettier code style!**（exit 0）
+· `eslint`（同一批文件）⇒ **exit 0**（`packages/engine/src` 与 `shared/ipc.ts` 被 eslint 配置忽略，属既有现状）
+· 引擎全量（`node --test packages/engine/tests/*.test.mjs`）⇒ **连续两次 exit=0、无 ✖**（179 tests / 178 pass / 1 skipped 是上个任务的基线数字）
+  ⚠️ 本轮曾出现**一次**未复现的失败（第一次跑时 tail 里有一条 AssertionError，未捕获到用例名），随后连续两次全绿；
+     若后续复现需单独追查 —— **不**把「没复现」说成「不存在」。
+· desktop 受影响面（ipc-contract-s6 / permissions / item-actions / items-ipc / library-methods）⇒ **53 tests · pass 53 · fail 0**
+· **未跑**：`npm test` 全量、`npm run e2e`、`build` —— 按卡片纪律等你开窗口（e2e 会起 Electron，且 ENC-1 在跑）。
+
+
+===== 5. 建议的 SPEC §6 措辞（由你落笔，我不改规格） =====
+在 §6 方法清单里补三条（位置建议紧挨 `indexStatus`，语义相邻）：
+
+```text
+indexStart  { libId?, device?, seq?, rebuild? }  →  { jobId, total, phase, reused? }
+  开始一次索引任务。进度通过 index.progress / index.done 事件推送（单调不减、不静默）。
+  真实实现：IDX-2b 接入；在此之前真实模式**如实返回 INTERNAL**（message 含「IDX-2b」），模拟模式可完整演示。
+
+indexCancel { jobId? }  →  {}
+  取消任务；jobId 省略 = 取消当前任务。取消在**阶段边界**生效（不打断正在写的那一批）。
+
+indexResume { jobId? }  →  { jobId, total, phase, reused? }
+  续跑。能否复用已有结果由引擎按 **compat** 判定：不等则**不复用**并在返回/事件里说明原因。
+```
+
+另建议 §6 的方法计数同步（22 → 25），并在「已知未接线」清单里只保留 ingest / mutate / transactions。
+
+
+===== 6. 未做 / 交给 IDX-3（本卡边界：不碰渲染层） =====
+1. `renderer/src/pages/TasksPage.tsx:3,54` —— 文案仍写「契约里已经没有 indexStart/Cancel/Resume」，**已过期**；
+   `e2e/tasks.spec.mjs:29-31` 断言的正是这段文案（现在仍绿，因为文案没变）。⇒ IDX-3 改文案时**同一条 e2e 一起翻**。
+2. `renderer/src/utils/item-actions.ts:138-140` —— 「重新编码这一条」仍标 `op:null`（**这是对的**：契约里只有整库 indexStart，
+   没有「只重建一条」）；但注释里「契约里只有整库 indexStart」现在才真正成立 ⇒ IDX-3 可考虑放开「整库重建」的入口。
+3. 真实实现（进度/取消/续跑接到真实索引）—— IDX-2b。

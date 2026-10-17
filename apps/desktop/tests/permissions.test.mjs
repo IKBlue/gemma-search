@@ -324,20 +324,14 @@ test('thumb:// 的合法形状能正常解出三要素（防止"全拒"骗过上
 
 // ============================================ 已删除的方法一律被拒（2026-10-15 · S6）
 
-test('S15 ⭐⭐ 6 个诚实桩 + libraryConfig 已从契约删除 ⇒ validateCall **真跑一次**必须全部拒绝', () => {
+test('S15 ⭐⭐ 已删除的写操作桩 + libraryConfig ⇒ validateCall **真跑一次**必须全部拒绝', () => {
+  // ⚠️ 2026-10-17 · U35 翻转：原清单 7 个里 indexStart/Cancel/Resume 已由所有者批准恢复登记，
+  //    ⇒ 本清单只剩 4 个；三个恢复的方法由 S15b 正向钉住。
   // ⚠️ 2026-10-15 · S6（绿地基线 §2.2）：ingest / mutate / transactions / indexStart / indexCancel / indexResume
   //    全部删除（对应的表还没建）；libraryConfig 改名 libraryList（删旧名，不留两套）。
   //    这条**逐条真跑**（不是查数组）：把它们当合法调用发出去，必须被白名单拦成 ok:false。
   //    旧版 S15 断言的是「mutate 的 undo 不要求 uid」—— mutate 已不存在，那条随之退场。
-  const deleted = [
-    'ingest',
-    'mutate',
-    'transactions',
-    'indexStart',
-    'indexCancel',
-    'indexResume',
-    'libraryConfig',
-  ];
+  const deleted = ['ingest', 'mutate', 'transactions', 'libraryConfig'];
   for (const name of deleted) {
     assert.ok(!METHOD_NAMES.includes(name), `${name} 不该还在白名单里：${METHOD_NAMES.join(',')}`);
     const r = validateCall(name, { libId: 'L1', op: 'undo', jobId: 'j-1', limit: 1 });
@@ -368,6 +362,21 @@ test('S15 ⭐⭐ 6 个诚实桩 + libraryConfig 已从契约删除 ⇒ validateC
       METHOD_NAMES.includes(name),
       `${name} 是**保留**方法，不该被删：${METHOD_NAMES.join(',')}`,
     );
+  }
+});
+
+test('S15b ⭐ U35 恢复的三个方法：validateCall **真跑**必须放行（与 S15 的负向断言成对）', () => {
+  // ⚠️ 2026-10-17 · U35（所有者「批」）：indexStart / indexCancel / indexResume 恢复登记。
+  //    S15 只证「已删除的必须被拒」；这条证「已恢复的必须真的能过」—— 两条一起才有判别力。
+  const accepted = {
+    indexStart: { libId: 'L1', device: 'cpu' },
+    indexCancel: { jobId: 'j-1' },
+    indexResume: { jobId: 'j-1' },
+  };
+  for (const [name, payload] of Object.entries(accepted)) {
+    assert.ok(METHOD_NAMES.includes(name), name + ' 必须回到白名单（U35）');
+    const r = validateCall(name, payload);
+    assert.equal(r.ok, true, name + ' 的合法载荷必须放行：' + JSON.stringify(r));
   }
 });
 

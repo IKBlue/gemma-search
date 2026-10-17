@@ -37,6 +37,10 @@ test('C1 ⭐⭐ 白名单 = 基线 §2.2 的 20 个 + S8 的 items + U27 的 app
     'appMeta',
     // 2026-10-16 · U27 新增：应用自身健康（只读；SPEC §6 第 22 个方法）
     'appHealth',
+    // 2026-10-17 · U35 恢复（所有者「批」）：索引任务三方法回到契约
+    'indexStart',
+    'indexCancel',
+    'indexResume',
   ].sort();
   assert.deepEqual(
     [...METHOD_NAMES].sort(),
@@ -45,16 +49,10 @@ test('C1 ⭐⭐ 白名单 = 基线 §2.2 的 20 个 + S8 的 items + U27 的 app
   );
 });
 
-test('C2 已删除的 7 个名字（6 桩 + libraryConfig）**一个都不在**白名单里', () => {
-  for (const gone of [
-    'ingest',
-    'mutate',
-    'transactions',
-    'indexStart',
-    'indexCancel',
-    'indexResume',
-    'libraryConfig',
-  ]) {
+test('C2 已删除的名字（3 个写操作桩 + libraryConfig）**一个都不在**白名单里', () => {
+  // ⚠️ 2026-10-17 · U35 翻转：原断言列了 7 个（6 桩 + libraryConfig），其中 indexStart/Cancel/Resume
+  //    已由所有者批准**恢复登记** ⇒ 从本清单移除（不是放宽：它们现在由 C2b 正向钉住）。
+  for (const gone of ['ingest', 'mutate', 'transactions', 'libraryConfig']) {
     assert.ok(!METHOD_NAMES.includes(gone), gone + ' 不该还在白名单里');
     assert.equal(
       Object.prototype.hasOwnProperty.call(Methods, gone),
@@ -64,14 +62,32 @@ test('C2 已删除的 7 个名字（6 桩 + libraryConfig）**一个都不在**�
   }
 });
 
+test('C2b ⭐ U35 恢复的三个方法**真的回到白名单**：有 schema、能过 validateCall（正向对照）', () => {
+  const payloads = {
+    indexStart: { libId: 'L1', device: 'cpu', seq: 3, rebuild: false },
+    indexCancel: { jobId: 'j-1' },
+    indexResume: { jobId: 'j-1' },
+  };
+  for (const [name, payload] of Object.entries(payloads)) {
+    assert.ok(METHOD_NAMES.includes(name), name + ' 必须回到白名单（U35）');
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(Methods, name),
+      true,
+      name + ' 必须有 zod 形状',
+    );
+    const r = validateCall(name, payload);
+    assert.equal(r.ok, true, name + ' 的合法载荷必须能过校验：' + JSON.stringify(r));
+  }
+  // 形状是 strict 的：多塞字段要被拒（证明不是"登记了个空壳"）
+  assert.equal(validateCall('indexStart', { libId: 'L1', bogus: 1 }).ok, false);
+});
+
 test('C3 白名单是**唯一闸门**：未登记名字（含已删除的）一律拒绝，且理由一致', () => {
+  // ⚠️ 2026-10-17 · U35 翻转：indexStart/Cancel/Resume 已恢复 ⇒ 从此清单移除（它们的正向断言在 C2b）。
   for (const name of [
     'ingest',
     'mutate',
     'transactions',
-    'indexStart',
-    'indexCancel',
-    'indexResume',
     'libraryConfig',
     'exec',
     '__proto__',

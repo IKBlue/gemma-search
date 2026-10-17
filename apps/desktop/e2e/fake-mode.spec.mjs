@@ -73,14 +73,12 @@ test('E8-c `indexStatus` 在模拟模式下报 3 个库，且含"索引损坏"�
   }
 });
 
-test('E8-d ⭐⭐ 未登记方法在**模拟模式下也被拒**（白名单是唯一闸门，模拟模式不放行任何未登记方法）', async () => {
-  // ⚠️ 2026-10-15 · S6：**断言变强**，不是放宽。
-  //   改前：indexStart 在模拟模式下**必须成功**（返回值里 jobId 匹配 /^j-fake-/）——
-  //         那是「引擎桩为诚实桩提供假实现」的年代。
-  //   改后：indexStart 已按绿地基线 §2.2 从契约删除 ⇒ 现在要求它**无论如何都被拒**（BAD_REQUEST），
-  //         并且**同一个窗口里** libraryList（启动期方法）照常可用 —— 证明拒绝来自白名单，而不是整个 IPC 坏了。
-  //   为什么这不是放宽：旧断言保证「某个方法能跑」；新断言保证「删掉的方法在任何模式下都跑不了」，
-  //         而且多了一条正向对照。删掉的方法越多，这条负向断言越有价值。
+test('E8-d ⭐⭐ 白名单是唯一闸门：U35 恢复的 indexStart 在模拟模式下**能演示**，未登记方法仍被拒', async () => {
+  // ⚠️ 2026-10-17 · U35 **翻转**（历史保留）：
+  //   改前（2026-10-15 · S6）：indexStart 已从契约删除 ⇒ 要求它**无论如何都被拒**（BAD_REQUEST）。
+  //   改后（所有者「批」恢复登记，TASKS U35）：模拟模式下它必须**真的跑起来** ——
+  //         假套件已实现（jobId 形如 j-fake-*），且同一个窗口里 exec 仍 BAD_REQUEST、libraryList 仍可用。
+  //   为什么不是放宽：负向断言（exec 必拒）**原样保留**；新增的是**正向**断言（恢复的方法真的能用）。
   const { app, cleanup } = await launchFake();
   try {
     const win = await firstWindow(app);
@@ -91,12 +89,14 @@ test('E8-d ⭐⭐ 未登记方法在**模拟模式下也被拒**（白名单是�
       const code = (res) => (res.ok ? null : res.error.code);
       return {
         started: code(started),
+        jobId: started.ok ? started.data.jobId : null,
         bogus: code(bogus),
         aliveOk: alive.ok,
         aliveN: alive.ok ? alive.data.libraries.length : null,
       };
     });
-    expect(r.started, 'indexStart 已从契约删除 ⇒ 模拟模式下也必须 BAD_REQUEST').toBe('BAD_REQUEST');
+    expect(r.started, 'U35 恢复后：模拟模式下 indexStart 必须可用（假套件已实现）').toBeNull();
+    expect(r.jobId, '假套件的 jobId 形如 j-fake-*').toMatch(/^j-fake-/);
     expect(r.bogus, '未登记方法（exec）同样必须 BAD_REQUEST').toBe('BAD_REQUEST');
     expect(r.aliveOk, '对照：已登记的启动期方法在同一个窗口里必须可用').toBe(true);
     expect(r.aliveN).toBeGreaterThan(0);
@@ -123,10 +123,11 @@ test('E8-e `itemPaths` 在真窗口里返回两条绝对路径（P3c 的数据�
   }
 });
 
-test('E8-f ⭐ 真实模式（不设 GEMMA_FAKE）**也拒绝**已删除的方法 —— 两种模式下口径一致', async () => {
-  // ⚠️ 2026-10-15 · S6：这条原先证「模拟放行 / 真实拒绝」的**模式差异**；
-  //   方法删除之后那个差异**不存在了** ⇒ 改成证「两种模式都拒」，并且都拒在**白名单**这一层。
-  //   （旧断言在此已无意义：它要求模拟模式放行一个现在不存在的方法。）
+test('E8-f ⭐ 真实模式下 indexStart **如实报未接线**（INTERNAL + 说明 IDX-2b），绝不静默成功', async () => {
+  // ⚠️ 2026-10-17 · U35 **翻转**（历史保留）：
+  //   改前（S6）：方法不在契约 ⇒ 真实模式必须 BAD_REQUEST（白名单拒绝）。
+  //   改后：恢复登记后它已过白名单 ⇒ 真实模式由**引擎**返回 INTERNAL，message 说明「IDX-2b 接入」。
+  //   为什么不是放宽：仍然 ok === false（**不静默成功**，P6），只是错误码从「白名单拒绝」变成「如实未实现」。
   const real = await launchWithLibrary();
   try {
     const win = await firstWindow(real.app);
@@ -134,16 +135,24 @@ test('E8-f ⭐ 真实模式（不设 GEMMA_FAKE）**也拒绝**已删除的方�
       const res = await window.api.invoke('indexStart', { libId: 'L1' });
       return res.ok
         ? { ok: true }
-        : { ok: false, code: res.error.code, msg: res.error.userMessage };
+        : {
+            ok: false,
+            code: res.error.code,
+            msg: res.error.message,
+            userMsg: res.error.userMessage,
+          };
     });
     expect(off.ok, '真实模式不许假装成功').toBe(false);
-    expect(off.code, '删掉的方法在真实模式下也必须是白名单拒绝（BAD_REQUEST）').toBe('BAD_REQUEST');
-    expect(off.msg).toBeTruthy();
+    expect(off.code, '恢复登记后不再走白名单拒绝（BAD_REQUEST），而是如实 INTERNAL').toBe(
+      'INTERNAL',
+    );
+    expect(off.msg, 'message 要说清真实实现何时接（IDX-2b）').toMatch(/IDX-2b/);
+    expect(off.userMsg).toBeTruthy();
 
     // `itemPaths` 是**只读**方法，两种模式都该可用（它不是模拟专属）。
-    // 要证的是"它真的进了 IPC 白名单" —— 判据是**不是 `BAD_REQUEST`**
+    // 要证的是「它真的进了 IPC 白名单」—— 判据是**不是 `BAD_REQUEST`**
     // （白名单外会被 zod 先拦成 BAD_REQUEST「请求参数不合法」）。
-    // 夹具迷你库没有索引 ⇒ 走到引擎会是 `INDEX_MISSING`，那也是"过了白名单"的证据。
+    // 夹具迷你库没有索引 ⇒ 走到引擎会是 `INDEX_MISSING`，那也是「过了白名单」的证据。
     const ip = await win.evaluate(async () => {
       const res = await window.api.invoke('itemPaths', { libId: 'L1', uid: 'a00000000001' });
       return { ok: res.ok, code: res.ok ? null : res.error.code };

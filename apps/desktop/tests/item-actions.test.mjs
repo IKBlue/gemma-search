@@ -238,9 +238,14 @@ test('IA3 ⭐⭐ 界面上的「有没有后端」必须与 `ipc.ts` 的白名�
     `方法白名单解析可疑：${[...methods].join(',')}`,
   );
   // 已删除的方法**不该**再出现在白名单里（解析器自检，避免它悄悄失效）
-  for (const gone of ['mutate', 'indexStart', 'libraryConfig']) {
+  // ⚠️ 2026-10-17 · U35 翻转：indexStart 已由所有者批准恢复登记 ⇒ 从 gone 移除，并**正向**断言它在
+  for (const gone of ['mutate', 'libraryConfig']) {
     assert.ok(!methods.has(gone), `已删除的方法仍被解析到：${gone} —— 解析器或契约有一边不对`);
   }
+  assert.ok(
+    methods.has('indexStart'),
+    'U35 恢复：indexStart 必须回到白名单 —— 否则「整库重建」这条动作永远没有后端',
+  );
 
   for (const a of buildItemActions({ item: ITEM, indexState: INDEX_STATES.stale })) {
     if (a.op === null) {

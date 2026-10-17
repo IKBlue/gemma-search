@@ -51,15 +51,23 @@ export const BANDS: Readonly<Record<string, { high: number; mid: number }>> = Ob
  * 模拟模式（契约 §8）下这些方法由 `fake.ts` 提供假实现 —— 那时主进程**不**拒绝。
  * 假套件返回对象的键**与这份清单一一对应**（`fake.test.mjs` 的 **F17** 会断言），
  * 所以引擎侧只要 `fakeKit[name]`，不需要另维护映射表。
+ *
+ * ⚠️ 2026-10-17 · U35（所有者「批」）：`indexStart` / `indexCancel` / `indexResume` **已移出本清单**
+ *   ⇒ 它们回到契约（`shared/ipc.ts`），见下面的 `INDEX_JOB_METHODS`。这里只剩 3 个写操作。
  */
-export const UNIMPLEMENTED_METHODS = Object.freeze([
-  'ingest',
-  'mutate',
-  'transactions',
-  'indexStart',
-  'indexCancel',
-  'indexResume',
-]);
+export const UNIMPLEMENTED_METHODS = Object.freeze(['ingest', 'mutate', 'transactions']);
+
+/**
+ * 索引任务三方法（契约 §2.6/§3；**U35 恢复**，2026-10-17 所有者「批」）。
+ *
+ * 与 `UNIMPLEMENTED_METHODS` 的区别（差别决定它们**不能**并进那份清单）：
+ *   · **已在契约里**（`shared/ipc.ts` 白名单 + zod 形状）⇒ 可调用、**模拟模式能演示**；
+ *   · **真实实现还没接线**（IDX-2b）⇒ 真实模式必须**如实**返回 `INTERNAL`，message 里说明
+ *     「IDX-2b 接入」，**绝不静默成功**（P6）。钉住位置：`fake.test.mjs` F17 · e2e E8-f。
+ * ⚠️ 若并进 `UNIMPLEMENTED_METHODS`，主进程会在进引擎**之前**就拒绝 ⇒ 连模拟模式都到不了引擎，
+ *    而这三个在模拟模式下必须真的跑起来（演示进度/取消/续跑）。
+ */
+export const INDEX_JOB_METHODS = Object.freeze(['indexStart', 'indexCancel', 'indexResume']);
 
 /** 从捕获到的异常里取 `code`（引擎抛的 EngineError 与 node 的 fs 错误都带它） */
 function codeOf(e: unknown): string | undefined {
@@ -754,6 +762,34 @@ export function createEngine({
     });
   }
 
+  /**
+   * 「形状已冻结、真实实现还没接线」的成员生成器。
+   *
+   * ⚠️ **一份实现、两处使用**（P2）：`UNIMPLEMENTED_METHODS`（写操作；主进程会提前拒）
+   *    与 `INDEX_JOB_METHODS`（索引任务三方法；U35 回到契约但真实实现在 IDX-2b）。
+   *    两处的差别**只有真实模式下的错误内容**（message/details），行为分支本身一模一样。
+   */
+  const pendingMembers = (
+    names: readonly string[],
+    realMode: { message: string; details?: Record<string, unknown> },
+  ): Record<string, (req: unknown) => Promise<unknown>> =>
+    Object.fromEntries(
+      names.map((name): [string, (req: unknown) => Promise<unknown>] => [
+        name,
+        (req) =>
+          envelope(async () => {
+            if (!fakeKit)
+              throw fail(ERR.INTERNAL, realMode.message, { method: name, ...realMode.details });
+            const fn = fakeKit[name];
+            if (!isFakeMethod(fn)) {
+              // 假套件里少接一个方法 = 契约 §8 的演示能力缺一块，必须显式炸而不是静默 undefined
+              throw fail(ERR.INTERNAL, `模拟套件缺少实现：${name}`, { method: name });
+            }
+            return fn(req);
+          }),
+      ]),
+    );
+
   // ---------------- 公开接口（每个都套信封） ----------------
   const api = {
     registry,
@@ -871,21 +907,11 @@ export function createEngine({
     //    不另设"方法名→套件名"的映射表（那种表两个方向都会漂移）。
     //    主进程也读这份清单来给出**一致的**用户文案（`main/index.mjs`）——
     //    这样"哪些没做"全仓只有一处定义（P1）。
-    ...Object.fromEntries(
-      UNIMPLEMENTED_METHODS.map((name): [string, (req: unknown) => Promise<unknown>] => [
-        name,
-        (req) =>
-          envelope(async () => {
-            if (!fakeKit) throw fail(ERR.INTERNAL, '这个功能还没做好。', { method: name });
-            const fn = fakeKit[name];
-            if (!isFakeMethod(fn)) {
-              // 假套件里少接一个方法 = 契约 §8 的演示能力缺一块，必须显式炸而不是静默 undefined
-              throw fail(ERR.INTERNAL, `模拟套件缺少实现：${name}`, { method: name });
-            }
-            return fn(req);
-          }),
-      ]),
-    ),
+    ...pendingMembers(UNIMPLEMENTED_METHODS, { message: '这个功能还没做好。' }),
+    ...pendingMembers(INDEX_JOB_METHODS, {
+      message: '索引任务在真实模式下还没接线（IDX-2b 接入）；模拟模式可用 GEMMA_FAKE=1 演示。',
+      details: { plannedIn: 'IDX-2b' },
+    }),
     reveal: ({ libId, uid, target = 'archive' }: RevealRequest = {}) =>
       envelope(async () => {
         const id = libId ?? '';
