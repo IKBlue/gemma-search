@@ -46,6 +46,7 @@ import { createRevealPort } from './ports.ts';
 import { createLibraryResolverPort, createStoragePorts } from './storage-ports.ts';
 import { runLibraryHealth, runLibraryRebuild } from './library-ipc.ts';
 import { runMetaGet, runMetaSet } from './meta-ipc.ts';
+import { runActivityList, runExportList, runRecentQueries } from './history-ipc.ts';
 import { recordCollectBatch } from './collect-ledger.ts';
 import { createIndexingPorts } from './index-adapter.ts';
 import { createIndexJobRecorder } from './index-jobs.ts';
@@ -939,7 +940,11 @@ function registerIpc(): void {
       v.method === 'libraryRebuild' ||
       // WIRE-C：条目标注读写（库级表；实现体在 main/meta-ipc.ts，metaGet 只读、缺库不代建）
       v.method === 'metaGet' ||
-      v.method === 'metaSet'
+      v.method === 'metaSet' ||
+      // HIST-1：三张只写不读的表的**读路径**（只读打开；缺库 DB_MISSING，不代建）
+      v.method === 'recentQueries' ||
+      v.method === 'activityList' ||
+      v.method === 'exportList'
     ) {
       const res = await handleLibraryMethod(v.method, v.params);
       log(`invoke ${v.method} ${Date.now() - started}ms → ${resultCode(res)}`);
@@ -1076,6 +1081,27 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
     return method === 'metaGet'
       ? runMetaGet(input)
       : runMetaSet({ ...input, rating: p.rating, note: p.note, isFavorite: p.isFavorite });
+  }
+
+  // ---- HIST-1：三张表的读路径（实现体在 main/history-ipc.ts；只读打开、缺库不代建）----
+  if (method === 'recentQueries' || method === 'activityList' || method === 'exportList') {
+    const p = (params && typeof params === 'object' ? params : {}) as {
+      libId?: unknown;
+      limit?: unknown;
+      offset?: unknown;
+      kind?: unknown;
+    };
+    const r = librariesResolved();
+    const input = {
+      userDataDir: USER_DATA_DIR,
+      libraries: r.libraries.map((l) => ({ libId: l.libId, root: l.root })),
+      legacyLibrariesDir: path.join(DATA_DIR, 'libraries'),
+    };
+    if (method === 'recentQueries') return runRecentQueries({ ...input, limit: p.limit });
+    if (method === 'activityList') {
+      return runActivityList({ ...input, limit: p.limit, offset: p.offset, kind: p.kind });
+    }
+    return runExportList({ ...input, libId: p.libId, limit: p.limit, offset: p.offset });
   }
 
   if (method === 'libraryList') {

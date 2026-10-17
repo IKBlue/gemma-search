@@ -1,0 +1,74 @@
+================================================================================
+HIST-1 证据 · 三张"只写不读"的表的**读路径**（recent_query · activity · asset_export）
+任务板 id: task-127   执行: db-worker   日期: 2026-10-17
+边界：shared/ipc.ts（本轮只有我改）· main/history-ipc.ts（新）· main/index.ts 分发 · 测试 · 证据
+      **未碰渲染层**（界面 = HIST-2）· **未碰 migrations**
+===============================================================================
+
+【结论】
+· 三个**只读**方法接出：`recentQueries` / `activityList` / `exportList`；实现体 `main/history-ipc.ts`（不 import electron ⇒ 可直测）。
+· 三条硬要求逐条机械钉住（H1–H5 **5/5**；三组能红**实测**并逐字节还原）。
+· 全量 `npm test` ⇒ **806 / pass 805 / fail 0 / skipped 1**；prettier 0 · lint 0 · tsc node/web 0 · s4 **21/0/0**。
+
+【契约与 SPEC 建议措辞】
+```
+recentQueries { limit? }                  → { rows: [{ q, scopeLibId, at, hits }], total }
+activityList  { limit?, offset?, kind? }  → { rows: [{ id, kind, subjectKind, subjectId, at, result, detail }], total }
+exportList    { libId?, limit?, offset? } → { rows: [{ exportId, batchId, uid, kind, at, outcome }], total }
+```
+· 「`recentQueries` / `activityList` 读**应用级** app.db；`exportList` 读**库级** .gs.db（需 `libId`）。三者都**只读**：
+  库不存在 ⇒ `DB_MISSING`，**不得**顺手建库/迁移。」
+· 「返回**时间降序**；**同毫秒必须按主键降序裁决**（`query_id`/`activity_id`/`export_id`）——
+  只按时刻排序时同毫秒顺序不稳定，用户会看到"历史顺序自己变了"。」
+· 「`total` 是**筛选后**总数；`offset` 越界返回**空数组**且 `total` 仍如实（不截断成"没有更多"）。」
+· 「`activityList.kind` 可选筛选；`limit` 1..200（缺省 50）。」
+
+【三条硬要求 → 测试】
+① **只读 / 缺库不代建**（H4）：无 app.db ⇒ `activityList`/`recentQueries` 都 `DB_MISSING`，且**目录里仍没有 app.db**；
+   无 .gs.db ⇒ `exportList` `DB_MISSING` 且**不代建**；H5 源码扫描：history-ipc 里**没有写 SQL** 且必须有 `readOnly: true`。
+   ⚠️ 实现要点：应用级走 `openNodeSqlite(path,{readOnly:true})`（**不是** `openAppDb`——那个会建库+迁移）。
+② **排序稳定**（H1/H2/H3）：`ORDER BY at_ms DESC, <主键> DESC`；用**同一毫秒两行**实测：
+   activity ⇒ `['b','a','old']`；recent_query ⇒ 同毫秒按 `query_id DESC`；export ⇒ 同毫秒按 `export_id DESC`；
+   并断言**重复查询顺序一致**。
+③ **分页如实**（H1/H3）：造 3 行、`limit=2` ⇒ rows=2 且 **total=3**；`offset=10` ⇒ rows=[] 且 total=3；
+   `kind` 筛选后 `total` 也是筛选后总数（`purge` ⇒ 0）。
+
+【三组能红（实测原文 · 全部还原）】
+① **去掉平局裁决**（activity 改 `ORDER BY at_ms DESC, activity_id ASC`）
+```
+✖ H1 … AssertionError: 同毫秒按 id DESC 裁决
+    actual: [ 'a', 'b', 'old' ],
+    expected: [ 'b', 'a', 'old' ],
+```
+② **total 不是筛选后总数**（改成 `-1`）
+```
+✖ H1 … AssertionError: total = 总数（不是本页行数）
+    actual: -1,
+    expected: 3,
+```
+③ **读路径代建库**（去掉缺库守卫 + 用写模式打开）
+```
+✖ H4 … AssertionError: 读路径**不许**把 app.db 建出来
+    actual: true,
+    expected: false,
+```
+还原证据：三处都用注入前原文换回；`history-ipc.ts` 还原后 **SHA256 与注入前相同**；复跑 **5/5 绿**（REPLAY=0）。
+
+【C1 白名单翻转表（27 → 30）】
+| 阶段 | 大小 | 变化 |
+|---|---|---|
+| 基线 §2.2 + S8 items + U27 appHealth | 22 | —— |
+| U35（所有者「批」）恢复索引三方法 | 25 | +indexStart +indexCancel +indexResume |
+| WIRE-C（所有者已批）标注读写 | 27 | +metaGet +metaSet |
+| **HIST-1（只读）三条读路径** | **30** | **+recentQueries +activityList +exportList** |
+为什么不是放宽：仍是**集合相等**（多一个少一个都红），且三方法各有行为断言（history-ipc.test.mjs），不是"顺手多留一个桩"。
+
+【收口门禁（本轮实测）】
+`npm test`（**全量**）⇒ **tests 806 / pass 805 / fail 0 / skipped 1** ·
+`prettier --check .` **0** · `npm run lint` **0** · `tsc` node **0** · `tsc` web **0** · `s4-accept` **PASS 21 / FAIL 0 / SKIP 0**。
+（e2e 未跑：本卡只有 main 读层，无界面变更 —— 界面句柄在 HIST-2；全量 e2e 由 Lead 开窗口跑。）
+
+【边界（P6）】
+· **界面仍看不到历史**（HIST-2 才做 UI）；本卡只保证**读路径**可用且诚实（缺库报 DB_MISSING，不造假）。
+· `exportList` 需要 `libId`：交付历史是**库级**表；未传 ⇒ `BAD_REQUEST`（不猜"所有库合并"）。
+================================================================================

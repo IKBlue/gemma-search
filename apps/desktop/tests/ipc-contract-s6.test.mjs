@@ -8,12 +8,13 @@ import { test } from 'node:test';
 
 import { METHOD_NAMES, Methods, validateCall } from '../src/shared/ipc.ts';
 
-test('C1 ⭐⭐ 白名单集合相等（U35 恢复三方法 + WIRE-C 新增两方法 ⇒ 27 个，多一个少一个都红）', () => {
+test('C1 ⭐⭐ 白名单集合相等（U35 + WIRE-C + HIST-1 ⇒ 30 个，多一个少一个都红）', () => {
   // ── 翻转表（照 idx2a.txt §1 的格式；历史保留）────────────────────────────────
   // | 阶段 | 集合大小 | 变化 |
   // | 基线 §2.2 + S8 items + U27 appHealth          | 22 | —— |
   // | U35（所有者「批」）恢复索引三方法                | 25 | +indexStart +indexCancel +indexResume |
   // | **WIRE-C（本卡 · 所有者已批）新增标注读写**      | **27** | **+metaGet +metaSet** |
+  // | **HIST-1（只读）新增三条读路径**                 | **30** | **+recentQueries +activityList +exportList** |
   // 为什么不是放宽：仍然**集合相等**（多一个少一个都红）；新增的两项是**契约变更**，已由 Lead 报所有者批准，
   //   且各自有行为/字段断言（metaGet/metaSet 的语义在 user-meta.test.mjs 里钉住），不是"顺手多留一个桩"。
   const expected = [
@@ -51,6 +52,10 @@ test('C1 ⭐⭐ 白名单集合相等（U35 恢复三方法 + WIRE-C 新增两�
     // 2026-10-17 · WIRE-C（所有者已批，与 U35 同批契约变更）：条目标注读写
     'metaGet',
     'metaSet',
+    // 2026-10-17 · HIST-1（只读）：三张只写不读的表的读路径
+    'recentQueries',
+    'activityList',
+    'exportList',
   ].sort();
   assert.deepEqual(
     [...METHOD_NAMES].sort(),

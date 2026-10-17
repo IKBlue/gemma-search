@@ -81,6 +81,32 @@ export const Methods = {
   metaGet: z.object({ libId: LibId, uid: Uid }).strict(),
 
   /**
+   * `recentQueries` / `activityList` / `exportList` —— **三张"只写不读"的表接出读路径**（HIST-1）。
+   *
+   * 三条硬要求（每张表都适用）：
+   *   ① **只读**：不许建表/建库/迁移；**缺库 ⇒ `DB_MISSING`**，绝不代建（warmup 回归的同族）；
+   *   ② **排序稳定**：时间**降序** + **同毫秒平局裁决**（按主键再降序）—— 只按时刻排会"顺序自己变了"；
+   *   ③ **分页如实**：`total` 是**筛选后**总数；`offset` 越界 ⇒ 空数组，不截断成"没有更多"。
+   */
+  recentQueries: z.object({ limit: z.number().int().min(1).max(200).optional() }).strict(),
+
+  activityList: z
+    .object({
+      limit: z.number().int().min(1).max(200).optional(),
+      offset: z.number().int().min(0).max(1_000_000).optional(),
+      kind: z.string().max(32).optional(),
+    })
+    .strict(),
+
+  exportList: z
+    .object({
+      libId: LibId.optional(),
+      limit: z.number().int().min(1).max(200).optional(),
+      offset: z.number().int().min(0).max(1_000_000).optional(),
+    })
+    .strict(),
+
+  /**
    * 部分更新：`rating` / `note` 允许 `null`（= 清空）；**不传 = 不动**。
    * `isFavorite` 是布尔（false = 取消收藏）；表里 NOT NULL DEFAULT 0，没有"未设置"这一档。
    */
