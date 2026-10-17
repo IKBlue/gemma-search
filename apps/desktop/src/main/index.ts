@@ -46,6 +46,8 @@ import { createRevealPort } from './ports.ts';
 import { createLibraryResolverPort, createStoragePorts } from './storage-ports.ts';
 import { runLibraryHealth, runLibraryRebuild } from './library-ipc.ts';
 import { recordCollectBatch } from './collect-ledger.ts';
+import { createIndexingPorts } from './index-adapter.ts';
+import { createIndexJobRecorder } from './index-jobs.ts';
 import type { CollectOutcomeRow } from './collect-ledger.ts';
 import { classifyRootSync, probeRoots } from './library-availability.ts';
 import { createDialogPathGate } from './dialog-paths.ts';
@@ -517,6 +519,42 @@ function emit(evt: unknown): void {
   if (winRef.win && !winRef.win.isDestroyed()) winRef.win.webContents.send(CH_EVENT, evt);
 }
 
+// ---------------------------------------------------------------- 索引任务（IDX-2b2）
+//
+// 三件事的接线都在这里，别处不许再写：
+//   · 注入 `indexing` 端口（builder + 唯一原子写，见 index-adapter.ts）；
+//   · 引擎事件 → **job 行状态机**（index-jobs.ts；唯一写入口仍是 db/jobs.ts）；
+//   · 事件 → 渲染层（`emit`）：**不重排** —— 记账是同步的，转发紧随其后，顺序与到达顺序一致。
+let indexingPorts: ReturnType<typeof createIndexingPorts> | null = null;
+let indexJobRecorder: ReturnType<typeof createIndexJobRecorder> | null = null;
+
+/** 库 → `.gs.db` 落点（只给 job 台账用；解析失败返回 null，由记录器记日志，不抛） */
+function libDbPathOf(libId: string): string | null {
+  try {
+    const r = RESOLVED;
+    if (!r) return null;
+    const port = createLibraryResolverPort({
+      libraries: r.libraries.map((l) => ({ libId: l.libId, root: l.root, label: l.label })),
+      userDataDir: USER_DATA_DIR,
+      legacyLibrariesDir: path.join(DATA_DIR, 'libraries'),
+    });
+    return port.storageOf(libId).dbPath;
+  } catch (e) {
+    log('!! [索引任务] 解析库元数据落点失败：', libId, stackText(e));
+    return null;
+  }
+}
+
+/** 引擎事件 →（**先记账，再原样转发**；记账失败也必须转发） */
+function onEngineEvent(evt: unknown): void {
+  try {
+    indexJobRecorder?.ingest(evt);
+  } catch (e) {
+    log('!! [索引任务] 记账时出现未预期错误（事件照常转发）：', stackText(e));
+  }
+  emit(evt);
+}
+
 /**
  * 按契约方法名取引擎方法（名字已过 `validateCall` 的白名单）。
  *
@@ -604,6 +642,30 @@ function buildEngine(): ResolveLibrariesResult {
     );
   }
   const r: ResolveLibrariesResult = { ...resolved, libraries: active };
+  // ---- IDX-2b2：索引注入端口 + job 台账记录器（每次（重）建引擎都重装一份，旧连接先关）----
+  // productsRoot 是**临时区**（构建器副产物 items.json/meta.json 落这里，绝不进库根 —— P4）。
+  // ⚠️ `GEMMA_FAKE_INDEX=1` 是 **e2e 专用钩子**（假构建器，不依赖 ONNX）；产品默认走真实构建器。
+  const indexFake = process.env.GEMMA_FAKE_INDEX === '1';
+  indexingPorts = createIndexingPorts({
+    resolveModelDir: () => resolveModel().found,
+    productsRoot: path.join(USER_DATA_DIR ?? DATA_DIR, 'index-build-tmp'),
+    log,
+    fake: indexFake,
+  });
+  if (indexFake)
+    log('⚠️ [索引] 假构建器已开启（GEMMA_FAKE_INDEX=1）—— **只用于 e2e**，不加载模型。');
+  try {
+    indexJobRecorder?.close();
+  } catch {
+    /* 关旧连接失败不影响重建 */
+  }
+  indexJobRecorder = createIndexJobRecorder({ libDbPathOf, log });
+  // 启动结算：主动打开每个已登记库的台账 ⇒ B2-1b 的结算把上次崩溃留下的 running 标中断
+  try {
+    indexJobRecorder.warmup(r.libraries.map((l) => l.libId));
+  } catch (e) {
+    log('!! [索引任务] 启动结算预热失败（不拦启动，稍后按事件结算）：', stackText(e));
+  }
   engine = createEngine({
     config: {
       libraries: r.libraries,
@@ -621,7 +683,9 @@ function buildEngine(): ResolveLibrariesResult {
         return e.encodeImage(p);
       },
     },
-    onEvent: emit,
+    // 索引任务：事件先记账（job 行）再原样转发（不重排）；注入端口不传 ⇒ 真实模式如实 INTERNAL
+    onEvent: onEngineEvent,
+    indexing: FAKE_MODE ? null : indexingPorts,
     // ⚠️ **必须注入**（F-01）：不注入的话引擎会返回 PORT_MISSING 而不是静默假成功。
     // 引擎不 import electron，所以"在资源管理器里定位"这个能力只能由外壳这样交进去。
     // 端口本身只负责调用；成功/失败的判定在引擎里（见 ports.ts 的注释）。
@@ -913,7 +977,20 @@ function registerIpc(): void {
     }
     // 引擎方法都是"信封生产者"（packages/engine 的 envelope()）⇒ 把 unknown 收窄回信封类型；
     //   这**不是**放宽（处理器本来就以 Envelope 为返回契约，见函数签名）。
-    let res = (await fn(v.params)) as Envelope;
+    //
+    // ⚠️ IDX-2b2：`indexResume` 在**跨重启**时必须带 `libId`（引擎零持久状态 ⇒ 不知道续哪个库）。
+    //   同进程内（开始 → 取消 → 续跑，最常见的那条）由 job 事件记录里补上，调用方就不必猜；
+    //   全都拿不到时**不编造** —— 原样交给引擎，由它返回 BAD_REQUEST 并说清"续跑需要 libId"。
+    let callParams = v.params;
+    if (v.method === 'indexResume' && callParams && typeof callParams === 'object') {
+      const p = callParams as { jobId?: unknown; libId?: unknown };
+      if (typeof p.libId !== 'string' || !p.libId) {
+        const known =
+          typeof p.jobId === 'string' ? (indexJobRecorder?.libIdOf(p.jobId) ?? null) : null;
+        if (known) callParams = { ...p, libId: known };
+      }
+    }
+    let res = (await fn(callParams)) as Envelope;
     // WIRE-B：**取件成功后留痕**（一次批量 = activity 1 行 + asset_export N 行，同一个 batch id）。
     // ⚠️ 只挂 warning、**绝不改判**取件的成败 —— 文件是否已经复制出去由引擎按真实文件操作裁决；
     //    "记历史失败"不能把一次成功的取件说成失败（否则用户会重复取件、覆盖/重名）。

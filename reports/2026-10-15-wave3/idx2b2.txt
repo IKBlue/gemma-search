@@ -1,0 +1,112 @@
+================================================================================
+IDX-2b2 证据 · 主进程侧接线：注入 buildIndex/writeIndex + job 行生命周期 + 事件转发
+任务板 id: task-121   执行: db-worker   日期: 2026-10-17
+写面：apps/desktop/src/main/** + 测试 + e2e（**未碰** packages/engine/**、未碰渲染层、未改 shared/ipc.ts）
+===============================================================================
+
+【结论】
+· 引擎注入端口已接通：`createEngine({ indexing: { buildIndex, writeIndex } })`（形状与 core-migrator 定稿一致，
+  `writeIndex({libRoot,bytes})` 由引擎补 libRoot）。`buildIndex` 适配到 packages/indexer 的 buildIndex，
+  `writeIndex` 是**唯一**原子写 `index-file.writeIndexAtomically`。
+· job 行生命周期：**引擎只发事件**，主进程由 `index-jobs.ts` 映射成 job 行（`main/db/jobs.ts` 仍是唯一写入口）：
+  首条 `index.progress` 建行（kind=index/running，total 用**首条 progress 的真实值**）→ 进度**单调**（回退被
+  `setProgress` 拒且记日志）→ `index.done` 落 done/cancelled/failed（`index.failed` 的码带进终态）。
+· 事件转发：`onEvent` 改成 `onEngineEvent`（**先记账、再原样 emit**，顺序不变；记账失败也必须转发）。
+· 启动结算：`indexJobRecorder.warmup(所有已登记库)` ⇒ 打开库触发 B2-1b 结算，上次 running 标中断；续跑由引擎起
+  `rebuild:false` 构建、构建器报 `reused`（"复用"的真相来源是构建器，不是引擎记忆）。
+· 真实模式不假装成功：适配器在**没有模型**时抛 `MODEL_MISSING`（A2 用例），不返回空成功。
+· 门禁（本轮实测）：prettier **0** · lint **0** · tsc node/web **0** · 相关单测 **57/57** · **s4 21/0/0** ·
+  **真窗口 e2e 1 passed**（开始→进度可见→取消→停在边界→续跑→复用>0）。
+
+【1. 三个模块与职责（每件事只有一处）】
+| 文件 | 职责 | 不变量 |
+|---|---|---|
+| main/index-adapter.ts（新） | 把引擎端口接到真实实现：buildIndex 补 modelDir/**outDir=`<userData>/index-build-tmp` 临时目录**；writeIndex→writeIndexAtomically | 库根只写保留命名空间（P4）；真实模式无模型⇒MODEL_MISSING |
+| main/index-jobs.ts（新） | 事件 → job 行状态机（永不抛；单调；终态不回头；首条 progress 建行） | 写 job 只经 db/jobs.ts（J7 源码扫描） |
+| main/index.ts | 注入 indexing 端口、`onEngineEvent`、warmup、`indexResume` 的 libId 补齐 | 事件不重排；记账失败不影响转发 |
+
+【2. 如实上报的三处偏离/边界】
+① 卡面说终态"+ error_code"：**`job` 表没有 `error_code` 列**（B2-1 的 DDL 只有 `error`），补列必须走新迁移（改已发布迁移
+   对已升级库静默无效）⇒ 错误码写进 `error` 的**前缀**（`CODE: 人话`），J3 断言 `^MODEL_MISSING`。**未擅自加迁移**。
+② e2e 的"进度可见"：渲染层现在**没有索引按钮/进度条 UI**（IDX-3 的事）⇒ e2e 在真窗口里通过 `window.api.invoke/onEvent`
+   直驱 IPC，断言**渲染进程真的收到** `index.progress` 事件流。这是"链路可见"，**不是**"界面上看见进度条"（P6 不说大）。
+③ `indexResume` 的 `libId`：同进程内由记录器记住的 `jobId→libId` 自动补；跨重启无人补时**原样交给引擎**，
+   由引擎返回 BAD_REQUEST 并说清"续跑需要 libId"（不编造）。
+
+【3. 测试（单测 + 真窗口 e2e）】
+· index-jobs.test.mjs J1–J7：建行/单调回退被拒且记日志/终态映射/终态后不再写/坏事件不抛且不建行/
+  **启动结算后能续跑**（心跳过期才结算 —— 我第一版用例时钟造错了，红过）/写 job 入口唯一（源码扫描）。
+· index-adapter.test.mjs A1–A5：outDir **不在库根**且构建后被清理/无模型⇒MODEL_MISSING/writeIndex 原样转发/
+  假构建器（进度单调 · 取消零写 · 续跑 reused>0 · 写出的字节过五道校验）/原子写实现唯一（P1）。
+· e2e/index-task.spec.mjs（真窗口，`GEMMA_FAKE_INDEX=1` 假构建器）：start→progress→cancel→`index.done.cancelled`→
+  **索引文件仍不存在（停在边界）**→resume→`index.done.ok`且 `reused>0`→索引文件出现→读 `.gs.db` 验证
+  cancelled 行 + done 行（job 生命周期真的落库）。
+
+【4. 过程中修掉的三个**真问题**（都是测试/日志先咬住的）】
+① 假构建器写复用标记前没建 `productsRoot` 目录 ⇒ ENOENT 被引擎变成 `index.failed`（症状：续跑永远完不成）。
+② 标记写在循环里，而引擎的进度包装在 abort 后**会抛** ⇒ 取消时那行被跳过、续跑 reused=0 ⇒ 改到**进循环前**落标记。
+③ e2e 跑的是 `out/` **构建产物** ⇒ 改了 main 不 build 就等于没改（第一次 e2e 直接看到"还没接线"的 INTERNAL）。
+
+【5. ⭐ 能红（三条 mutant 实测 · 原文 · 全部逐字节还原）】
+前置哈希（`index-jobs.ts` 注入前）：
+`B96E8BFA21F93E1208F16E64F5B7276906D71D33C034BDE672F13A47DD53CAF2`
+
+### ① J2 mutant —— **进度回退绕过单调守卫**
+注入：把 `setProgress(...)` 换成裸 `UPDATE job SET progress_done = ? WHERE job_id = ?`（绕过 jobs.ts 的拒绝逻辑）
+$ node --test --test-name-pattern="J2" …（原文）
+```
+✖ J2 ⭐⭐ 进度单调：回退事件被拒（行保持旧值）且**记日志**（不静默）
+  AssertionError [ERR_ASSERTION]: 被拒的更新不改任何字段
+    actual: null,
+    expected: 'encode',
+```
+⇒ 回退真的写进去了（旧值没保住）⇒ 红。
+
+### ② J3 mutant —— **失败/取消仍写 done**
+注入：`const state = cancelled ? 'cancelled' : ok ? 'done' : 'failed';` → `const state = 'done';`
+$ node --test --test-name-pattern="J3" …（原文）
+```
+✖ J3 ⭐⭐ 终态映射：ok ⇒ done · cancelled ⇒ cancelled · ok=false ⇒ failed（error 带上游码）
+  AssertionError [ERR_ASSERTION]: j-c 终态
+    actual: 'done',
+    expected: 'cancelled',
+```
+⇒ 取消被记成成功 ⇒ 红（失败方向同理）。
+
+### ③ J7 mutant —— **第二处写 job 行**
+注入：新增 `apps/desktop/src/main/_mutant_job.ts`（里面 `UPDATE job SET state = ? …`）
+$ node --test --test-name-pattern="J7" …（原文）
+```
+✖ J7 ⭐⭐ 写 job 行的入口只有一处（源码扫描）：INSERT INTO job / UPDATE job 只在 db/jobs.ts
+  AssertionError [ERR_ASSERTION]: job 表的唯一写入口必须是 db/jobs.ts（§2.3）
+    actual: [ '_mutant_job.ts', 'jobs.ts' ],
+    expected: [ 'jobs.ts' ],
+```
+⇒ 第二处写入口被抓 ⇒ 红。
+
+### 还原方式与证据（**不是"我改回去了"，是逐字节证明**）
+· 注入 ① ② 都用**同一段原文**替换回去（替换字符串 = 注入前的原文）；
+· 注入 ③ 的临时文件已删除（`Test-Path` ⇒ False）；
+· 还原后哈希 = `B96E8BFA21F93E1208F16E64F5B7276906D71D33C034BDE672F13A47DD53CAF2` —— **与注入前逐字节相同**；
+· 复跑：`node --test index-jobs + index-adapter` ⇒ **12/12 绿**（`REPLAY=0`）。
+
+【6. 门禁（本轮实测）】
+$ npx prettier --check . ⇒ **0** ｜ npx tsc node/web ⇒ **0** ｜ npm run lint ⇒ **0**
+$ node --test <相关 7 个文件> ⇒ **57/57**
+$ node reports/2026-10-15-wave3/s4-accept.mjs ⇒ **PASS 21 · FAIL 0 · SKIP 0**
+$ npx playwright test … index-task.spec.mjs ⇒ **1 passed (5.5s)**
+$ npm run build ⇒ **0**（e2e 前必须 build：见 §4-③）
+（全量 `npm test` 与冻结门禁由 Lead 跑 —— 纪律 6；收到「冻结开始」先回执再停笔。）
+
+【7. 边界（P6）】
+· 渲染层**没有索引 UI**（IDX-3）⇒ 用户目前点不到"建索引"；本卡只保证**链路**通（契约方法可用、事件到达、job 落库）。
+· `indexStart` 返回的 total 立刻是 **0（未知）**（引擎语义）；job 行以**首条 progress 的 total** 为准 —— 别把 0 当"空库"。
+· `indexCancel` 无任务时返回 `ok:true {cancelled:false,reason:'no-such-job'}`（诚实结果，不当失败落库）。
+· 假构建器（`GEMMA_FAKE_INDEX=1`）**只用于 e2e**，产品默认走真实构建器；它的复用标记只写临时区，不碰库根。
+
+【8. 回滚】
+· 删 main/index-adapter.ts · main/index-jobs.ts · tests/index-jobs.test.mjs · tests/index-adapter.test.mjs · e2e/index-task.spec.mjs；
+· main/index.ts 去掉 imports、indexingPorts/indexJobRecorder/onEngineEvent/libDbPathOf、createEngine 的 indexing + onEvent 改动、
+  indexResume 的 libId 补齐；
+· 未跑 git（AGENTS P7）。临时物：data/_idx2b2/**（探针与日志）· data/_idx-*/data/_idx-userdata-*（e2e 自清）。
+===============================================================================
