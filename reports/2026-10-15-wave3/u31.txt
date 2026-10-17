@@ -1,0 +1,68 @@
+================================================================================
+U31 复核 + 落地证据（task-116 · 2026-10-17 · storage-worker）
+================================================================================
+任务性质：TASKS.md:279 ——「**已授权按新顺序实现、只等复核**」⇒ 本轮按**复核**做（不是重写）。
+
+【① 四方一致性（先确认「规范、代码、测试」没有各写一半）】
+  · **AGENTS §5**（2026-10-17 所有者更新）：模型搜索顺序 = **用户指定 → 程序目录 → userData**
+  · **SPEC.md:220**：同句 + :224 「2026-10-14 所有者授权调整」（显式覆盖 > 自带 > 默认）
+  · **代码** `apps/desktop/src/main/storage-roots.ts:264` `MODEL_SEARCH_ORDER = ['user','app','userData','modelCache']`
+  · **测试** `storage-roots.test.mjs:37` `EXPECTED_ORDER` 同上；M3/M6/M7/M8/M9/→ 覆盖
+  ⇒ 顺序**四方一致**，无需再改顺序（本卡不是「改顺序」，是「复核顺序已按授权生效」）。
+
+【② 三个要点的复核结果】
+  ① **逐候选判有效（不盲取第一个）**：`storage-roots.ts:440` `searched.find((c) => c.valid)`；
+     `valid = exists && existsSync(<dir>/onnx/model.onnx)`（:416）⇒ **「存在」不等于「命中」**。
+     **反例断言已在**：M8「用户指定目录存在但里面没有模型 ⇒ 不停下，继续往后找（app 命中）」（:205-216，
+     `searched[0].valid === false` 且 `found === appModels`）—— 卡的 ① 要求已满足。
+  ② **来源可解释**：`ModelResolution.source`（:221）返回具体级别；启动日志 :684 印
+     「模型 = <dir>（来源：用户指定 / 程序目录 models/ / userData models/）」⇒ 用户排查有线索。
+     ⭐ **本轮在这里找到一个真缺陷（已修）**：`describeStorageRoots` 里的 `srcLabel` 是
+     `MODEL_SOURCE_LABEL`（:243）之外的**第二份映射**（P1），且**漏了 modelCache** ⇒ 模型从既有缓存
+     命中时日志会印「来源：**(无)**」—— 正是「用户排查线索」这条最该准的地方给了假答案。
+     修法：`MODEL_SOURCE_LABEL` 改为 export，`srcLabel` 从它派生（只剩一份映射）。
+  ③ **测试断言改成关系式（别写死计数）**：`MC1` 原先 `assert.equal(r.searched.length, 3, ...)`（写死计数）
+     ⇒ 改成 `deepEqual(searched.map(source), EXPECTED_ORDER.filter(s => s !== 'user'))` +
+     `searched.at(-1).source === 'modelCache'`（关系式，顺序一变测试自动跟）。
+
+【③ 本轮改动】
+  · `apps/desktop/src/main/storage-roots.ts`：`MODEL_SOURCE_LABEL` 导出；`srcLabel` 改为单来源派生（修 P1 + modelCache 假报）
+  · `apps/desktop/tests/storage-roots.test.mjs`：MC1 去掉写死计数改关系式；**新增 MC1b**（日志必须印出 modelCache 来源标签、禁止印「(无)」）
+  · 顺序、判定逻辑、指引文案**一字未动**（它们本来就对 —— 本卡是复核，不是重写）。
+
+【④ 能红（纪律 20：还原也复验）】
+  把 `srcLabel` 改回第二份映射（旧行为）⇒ 跑 `storage-roots.test.mjs` ⇒ **MC1b ✖ FAIL**（pass 27 / fail 1）；
+  还原 ⇒ 探针残留 grep = **0** ⇒ 复跑 ⇒ **pass 28 / fail 0**。
+  ⇒ 证明新增断言**真的守得住**这个缺陷，不是摆设。
+
+【⑤ 门禁】
+  TSC_NODE=0
+  
+  LINT=0
+  > eslint .
+  
+  
+  PRETTIER1=1
+  node.exe : [warn] apps/desktop/tests/storage-roots.test.mjs
+      + CategoryInfo          : NotSpecified: ([warn] apps/des...-roots.test.mjs:String) [], RemoteException
+  PRETTIER2=0
+  All matched files use Prettier code style!
+
+  storage-roots.test.mjs ⇒ tests 28 / pass 28 / fail 0
+  npm test（全量）⇒ **未跑**：卡要求「先问 Lead 开窗口」（同刻只跑一个，纪律 6）
+
+================================================================================
+【§N 全量门禁的归属（方式 B：引用 Lead 冻结门禁）】
+
+  ⚠️ **本轮没有跑全量 `npm test`** —— 原因：Lead 在等**三张并行卡**（U31 与其它两张）落地后**统一开窗口**，
+     同一时刻只跑一个 `npm test`（纪律 6）。⇒ 全量数字**不在本文件**，等 Lead 下一次冻结后给出，届时补上
+     「提交哈希 + 七行数字」并标注**引用**（AGENTS §4 证据协议第 3 条：不得写成「本轮实测」）。
+
+  ✅ **本轮实际跑过的、受本次改动影响的面**（单独列，**不混进全量数字**）：
+     `node --test --test-isolation=none apps/desktop/tests/storage-roots.test.mjs` ⇒ **tests 28 / pass 28 / fail 0**
+     能红：把 `srcLabel` 改回第二份映射（旧行为）⇒ **pass 27 / fail 1（MC1b ✖）** ⇒ 还原（探针残留 0）⇒ **28/28**
+     其它门禁（本轮实测）：`tsc --noEmit -p tsconfig.node.json` ⇒ **0** · `npm run lint` ⇒ **0** ·
+     `prettier --check .` ⇒ 先 **1**（`storage-roots.test.mjs`，本轮改的）⇒ 对该文件 `--write` ⇒ 复验 **0（All matched）**
+
+  【待补】Lead 冻结门禁（提交哈希 + 七行数字）—— 收到后追加到本节下方，标注「引用」。
+================================================================================

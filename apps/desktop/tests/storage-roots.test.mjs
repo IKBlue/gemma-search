@@ -25,6 +25,7 @@ import {
   MODELS_DIRNAME,
   MODEL_MARKER_REL,
   MODEL_SEARCH_ORDER,
+  MODEL_SOURCE_LABEL,
   modelSearchOrderText,
   findModelCacheDir,
 } from '../src/main/storage-roots.ts';
@@ -280,10 +281,47 @@ test('MC1 只有既有 model-cache 有模型 ⇒ 命中它，来源标 modelCach
 
   assert.equal(r.found, cacheFp32);
   assert.equal(r.source, 'modelCache');
-  assert.equal(r.searched.length, 3, '没给用户指定 ⇒ app / userData / modelCache 三位');
-  assert.equal(r.searched[2].source, 'modelCache');
+  // 别写死计数（U31 复核口径）：用顺序常量派生「本次可用的来源」，关系式断言
+  assert.deepEqual(
+    r.searched.map((c) => c.source),
+    EXPECTED_ORDER.filter((s) => s !== 'user'),
+    '实际次序必须与常量一致（未给用户指定 ⇒ user 这一位跳过，其余一位不少一位不多）',
+  );
+  assert.equal(r.searched.at(-1).source, 'modelCache', 'modelCache 必须排在最后一位');
   // modelCache 是**我们的缓存目录**，不能当成"建议把模型放这儿"
   assert.equal(r.installDir, null, 'modelCache 不该出现在 installDir 里');
+});
+
+test('MC1b ⭐ 日志行如实报来源：模型来自 modelCache ⇒ 印它的标签（不是「(无)」）', () => {
+  const cacheBase = 'D:\\cache';
+  const cacheRev = path.join(cacheBase, 'onnx', 'embeddinggemma-2', 'rev-a');
+  const cacheFp32 = path.join(cacheRev, 'fp32');
+  const f = memFs({
+    dirs: [
+      APP,
+      UD,
+      cacheBase,
+      path.join(cacheBase, 'onnx'),
+      path.join(cacheBase, 'onnx', 'embeddinggemma-2'),
+      cacheRev,
+      cacheFp32,
+    ],
+    files: [modelMarker(cacheFp32)],
+  });
+  const r = resolveStorageRoots({
+    appDir: APP,
+    userDataDir: UD,
+    modelCacheDir: cacheBase,
+    libraries: [],
+    fs: f,
+  });
+  const text = describeStorageRoots(r).join('\n');
+  assert.equal(r.models.source, 'modelCache');
+  assert.ok(
+    text.includes('来源：' + MODEL_SOURCE_LABEL.modelCache),
+    '模型来自缓存时日志必须印出该来源标签（原先这里印成 (无)）',
+  );
+  assert.equal(text.includes('来源：(无)'), false, '找到模型时不许把来源印成 (无)');
 });
 
 test('MC2 顺序最后：程序目录 与 model-cache 都有模型 ⇒ 程序目录赢', () => {

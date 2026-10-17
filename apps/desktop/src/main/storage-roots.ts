@@ -240,7 +240,7 @@ export interface ResolveModelsOptions {
 }
 
 /** 每种模型来源的人读标签（**顺序不在这里** —— 顺序只看 MODEL_SEARCH_ORDER） */
-const MODEL_SOURCE_LABEL: Record<ModelSource, string> = {
+export const MODEL_SOURCE_LABEL: Record<ModelSource, string> = {
   user: '用户指定',
   app: '程序目录 models/',
   userData: 'userData models/',
@@ -662,14 +662,9 @@ export function resolveStorageRoots(opts: ResolveStorageRootsOptions): StorageRo
  */
 export function describeStorageRoots(r: StorageRootsResult): string[] {
   const out: string[] = [];
-  const srcLabel = (s: ModelSource | null): string =>
-    s === 'app'
-      ? '程序目录 models/'
-      : s === 'userData'
-        ? 'userData models/'
-        : s === 'user'
-          ? '用户指定'
-          : '(无)';
+  // 来源标签**只有一份**（MODEL_SOURCE_LABEL）：这里原先抄了第二份，且漏了 modelCache
+  // ⇒ 模型从既有缓存命中时，日志会印「来源：(无)」（P1 + 真错报）。现在从唯一来源派生。
+  const srcLabel = (s: ModelSource | null): string => (s ? MODEL_SOURCE_LABEL[s] : '(无)');
 
   out.push(`程序目录 = ${r.appDir}`);
   out.push(`userData = ${r.userDataDir ?? '(不可用)'}`);
