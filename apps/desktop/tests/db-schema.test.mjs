@@ -242,6 +242,8 @@ test('A1：db 层只有 sqlite-adapter.ts 碰 node:sqlite，且不 import electr
     'schema-layers.ts',
     'sqlite-adapter.ts',
     'tmp-dir.ts',
+    // WIRE-C：`asset_user_meta` 的唯一读写入口（§2.3 每张表一个写入口）
+    'user-meta.ts',
   ]);
 
   const sqliteImporters = [];

@@ -1,0 +1,30 @@
+﻿COMMIT=15d2ac3
+All matched files use Prettier code style!
+CHECK=0
+
+LINT=0
+
+ℹ tests 801
+ℹ pass 798
+ℹ fail 2
+ℹ skipped 1
+
+
+TEST=1
+
+TC=0
+WARN=0
+BUILD=0
+Total: 76 tests in 24 files
+E2E=0
+【输入】data/_e2e-run.json（0 分钟前 · 104654B）
+【输入】data/_e2e-list.txt（4 分钟前 · 9726B）
+【总账】list=76 运行=76（passed=72 · skipped=4 · other=0）· did_not_run=0
+【逐文件】全部平账（24 个文件）
+⇒ 账平（本次运行）。
+ACCOUNTING=0
+
+  PASS 20 · FAIL 1 · SKIP 0
+
+
+=== DONE ===

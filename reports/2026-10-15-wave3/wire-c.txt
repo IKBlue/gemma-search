@@ -107,4 +107,27 @@ Lead 要求的两组"旧写法"正是第 1 段已实测的两条（改的是**�
 `prettier --check .` **0** · `npm run lint` **0** · `tsc` node **0** · `tsc` web **0** · `build` **0** ·
 `user-meta` 单测 **7/7** · `e2e/meta.spec.mjs` **1 passed (7.6s)**。
 （全量 `npm test`/e2e 由 Lead 开冻结窗口跑。）
+
+【冻结门禁 15d2ac3 后的三条补修（Lead 派回 · 同一张卡）】
+1. **A1（db 层文件清单）**：A1 是**精确文件清单**断言（新增 db 文件必须显式登记）—— 新文件 `main/db/user-meta.ts` 未登记 ⇒ 红。
+   **不是**"直接用了 node:sqlite"：A1 的 `sqliteImporters` 检查本身**过**（只有 `sqlite-adapter.ts` 碰 `node:sqlite`）。
+   修法 = 登记进清单（与 WIRE-B 时 `exports.ts` 同一类）⇒ **如实更正 Lead 的假设**。
+2. **C1 白名单集合相等**（`ipc-contract-s6.test.mjs`）：契约加两方法 ⇒ 集合 **25 → 27**。已翻转 + 留翻转表：
+   | 阶段 | 大小 | 变化 |
+   |---|---|---|
+   | 基线 §2.2 + S8 items + U27 appHealth | 22 | —— |
+   | U35（所有者「批」）恢复索引三方法 | 25 | +indexStart +indexCancel +indexResume |
+   | **WIRE-C（本卡）新增标注读写** | **27** | **+metaGet +metaSet** |
+   为什么不是放宽：仍是**集合相等**（多一个少一个都红），且两方法各有行为断言（user-meta.test.mjs），不是"顺手多留一个桩"。
+3. **s4 `S4-U1`**：根因就是 A1（U1 跑 `db-schema.test.mjs` ⇒ exit=1）；A1 修好后 `s4 = PASS 21 / FAIL 0 / SKIP 0`。
+   ⇒ 三条红实际只有**两个**独立根因（A1 清单 + C1 集合），s4 是 A1 的传导 —— 如实记，不算第三条独立修复。
+
+【收口门禁（本轮实测 · **全量**）】
+`npm test` ⇒ **tests 801 / pass 800 / fail 0 / skipped 1**（158s）· `prettier --check .` **0** · `npm run lint` **0** ·
+`tsc` node **0** · `tsc` web **0** · `s4-accept` **PASS 21 / FAIL 0 / SKIP 0**。
+
+【流程教训（接受并落地）】
+"受影响面全绿 ≠ 全量绿"：这一轮全量 798/2，而我只跑了 `user-meta` 7/7 + 单条 e2e ⇒ 漏了**跨文件判据**
+（契约集合计数、db 层文件清单/写入口扫描、s4 的 U1 传导）。⇒ 以后**动 `shared/ipc.ts` 或 `main/db/**` 的卡，先跑一次全量 `npm test`**
+（或明确声明"只跑了 X，全量待窗口"），不再拿受影响面代替全量。
 ===============================================================================

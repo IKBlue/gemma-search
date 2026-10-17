@@ -8,7 +8,14 @@ import { test } from 'node:test';
 
 import { METHOD_NAMES, Methods, validateCall } from '../src/shared/ipc.ts';
 
-test('C1 ⭐⭐ 白名单 = 基线 §2.2 的 20 个 + S8 的 items + U27 的 appHealth = 22 个（集合相等，多一个少一个都红）', () => {
+test('C1 ⭐⭐ 白名单集合相等（U35 恢复三方法 + WIRE-C 新增两方法 ⇒ 27 个，多一个少一个都红）', () => {
+  // ── 翻转表（照 idx2a.txt §1 的格式；历史保留）────────────────────────────────
+  // | 阶段 | 集合大小 | 变化 |
+  // | 基线 §2.2 + S8 items + U27 appHealth          | 22 | —— |
+  // | U35（所有者「批」）恢复索引三方法                | 25 | +indexStart +indexCancel +indexResume |
+  // | **WIRE-C（本卡 · 所有者已批）新增标注读写**      | **27** | **+metaGet +metaSet** |
+  // 为什么不是放宽：仍然**集合相等**（多一个少一个都红）；新增的两项是**契约变更**，已由 Lead 报所有者批准，
+  //   且各自有行为/字段断言（metaGet/metaSet 的语义在 user-meta.test.mjs 里钉住），不是"顺手多留一个桩"。
   const expected = [
     // 保留（/改造）
     'search',
@@ -41,6 +48,9 @@ test('C1 ⭐⭐ 白名单 = 基线 §2.2 的 20 个 + S8 的 items + U27 的 app
     'indexStart',
     'indexCancel',
     'indexResume',
+    // 2026-10-17 · WIRE-C（所有者已批，与 U35 同批契约变更）：条目标注读写
+    'metaGet',
+    'metaSet',
   ].sort();
   assert.deepEqual(
     [...METHOD_NAMES].sort(),
