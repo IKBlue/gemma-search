@@ -153,6 +153,15 @@ test('M0 ⭐⭐ 真窗口端到端：启动 → 库就绪 → 检索 → 详情 
     await expect(locateAlert).toContainText('素材文件找不到了', { timeout: 20_000 });
     await expect(locateAlert).not.toContainText(/已请求/);
 
+    // ②c FR-012：这次**成功的**检索必须出现在「最近搜索」里（主进程写 recent_query → 界面读回来）；
+    //   点一下 = 用同一段文本重新检索（输入框要变回那句话 —— 这是"接线真的通"的可断言形态）。
+    const recentChip = win.locator(
+      '[data-testid="recent-queries"] [data-recent-query="坦克 装甲车"]',
+    );
+    await expect(recentChip).toBeVisible({ timeout: 20_000 });
+    await recentChip.click();
+    await expect(input).toHaveValue('坦克 装甲车');
+
     // 按 items.json 的 relPath 落素材（真 JPEG + 同名包）
     const byUid = new Map(items.map((i) => [i.uid, i]));
     let materialized = 0;

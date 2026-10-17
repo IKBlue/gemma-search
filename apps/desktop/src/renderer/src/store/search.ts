@@ -61,6 +61,16 @@ export type CollectData = {
   targetDir: string;
 };
 
+/** `recentQueries` 的响应载荷（HIST-1 的读路径；键名沿用主进程返回的短名） */
+export type RecentQueryRow = {
+  /** 查询文本；NULL = 以图搜图（没有文本可显示） */
+  q: string | null;
+  /** 当时的检索范围；NULL = 全部库 */
+  scopeLibId: string | null;
+  at: number;
+  hits: number | null;
+};
+
 /** 提示语气（与 `hooks/useToast` 的约定一致） */
 export type ToastTone = 'info' | 'err';
 /** store 不 import UI，只收一个"怎么提示"的回调 */
@@ -90,6 +100,11 @@ export type SearchState = {
    *   它属于 Operation 层；而且放在这里，`npm test` 才能断言"取消 ⇒ 一个 IPC 都没发"。
    */
   pendingCollect: SearchResult | null;
+  /**
+   * 最近搜索（FR-012）。只收**有文本可显示**的行：以图搜图那几行 `q === null`，
+   * 在"最近搜索"里没有可点的文本，硬列出来只会让人点了没反应。
+   */
+  recent: RecentQueryRow[];
 };
 
 const initial: SearchState = {
@@ -103,6 +118,7 @@ const initial: SearchState = {
   error: null,
   queryImagePath: null,
   pendingCollect: null,
+  recent: [],
 };
 
 /** store 的形状：状态 + 动作 */
@@ -123,6 +139,10 @@ export type SearchStore = SearchState & {
   /** 取消（丢弃请求 —— 这是"用户拒绝"的唯一路径） */
   cancelCollect: () => void;
   confirmCollect: (onToast?: ToastFn) => Promise<void>;
+  /** 读最近搜索（FR-012）。读失败**不打扰**用户：DB_MISSING（还没搜过/首启）当空历史，其余错误才提示 */
+  loadRecent: (onToast?: ToastFn) => Promise<void>;
+  /** 用一段文本直接发起检索（点"最近搜索"用它：先设 query 再 run，避免读到旧 state） */
+  runText: (text: string, onToast?: ToastFn) => Promise<void>;
 };
 
 export const useSearchStore = create<SearchStore>()((set, get) => ({
@@ -178,6 +198,10 @@ export const useSearchStore = create<SearchStore>()((set, get) => ({
     const list = r.data.results || [];
     set({ busy: false, rawResults: list, meta: `${list.length} 条 · ${r.data.tookMs} ms` });
     console.log(`[ui] search ${mode} → ${list.length} 条 · ${r.data.tookMs}ms`);
+
+    // FR-012：这次检索**已经由主进程记进 recent_query**（成功后写一条，失败只挂 warning）。
+    // 这里刷新一下"最近搜索"—— 不传 onToast：历史刷新失败不该盖住检索本身的提示。
+    void get().loadRecent();
 
     const skipped = r.data.libsSkipped || [];
     if (skipped.length && onToast)
@@ -242,5 +266,38 @@ export const useSearchStore = create<SearchStore>()((set, get) => ({
     if (!item) return; // 没有待确认项 ⇒ 什么都不做（防误调）
     set({ pendingCollect: null });
     await get().collect(item, onToast);
+  },
+
+  // ============================================================ 最近搜索（FR-012）
+  /**
+   * 读最近搜索。
+   *
+   * 三条口径：
+   *   ① **只保留有文本的行**（`q !== null`）：以图搜图的行在"最近搜索"里没有可点的文本；
+   *   ② **DB_MISSING 当空历史**：首启/还没搜过时 app.db 不存在，这是**正常态**，不是错误；
+   *   ③ 其它读取失败**要出声**（有 onToast 时提示一次）—— 但**不许**把历史读取失败算成检索失败。
+   */
+  loadRecent: async (onToast) => {
+    const r = await apiInvoke<{ rows?: RecentQueryRow[] }>('recentQueries', { limit: 8 });
+    if (!r.ok) {
+      set({ recent: [] });
+      if (r.error.code !== 'DB_MISSING' && onToast) {
+        onToast(`读取搜索历史失败：${r.error.userMessage}`, 'err');
+      }
+      return;
+    }
+    const rows = Array.isArray(r.data.rows) ? r.data.rows : [];
+    set({ recent: rows.filter((row) => typeof row.q === 'string' && row.q.trim() !== '') });
+  },
+
+  /** 用一段文本发起检索（点"最近搜索"）：先设 state 再 run —— run 从 get() 读，避免拿到旧 query */
+  runText: async (text, onToast) => {
+    const t = String(text || '').trim();
+    if (!t) {
+      if (onToast) onToast('这条历史没有可重放的文本');
+      return;
+    }
+    set({ mode: 'text', query: t, error: null });
+    await get().run(onToast);
   },
 }));

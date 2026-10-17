@@ -48,6 +48,7 @@ import { runLibraryHealth, runLibraryRebuild } from './library-ipc.ts';
 import { runMetaGet, runMetaSet } from './meta-ipc.ts';
 import { runActivityList, runExportList, runRecentQueries } from './history-ipc.ts';
 import { recordCollectBatch } from './collect-ledger.ts';
+import { recordSearchQuery } from './search-history.ts';
 import { createIndexingPorts } from './index-adapter.ts';
 import { createIndexJobRecorder } from './index-jobs.ts';
 import type { CollectOutcomeRow } from './collect-ledger.ts';
@@ -1007,6 +1008,18 @@ function registerIpc(): void {
     //    造出来的「历史」是假的（B2 系列的教训：宁可没有，也不要假数据）。真实模式才有文件已复制的事实。
     if (!FAKE_MODE && v.method === 'collect' && res.ok) {
       const warning = recordCollectLedger(res.data, v.params);
+      if (warning) res = { ...res, warnings: [...(res.warnings ?? []), warning] };
+    }
+    // FR-012：**检索成功后**留一条搜索历史（应用级 `recent_query`）。
+    // 同样只挂 warning、**绝不改判检索结果** —— 检索是否成功由引擎裁决；
+    // "记历史失败"不能让一次成功的检索显示成失败（否则用户会白重搜一次）。
+    // 模拟模式不写：假引擎没有 app.db 落点，造出来的历史是假的（B2 系列教训：宁可没有，也不要假数据）。
+    if (!FAKE_MODE && v.method === 'search' && res.ok) {
+      const warning = recordSearchQuery({
+        userDataDir: USER_DATA_DIR,
+        data: res.data,
+        params: v.params,
+      });
       if (warning) res = { ...res, warnings: [...(res.warnings ?? []), warning] };
     }
     log(`invoke ${v.method} ${Date.now() - started}ms → ${resultCode(res)}`);

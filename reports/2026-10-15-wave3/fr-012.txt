@@ -1,0 +1,52 @@
+================================================================================
+FR-012 证据 · 搜索历史接 UI（并补齐**缺失的写路径**）· 2026-10-17 · Lead
+================================================================================
+卡面（HANDOFF「2026-10-17 暂停点」→ 已建未派）：「FR-012 搜索历史接 UI（纯接线，一天内）」。
+**复核更正**：这条路**不是纯接线** —— `recent_query` 只有**读路径**（HIST-1），全仓**没有任何写路径**
+  （`grep INSERT INTO recent_query` 在 `main/` `packages/` 里 0 命中；`recentQueries` 读出来永远是空表）。
+  ⇒ 本卡 = ①补写路径（主进程在检索成功后写一条）②渲染层接 UI 两件事。
+
+【1. 写入面】
+| 文件 | 变更 |
+|---|---|
+| `apps/desktop/src/main/app-db.ts` | **新增** `insertRecentQuery` + `InsertRecentQueryInput` / `RecentQueryKind` —— `recent_query` 的**唯一写入口**（§2.3；D4 静态纪律同族） |
+| `apps/desktop/src/main/search-history.ts` | **新增** `recordSearchQuery`：把一次**成功的** text/image 检索记入 `recent_query`。**永不抛**；失败返回非空 warning（IPC 层挂到信封 `warnings`）；vector 通道不记（没有可重放输入）；空文本不记；image 存 **uid 不存路径**；单库才记 `scope_lib_id`（多库/未指定 = NULL）；命中数取不到就 NULL（不编 0） |
+| `apps/desktop/src/main/index.ts` | 在 IPC 分发层挂钩子：`!FAKE_MODE && method==='search' && res.ok` ⇒ `recordSearchQuery(...)`，warning 追加到信封（**绝不改判检索成败**；模拟模式不写，避免假历史） |
+| `apps/desktop/src/renderer/src/store/search.ts` | 新增 `recent` 状态 + `loadRecent()`（只保留有文本的行；`DB_MISSING` = 首启正常态不打扰，其它读失败要出声）+ `runText()`（点历史 ⇒ 先写 state 再 run，避免读旧 query）；`run()` 成功后刷新最近搜索 |
+| `apps/desktop/src/renderer/src/pages/SearchPage.tsx` | 进页面读一次最近搜索；检索面板下方渲染「最近搜索」按钮组（`data-testid=recent-queries`，每个 `data-recent-query`），点一下用同一段文本重新检索 |
+| `apps/desktop/tests/search-history-write.test.mjs` | **新增 4 条**单测：W1 只记 text/image 且 trim / vector 与空文本不记；W2 字段如实（uid、scope、NULL 语义）；W3 失败不抛且 warning 非空（含 userData 未就绪、app.db 打不开两种）；W4 静态：全仓只有 `app-db.ts` 写 `recent_query` |
+| `apps/desktop/tests/search-store.test.mjs` | **新增 4 条**单测：Z18 只保留有文本行 + limit=8；Z19 DB_MISSING 不打扰 / 真失败要出声；Z20 runText 真的发 text 模式 search 且 trim；Z21 空文本零 IPC |
+| `apps/desktop/e2e/m0-real.spec.mjs` | **新增 ②c**：真窗口 + 真检索后，「最近搜索」里出现刚搜的那句话；点一下 ⇒ 输入框变回该文本（接线真的通） |
+
+**契约零变更**：没有新增 IPC 方法；UI 走既有 `recentQueries`（HIST-1 的只读方法），写入是主进程内部行为。
+
+【2. 门禁（本轮实测 · 逐条命令 + 原始输出摘）】
+~
+npx prettier --check .   => All matched files use Prettier code style!          PRETTIER=0
+npm run lint             => LINT=0
+npm run typecheck        => TC=0
+npm test                 => ℹ tests 828 · ℹ pass 827 · ℹ fail 0 · ℹ skipped 1    TEST=0
+npm run build            => BUILD=0 · **WARNINGS=0**（门禁自己数 `(!)`）· 三端产物齐备
+npx playwright test -c … => **73 passed / 4 skipped / 0 failed** · E2E=0（4.0 min）
+~
+定向证据：
+~
+npx playwright test … m0-real   => 1 passed（含新 ②c）· EXIT=0
+node --test … search-history-write.test.mjs search-store.test.mjs history-ipc.test.mjs app-db.test.mjs search-history.test.mjs
+                                => 47 / 47 pass（含既有 D4 / S1 / S5 不回归）
+~
+
+【3. 一次间歇红（如实记录，不掩盖）】
+· 本轮**第一次**全量 e2e：`browse.spec.mjs E14-d` 失败 —— 等待分类按钮 `CR（60）` 超时（30 s）。
+· 复核：**单跑 browse spec ⇒ 6 passed**；**再跑一次全量 e2e ⇒ 73 passed / 4 skipped / 0 failed**。
+· 判断【判断，非实测】：该失败与 FR-012 的写入面无关（browse 页搜索历史 0 引用；且合成夹具每轮 mkdtemp 全新）；
+  形态是"网格与计数已就绪、facets 尚未可点"的**渲染时序**类间歇，不是本卡引入的行为变化。
+  ⚠️ 未做根因定位（不在本卡范围；若再复发，按 E2E-FLAKE-1 的做法用带自动等待的 locator 读判据）。
+  **权威结论取第二次全量 e2e**（第一次的失败原样保留在 data/_gate-2026-10-17-resume/fr012-e2e.txt）。
+
+【4. 边界（如实）】
+· 「最近搜索」只列**文本**检索；以图搜图的历史行（`q = NULL`）不列出 —— 界面上没有可点的文本，
+  硬列出来只会"点了没反应"。以图搜图的**历史重放**（FR-016 的"以这张再搜"）不在本卡。
+· 历史**无去重**：同一句话搜两次就是两行（表设计没有去重键；清单按时间倒序）。是否需要合并，属产品口径，未擅自改。
+· 未在真机上人工点（本会话只有自动化证据）；m0-real ②c 覆盖"写入 → 读回 → 点击重放 → 输入框变回"的真窗口链路。
+================================================================================

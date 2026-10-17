@@ -541,3 +541,48 @@ export function insertActivity(db: SqlDatabase, input: InsertActivityInput): voi
     detail,
   );
 }
+
+/** `recent_query.kind` 的合法值（与 DDL 的 CHECK 逐字一致） */
+export type RecentQueryKind = 'text' | 'image';
+
+export interface InsertRecentQueryInput {
+  /** 一次检索一个 id；**由调用方用 `crypto.randomUUID()` 生成**（基线写 nanoid，本仓未装该依赖） */
+  queryId: string;
+  kind: RecentQueryKind;
+  /** `kind='text'` 时的查询文本（应当非空）；`kind='image'` 时为 null */
+  text?: string | null;
+  /**
+   * `kind='image'` 时的参考图 **uid**（**存 uid 不存绝对路径**：路径会变、uid 不会）。
+   * 库外图片（`queryImagePath`）没有 uid ⇒ NULL 是**如实**，不是缺失。
+   */
+  imageRef?: string | null;
+  /** 当时的检索范围；**NULL = 全部库**（与 DDL 注释一致） */
+  scopeLibId?: string | null;
+  /** 当时命中数（显示与"结果变少了"的对照用；取不到就 NULL，不编 0） */
+  resultCount?: number | null;
+  atMs?: number;
+}
+
+/**
+ * 写一条搜索历史 —— **`recent_query` 的唯一写入口**（§2.3「每张表一个写入口」）。
+ *
+ * 为什么也放在本文件：`recent_query` 是**应用级**表（B2-5FIX 从库级搬来），
+ *   而本文件就是应用级表的唯一写入口 —— `app-db.test.mjs` 的 D4 会静态钉住"只有这里写它"。
+ * ⚠️ 本函数**不吞错**：写失败就抛，由调用方（`main/search-history.ts`）变成**非静默**警告 ——
+ *   检索已经成功的事实不受影响，但"历史没写成"要如实说出来。
+ */
+export function insertRecentQuery(db: SqlDatabase, input: InsertRecentQueryInput): void {
+  const atMs = typeof input.atMs === 'number' ? input.atMs : Date.now();
+  db.prepare(
+    'INSERT INTO recent_query (query_id, kind, text, image_ref, scope_lib_id, result_count, at_ms) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?)',
+  ).run(
+    input.queryId,
+    input.kind,
+    input.text ?? null,
+    input.imageRef ?? null,
+    input.scopeLibId ?? null,
+    input.resultCount ?? null,
+    atMs,
+  );
+}

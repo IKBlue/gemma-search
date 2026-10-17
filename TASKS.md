@@ -133,7 +133,7 @@
 | **PHASH-1b** | 三通道排序接入（近重复通道） | 待做（**阈值 k 必须等 EVAL-1 基线**，不许先定） | — |
 | **NOMATCH-1** | `no_close_match` 终态 + shortfall「最近 N 条仅供参考」 | 待做（阈值同来自 EVAL-1 基线） | — |
 | **UX-1c** | 粘贴 / 拖拽入窗口 ⇒ 以图搜；临时文件落 `os.tmpdir()`/`data/_*`，**绝不进库根**；非图片明确拒绝 | 待做 | — |
-| **FR-012** | 搜索历史接 UI。⚠️ 复核：`recent_query` **只有读路径（HIST-1）没有写路径** ⇒ 本卡除 UI 外还要补"搜索成功后写一条" | 待做（比 HANDOFF 的"纯接线"多一步写路径） | — |
+| **FR-012** | 搜索历史接 UI。⚠️ 复核：`recent_query` **只有读路径（HIST-1）没有写路径** ⇒ 本卡除 UI 外还要补"搜索成功后写一条" | 完成（本轮）：`app-db.insertRecentQuery`（唯一写入口）+ `main/search-history.ts`（成功才记、失败不改判）+ IPC 钩子 + store `loadRecent/runText` + SearchPage「最近搜索」+ 8 条单测 + m0-real ②c 真窗口重放。门禁：prettier 0 · lint 0 · tsc 0 · 单测 **828/827/0/1** · build 0（WARN 0）· e2e **73 passed / 4 skipped / 0 failed**（首次全量有 1 条 browse 间歇红，单跑与复跑均绿，已如实归档） | `reports/2026-10-15-wave3/fr-012.txt` |
 
 ---
 

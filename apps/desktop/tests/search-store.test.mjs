@@ -290,3 +290,69 @@ test('Z17：确认框的内容来自真实结果项（标题不是编的）', ()
   assert.equal(S().pendingCollect.stem, 'VR-42');
   assert.equal(S().pendingCollect.libId, 'L2');
 });
+
+// ============================================================ FR-012 最近搜索
+
+test('Z18：⭐ loadRecent 只保留**有文本**的历史行，且请求的就是 limit=8', async () => {
+  const calls = fakeBridge((method) => {
+    if (method === 'recentQueries') {
+      return OK({
+        total: 2,
+        rows: [
+          { q: '玻璃球吊灯', scopeLibId: null, at: 20, hits: 7 },
+          // 以图搜图：没有可点的文本 ⇒ 不许出现在"最近搜索"里
+          { q: null, scopeLibId: 'L1', at: 10, hits: 3 },
+          // 空白文本同样不算"可显示"
+          { q: '   ', scopeLibId: null, at: 5, hits: 0 },
+        ],
+      });
+    }
+    return FAIL({ code: 'X', userMessage: 'x' });
+  });
+
+  await S().loadRecent();
+  assert.deepEqual(calls[0], { method: 'recentQueries', params: { limit: 8 } });
+  assert.deepEqual(
+    S().recent.map((r) => r.q),
+    ['玻璃球吊灯'],
+  );
+});
+
+test('Z19：⭐ loadRecent —— DB_MISSING 是首启正常态（不打扰）；其它错误要出声', async () => {
+  const toasts = [];
+  const toast = (m, t) => toasts.push([m, t]);
+  fakeBridge(() => FAIL({ code: 'DB_MISSING', userMessage: '应用数据库（app.db）不存在' }));
+  await S().loadRecent(toast);
+  assert.deepEqual(S().recent, []);
+  assert.equal(toasts.length, 0, '首启还没搜过 ⇒ 空历史是正常态，不该弹错');
+
+  fakeBridge(() => FAIL({ code: 'INTERNAL', userMessage: '读炸了' }));
+  await S().loadRecent(toast);
+  assert.equal(toasts.length, 1, '真的读失败要出声（不静默）');
+  assert.equal(toasts[0][1], 'err');
+});
+
+test('Z20：⭐ runText 先写 state 再 run —— 真的发一次 **text** 模式的 search（且 trim）', async () => {
+  const calls = fakeBridge((method) => {
+    if (method === 'search') return OK({ results: [{ uid: 'a' }], tookMs: 3 });
+    if (method === 'recentQueries') return OK({ rows: [] });
+    return FAIL({ code: 'X', userMessage: 'x' });
+  });
+  S().setMode('image'); // 之前是以图搜图：点历史必须切回文字
+  await S().runText('  玻璃球吊灯  ', undefined);
+
+  const search = calls.find((c) => c.method === 'search');
+  assert.ok(search, '点最近搜索必须真的发检索');
+  assert.equal(search.params.mode, 'text');
+  assert.equal(search.params.text, '玻璃球吊灯', '要 trim（历史里存的就是 trim 过的）');
+  assert.equal(S().mode, 'text');
+  assert.equal(S().query, '玻璃球吊灯');
+});
+
+test('Z21：runText 空文本 ⇒ 一个 IPC 都不发，只提示', async () => {
+  const calls = fakeBridge(() => OK({ results: [] }));
+  const toasts = [];
+  await S().runText('   ', (m, t) => toasts.push([m, t]));
+  assert.equal(calls.length, 0);
+  assert.equal(toasts.length, 1);
+});

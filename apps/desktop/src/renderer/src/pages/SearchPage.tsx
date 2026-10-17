@@ -3,7 +3,7 @@
 // 状态自 2026-10-13（T2）起由 **Zustand store** 持有（`store/search.js`），不再挂在组件里：
 // 这样「从结果卡进详情页再返回，筛选与结果还在」才有实现基础（P3c 需要）。
 // 本页只订阅 + 渲染；协议与编排都在 Operation 层。
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
 import AppShell from '../layout/AppShell.tsx';
 import Main from '../layout/Main.tsx';
@@ -76,7 +76,16 @@ export default function SearchPage() {
     requestCollect,
     cancelCollect,
     confirmCollect,
+    // FR-012：最近搜索（主进程在检索成功后写 recent_query；这里只读回来展示/重放）
+    recent,
+    loadRecent,
+    runText,
   } = useSearchStore();
+
+  // FR-012：进页面读一次最近搜索。传 show 是刻意的 —— 除 DB_MISSING（首启正常态）外的读取失败**要出声**。
+  useEffect(() => {
+    void loadRecent(show);
+  }, [loadRecent, show]);
 
   // 排序是**派生**的（纯函数），不进 store —— 否则 rawResults / sort / results 三者
   // 要手工保持同步，那是典型的「同一份事实两处存」。
@@ -236,6 +245,25 @@ export default function SearchPage() {
               }}
               imageName={imageName}
             />
+
+            {/* FR-012：最近搜索。只列**有文本**的历史（以图搜图的行没有可点的文本，硬列出来只会点了没反应）；
+                点一下 = 用同一段文本重新检索（`runText` 先写 state 再 run，避免读到旧 query）。 */}
+            {recent.length ? (
+              <div className="row wrap mt-2" data-testid="recent-queries">
+                <span className="muted small">最近搜索</span>
+                {recent.map((row) => (
+                  <Button
+                    key={`${row.at}-${row.q}`}
+                    size="sm"
+                    data-recent-query={row.q ?? ''}
+                    title={row.hits === null ? '重新检索这一条' : `上次命中 ${row.hits} 条`}
+                    onClick={() => void runText(row.q ?? '', show)}
+                  >
+                    {row.q}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
 
             <MetricsRow lib={lib} indexLoading={indexLoading} device={device} />
 
