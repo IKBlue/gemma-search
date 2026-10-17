@@ -15,6 +15,8 @@
 // ⚠️ 仓库的 `job` 表**每库一份**（库级 `.gs.db`）：事件里带 `libId` ⇒ 按库缓存连接。
 //   打开库（非只读）会触发 B2-1b 的**启动结算**：上次崩溃留下的 `running` 任务会被标成中断 ⇒
 //   "允许续跑"就落在 `indexResume`（引擎用 `rebuild:false` 起构建，构建器按现有索引复用）。
+import fs from 'node:fs';
+
 import type { SqlDatabase } from './db/index.ts';
 import { createJob, finishJob, getJob, JobError, setProgress, startJob } from './db/jobs.ts';
 import type { JobRow } from './db/jobs.ts';
@@ -95,6 +97,13 @@ export interface IndexJobRecorderOptions {
   libDbPathOf: (libId: string) => string | null;
   /** 测试注入：默认 `openGsDb({ dbPath })`（非只读 ⇒ 会跑迁移 + 启动结算） */
   openDb?: (dbPath: string) => LibHandle;
+  /**
+   * 台账文件是否已存在（默认 fs.existsSync）。
+   * ⚠️ **必须先用它判存在再打开**：openGsDb 非只读会**建库并跑迁移** ⇒ 对一个元数据缺失的库
+   *    「结算一下」就等于**把 .gs.db 造出来**，于是体检再也报不出 DB_MISSING（「元数据缺失/可重建」
+   *    这个可诊断状态被静默抹掉）。E2E-RED-1 的 health 用例就是这么红的 —— 修的是这里，不是断言。
+   */
+  existsDb?: (dbPath: string) => boolean;
   now?: () => number;
   log?: (...a: unknown[]) => void;
 }
@@ -131,6 +140,7 @@ export function createIndexJobRecorder(opts: IndexJobRecorderOptions): IndexJobR
     });
   const now = opts.now ?? Date.now;
   const log = opts.log ?? (() => {});
+  const existsDb = opts.existsDb ?? ((p: string) => fs.existsSync(p));
   const handles = new Map<string, LibHandle | null>();
   /** `index.failed` 先到、`index.done{ok:false}` 后到 ⇒ 把错误码带到终态那一行 */
   const pendingError = new Map<string, string>();
@@ -144,6 +154,9 @@ export function createIndexJobRecorder(opts: IndexJobRecorderOptions): IndexJobR
       const dbPath = opts.libDbPathOf(libId);
       if (!dbPath) {
         log('!! [索引任务] 库元数据落点解析不到（job 行没有写入）：', libId);
+      } else if (!existsDb(dbPath)) {
+        // 元数据缺失：**不代建**（那会抹掉可诊断的状态），也不结算（没有台账可结算）
+        log('[索引任务] 库元数据不存在，跳过台账（不代建、不结算）：', libId);
       } else {
         handle = openDb(dbPath);
       }

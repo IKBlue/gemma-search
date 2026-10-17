@@ -123,16 +123,22 @@ test('E8-e `itemPaths` 在真窗口里返回两条绝对路径（P3c 的数据�
   }
 });
 
-test('E8-f ⭐ 真实模式下 indexStart **如实报未接线**（INTERNAL + 说明 IDX-2b），绝不静默成功', async () => {
-  // ⚠️ 2026-10-17 · U35 **翻转**（历史保留）：
-  //   改前（S6）：方法不在契约 ⇒ 真实模式必须 BAD_REQUEST（白名单拒绝）。
-  //   改后：恢复登记后它已过白名单 ⇒ 真实模式由**引擎**返回 INTERNAL，message 说明「IDX-2b 接入」。
-  //   为什么不是放宽：仍然 ok === false（**不静默成功**，P6），只是错误码从「白名单拒绝」变成「如实未实现」。
+test('E8-f ⭐⭐ 真实模式下 indexStart 已接线：未知库给**明确错误码**（不再是"未接线 INTERNAL"），绝不静默成功', async () => {
+  // ⚠️ 2026-10-17 · E2E-RED-1 **二次翻转**（历史保留，见 reports/2026-10-15-wave3/e2e-red-1.txt 的翻转表）：
+  //   · 改前①（S6）：方法不在契约 ⇒ BAD_REQUEST（白名单拒绝）；
+  //   · 改前②（U35/IDX-2a）：已登记但未接线 ⇒ INTERNAL（message 含「IDX-2b 接入」）；
+  //   · 改后（IDX-2b2 注入 indexing）：**接线了** ⇒ 真实模式会真的起任务；
+  //     对**未知库**则在起任务前就明确失败（LIB_NOT_FOUND）。
+  //   为什么不是放宽：仍然 ok === false（**不静默成功**，P6），而且判据更强了 ——
+  //     不但要求"失败"，还要求**错误码来自真实链路**（LIB_NOT_FOUND），并明确**不再是**"未接线"那套。
+  //   ⚠️ "未注入端口 ⇒ 仍 INTERNAL" 这条 IDX-2a 语义没有被破坏：用单测 index-unwired.test.mjs 钉住（引擎级）。
   const real = await launchWithLibrary();
   try {
     const win = await firstWindow(real.app);
     const off = await win.evaluate(async () => {
-      const res = await window.api.invoke('indexStart', { libId: 'L1' });
+      // 用**不存在的库**：证明"接线了、但环境不满足 ⇒ 明确失败"，同时**不触发真实构建**
+      // （在 e2e 里起一个真构建会加载模型、扫几千条 —— 那不是在测接线，是在烧时间）。
+      const res = await window.api.invoke('indexStart', { libId: 'L-none' });
       return res.ok
         ? { ok: true }
         : {
@@ -142,11 +148,16 @@ test('E8-f ⭐ 真实模式下 indexStart **如实报未接线**（INTERNAL + �
             userMsg: res.error.userMessage,
           };
     });
-    expect(off.ok, '真实模式不许假装成功').toBe(false);
-    expect(off.code, '恢复登记后不再走白名单拒绝（BAD_REQUEST），而是如实 INTERNAL').toBe(
-      'INTERNAL',
-    );
-    expect(off.msg, 'message 要说清真实实现何时接（IDX-2b）').toMatch(/IDX-2b/);
+    console.log('[E8-f] indexStart(未知库) 信封 =', JSON.stringify(off));
+    expect(off.ok, '真实模式不许假装成功（未知库必须明确失败）').toBe(false);
+    expect(
+      off.code,
+      'IDX-2b2 接线后不再返回"未接线 INTERNAL"；未知库应给真实链路里的明确错误码（LIB_NOT_FOUND）',
+    ).toBe('LIB_NOT_FOUND');
+    expect(
+      String(off.msg),
+      '不许再出现"还没接线（IDX-2b 接入）"这套旧语义 —— 那说明端口没注入或又被删了',
+    ).not.toMatch(/还没接线|IDX-2b 接入/);
     expect(off.userMsg).toBeTruthy();
 
     // `itemPaths` 是**只读**方法，两种模式都该可用（它不是模拟专属）。

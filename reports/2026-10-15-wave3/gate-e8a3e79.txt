@@ -1,0 +1,57 @@
+﻿COMMIT=e8a3e79
+All matched files use Prettier code style!
+CHECK=0
+
+LINT=0
+
+ℹ tests 790
+ℹ pass 788
+ℹ fail 1
+ℹ skipped 1
+
+
+TEST=1
+
+TC=0
+WARN=0
+BUILD=0
+Total: 75 tests in 23 files
+E2E_EXIT=1
+【输入】data/_e2e-run.json（0 分钟前 · 110472B）
+【输入】data/_e2e-list.txt（4 分钟前 · 32B）
+【总账】list=0 运行=75（passed=69 · skipped=4 · other=2）· did_not_run=0
+⛔ list 解析出 0 条 ⇒ 清单格式变了？**不许 0==0 账平**
+⛔ 总账不平：list != 运行（差 -75）
+【账不平的文件】
+  · a11y.spec.mjs  list=0 运行=5（pass=5 skip=0 other=0）
+  · activity.spec.mjs  list=0 运行=1（pass=1 skip=0 other=0）
+  · app-health.spec.mjs  list=0 运行=2（pass=2 skip=0 other=0）
+  · browse.spec.mjs  list=0 运行=6（pass=6 skip=0 other=0）
+  · confirm-dialog.spec.mjs  list=0 运行=6（pass=6 skip=0 other=0）
+  · fake-mode.spec.mjs  list=0 运行=6（pass=5 skip=0 other=1）
+  · first-paint.spec.mjs  list=0 运行=1（pass=0 skip=1 other=0）
+  · gate.spec.mjs  list=0 运行=3（pass=3 skip=0 other=0）
+  · health.spec.mjs  list=0 运行=4（pass=3 skip=0 other=1）
+  · index-task.spec.mjs  list=0 运行=1（pass=1 skip=0 other=0）
+  · item-detail.spec.mjs  list=0 运行=6（pass=6 skip=0 other=0）
+  · library-unavailable.spec.mjs  list=0 运行=2（pass=2 skip=0 other=0）
+  · m0-real.spec.mjs  list=0 运行=1（pass=1 skip=0 other=0）
+  · perf.spec.mjs  list=0 运行=1（pass=0 skip=1 other=0）
+  · routing.spec.mjs  list=0 运行=9（pass=9 skip=0 other=0）
+  · smoke.spec.mjs  list=0 运行=1（pass=1 skip=0 other=0）
+  · start1-probe.spec.mjs  list=0 运行=1（pass=0 skip=1 other=0）
+  · start1-tmpab.spec.mjs  list=0 运行=1（pass=0 skip=1 other=0）
+  · start2-userdata-unwritable.spec.mjs  list=0 运行=1（pass=1 skip=0 other=0）
+  · styles.spec.mjs  list=0 运行=5（pass=5 skip=0 other=0）
+  · tasks.spec.mjs  list=0 运行=2（pass=2 skip=0 other=0）
+  · uiux-p0.spec.mjs  list=0 运行=6（pass=6 skip=0 other=0）
+  · window-security.spec.mjs  list=0 运行=4（pass=4 skip=0 other=0）
+【非 expected/skipped 的明细】
+  · fake-mode.spec.mjs :: undefined => unexpected
+  · health.spec.mjs :: undefined => unexpected
+ACCOUNTING=1
+
+  PASS 21 · FAIL 0 · SKIP 0
+
+
+=== DONE ===

@@ -228,6 +228,52 @@ test('J6 ⭐⭐ 打开库触发 B2-1b 启动结算：上次 running 的索引任
   }
 });
 
+test('J8 ⭐⭐ warmup **不代建**缺失的 .gs.db（否则体检再也报不出 DB_MISSING）· 存在的库照常结算', () => {
+  // ① 台账缺失：warmup 之后文件**仍然不存在**（E2E-RED-1 的 health 用例靠这条语义）
+  const dir = path.join(TMP, 'j8-missing-' + String(++seq));
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  const missingPath = path.join(dir, '.gs.db');
+  const logs = [];
+  const rec1 = createIndexJobRecorder({
+    libDbPathOf: () => missingPath,
+    log: (...a) => logs.push(a.map(String).join(' ')),
+    now: () => T0,
+  });
+  try {
+    rec1.warmup(['L1']);
+    assert.equal(
+      fs.existsSync(missingPath),
+      false,
+      '元数据缺失 ⇒ 不许代建（体检要能报 DB_MISSING）',
+    );
+    assert.ok(
+      logs.some((l) => l.includes('不代建')),
+      '跳过也要留日志（不静默）',
+    );
+  } finally {
+    rec1.close();
+  }
+  // ② 台账存在：warmup 仍会打开并结算（J6 的能力不被这次修复破坏）
+  const dbPath = freshDb('J8-stale');
+  const OLD = T0 - 10 * 60 * 1000;
+  const opened = openGsDb({ dbPath, now: () => OLD });
+  try {
+    createJob(opened.db, { kind: 'index', jobId: 'j8-stale', now: () => OLD });
+    startJob(opened.db, 'j8-stale', () => OLD);
+  } finally {
+    opened.db.close();
+  }
+  const rec2 = createIndexJobRecorder({ libDbPathOf: () => dbPath, now: () => T0 });
+  try {
+    rec2.warmup(['L1']);
+    const row = readJob(dbPath, 'j8-stale');
+    assert.notEqual(row.state, 'running', '存在的台账照常结算（上次 running 标中断）');
+  } finally {
+    rec2.close();
+  }
+});
+
 test('J7 ⭐⭐ 写 job 行的入口只有一处（源码扫描）：INSERT INTO job / UPDATE job 只在 db/jobs.ts', () => {
   const files = [];
   const walk = (d) => {

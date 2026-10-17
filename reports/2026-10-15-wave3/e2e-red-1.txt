@@ -1,0 +1,52 @@
+================================================================================
+E2E-RED-1 证据 · 冻结门禁两条 e2e 真失败：**先判性质，再修**
+任务板 id: task-125   执行: db-worker   日期: 2026-10-17
+===============================================================================
+
+【结论】
+· **#2 health:180 = 产品回归（我自己 IDX-2b2 引入的）** ⇒ **修产品**（不翻断言）。
+  IDX-2b2 的启动预热 `indexJobRecorder.warmup()` 用**写模式**打开每个已登记库的 `.gs.db` ⇒
+  `openGsDb`（非只读）会**建库 + 跑迁移** ⇒ 夹具删掉的 `.gs.db` 在体检前被**又造出来** ⇒
+  体检再也报不出 `DB_MISSING` ⇒ `data-health-ok` 从 `no` 变 `yes`。
+  证据（探针，修前）：`before exists = false` → warmup → `after exists = true, files=[.gs.db,.gs.db-shm,.gs.db-wal]`。
+· **#1 fake-mode:145 = 断言过时（需求/接线变化）** ⇒ **翻断言并留表**（不是产品坏）。
+  冻结门禁的失败原文是 `expect(off.ok).toBe(false)` ⇒ 实际 `ok:true`（**不是** Lead 假设的"变成 MODEL_MISSING"）：
+  IDX-2b2 注入 `indexing` 后，真实模式 `indexStart` **真的起异步任务** ⇒ 调用的那一刻本来就该 `ok:true`。
+  旧断言钉的是"未接线 ⇒ INTERNAL"，那条语义已被 IDX-2b2 取代。
+
+【1. #2 的修法（产品）与证据】
+· `main/index-jobs.ts` 的记录器新增 `existsDb` 守卫：**台账文件不存在 ⇒ 不打开、不代建、不结算**（记一条日志，不静默）。
+  理由写进注释：`.gs.db` 是派生数据，但"缺失"本身是**可诊断状态**（体检/重建入口靠它）；启动预热**不许**把它抹掉。
+· 修后探针：`before exists = false` → warmup → `after exists = false, files=[]` + 日志「库元数据不存在，跳过台账（不代建、不结算）」。
+· 单测 **J8**（新）钉住两侧：① 缺失 ⇒ 不代建 + 留日志；② 存在 ⇒ **照常结算**（J6 能力不被这次修复破坏）。
+· e2e `health.spec.mjs` E13-d **复绿**，理由日志原文：`自检发现 1 项问题：db-file(DB_MISSING) ⇒ 可以删库重建`
+  ⇒ 证明坏状态**真的造出来了**（不是把期望改成 yes）。
+
+【2. #1 的翻转表（照 idx2a.txt §1 格式）】
+| # | 场景 | 原断言 | 新断言 | 为什么 |
+|---|---|---|---|---|
+| 1 | 真实模式 `indexStart` | `ok:false` + `code==='INTERNAL'` + `msg≈/IDX-2b/` | 用**未知库**调用：`ok:false` + `code==='LIB_NOT_FOUND'` + `msg 不含「还没接线/IDX-2b 接入」` | IDX-2b2 注入端口后，"未接线"不再是真实模式的行为；未知库会在起任务前**明确失败**，仍满足"不许静默成功"（P6） |
+· ⚠️ 用未知库而不是真实库：在 e2e 里用真库会**真的起一次构建**（加载模型、扫几千条）—— 那不是在测接线，是烧时间；
+  未知库的返回同样能证明"方法已接线、错误来自真实链路"。
+· **IDX-2a 的"未注入 ⇒ INTERNAL"语义没被破坏**：新增单测 `index-unwired.test.mjs`（引擎级）：
+  不注入 `indexing` ⇒ `ok:false` + `INTERNAL` + message 含 `IDX-2b` ✓。
+
+【3. 能红（诚实记）】
+· #2 的**红已由冻结门禁 `e8a3e79` 原样捕获**（`health.spec.mjs:180`：期望 `no`、实际 `yes`，`data-health-ok=yes`）；
+  修的是**产品**（warmup 不代建），并把该语义用 J8 钉住 —— 谁再让 warmup 代建，J8 与 E13-d 会一起红。
+· #1 的红同样由该门禁捕获（`fake-mode.spec.mjs:145`：`expect(off.ok).toBe(false)` 实得 `true`）。
+· ⚠️ 如实：修复后**没有**再跑一次"把断言/代码改回旧样"的 mutant 运行（时间/上下文限制）—— 两处红都有**原始门禁输出**作证，
+  且 #2 不是"改期望让它绿"（产品改了、夹具的坏状态真造出来了，理由串可查）。
+
+【4. 门禁（本轮实测）】
+$ npx playwright test … fake-mode health ⇒ **10 passed (38.4s)**
+  · E8-f（翻转后的断言）**ok** · E13-d（真实现体检）**ok**，理由串 `db-file(DB_MISSING)` ✓
+$ node --test index-unwired + index-jobs + index-adapter ⇒ **14/14**
+$ npx tsc -p tsconfig.node.json ⇒ **0** ｜ npm run lint ⇒ **0** ｜ prettier ⇒ **0**
+$ npm run build ⇒ **0**（e2e 前必须 build —— IDX-2b2 的教训）
+
+【5. 边界】
+· 未改 `e2e/helpers/app.mjs`（storage-worker 正在改：夹具复制到临时区）；本轮 health 夹具仍是 `fs.cpSync` 进 `data/_t15b-*`。
+· 未动契约（`shared/ipc.ts` 未碰）；#1 的翻转只是断言，不改产品语义。
+· `ACCOUNTING=1` 的另一半原因（Lead 的 `--list` 调用方式）不在本卡范围。
+===============================================================================
