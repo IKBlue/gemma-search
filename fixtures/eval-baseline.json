@@ -1,0 +1,2948 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-17T08:49:59.043Z",
+  "what": "EVAL-1 真实召回基线（中心 60% 裁剪查询同图检索，topK=10；评分器 = tests/helpers/eval-dataset.mjs）",
+  "environment": {
+    "node": "v24.14.0",
+    "device": "cpu",
+    "model": {
+      "repo": "onnx-community/embeddinggemma-2-ONNX",
+      "revision": "daa72c51243991dfcaf9f9137d2c573d8f7790c0",
+      "dtype": "fp32",
+      "seq": 140
+    },
+    "library": {
+      "libId": "L1",
+      "root": "G:\\model",
+      "count": 3594,
+      "index": "D:\\USERS\\Desktop\\Agent\\gemma-search\\data\\libraries\\L1\\index.bin"
+    }
+  },
+  "dataset": {
+    "file": "fixtures/eval-queries.json",
+    "entries": 55,
+    "truthQueries": 50,
+    "noMatchQueries": 5
+  },
+  "summary": {
+    "n": 50,
+    "top1": 0.92,
+    "top5": 1,
+    "top10": 1,
+    "separation": {
+      "mean": 0.050572,
+      "median": 0.045184,
+      "min": -0.016705,
+      "negatives": 4
+    },
+    "noMatch": {
+      "n": 5,
+      "maxScoreMean": 0.788618
+    }
+  },
+  "scoreDistributions": {
+    "correctTop1": {
+      "n": 50,
+      "min": 0.877976,
+      "median": 0.947478,
+      "p95": 0.976173,
+      "max": 0.978583
+    },
+    "bestWrongTop1": {
+      "n": 50,
+      "min": 0.804473,
+      "median": 0.903688,
+      "p95": 0.950522,
+      "max": 0.967358
+    },
+    "syntheticTop1": {
+      "n": 5,
+      "min": 0.73541,
+      "median": 0.807959,
+      "p95": 0.830866,
+      "max": 0.830866
+    },
+    "absoluteThresholdGap": -0.089382
+  },
+  "phashCalibration": {
+    "note": "dHash 口径 = 灰度 9×8 + 相邻比较（与 main/phash.ts 相同）；灰度由 sharp fill 近似（生产是 nativeImage quality:good）⇒ 阈值给量级，PHASH-1b 采信前须用生产解码复核",
+    "nearDuplicateResize": {
+      "n": 50,
+      "min": 0,
+      "median": 2,
+      "p95": 6,
+      "max": 7
+    },
+    "cropVsOriginal": {
+      "n": 50,
+      "min": 17,
+      "median": 29,
+      "p95": 38,
+      "max": 43
+    },
+    "differentImages": {
+      "n": 193,
+      "min": 19,
+      "median": 33,
+      "p95": 43,
+      "max": 47
+    },
+    "suggestedK": 13
+  },
+  "timing": {
+    "totalMs": 79518,
+    "avgQueryMs": 1445.709090909091
+  },
+  "perQuery": [
+    {
+      "id": "q001",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "04c8cbc332f2"
+        ]
+      },
+      "tookMs": 1529,
+      "top10": [
+        {
+          "uid": "04c8cbc332f2",
+          "score": 0.954936
+        },
+        {
+          "uid": "bfe8a9251665",
+          "score": 0.919629
+        },
+        {
+          "uid": "3d9e32c0dc50",
+          "score": 0.91925
+        },
+        {
+          "uid": "2475b5807d8b",
+          "score": 0.917311
+        },
+        {
+          "uid": "c291b83cbd57",
+          "score": 0.914132
+        },
+        {
+          "uid": "8823671323eb",
+          "score": 0.913902
+        },
+        {
+          "uid": "3a90db6316ed",
+          "score": 0.913701
+        },
+        {
+          "uid": "e9d733899e9b",
+          "score": 0.912072
+        },
+        {
+          "uid": "3ca7b1111fa2",
+          "score": 0.910824
+        },
+        {
+          "uid": "df03d47a2cc5",
+          "score": 0.909826
+        }
+      ]
+    },
+    {
+      "id": "q002",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "0caf9e6f24f1"
+        ]
+      },
+      "tookMs": 1429,
+      "top10": [
+        {
+          "uid": "0caf9e6f24f1",
+          "score": 0.947478
+        },
+        {
+          "uid": "8051978aaefb",
+          "score": 0.878661
+        },
+        {
+          "uid": "45f13aaec6e6",
+          "score": 0.872639
+        },
+        {
+          "uid": "620e3b8bff73",
+          "score": 0.858095
+        },
+        {
+          "uid": "517fd494ad24",
+          "score": 0.854992
+        },
+        {
+          "uid": "124288fa030d",
+          "score": 0.851889
+        },
+        {
+          "uid": "0933e2117de3",
+          "score": 0.849568
+        },
+        {
+          "uid": "e5af8d5b9e9f",
+          "score": 0.843856
+        },
+        {
+          "uid": "73d5dec5360a",
+          "score": 0.841402
+        },
+        {
+          "uid": "66eb74900106",
+          "score": 0.839927
+        }
+      ]
+    },
+    {
+      "id": "q003",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "15ccf260c0a2"
+        ]
+      },
+      "tookMs": 1422,
+      "top10": [
+        {
+          "uid": "15ccf260c0a2",
+          "score": 0.966488
+        },
+        {
+          "uid": "21e86e1717af",
+          "score": 0.856532
+        },
+        {
+          "uid": "561245189656",
+          "score": 0.848374
+        },
+        {
+          "uid": "cf7dce3f9bbc",
+          "score": 0.846929
+        },
+        {
+          "uid": "96da15e19c55",
+          "score": 0.842773
+        },
+        {
+          "uid": "e14e40c09e0a",
+          "score": 0.839823
+        },
+        {
+          "uid": "69c2e1174506",
+          "score": 0.838065
+        },
+        {
+          "uid": "5a46d16bf32b",
+          "score": 0.831147
+        },
+        {
+          "uid": "c7c1085d8753",
+          "score": 0.829656
+        },
+        {
+          "uid": "8edddaec2623",
+          "score": 0.828866
+        }
+      ]
+    },
+    {
+      "id": "q004",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "1f9afe3d2568"
+        ]
+      },
+      "tookMs": 1416,
+      "top10": [
+        {
+          "uid": "1f9afe3d2568",
+          "score": 0.963436
+        },
+        {
+          "uid": "c8ba670227a0",
+          "score": 0.943025
+        },
+        {
+          "uid": "3ca7b1111fa2",
+          "score": 0.937463
+        },
+        {
+          "uid": "fa8f9c61f4ae",
+          "score": 0.936103
+        },
+        {
+          "uid": "93fea86427e1",
+          "score": 0.93484
+        },
+        {
+          "uid": "f29d0d987ff7",
+          "score": 0.934589
+        },
+        {
+          "uid": "78a0dfed9ac5",
+          "score": 0.933769
+        },
+        {
+          "uid": "ca573101780f",
+          "score": 0.928858
+        },
+        {
+          "uid": "93da1f3c860f",
+          "score": 0.928795
+        },
+        {
+          "uid": "3e9ac7801a99",
+          "score": 0.928066
+        }
+      ]
+    },
+    {
+      "id": "q005",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "299d11499018"
+        ]
+      },
+      "tookMs": 1423,
+      "top10": [
+        {
+          "uid": "9eb8eed94eff",
+          "score": 0.944418
+        },
+        {
+          "uid": "299d11499018",
+          "score": 0.940861
+        },
+        {
+          "uid": "c7e1878e8a38",
+          "score": 0.940412
+        },
+        {
+          "uid": "c71068e6505b",
+          "score": 0.940269
+        },
+        {
+          "uid": "3b771947093a",
+          "score": 0.933147
+        },
+        {
+          "uid": "88f4068a033d",
+          "score": 0.932017
+        },
+        {
+          "uid": "4b74afd07d61",
+          "score": 0.925713
+        },
+        {
+          "uid": "84238e614742",
+          "score": 0.924459
+        },
+        {
+          "uid": "b78390ecdbb1",
+          "score": 0.922554
+        },
+        {
+          "uid": "4de8fa14485b",
+          "score": 0.92156
+        }
+      ]
+    },
+    {
+      "id": "q006",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "322456cb23ef"
+        ]
+      },
+      "tookMs": 1458,
+      "top10": [
+        {
+          "uid": "322456cb23ef",
+          "score": 0.961887
+        },
+        {
+          "uid": "5c7be62f5860",
+          "score": 0.944713
+        },
+        {
+          "uid": "c1139295de2b",
+          "score": 0.943507
+        },
+        {
+          "uid": "9b605f8269b7",
+          "score": 0.94302
+        },
+        {
+          "uid": "645906b887d2",
+          "score": 0.941339
+        },
+        {
+          "uid": "98cfa21120b1",
+          "score": 0.939888
+        },
+        {
+          "uid": "7bdac09045ff",
+          "score": 0.939332
+        },
+        {
+          "uid": "524e8b88a817",
+          "score": 0.930535
+        },
+        {
+          "uid": "ab983af55c03",
+          "score": 0.929897
+        },
+        {
+          "uid": "56995e214eaf",
+          "score": 0.92883
+        }
+      ]
+    },
+    {
+      "id": "q007",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "3b3b27b883ad"
+        ]
+      },
+      "tookMs": 1450,
+      "top10": [
+        {
+          "uid": "3b3b27b883ad",
+          "score": 0.938398
+        },
+        {
+          "uid": "5baf9a815a01",
+          "score": 0.845767
+        },
+        {
+          "uid": "6bb669706403",
+          "score": 0.82951
+        },
+        {
+          "uid": "c659359a0139",
+          "score": 0.825439
+        },
+        {
+          "uid": "b3d9b8c7ff67",
+          "score": 0.82537
+        },
+        {
+          "uid": "cd941780aec2",
+          "score": 0.825049
+        },
+        {
+          "uid": "1291f85e5c3c",
+          "score": 0.823634
+        },
+        {
+          "uid": "a1638b940c73",
+          "score": 0.818667
+        },
+        {
+          "uid": "0a5dae1f673f",
+          "score": 0.818148
+        },
+        {
+          "uid": "d7dc51ef93cc",
+          "score": 0.818093
+        }
+      ]
+    },
+    {
+      "id": "q008",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "44429bd311a5"
+        ]
+      },
+      "tookMs": 1434,
+      "top10": [
+        {
+          "uid": "44429bd311a5",
+          "score": 0.978583
+        },
+        {
+          "uid": "14842c246a9b",
+          "score": 0.952353
+        },
+        {
+          "uid": "13ce4a40027b",
+          "score": 0.941058
+        },
+        {
+          "uid": "d75d67817577",
+          "score": 0.938411
+        },
+        {
+          "uid": "6a91c00d8285",
+          "score": 0.936087
+        },
+        {
+          "uid": "dcb3531f08ac",
+          "score": 0.936052
+        },
+        {
+          "uid": "0eb9fde8ce27",
+          "score": 0.934514
+        },
+        {
+          "uid": "e95ebe9acf95",
+          "score": 0.933728
+        },
+        {
+          "uid": "fde6db5cdd25",
+          "score": 0.929654
+        },
+        {
+          "uid": "b782dcbc37f1",
+          "score": 0.928178
+        }
+      ]
+    },
+    {
+      "id": "q009",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "4cefe8888547"
+        ]
+      },
+      "tookMs": 1433,
+      "top10": [
+        {
+          "uid": "4cefe8888547",
+          "score": 0.937403
+        },
+        {
+          "uid": "11fb440960b5",
+          "score": 0.910062
+        },
+        {
+          "uid": "287dba808583",
+          "score": 0.905711
+        },
+        {
+          "uid": "03ceca5d608c",
+          "score": 0.897954
+        },
+        {
+          "uid": "578647382243",
+          "score": 0.89605
+        },
+        {
+          "uid": "c5515e18e204",
+          "score": 0.894032
+        },
+        {
+          "uid": "f7b0d9aa1b3e",
+          "score": 0.892365
+        },
+        {
+          "uid": "56995e214eaf",
+          "score": 0.891015
+        },
+        {
+          "uid": "2e0c18899c6d",
+          "score": 0.889973
+        },
+        {
+          "uid": "8bf240b4635a",
+          "score": 0.888466
+        }
+      ]
+    },
+    {
+      "id": "q010",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "5441eb92b19f"
+        ]
+      },
+      "tookMs": 1448,
+      "top10": [
+        {
+          "uid": "5441eb92b19f",
+          "score": 0.965554
+        },
+        {
+          "uid": "21808c022ca3",
+          "score": 0.92037
+        },
+        {
+          "uid": "42c38d9c8b22",
+          "score": 0.917832
+        },
+        {
+          "uid": "1d5b51b7b9bf",
+          "score": 0.915734
+        },
+        {
+          "uid": "44a2e330cf4d",
+          "score": 0.899816
+        },
+        {
+          "uid": "c02763a40898",
+          "score": 0.895117
+        },
+        {
+          "uid": "e9dd726714d8",
+          "score": 0.89313
+        },
+        {
+          "uid": "05847a70bab2",
+          "score": 0.89206
+        },
+        {
+          "uid": "74b5676b72a8",
+          "score": 0.891386
+        },
+        {
+          "uid": "a4004b7eda6c",
+          "score": 0.887291
+        }
+      ]
+    },
+    {
+      "id": "q011",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "5e35a6c24164"
+        ]
+      },
+      "tookMs": 1442,
+      "top10": [
+        {
+          "uid": "5e35a6c24164",
+          "score": 0.93794
+        },
+        {
+          "uid": "a1c705186717",
+          "score": 0.894129
+        },
+        {
+          "uid": "94d2eac3d7c2",
+          "score": 0.887778
+        },
+        {
+          "uid": "7b605d13c6e0",
+          "score": 0.884075
+        },
+        {
+          "uid": "8aedf83364c9",
+          "score": 0.882495
+        },
+        {
+          "uid": "de8bc9ffa64e",
+          "score": 0.880532
+        },
+        {
+          "uid": "3e683d2f3a59",
+          "score": 0.878819
+        },
+        {
+          "uid": "611eed58324e",
+          "score": 0.876192
+        },
+        {
+          "uid": "b108427750d9",
+          "score": 0.871453
+        },
+        {
+          "uid": "6b27ca78c048",
+          "score": 0.870191
+        }
+      ]
+    },
+    {
+      "id": "q012",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "6798e993b08d"
+        ]
+      },
+      "tookMs": 1397,
+      "top10": [
+        {
+          "uid": "6798e993b08d",
+          "score": 0.941906
+        },
+        {
+          "uid": "ef4a56a3dd06",
+          "score": 0.891139
+        },
+        {
+          "uid": "6ba5dcf51ebe",
+          "score": 0.869855
+        },
+        {
+          "uid": "cda6ba7bbc05",
+          "score": 0.841441
+        },
+        {
+          "uid": "6513cc9caf4a",
+          "score": 0.838393
+        },
+        {
+          "uid": "afb256cc3015",
+          "score": 0.837107
+        },
+        {
+          "uid": "33d1fe0d8213",
+          "score": 0.836541
+        },
+        {
+          "uid": "6f6fbf1c5cb2",
+          "score": 0.83488
+        },
+        {
+          "uid": "1449983874e6",
+          "score": 0.834078
+        },
+        {
+          "uid": "0e4963d10c5e",
+          "score": 0.830849
+        }
+      ]
+    },
+    {
+      "id": "q013",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "6e92b0f88c58"
+        ]
+      },
+      "tookMs": 1455,
+      "top10": [
+        {
+          "uid": "6e92b0f88c58",
+          "score": 0.94934
+        },
+        {
+          "uid": "3f628b2b34ee",
+          "score": 0.870772
+        },
+        {
+          "uid": "3163d58c2853",
+          "score": 0.868408
+        },
+        {
+          "uid": "542f66d090eb",
+          "score": 0.866776
+        },
+        {
+          "uid": "3fd1e729df2d",
+          "score": 0.861357
+        },
+        {
+          "uid": "e224a71c0dcf",
+          "score": 0.861069
+        },
+        {
+          "uid": "e07f9d5a27ce",
+          "score": 0.860921
+        },
+        {
+          "uid": "2c12410f9dd6",
+          "score": 0.856221
+        },
+        {
+          "uid": "30375c164183",
+          "score": 0.856115
+        },
+        {
+          "uid": "cdba27068315",
+          "score": 0.855539
+        }
+      ]
+    },
+    {
+      "id": "q014",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "77b7ac30b46f"
+        ]
+      },
+      "tookMs": 1421,
+      "top10": [
+        {
+          "uid": "b8ff0904bd05",
+          "score": 0.935465
+        },
+        {
+          "uid": "77b7ac30b46f",
+          "score": 0.91876
+        },
+        {
+          "uid": "eb2d766510d7",
+          "score": 0.918101
+        },
+        {
+          "uid": "f2e9d381318c",
+          "score": 0.891586
+        },
+        {
+          "uid": "711a3fb5ba08",
+          "score": 0.891494
+        },
+        {
+          "uid": "4de8fa14485b",
+          "score": 0.891426
+        },
+        {
+          "uid": "9eb8eed94eff",
+          "score": 0.88841
+        },
+        {
+          "uid": "aa80305037e7",
+          "score": 0.885968
+        },
+        {
+          "uid": "7fe7820812e3",
+          "score": 0.883968
+        },
+        {
+          "uid": "ef473aa18146",
+          "score": 0.88154
+        }
+      ]
+    },
+    {
+      "id": "q015",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "7fe5356de529"
+        ]
+      },
+      "tookMs": 1435,
+      "top10": [
+        {
+          "uid": "9598bb22ba39",
+          "score": 0.925698
+        },
+        {
+          "uid": "c8a105b39b9a",
+          "score": 0.922709
+        },
+        {
+          "uid": "7fe5356de529",
+          "score": 0.915206
+        },
+        {
+          "uid": "59b84052bd37",
+          "score": 0.915058
+        },
+        {
+          "uid": "c7e4de41ae67",
+          "score": 0.914427
+        },
+        {
+          "uid": "7d2e59927bd6",
+          "score": 0.907888
+        },
+        {
+          "uid": "68bd88fb8461",
+          "score": 0.905214
+        },
+        {
+          "uid": "99166ecbe66e",
+          "score": 0.900282
+        },
+        {
+          "uid": "a001c183e528",
+          "score": 0.900183
+        },
+        {
+          "uid": "6e3824355737",
+          "score": 0.898431
+        }
+      ]
+    },
+    {
+      "id": "q016",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "8be63f97466f"
+        ]
+      },
+      "tookMs": 1428,
+      "top10": [
+        {
+          "uid": "8be63f97466f",
+          "score": 0.950614
+        },
+        {
+          "uid": "77beacbaef31",
+          "score": 0.89407
+        },
+        {
+          "uid": "0e1e7792986d",
+          "score": 0.889227
+        },
+        {
+          "uid": "3a566b957ed6",
+          "score": 0.888736
+        },
+        {
+          "uid": "a6542156ca00",
+          "score": 0.884235
+        },
+        {
+          "uid": "b5c67a568e3a",
+          "score": 0.884155
+        },
+        {
+          "uid": "502ce596e88d",
+          "score": 0.882176
+        },
+        {
+          "uid": "c3fd49f41654",
+          "score": 0.876858
+        },
+        {
+          "uid": "5329b2a6168b",
+          "score": 0.875779
+        },
+        {
+          "uid": "1211199c86b5",
+          "score": 0.874617
+        }
+      ]
+    },
+    {
+      "id": "q017",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "9339ed62de56"
+        ]
+      },
+      "tookMs": 1432,
+      "top10": [
+        {
+          "uid": "9339ed62de56",
+          "score": 0.946964
+        },
+        {
+          "uid": "e9e7a2260f02",
+          "score": 0.89286
+        },
+        {
+          "uid": "209f96f815c6",
+          "score": 0.871711
+        },
+        {
+          "uid": "a0193366b146",
+          "score": 0.869578
+        },
+        {
+          "uid": "3f88ef6812b0",
+          "score": 0.866916
+        },
+        {
+          "uid": "ed44bb570dc9",
+          "score": 0.865625
+        },
+        {
+          "uid": "aa54cd47321f",
+          "score": 0.865101
+        },
+        {
+          "uid": "7d3c670b16cc",
+          "score": 0.865011
+        },
+        {
+          "uid": "bcb69d3ba469",
+          "score": 0.863982
+        },
+        {
+          "uid": "97282e6013a9",
+          "score": 0.863879
+        }
+      ]
+    },
+    {
+      "id": "q018",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "9b86ece07805"
+        ]
+      },
+      "tookMs": 1426,
+      "top10": [
+        {
+          "uid": "9b86ece07805",
+          "score": 0.937228
+        },
+        {
+          "uid": "6925062d080c",
+          "score": 0.812149
+        },
+        {
+          "uid": "9a08485610ee",
+          "score": 0.806334
+        },
+        {
+          "uid": "bb25b6b1f375",
+          "score": 0.804609
+        },
+        {
+          "uid": "1eb0ed247f15",
+          "score": 0.802652
+        },
+        {
+          "uid": "6f745d21bbb4",
+          "score": 0.796194
+        },
+        {
+          "uid": "7fff37602162",
+          "score": 0.79605
+        },
+        {
+          "uid": "d05f3f1ed161",
+          "score": 0.795867
+        },
+        {
+          "uid": "68e48b8a132a",
+          "score": 0.795301
+        },
+        {
+          "uid": "5b05336ca7da",
+          "score": 0.795086
+        }
+      ]
+    },
+    {
+      "id": "q019",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "a4fc2f768999"
+        ]
+      },
+      "tookMs": 1430,
+      "top10": [
+        {
+          "uid": "a4fc2f768999",
+          "score": 0.967823
+        },
+        {
+          "uid": "3972779a4f9f",
+          "score": 0.912258
+        },
+        {
+          "uid": "052590ade2ce",
+          "score": 0.911794
+        },
+        {
+          "uid": "586f07c3d5ab",
+          "score": 0.903576
+        },
+        {
+          "uid": "38fdd17cb04b",
+          "score": 0.902904
+        },
+        {
+          "uid": "07a69cb48c3c",
+          "score": 0.900568
+        },
+        {
+          "uid": "97c363ed17f3",
+          "score": 0.899123
+        },
+        {
+          "uid": "ec5b66f89275",
+          "score": 0.897027
+        },
+        {
+          "uid": "6037248e9a61",
+          "score": 0.896404
+        },
+        {
+          "uid": "cab2fe8491c3",
+          "score": 0.894749
+        }
+      ]
+    },
+    {
+      "id": "q020",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "aeca75daeb79"
+        ]
+      },
+      "tookMs": 1445,
+      "top10": [
+        {
+          "uid": "aeca75daeb79",
+          "score": 0.956919
+        },
+        {
+          "uid": "3ab5180da5be",
+          "score": 0.880433
+        },
+        {
+          "uid": "32545feb4055",
+          "score": 0.849028
+        },
+        {
+          "uid": "2f4a58810ce6",
+          "score": 0.806968
+        },
+        {
+          "uid": "0a8eeffd60c2",
+          "score": 0.785391
+        },
+        {
+          "uid": "432ed560d094",
+          "score": 0.763103
+        },
+        {
+          "uid": "212b0c4c3082",
+          "score": 0.759298
+        },
+        {
+          "uid": "e590bc2afc51",
+          "score": 0.754448
+        },
+        {
+          "uid": "70acff8ca6da",
+          "score": 0.752257
+        },
+        {
+          "uid": "8609348afd82",
+          "score": 0.740545
+        }
+      ]
+    },
+    {
+      "id": "q021",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "b8ff0904bd05"
+        ]
+      },
+      "tookMs": 1447,
+      "top10": [
+        {
+          "uid": "b8ff0904bd05",
+          "score": 0.963583
+        },
+        {
+          "uid": "711a3fb5ba08",
+          "score": 0.929611
+        },
+        {
+          "uid": "9eb8eed94eff",
+          "score": 0.927982
+        },
+        {
+          "uid": "542c00f4ca67",
+          "score": 0.927859
+        },
+        {
+          "uid": "b759a3601269",
+          "score": 0.924435
+        },
+        {
+          "uid": "f2e9d381318c",
+          "score": 0.915941
+        },
+        {
+          "uid": "aa80305037e7",
+          "score": 0.914823
+        },
+        {
+          "uid": "c87246ef33f1",
+          "score": 0.91442
+        },
+        {
+          "uid": "2ba5f4388854",
+          "score": 0.912263
+        },
+        {
+          "uid": "9868d8d0de04",
+          "score": 0.909712
+        }
+      ]
+    },
+    {
+      "id": "q022",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "c2680837f1b4"
+        ]
+      },
+      "tookMs": 1397,
+      "top10": [
+        {
+          "uid": "c2680837f1b4",
+          "score": 0.969866
+        },
+        {
+          "uid": "dab5acfd2537",
+          "score": 0.950522
+        },
+        {
+          "uid": "332e61afa26f",
+          "score": 0.938291
+        },
+        {
+          "uid": "931fcc664c7a",
+          "score": 0.937372
+        },
+        {
+          "uid": "2837300b591f",
+          "score": 0.937067
+        },
+        {
+          "uid": "7d5412b70025",
+          "score": 0.933155
+        },
+        {
+          "uid": "53e3f9f1d6ea",
+          "score": 0.92877
+        },
+        {
+          "uid": "f27c9d3075fe",
+          "score": 0.927795
+        },
+        {
+          "uid": "4bdd295df45a",
+          "score": 0.924433
+        },
+        {
+          "uid": "704eb41650f8",
+          "score": 0.922687
+        }
+      ]
+    },
+    {
+      "id": "q023",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "ca3258babd4d"
+        ]
+      },
+      "tookMs": 1468,
+      "top10": [
+        {
+          "uid": "ca3258babd4d",
+          "score": 0.968437
+        },
+        {
+          "uid": "1b7889019366",
+          "score": 0.92985
+        },
+        {
+          "uid": "76fe0ff7f631",
+          "score": 0.926158
+        },
+        {
+          "uid": "9671ab701ace",
+          "score": 0.923735
+        },
+        {
+          "uid": "de0b1e6f3b98",
+          "score": 0.910162
+        },
+        {
+          "uid": "07a69cb48c3c",
+          "score": 0.907013
+        },
+        {
+          "uid": "5aee1f49b8ff",
+          "score": 0.905065
+        },
+        {
+          "uid": "d514822df5b9",
+          "score": 0.902884
+        },
+        {
+          "uid": "ef057727f4fc",
+          "score": 0.895865
+        },
+        {
+          "uid": "b67e0ad4440e",
+          "score": 0.893688
+        }
+      ]
+    },
+    {
+      "id": "q024",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "d39778534b76"
+        ]
+      },
+      "tookMs": 1421,
+      "top10": [
+        {
+          "uid": "d39778534b76",
+          "score": 0.916778
+        },
+        {
+          "uid": "8823671323eb",
+          "score": 0.896159
+        },
+        {
+          "uid": "84ee4ad54418",
+          "score": 0.895259
+        },
+        {
+          "uid": "1f9afe3d2568",
+          "score": 0.894668
+        },
+        {
+          "uid": "c291b83cbd57",
+          "score": 0.89256
+        },
+        {
+          "uid": "04c8cbc332f2",
+          "score": 0.891905
+        },
+        {
+          "uid": "3a90db6316ed",
+          "score": 0.890357
+        },
+        {
+          "uid": "d8136d03ecf6",
+          "score": 0.888883
+        },
+        {
+          "uid": "3f628b2b34ee",
+          "score": 0.887212
+        },
+        {
+          "uid": "317827ebaa21",
+          "score": 0.885453
+        }
+      ]
+    },
+    {
+      "id": "q025",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "dca8889180e6"
+        ]
+      },
+      "tookMs": 1425,
+      "top10": [
+        {
+          "uid": "dca8889180e6",
+          "score": 0.944415
+        },
+        {
+          "uid": "ee5f7a638202",
+          "score": 0.843395
+        },
+        {
+          "uid": "1a423ffc5f82",
+          "score": 0.832169
+        },
+        {
+          "uid": "955490fa5ef8",
+          "score": 0.825083
+        },
+        {
+          "uid": "e940ca22d863",
+          "score": 0.824304
+        },
+        {
+          "uid": "35962de6238d",
+          "score": 0.822952
+        },
+        {
+          "uid": "0a22052d5a8c",
+          "score": 0.807928
+        },
+        {
+          "uid": "6c680dc19559",
+          "score": 0.806981
+        },
+        {
+          "uid": "01a2d4c9d31e",
+          "score": 0.80403
+        },
+        {
+          "uid": "a82282c161c5",
+          "score": 0.799569
+        }
+      ]
+    },
+    {
+      "id": "q026",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "e50782965db8"
+        ]
+      },
+      "tookMs": 1402,
+      "top10": [
+        {
+          "uid": "e50782965db8",
+          "score": 0.955965
+        },
+        {
+          "uid": "3d8e22c4bdea",
+          "score": 0.92354
+        },
+        {
+          "uid": "11c52c3d0a9f",
+          "score": 0.914954
+        },
+        {
+          "uid": "97f9986b7da6",
+          "score": 0.91335
+        },
+        {
+          "uid": "e18807c72ab7",
+          "score": 0.907635
+        },
+        {
+          "uid": "42826ac93f00",
+          "score": 0.907551
+        },
+        {
+          "uid": "3b771947093a",
+          "score": 0.900733
+        },
+        {
+          "uid": "ee0e34baebe1",
+          "score": 0.896975
+        },
+        {
+          "uid": "99ac62debe05",
+          "score": 0.895069
+        },
+        {
+          "uid": "a9f9779b9077",
+          "score": 0.894673
+        }
+      ]
+    },
+    {
+      "id": "q027",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "ee314b74a07c"
+        ]
+      },
+      "tookMs": 1429,
+      "top10": [
+        {
+          "uid": "ee314b74a07c",
+          "score": 0.921116
+        },
+        {
+          "uid": "854e5a0342ab",
+          "score": 0.856981
+        },
+        {
+          "uid": "f07e051cf1c7",
+          "score": 0.855806
+        },
+        {
+          "uid": "c3ed4cf894f8",
+          "score": 0.854214
+        },
+        {
+          "uid": "66bba6f6e054",
+          "score": 0.850973
+        },
+        {
+          "uid": "09842be50d0c",
+          "score": 0.849787
+        },
+        {
+          "uid": "c1a48ff15574",
+          "score": 0.848119
+        },
+        {
+          "uid": "1de1117c489c",
+          "score": 0.846094
+        },
+        {
+          "uid": "24545ca9ce78",
+          "score": 0.845689
+        },
+        {
+          "uid": "37170ce9e3ff",
+          "score": 0.845321
+        }
+      ]
+    },
+    {
+      "id": "q028",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "f97be760fa1b"
+        ]
+      },
+      "tookMs": 1455,
+      "top10": [
+        {
+          "uid": "f97be760fa1b",
+          "score": 0.951079
+        },
+        {
+          "uid": "6eb7029f724c",
+          "score": 0.911923
+        },
+        {
+          "uid": "785476311e17",
+          "score": 0.908847
+        },
+        {
+          "uid": "3d6cbaffc0ea",
+          "score": 0.905089
+        },
+        {
+          "uid": "b91330913288",
+          "score": 0.903106
+        },
+        {
+          "uid": "860a94133ed0",
+          "score": 0.900427
+        },
+        {
+          "uid": "ea9fdf7ca382",
+          "score": 0.895906
+        },
+        {
+          "uid": "53dd01563a31",
+          "score": 0.893708
+        },
+        {
+          "uid": "58d995c69d55",
+          "score": 0.890202
+        },
+        {
+          "uid": "c248c6a8e6ef",
+          "score": 0.88999
+        }
+      ]
+    },
+    {
+      "id": "q029",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "07a19201b894"
+        ]
+      },
+      "tookMs": 1444,
+      "top10": [
+        {
+          "uid": "07a19201b894",
+          "score": 0.941011
+        },
+        {
+          "uid": "e3a37e152fdf",
+          "score": 0.842414
+        },
+        {
+          "uid": "79601ea18fc0",
+          "score": 0.826679
+        },
+        {
+          "uid": "a5cd5ad2916a",
+          "score": 0.824463
+        },
+        {
+          "uid": "5539342969c0",
+          "score": 0.822952
+        },
+        {
+          "uid": "6067fa2aa33b",
+          "score": 0.815188
+        },
+        {
+          "uid": "3163d58c2853",
+          "score": 0.812356
+        },
+        {
+          "uid": "1b7dd860998f",
+          "score": 0.811695
+        },
+        {
+          "uid": "cd223c76432b",
+          "score": 0.81132
+        },
+        {
+          "uid": "955490fa5ef8",
+          "score": 0.807496
+        }
+      ]
+    },
+    {
+      "id": "q030",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "1d5b51b7b9bf"
+        ]
+      },
+      "tookMs": 1478,
+      "top10": [
+        {
+          "uid": "1d5b51b7b9bf",
+          "score": 0.976173
+        },
+        {
+          "uid": "42c38d9c8b22",
+          "score": 0.93427
+        },
+        {
+          "uid": "dae64f7cb18a",
+          "score": 0.931312
+        },
+        {
+          "uid": "5441eb92b19f",
+          "score": 0.914597
+        },
+        {
+          "uid": "c02763a40898",
+          "score": 0.913505
+        },
+        {
+          "uid": "a4004b7eda6c",
+          "score": 0.905508
+        },
+        {
+          "uid": "21808c022ca3",
+          "score": 0.904366
+        },
+        {
+          "uid": "44a2e330cf4d",
+          "score": 0.902312
+        },
+        {
+          "uid": "93073f821006",
+          "score": 0.901559
+        },
+        {
+          "uid": "e9dd726714d8",
+          "score": 0.900956
+        }
+      ]
+    },
+    {
+      "id": "q031",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "2e9359faa348"
+        ]
+      },
+      "tookMs": 1402,
+      "top10": [
+        {
+          "uid": "2e9359faa348",
+          "score": 0.946666
+        },
+        {
+          "uid": "8161ad8000bd",
+          "score": 0.835864
+        },
+        {
+          "uid": "c996330ace71",
+          "score": 0.832132
+        },
+        {
+          "uid": "4328a22bafb9",
+          "score": 0.82762
+        },
+        {
+          "uid": "365591c5b02f",
+          "score": 0.826657
+        },
+        {
+          "uid": "0ba1c4f4a74b",
+          "score": 0.825649
+        },
+        {
+          "uid": "e7e8ba742bd4",
+          "score": 0.823743
+        },
+        {
+          "uid": "74de163213e7",
+          "score": 0.821521
+        },
+        {
+          "uid": "3499887e5c51",
+          "score": 0.819659
+        },
+        {
+          "uid": "d4751160cfe5",
+          "score": 0.819297
+        }
+      ]
+    },
+    {
+      "id": "q032",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "4230a22405f8"
+        ]
+      },
+      "tookMs": 1469,
+      "top10": [
+        {
+          "uid": "4230a22405f8",
+          "score": 0.877976
+        },
+        {
+          "uid": "7157e552dd45",
+          "score": 0.824131
+        },
+        {
+          "uid": "0fd41d44b2c1",
+          "score": 0.820229
+        },
+        {
+          "uid": "f65e9be4110c",
+          "score": 0.818449
+        },
+        {
+          "uid": "cd941780aec2",
+          "score": 0.816196
+        },
+        {
+          "uid": "6d8648deaa7d",
+          "score": 0.812491
+        },
+        {
+          "uid": "851ee277cb6d",
+          "score": 0.810704
+        },
+        {
+          "uid": "50176c42aa9a",
+          "score": 0.810356
+        },
+        {
+          "uid": "2dcaf2329e2d",
+          "score": 0.808868
+        },
+        {
+          "uid": "6067fa2aa33b",
+          "score": 0.806835
+        }
+      ]
+    },
+    {
+      "id": "q033",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "55f9139c647b"
+        ]
+      },
+      "tookMs": 1407,
+      "top10": [
+        {
+          "uid": "55f9139c647b",
+          "score": 0.932849
+        },
+        {
+          "uid": "e13b05126955",
+          "score": 0.864793
+        },
+        {
+          "uid": "0a2677d78cfd",
+          "score": 0.860458
+        },
+        {
+          "uid": "3b4209025537",
+          "score": 0.860325
+        },
+        {
+          "uid": "032d6dcf1886",
+          "score": 0.856184
+        },
+        {
+          "uid": "ad72a70952e0",
+          "score": 0.855771
+        },
+        {
+          "uid": "9df344fd1864",
+          "score": 0.85509
+        },
+        {
+          "uid": "dcd24838f991",
+          "score": 0.853076
+        },
+        {
+          "uid": "9440992a67e3",
+          "score": 0.852473
+        },
+        {
+          "uid": "c291b83cbd57",
+          "score": 0.85125
+        }
+      ]
+    },
+    {
+      "id": "q034",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "6a91c00d8285"
+        ]
+      },
+      "tookMs": 1434,
+      "top10": [
+        {
+          "uid": "6a91c00d8285",
+          "score": 0.968578
+        },
+        {
+          "uid": "e95ebe9acf95",
+          "score": 0.967358
+        },
+        {
+          "uid": "f3e6d780eca5",
+          "score": 0.956926
+        },
+        {
+          "uid": "b782dcbc37f1",
+          "score": 0.956912
+        },
+        {
+          "uid": "3f801c90ae3c",
+          "score": 0.954802
+        },
+        {
+          "uid": "0eb9fde8ce27",
+          "score": 0.952867
+        },
+        {
+          "uid": "123067e8c25b",
+          "score": 0.952421
+        },
+        {
+          "uid": "60724b61b9a1",
+          "score": 0.950485
+        },
+        {
+          "uid": "524491962c6d",
+          "score": 0.948644
+        },
+        {
+          "uid": "c8fde52592bf",
+          "score": 0.946141
+        }
+      ]
+    },
+    {
+      "id": "q035",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "74c7875b9490"
+        ]
+      },
+      "tookMs": 1415,
+      "top10": [
+        {
+          "uid": "74c7875b9490",
+          "score": 0.951221
+        },
+        {
+          "uid": "3a38d4deadde",
+          "score": 0.910332
+        },
+        {
+          "uid": "479feb0d3217",
+          "score": 0.905701
+        },
+        {
+          "uid": "8b4295fdfdd2",
+          "score": 0.903094
+        },
+        {
+          "uid": "7d3c670b16cc",
+          "score": 0.897877
+        },
+        {
+          "uid": "ff0d70ca4e40",
+          "score": 0.896687
+        },
+        {
+          "uid": "e34b3ee8f5e9",
+          "score": 0.887408
+        },
+        {
+          "uid": "8ae5e68ac5d2",
+          "score": 0.887086
+        },
+        {
+          "uid": "c5b1edee45c5",
+          "score": 0.885647
+        },
+        {
+          "uid": "f19ddd2a9ff6",
+          "score": 0.88357
+        }
+      ]
+    },
+    {
+      "id": "q036",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "84b7014773e5"
+        ]
+      },
+      "tookMs": 1429,
+      "top10": [
+        {
+          "uid": "84b7014773e5",
+          "score": 0.941208
+        },
+        {
+          "uid": "6a91c00d8285",
+          "score": 0.923676
+        },
+        {
+          "uid": "11291a8e91d6",
+          "score": 0.923548
+        },
+        {
+          "uid": "49f136ff865e",
+          "score": 0.922003
+        },
+        {
+          "uid": "c8fde52592bf",
+          "score": 0.920379
+        },
+        {
+          "uid": "d8b31f8ef6f1",
+          "score": 0.919084
+        },
+        {
+          "uid": "14842c246a9b",
+          "score": 0.916828
+        },
+        {
+          "uid": "f3e6d780eca5",
+          "score": 0.915959
+        },
+        {
+          "uid": "99166ecbe66e",
+          "score": 0.915808
+        },
+        {
+          "uid": "cd14a092b5bd",
+          "score": 0.912367
+        }
+      ]
+    },
+    {
+      "id": "q037",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "9614eb8ca04d"
+        ]
+      },
+      "tookMs": 1489,
+      "top10": [
+        {
+          "uid": "9614eb8ca04d",
+          "score": 0.918595
+        },
+        {
+          "uid": "5ea1ea5d45d4",
+          "score": 0.90846
+        },
+        {
+          "uid": "6caa395a61f9",
+          "score": 0.899815
+        },
+        {
+          "uid": "6f30895647cf",
+          "score": 0.898339
+        },
+        {
+          "uid": "4e8c26a76662",
+          "score": 0.897206
+        },
+        {
+          "uid": "3d9e32c0dc50",
+          "score": 0.894532
+        },
+        {
+          "uid": "1610ca92bff4",
+          "score": 0.89437
+        },
+        {
+          "uid": "3ca7b1111fa2",
+          "score": 0.893569
+        },
+        {
+          "uid": "fa8f9c61f4ae",
+          "score": 0.893374
+        },
+        {
+          "uid": "c8b3929ef3d3",
+          "score": 0.893333
+        }
+      ]
+    },
+    {
+      "id": "q038",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "a2215aa61488"
+        ]
+      },
+      "tookMs": 1421,
+      "top10": [
+        {
+          "uid": "a2215aa61488",
+          "score": 0.936374
+        },
+        {
+          "uid": "7d97fed54b15",
+          "score": 0.855143
+        },
+        {
+          "uid": "f5b855a3c026",
+          "score": 0.854428
+        },
+        {
+          "uid": "25647ca2c18d",
+          "score": 0.85367
+        },
+        {
+          "uid": "4ae635343ead",
+          "score": 0.842867
+        },
+        {
+          "uid": "ca460b3d28cf",
+          "score": 0.840492
+        },
+        {
+          "uid": "3df0fc29433f",
+          "score": 0.839847
+        },
+        {
+          "uid": "8da889b64dfa",
+          "score": 0.838801
+        },
+        {
+          "uid": "d15d2bd5993a",
+          "score": 0.830155
+        },
+        {
+          "uid": "6476d35e0d95",
+          "score": 0.82948
+        }
+      ]
+    },
+    {
+      "id": "q039",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "b262957c617a"
+        ]
+      },
+      "tookMs": 1449,
+      "top10": [
+        {
+          "uid": "b262957c617a",
+          "score": 0.915415
+        },
+        {
+          "uid": "2fe7c5fd3f1c",
+          "score": 0.903688
+        },
+        {
+          "uid": "2a7dc4b5b0db",
+          "score": 0.899167
+        },
+        {
+          "uid": "b686672f55e2",
+          "score": 0.892143
+        },
+        {
+          "uid": "0b2e8442b9d3",
+          "score": 0.878953
+        },
+        {
+          "uid": "ed973f774e81",
+          "score": 0.871564
+        },
+        {
+          "uid": "9b90b4ac3312",
+          "score": 0.868531
+        },
+        {
+          "uid": "53f8144be1f9",
+          "score": 0.867796
+        },
+        {
+          "uid": "4dc90d9177e2",
+          "score": 0.861355
+        },
+        {
+          "uid": "015482e5b0f6",
+          "score": 0.860579
+        }
+      ]
+    },
+    {
+      "id": "q040",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "c726cefac1bc"
+        ]
+      },
+      "tookMs": 1435,
+      "top10": [
+        {
+          "uid": "c726cefac1bc",
+          "score": 0.952578
+        },
+        {
+          "uid": "6b59741facf7",
+          "score": 0.840381
+        },
+        {
+          "uid": "c92e5790f6aa",
+          "score": 0.831563
+        },
+        {
+          "uid": "76dc255fdc7d",
+          "score": 0.827126
+        },
+        {
+          "uid": "a519dcb9befb",
+          "score": 0.825675
+        },
+        {
+          "uid": "4b7fed9ee988",
+          "score": 0.81952
+        },
+        {
+          "uid": "d7acccb81a89",
+          "score": 0.819417
+        },
+        {
+          "uid": "fc870d6eb3c4",
+          "score": 0.8183
+        },
+        {
+          "uid": "1fcd0ee91d23",
+          "score": 0.817418
+        },
+        {
+          "uid": "ff6941898729",
+          "score": 0.816758
+        }
+      ]
+    },
+    {
+      "id": "q041",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "d80a57de0e73"
+        ]
+      },
+      "tookMs": 1502,
+      "top10": [
+        {
+          "uid": "d80a57de0e73",
+          "score": 0.955157
+        },
+        {
+          "uid": "332e61afa26f",
+          "score": 0.861729
+        },
+        {
+          "uid": "0ebd4a8a648c",
+          "score": 0.8579
+        },
+        {
+          "uid": "53ad4ba4bada",
+          "score": 0.857342
+        },
+        {
+          "uid": "bce298a6eb3a",
+          "score": 0.855021
+        },
+        {
+          "uid": "0ce1b6f88dd3",
+          "score": 0.847783
+        },
+        {
+          "uid": "fd55fb6f517e",
+          "score": 0.847473
+        },
+        {
+          "uid": "9bb8b7698c19",
+          "score": 0.845291
+        },
+        {
+          "uid": "ee1befc3f8c9",
+          "score": 0.8439
+        },
+        {
+          "uid": "0ab382d316da",
+          "score": 0.842914
+        }
+      ]
+    },
+    {
+      "id": "q042",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "e674f7170f5f"
+        ]
+      },
+      "tookMs": 1472,
+      "top10": [
+        {
+          "uid": "c24d807b4b6c",
+          "score": 0.897114
+        },
+        {
+          "uid": "e674f7170f5f",
+          "score": 0.894176
+        },
+        {
+          "uid": "e21a08bc1cbf",
+          "score": 0.890214
+        },
+        {
+          "uid": "39918cdcf803",
+          "score": 0.880436
+        },
+        {
+          "uid": "e8d8a6ae1014",
+          "score": 0.879505
+        },
+        {
+          "uid": "a504091fba72",
+          "score": 0.877534
+        },
+        {
+          "uid": "02254b7389ea",
+          "score": 0.875331
+        },
+        {
+          "uid": "785476311e17",
+          "score": 0.874166
+        },
+        {
+          "uid": "335bfe5d0ee5",
+          "score": 0.872799
+        },
+        {
+          "uid": "54a41bcae0b6",
+          "score": 0.872556
+        }
+      ]
+    },
+    {
+      "id": "q043",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "f7dd570af52c"
+        ]
+      },
+      "tookMs": 1431,
+      "top10": [
+        {
+          "uid": "f7dd570af52c",
+          "score": 0.95423
+        },
+        {
+          "uid": "0b0cf7aea294",
+          "score": 0.940016
+        },
+        {
+          "uid": "a7223e2d9355",
+          "score": 0.926836
+        },
+        {
+          "uid": "fb24bd754618",
+          "score": 0.925852
+        },
+        {
+          "uid": "caec5ff7011f",
+          "score": 0.918597
+        },
+        {
+          "uid": "927fb29e93e1",
+          "score": 0.896349
+        },
+        {
+          "uid": "4bfd13984d0c",
+          "score": 0.894993
+        },
+        {
+          "uid": "48a82562109e",
+          "score": 0.893385
+        },
+        {
+          "uid": "6fb184678060",
+          "score": 0.890521
+        },
+        {
+          "uid": "075eb78a962a",
+          "score": 0.88607
+        }
+      ]
+    },
+    {
+      "id": "q044",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "264108ee27a2"
+        ]
+      },
+      "tookMs": 1471,
+      "top10": [
+        {
+          "uid": "264108ee27a2",
+          "score": 0.974464
+        },
+        {
+          "uid": "e5eacd595a77",
+          "score": 0.920912
+        },
+        {
+          "uid": "d1ec6331d13a",
+          "score": 0.913015
+        },
+        {
+          "uid": "9b819cd84af6",
+          "score": 0.889376
+        },
+        {
+          "uid": "788362ed02a7",
+          "score": 0.886009
+        },
+        {
+          "uid": "4e33668005e1",
+          "score": 0.884778
+        },
+        {
+          "uid": "93e8b94ab608",
+          "score": 0.881108
+        },
+        {
+          "uid": "d75a0fd29a02",
+          "score": 0.880271
+        },
+        {
+          "uid": "9900dfa7f77f",
+          "score": 0.874452
+        },
+        {
+          "uid": "6b4cd6170d5d",
+          "score": 0.873854
+        }
+      ]
+    },
+    {
+      "id": "q045",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "5ef7cd77df08"
+        ]
+      },
+      "tookMs": 1501,
+      "top10": [
+        {
+          "uid": "5ef7cd77df08",
+          "score": 0.946395
+        },
+        {
+          "uid": "f36db1daf3f5",
+          "score": 0.919427
+        },
+        {
+          "uid": "e8a61875892b",
+          "score": 0.908987
+        },
+        {
+          "uid": "e00b30cef5e8",
+          "score": 0.891414
+        },
+        {
+          "uid": "c18c6fa45c50",
+          "score": 0.890844
+        },
+        {
+          "uid": "8c745aefd140",
+          "score": 0.886577
+        },
+        {
+          "uid": "704eb41650f8",
+          "score": 0.886185
+        },
+        {
+          "uid": "b318995b4040",
+          "score": 0.882972
+        },
+        {
+          "uid": "53e3f9f1d6ea",
+          "score": 0.878928
+        },
+        {
+          "uid": "d80a57de0e73",
+          "score": 0.877376
+        }
+      ]
+    },
+    {
+      "id": "q046",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "8b6b11fc0e6a"
+        ]
+      },
+      "tookMs": 1482,
+      "top10": [
+        {
+          "uid": "8b6b11fc0e6a",
+          "score": 0.915234
+        },
+        {
+          "uid": "106cde613aee",
+          "score": 0.804473
+        },
+        {
+          "uid": "db2333979159",
+          "score": 0.798764
+        },
+        {
+          "uid": "3db25407a104",
+          "score": 0.794894
+        },
+        {
+          "uid": "9df344fd1864",
+          "score": 0.788816
+        },
+        {
+          "uid": "6476d35e0d95",
+          "score": 0.788091
+        },
+        {
+          "uid": "15b63cdf1712",
+          "score": 0.787283
+        },
+        {
+          "uid": "faeec8826b90",
+          "score": 0.784603
+        },
+        {
+          "uid": "3cc00e4f8ffc",
+          "score": 0.783411
+        },
+        {
+          "uid": "45f13aaec6e6",
+          "score": 0.783113
+        }
+      ]
+    },
+    {
+      "id": "q047",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "a2c904d2a86a"
+        ]
+      },
+      "tookMs": 1470,
+      "top10": [
+        {
+          "uid": "a2c904d2a86a",
+          "score": 0.937722
+        },
+        {
+          "uid": "f51ffb032a2f",
+          "score": 0.863265
+        },
+        {
+          "uid": "2305c31b26cc",
+          "score": 0.851708
+        },
+        {
+          "uid": "4d3fa35b5608",
+          "score": 0.84357
+        },
+        {
+          "uid": "992cca14eae9",
+          "score": 0.84232
+        },
+        {
+          "uid": "21e3df156b7f",
+          "score": 0.831814
+        },
+        {
+          "uid": "ade884274245",
+          "score": 0.830321
+        },
+        {
+          "uid": "78fae738c774",
+          "score": 0.82895
+        },
+        {
+          "uid": "adbf9fbe33cd",
+          "score": 0.825992
+        },
+        {
+          "uid": "b88563ae605a",
+          "score": 0.822872
+        }
+      ]
+    },
+    {
+      "id": "q048",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "d24bd9a224db"
+        ]
+      },
+      "tookMs": 1443,
+      "top10": [
+        {
+          "uid": "d24bd9a224db",
+          "score": 0.91778
+        },
+        {
+          "uid": "dcd24838f991",
+          "score": 0.91656
+        },
+        {
+          "uid": "ac9742671678",
+          "score": 0.904036
+        },
+        {
+          "uid": "74f19aa5b4c2",
+          "score": 0.896268
+        },
+        {
+          "uid": "0ab382d316da",
+          "score": 0.894783
+        },
+        {
+          "uid": "332e61afa26f",
+          "score": 0.891211
+        },
+        {
+          "uid": "12441a4108f0",
+          "score": 0.890994
+        },
+        {
+          "uid": "a0193366b146",
+          "score": 0.889036
+        },
+        {
+          "uid": "f2e9d381318c",
+          "score": 0.886762
+        },
+        {
+          "uid": "1e171dff50bf",
+          "score": 0.885989
+        }
+      ]
+    },
+    {
+      "id": "q049",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "40d2a04388e3"
+        ]
+      },
+      "tookMs": 1529,
+      "top10": [
+        {
+          "uid": "40d2a04388e3",
+          "score": 0.977085
+        },
+        {
+          "uid": "2a8787eb707e",
+          "score": 0.864426
+        },
+        {
+          "uid": "28d159f70e5a",
+          "score": 0.860712
+        },
+        {
+          "uid": "83f276dad94b",
+          "score": 0.828636
+        },
+        {
+          "uid": "e4c8beca8d15",
+          "score": 0.827784
+        },
+        {
+          "uid": "2f0feb597dee",
+          "score": 0.827514
+        },
+        {
+          "uid": "0a1b7eb79243",
+          "score": 0.819318
+        },
+        {
+          "uid": "2de48c57b3bf",
+          "score": 0.805568
+        },
+        {
+          "uid": "570582bf1487",
+          "score": 0.800322
+        },
+        {
+          "uid": "d4f6a3d444fb",
+          "score": 0.800291
+        }
+      ]
+    },
+    {
+      "id": "q050",
+      "kind": "image",
+      "expect": {
+        "uids": [
+          "c2679ead28d6"
+        ]
+      },
+      "tookMs": 1437,
+      "top10": [
+        {
+          "uid": "c2679ead28d6",
+          "score": 0.958713
+        },
+        {
+          "uid": "fafd267e2f32",
+          "score": 0.865031
+        },
+        {
+          "uid": "4ac3179182cd",
+          "score": 0.851845
+        },
+        {
+          "uid": "3232083c14e4",
+          "score": 0.839389
+        },
+        {
+          "uid": "624fcefe5dca",
+          "score": 0.834737
+        },
+        {
+          "uid": "ed3221345295",
+          "score": 0.826871
+        },
+        {
+          "uid": "16c05c3f4e1f",
+          "score": 0.823106
+        },
+        {
+          "uid": "632503c68ef4",
+          "score": 0.82004
+        },
+        {
+          "uid": "51b630a77971",
+          "score": 0.819781
+        },
+        {
+          "uid": "7656f17231a0",
+          "score": 0.813121
+        }
+      ]
+    },
+    {
+      "id": "n001",
+      "kind": "synthetic",
+      "expect": {
+        "none": true
+      },
+      "tookMs": 1449,
+      "top10": [
+        {
+          "uid": "69c7990dd598",
+          "score": 0.808916
+        },
+        {
+          "uid": "2f3034a3523a",
+          "score": 0.777627
+        },
+        {
+          "uid": "4f1cc2a07aa9",
+          "score": 0.770909
+        },
+        {
+          "uid": "7292ed74a397",
+          "score": 0.762104
+        },
+        {
+          "uid": "7e5973e3aa21",
+          "score": 0.761558
+        },
+        {
+          "uid": "680c14775efe",
+          "score": 0.760957
+        },
+        {
+          "uid": "30f814451f40",
+          "score": 0.757757
+        },
+        {
+          "uid": "4fcb982f4151",
+          "score": 0.753194
+        },
+        {
+          "uid": "e8d49ba5ce70",
+          "score": 0.752416
+        },
+        {
+          "uid": "e3a269693b27",
+          "score": 0.751361
+        }
+      ]
+    },
+    {
+      "id": "n002",
+      "kind": "synthetic",
+      "expect": {
+        "none": true
+      },
+      "tookMs": 1432,
+      "top10": [
+        {
+          "uid": "a234479daaa9",
+          "score": 0.759941
+        },
+        {
+          "uid": "69c7990dd598",
+          "score": 0.737536
+        },
+        {
+          "uid": "abbb7118d00b",
+          "score": 0.736575
+        },
+        {
+          "uid": "2b779269b36b",
+          "score": 0.728354
+        },
+        {
+          "uid": "7292ed74a397",
+          "score": 0.725932
+        },
+        {
+          "uid": "9dc1d4208f10",
+          "score": 0.725564
+        },
+        {
+          "uid": "50176c42aa9a",
+          "score": 0.722128
+        },
+        {
+          "uid": "536344d4c53c",
+          "score": 0.72189
+        },
+        {
+          "uid": "040588610dcd",
+          "score": 0.721131
+        },
+        {
+          "uid": "fbe3270ebf52",
+          "score": 0.715546
+        }
+      ]
+    },
+    {
+      "id": "n003",
+      "kind": "synthetic",
+      "expect": {
+        "none": true
+      },
+      "tookMs": 1486,
+      "top10": [
+        {
+          "uid": "69c7990dd598",
+          "score": 0.807959
+        },
+        {
+          "uid": "30f814451f40",
+          "score": 0.765118
+        },
+        {
+          "uid": "50d8153872d8",
+          "score": 0.762593
+        },
+        {
+          "uid": "974cb5133f43",
+          "score": 0.76203
+        },
+        {
+          "uid": "e3a269693b27",
+          "score": 0.759089
+        },
+        {
+          "uid": "6d8648deaa7d",
+          "score": 0.756557
+        },
+        {
+          "uid": "20d97890fe15",
+          "score": 0.753752
+        },
+        {
+          "uid": "999aedd1e838",
+          "score": 0.7465
+        },
+        {
+          "uid": "cedd9186c0e5",
+          "score": 0.743071
+        },
+        {
+          "uid": "2e79eb8fcadf",
+          "score": 0.740817
+        }
+      ]
+    },
+    {
+      "id": "n004",
+      "kind": "synthetic",
+      "expect": {
+        "none": true
+      },
+      "tookMs": 1484,
+      "top10": [
+        {
+          "uid": "69c7990dd598",
+          "score": 0.73541
+        },
+        {
+          "uid": "9dc1d4208f10",
+          "score": 0.730441
+        },
+        {
+          "uid": "97abda49a6d3",
+          "score": 0.715769
+        },
+        {
+          "uid": "7a23db137782",
+          "score": 0.712556
+        },
+        {
+          "uid": "6f1e66366d41",
+          "score": 0.710342
+        },
+        {
+          "uid": "135c784d8f7e",
+          "score": 0.709983
+        },
+        {
+          "uid": "e48a94298ab2",
+          "score": 0.708851
+        },
+        {
+          "uid": "536344d4c53c",
+          "score": 0.706452
+        },
+        {
+          "uid": "6d8648deaa7d",
+          "score": 0.706449
+        },
+        {
+          "uid": "745b46564383",
+          "score": 0.705382
+        }
+      ]
+    },
+    {
+      "id": "n005",
+      "kind": "synthetic",
+      "expect": {
+        "none": true
+      },
+      "tookMs": 1456,
+      "top10": [
+        {
+          "uid": "69c7990dd598",
+          "score": 0.830866
+        },
+        {
+          "uid": "48c1ada3ba2e",
+          "score": 0.769933
+        },
+        {
+          "uid": "50176c42aa9a",
+          "score": 0.766622
+        },
+        {
+          "uid": "e3a269693b27",
+          "score": 0.765449
+        },
+        {
+          "uid": "680c14775efe",
+          "score": 0.764568
+        },
+        {
+          "uid": "50d8153872d8",
+          "score": 0.758576
+        },
+        {
+          "uid": "30f814451f40",
+          "score": 0.756178
+        },
+        {
+          "uid": "f65e9be4110c",
+          "score": 0.75616
+        },
+        {
+          "uid": "e8d49ba5ce70",
+          "score": 0.748701
+        },
+        {
+          "uid": "ce2816cd7043",
+          "score": 0.748209
+        }
+      ]
+    }
+  ]
+}

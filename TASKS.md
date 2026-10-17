@@ -126,12 +126,12 @@
 | 卡 | 内容 | 状态 | 证据 |
 |---|---|---|---|
 | **PHASH-1a** | 感知哈希 dHash：纯算法（解码注入）+ 迁移 v10（`asset_file.phash`，NULL=坏图/缺图/未算）+ 唯一写入口/幂等回填 | 完成（本轮落地）：生产 `nativeImage` 解码（`decodeGray9x8` + 纯函数 `bgraToGray`）+ 回填调用方（buildEngine 后 1.2 s 排程、每库每趟 400 行、同库单飞、不代建）+ 真窗口 e2e（同图两尺寸汉明 ≤2 · 坏图 NULL · 日志 `nulled=1`）。门禁：prettier 0 · lint 0 · tsc 0 · 单测 **830/829/0/1** · build 0（WARN 0）· e2e **74 passed / 4 skipped / 0 failed**。**阈值 k 不在本卡定**（等 EVAL-1 基线） | `reports/2026-10-15-wave3/phash-1a.txt` · `phash-1a-conduction-fix.txt` · `phash-1a-landing.txt` |
-| **EVAL-1** | 召回评测集 55 条 + 唯一采样/评分器 + 5 条测试（可复现、倒序能红、空集必抛） | **在飞（WIP 已提交 `389cf9a`）· 基线未产出**：真实库有 20 张 `.jpg` 实为 BMP ⇒ 跑分脚本第一步就崩（修法：走 `packages/indexer/src/bmp_decode.ts` 的 BMP 回退） | `reports/2026-10-15-wave3/eval-1.txt` |
+| **EVAL-1** | 召回评测集 55 条 + 唯一采样/评分器 + 5 条测试（可复现、倒序能红、空集必抛） | 完成（本轮）：**真实基线已产出**（`fixtures/eval-baseline.json`，可复跑 `EVAL_LIB_ROOT=… node reports/…/eval-baseline.mjs`）—— top1 **92%** · top5/top10 **100%**（n=50）· 分离度 mean 0.051（4 条为负）；**绝对分数阈值空档 = −0.089（不可用）**；dHash 近重复候选 **k=13**（同图缩放 max 7 vs 异图 min 19）。BMP 阻碍已解（走 `readImageAny` 唯一解码入口，50/50 源图解码成功） | `reports/2026-10-15-wave3/eval-1.txt` · `eval-1-baseline.txt` · `eval-baseline.mjs` |
 | **TRACE-1** | 能力 ↔ e2e 追溯矩阵（25 行/7 组；9 个 IPC 方法 e2e=0） | 完成（只读） | `reports/2026-10-15-wave3/trace-1.txt` + `trace-1-matrix.mjs` |
 | **FRMAP-1** | modellens 22 FR 逐条缺口表（✅5 ⚠️12 ❌5） | 完成（只读） | `reports/2026-10-15-wave3/frmap-1.txt` |
 | **UX-1b** | 复制路径（详情页两条绝对路径）+ **定位如实报错**（文件不存在 ⇒ 错误，而不是"已定位"）；不动契约 | 完成（本轮）：`utils/clipboard.ts` 唯一实现 + 6 条单测 + E9-g **读真实剪贴板** e2e + M0 真窗口"文件不存在"断言。门禁：prettier 0 · lint 0 · tsc 0 · 单测 **820/819/0/1** · build 0（WARN 0、三端齐备）· e2e **73 passed / 4 skipped / 0 failed** | `reports/2026-10-15-wave3/ux-1b.txt` |
-| **PHASH-1b** | 三通道排序接入（近重复通道） | 待做（**阈值 k 必须等 EVAL-1 基线**，不许先定） | — |
-| **NOMATCH-1** | `no_close_match` 终态 + shortfall「最近 N 条仅供参考」 | 待做（阈值同来自 EVAL-1 基线） | — |
+| **PHASH-1b** | 三通道排序接入（近重复通道） | 待做：**阈值依据已就位**（EVAL-1 基线：同图缩放汉明 max 7 / 异图 min 19 ⇒ 候选 k=13）；实现前须用**生产 nativeImage 解码**在真实条目上复核一次，且裁剪查询**不算近重复** | — |
+| **NOMATCH-1** | `no_close_match` 终态 + shortfall「最近 N 条仅供参考」 | 待做：EVAL-1 基线证明**绝对分数阈值不可行**（正确件最低 0.878 < 错件最高 0.967，空档 −0.089）⇒ 口径必须改成**相对判据**（top1−top2 间隔 / band + shortfall），属产品口径，需所有者确认后再实现 | — |
 | **UX-1c** | 粘贴 / 拖拽入窗口 ⇒ 以图搜；临时文件落 `os.tmpdir()`/`data/_*`，**绝不进库根**；非图片明确拒绝 | 待做 | — |
 | **FR-012** | 搜索历史接 UI。⚠️ 复核：`recent_query` **只有读路径（HIST-1）没有写路径** ⇒ 本卡除 UI 外还要补"搜索成功后写一条" | 完成（本轮）：`app-db.insertRecentQuery`（唯一写入口）+ `main/search-history.ts`（成功才记、失败不改判）+ IPC 钩子 + store `loadRecent/runText` + SearchPage「最近搜索」+ 8 条单测 + m0-real ②c 真窗口重放。门禁：prettier 0 · lint 0 · tsc 0 · 单测 **828/827/0/1** · build 0（WARN 0）· e2e **73 passed / 4 skipped / 0 failed**（首次全量有 1 条 browse 间歇红，单跑与复跑均绿，已如实归档） | `reports/2026-10-15-wave3/fr-012.txt` |
 
