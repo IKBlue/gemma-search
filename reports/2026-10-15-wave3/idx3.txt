@@ -234,3 +234,25 @@ npx playwright test … tasks.spec.mjs              => 2 passed (8.0s) · EXIT=0
 
 ⚠️ 全量 `npm test` **未跑**（纪律：跑全量前先问）⇒ 卡面验收的「794 / fail 0」留给 Lead 冻结门禁；
 本轮只证明**红的那条已转绿**且周边未破。
+
+================================================================
+10. 引用口径：Lead 冻结门禁 `ba86afa`（**不是本轮实测**）
+================================================================
+【为什么放这里】L6 的红是**冻结门禁**发现的；转绿只证明"那条红了 → 现在绿"，
+但"全量恢复绿"必须由**同一权威窗口**给出 ⇒ 下面的数字是**引用**，不写成"本轮实测"（AGENTS §4 协议第 3 条）。
+
+| 项 | 值 |
+|---|---|
+| 提交 | **`ba86afa`**（`main == origin/main == ba86afa` · 工作树干净 · 队友全部空闲） |
+| `prettier --check .` | 0（All matched） |
+| `lint` | 0 |
+| `npm test` | **794 / pass 793 / fail 0 / skipped 1** ← **L6 已不在红名单里** |
+| `typecheck` | 0（node + web） |
+| `build`（不预置 TEMP/TMP） | 0 · **WARNINGS=0** |
+| `e2e` | **75 tests · 71 passed / 4 skipped / 0 other · did_not_run=0 · 账平** |
+| `s4-accept` | PASS 21 / FAIL 0 / SKIP 0 |
+
+原始归档：`reports/2026-10-15-wave3/gate-ba86afa.txt`（**不在 `data/`** —— 证据归档到 `reports/` 才可复跑）。
+
+> ⚠️ 本文件 §9 的「L6 由红转绿」是**本轮实测**（`layering.test.mjs` 8/8）；
+> 而「全量 794 / fail 0」是**上面这个窗口**给出的 ⇒ 两件事分开写，别混成一句。
