@@ -1,0 +1,52 @@
+================================================================================
+PHASH-1a 传导红修复（I11 可空列集合）· 2026-10-17 · Lead
+================================================================================
+背景：PHASH-1a 的库级迁移 v10（`ALTER TABLE asset_file ADD COLUMN phash TEXT`）是**纯追加**，
+但 `db-import.test.mjs` 的 I11「契约与表结构机械一致」仍断言 asset_file 只允许 width/height 可空
+⇒ PHASH-1a 提交后**全量 `npm test` 变红**（该卡按停止指令只跑了受影响面，未跑全量 —— 这就是它留下的传导红）。
+另：本卡**上线依据**是 WIP 状态（见 reports/2026-10-15-wave3/phash-1a.txt §「未落地」）—— 本文件只修传导红，
+**不声称 PHASH-1a 已落地**（生产解码器接线 + 真窗口 e2e 仍未做）。
+
+【1. 失败原文（修前 · 直接跑单文件复现）】
+命令：node --test --test-isolation=none apps/desktop/tests/db-import.test.mjs
+原始输出（节选，存储于 data/_gate-2026-10-17-resume/db-import.out.txt）：
+  ✖ I11 ⭐ 契约与表结构机械一致：新表 NOT NULL 列集 ↔ ItemRecord 必填字段集（防静默漂移）
+    AssertionError [ERR_ASSERTION]: asset_file 只允许 width/height 可空
+    + actual - expected
+      [
+        'height',
+    +   'phash',
+        'width'
+      ]
+  ℹ tests 17 / pass 16 / fail 1
+
+【2. 修法（不是放宽断言）】
+文件：apps/desktop/tests/db-import.test.mjs（I11 · `nullableCols('asset_file')`）
+  · 期望值 ['height','width'] → ['height','phash','width']；
+  · 注释按仓库纪律写成**翻转表**（改前 / 改后 / 为什么不是放宽）：仍是**逐列相等**，
+    多一列少一列都红；phash **必须可空**，因为 NULL 有语义（坏图/缺图/还没算 = 三态），
+    否则 PHASH-1a 的「绝不用 0 哈希冒充已算」无法表达。
+  · 依据：迁移 v10 是**所有者已批**的追加迁移（PHASH-1a 卡面），且行为由 phash.test.mjs 的 P2 钉住
+    （坏图/缺图 ⇒ NULL，绝不写 0）。
+
+【3. 修后门禁（本轮实测 · 命令 + 原始输出）】
+命令：npm test
+  ℹ tests 814
+  ℹ pass 813
+  ℹ fail 0
+  ℹ cancelled 0
+  ℹ skipped 1
+  ℹ todo 0
+  ℹ duration_ms 190291.9351
+  EXIT=0（190 s）
+命令：npx prettier --check apps/desktop/tests/db-import.test.mjs  => All matched（EXIT=0）
+命令：npx eslint apps/desktop/tests/db-import.test.mjs            => EXIT=0
+（全量原始日志：data/_gate-2026-10-17-resume/test-full-2.txt，未入库的临时证据；本文件是摘要归档。）
+
+【4. 自纠：本轮曾把「跑得慢」误报成「挂死」】
+现象：本轮最初几次全量 npm test 在 190 s 左右其实还在跑（stdout 被重定向时 TAP 输出缓冲、日志只有 stderr），
+      我按日志「很长时间没新增」判成停摆并 kill —— 属**先下结论后取证**（TASKS §3-17 的同族错误）。
+复核：重跑同一条 `npm test`（不额外加 --test-force-exit / --test-timeout）⇒ **EXIT=0 / 190 s / 814 条**。
+结论：**没有可复现的停摆**；此前 3 次「停摆」里，2 次是我 kill 得太早，1 次是 Node 测试运行器收尾未输出汇总的
+      瞬时现象（未复现，也未作为任何结论依据）。**本文件不把 force-exit 写进门禁**（不需要）。
+================================================================================

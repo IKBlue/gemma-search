@@ -678,10 +678,16 @@ test('I11 ⭐ 契约与表结构机械一致：新表 NOT NULL 列集 ↔ ItemRe
       [],
       'asset 的每一列都必须 NOT NULL（条目身份与路径的载体）',
     );
+    // 翻转（PHASH-1a · 迁移 v10 · 所有者已批）：
+    //   改前：asset_file 可空列 = ['height','width']
+    //   改后：+ phash（`ALTER TABLE asset_file ADD COLUMN phash TEXT`，纯追加）
+    //   为什么不是放宽：仍是**逐列相等**（多/少一个可空列都红）。phash 必须可空，因为
+    //   **NULL 有语义** = 坏图/缺图/还没算（PHASH-1a 口径；绝不用 0 哈希冒充"已算"），
+    //   而"算过但坏图"的行也要留下且不断言它非空 ⇒ 只有可空列能表达三态。
     assert.deepEqual(
       nullableCols('asset_file'),
-      ['height', 'width'],
-      'asset_file 只允许 width/height 可空',
+      ['height', 'phash', 'width'],
+      'asset_file 只允许 width/height/phash 可空（phash 的 NULL = 坏图/缺图/未算）',
     );
     assert.ok(
       notNullCols('asset_file').includes('size_bytes') &&
