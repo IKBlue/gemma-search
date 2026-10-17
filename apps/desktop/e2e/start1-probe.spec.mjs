@@ -11,12 +11,11 @@
 //   $env:GEMMA_PERF='1'; $env:GEMMA_PROBE_RUNS='2'
 //   npx playwright test -c apps/desktop/e2e/playwright.config.mjs start1-probe.spec.mjs
 import fs from 'node:fs';
-import path from 'node:path';
 
 import { test, expect } from '@playwright/test';
 
 import { launchWithLibrary, launchFake, launchWithoutLibrary } from './helpers/app.mjs';
-import { firstWindow, collectConsoleErrors, ROOT } from './helpers/launch.mjs';
+import { firstWindow, collectConsoleErrors } from './helpers/launch.mjs';
 
 const RUNS = Number(process.env.GEMMA_PROBE_RUNS || '2');
 const say = (...a) => console.log('[start1]', ...a);
