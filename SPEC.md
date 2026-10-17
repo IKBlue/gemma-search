@@ -78,9 +78,11 @@
 | `size_bytes` | INTEGER NOT NULL | 大小（扫描事实） |
 | `mtime_ms` | INTEGER NOT NULL | 修改时刻（**统一口径**：`BigInt mtimeNs / 1_000_000n` 截断，全库唯一写入口） |
 | `width` · `height` | INTEGER NULL | 像素尺寸（只有 `role='preview'` 有值；**扫描就能拿到** ⇒ 现在就存，免得以后重扫） |
+| `phash` | TEXT NULL | **感知哈希**（64-bit dHash → 16 位小写 hex；迁移 v10，PHASH-1a · 所有者 2026-10-17 批准）。**NULL = 坏图 / 缺图 / 还没算**（三态）；**绝不用 0 哈希**冒充"已算" —— 0 会让坏图和所有图都像 |
 
 - **主键**：`PRIMARY KEY (uid, role)` · **索引**：`idx_asset_file_path (rel_path)`。
 - **本批不加**：`thumb_hash`（首屏占位图，UI 增强）· `content_hash_kind/value`（去重功能，且要真算哈希）。
+  ⚠️ `phash` **不是**这两者：它是**近重复**通道的原料（dHash），2026-10-17 由所有者单独批准加入（迁移 v10，纯追加）。
 
 #### `asset_index_state` —— 索引状态（**存时刻，不存枚举**）
 

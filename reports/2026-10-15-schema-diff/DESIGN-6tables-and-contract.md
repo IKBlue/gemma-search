@@ -92,9 +92,11 @@ userData/app.db          应用级 3 张 —— 跨库的配置与注册表
 | size_bytes | INTEGER | NOT NULL | 大小（扫描事实） |
 | mtime_ms | INTEGER | NOT NULL | 修改时刻（**统一口径**：BigInt mtimeNs / 1e6 截断，全库唯一写入口） |
 | width · height | INTEGER | NULL | 像素尺寸；**扫描就能拿到** ⇒ 现在就存，免得以后重扫 |
+| phash | TEXT | NULL | **v10 追加**（PHASH-1a · 所有者 2026-10-17 批准）：64-bit dHash → 16 位小写 hex；**NULL = 坏图/缺图/未算**（三态，绝不用 0 哈希冒充"已算"） |
 
 **主键**：PRIMARY KEY (uid, role) · **索引**：idx_asset_file_path ON asset_file (rel_path)
 **本批不加**：thumb_hash（首屏占位图，UI 增强）· content_hash_kind/value（去重功能，且要真算哈希）
+**后加（有出处）**：v10 的 `phash`（PHASH-1a，所有者 2026-10-17 批准）—— 它是**近重复**通道的原料，不是上一条里的内容哈希。
 
 #### asset_index_state —— 索引状态（**存时刻，不存枚举**）
 
