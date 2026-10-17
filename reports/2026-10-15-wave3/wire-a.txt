@@ -1,0 +1,100 @@
+==============================================================================
+WIRE-A / task-111 · app_setting 调用点切换（用户设置库优先）
+日期：2026-10-17 · 执行：main-migrator · 基线门禁 aad91e0（prettier 0 · lint 0 · 740/739/0/1 · tsc 0 · build 0 · e2e 69/4skip/0 · s4 21/0/0）
+==============================================================================
+
+## 0. 改前 → 改后 → 为何非放宽
+  改前：app_setting 表与 resolveSetting() 都就位了（B2-6），但**没有一个调用点**用它 ——
+        device 仍然只从旧 config.json 读 ⇒「设置已迁到库里」**不成立**。
+  改后：
+   · main/library-config.ts 立起**显式划分**：引导键（bootstrap）与用户设置（user settings）两份清单；
+   · device 调用点切到 resolveUserSetting() → 转调 app-db.ts 的 resolveSetting()（**唯一优先级实现**）；
+   · app.db 不可用时**退回旧文件**，不因此让引擎起不来（START-2 的降级路径）；
+   · 解析结果落一行日志「[设置] device：来源 = db/legacy/missing」⇒ 来源可观测（不静默）。
+  为何非放宽：库优先是**收紧**（原来只有一个来源，现在两个来源且有明确优先级）；
+        断言一字未改（W2 仍然要求：库里有的键必须以库为准）；没有回写、没有第二套优先级实现。
+
+## 1. 划分：谁是引导键、谁是用户设置（以及为什么必须这样分）
+  引导键（BOOTSTRAP_CONFIG_KEYS，仍读旧 config.json / 环境）：
+    data_dir · library_root · lib_id · libraries · onnx_model_dir · model_cache
+    理由：它们在 app.db **可用之前**就要读（data_dir 决定索引自举；库根/模型目录决定引擎能否建起来）。
+    若把它们做成库优先，启动链条就成环：**要读库先得有库根，而库根又要从库里读**。
+  用户设置（USER_SETTING_KEYS，**库优先**）：device
+    理由：库可用之后才需要、且用户会在界面里改的值。优先级**不在**本文件 ——
+    唯一实现在 main/app-db.ts 的 resolveSetting()：① app_setting 有 ⇒ 用库 ② 没有 ⇒ 才回退旧文件 ③ 都没有 ⇒ missing。
+  守卫：resolveUserSetting(db, 引导键, …) **直接抛**（宁可响亮失败，也不静默按错的来源答）。
+
+## 2. 调用点（index.ts · buildEngine 的编码器创建处）
+  改前：const device = (config.device || webgpu 缺省) as ...;
+  改后：
+    const devRes = withAppDb((appDb) => resolveUserSetting(appDb, device, config));
+    const devValue = devRes.ok ? devRes.value.value : config.device;      // app.db 不可用 ⇒ 退回旧文件
+    const devSource = devRes.ok ? devRes.value.source : legacy（app.db 不可用）;
+    log([设置] device：来源 =, devSource, · 值 =, String(devValue ?? 缺省 webgpu));
+    const device = (devValue || webgpu) as webgpu | cpu;
+  ⚠️ 仍**不**把非法值静默降级：类型断言与缺省逻辑都保持原样（只换来源，不改语义）。
+  ⚠️ app.db 读失败时**不抛**：退回旧文件并继续建引擎（与 START-2 实测的 userData 不可写仍可用一致）。
+
+## 3. 测试（apps/desktop/tests/wire-a-setting-callsite.test.mjs）
+   W1 划分：两份清单非空、**互斥**、可判定；且 data_dir/library_root/onnx_model_dir/model_cache 必须在引导键里。
+   W2 ⭐ 库优先：库里 device=cpu、旧文件 device=webgpu ⇒ 解析结果必须是 cpu / source=db。
+   W3 只读回退：库里没有 ⇒ legacy；两侧都没有 ⇒ missing（不编默认值）。
+   W4 ⭐ 不回写：解析后 **config.json 逐字节不变**；回退值**不写进库**（避免用户删掉的键被旧文件复活）。
+   W5 ⭐ 守卫：把 data_dir/library_root/onnx_model_dir/model_cache 当用户设置解析 ⇒ 抛错且消息里点名引导键。
+   W6 ⭐ 接线（源码扫描 index.ts）：device 必须经 resolveUserSetting；**不许**再出现 config.device 直接取值；
+      来源日志在；**引导键仍从旧文件读**（onnx_model_dir / data_dir）⇒ 没被误切。
+
+## 4. 能红（两条，均已还原且逐字节一致：data/_wireA/*.bak.ts）
+  A 调用点改回「只读旧文件」（去掉 resolveUserSetting、devValue = config.device）⇒ **W6 红**：
+      AssertionError: index.ts 必须用 resolveUserSetting(appDb, device, …) 解析 device （1 failed / EXIT=1）
+  B 优先级颠倒（legacy 先于 db，在 resolveUserSetting 里注入）⇒ **W2 与 W4 同时红**（2 failed / EXIT=1）
+  还原后复跑：W1–W6 **6/6 绿**。
+
+## 5. 门禁
+  · tsc -p tsconfig.node.json ⇒ **EXIT=0（0 行）**
+    （期间一次读到 db-worker 在飞的 main/db/exports.ts 错误：那是 WIRE-B 的中间态、不在我的文件里；随后自行消失）
+  · prettier --check（library-config.ts / index.ts / wire-a test）⇒ All matched files use Prettier code style!
+  · npm run build ⇒ 成功（e2e 用 out/）
+  · 单测（单文件跑）：wire-a-setting-callsite **6/6** · app-setting **7/7** · app-db **8/8**（全 EXIT=0）
+    （app-setting 里 B2-6 的 P1 源码扫描仍绿：source legacy 仍只出现在 app-db.ts）
+  · **全量 e2e ⇒ 69 passed / 4 skipped / 0 failed（3.4m）EXIT=0**
+  · **npm test 全量：未跑**（卡片要求先问）—— 改动是 main 的调用点 + 一个测试文件，单文件三组已绿，等你开窗口。
+
+## 5.1 e2e 期间两次偶发红：**先归因，不当重跑就好**
+  第一次（全量 e2e）：start2-userdata-unwritable 红 —— 收到的日志里全是 items-ipc.test.mjs /
+    collect-ledger.test.mjs 的 argv 行 ⇒ **并发跑单测**时 log.ts 在模块导入期截断共享的
+    data/_app.log，我的 spec 读到了别人的日志。
+    ⇒ 修（不是重跑）：该 spec 改用自己的日志文件（GEMMA_APP_LOG，log.ts 支持的覆盖口）⇒ 与任何进程无关。
+  第二次（全量 e2e）：browse.spec.mjs E14-g 红 —— electron.launch: Timeout 30000ms exceeded，
+    但应用自己的日志显示已 app ready / thumb:// / IPC 全注册（**不是启动坏了**，是 CDP 侧超时）。
+    单跑 browse.spec.mjs ⇒ **6/6 绿**（29.4s）；与本次改动无交集。
+  第三次（安静树）：**69 passed / 0 failed**（3.4m）。
+  ⚠️ 我**没有**把重跑绿当结论：第一次根因已定位并修掉（日志隔离）；第二次是并发负载下的启动侧超时，
+    单独复跑绿 + 应用日志证明启动正常，如实记在这里。
+
+## 6. 0 残留 grep（先跑后结论）
+  ① 调用点：main/ 里 config.device 的代码读取只剩 **1 处，且是 app.db 不可用时的回退分支**
+     （devRes.ok ? … : config.device）——不是只读旧文件，而是库坏了才退回旧文件。
+  ② 唯一优先级实现：source legacy 只出现在 **app-db.ts**（398/412 行）；我的 wrapper 只转调，不复制优先级。
+  ③ 不回写：CONFIG_PATH 只有 loadConfig 的赋值 + 作为 diagnostics 的 configPath 传入 ⇒ **没有任何写 config.json 的代码**。
+  ④ 划分只有一份：BOOTSTRAP_CONFIG_KEYS / USER_SETTING_KEYS / resolveUserSetting 只在 library-config.ts 定义；
+     index.ts 只在 device 调用点用一次。
+  ⑤ 测试自己的守卫：W6 机械断言不许再出现 config.device 直接取值 / 引导键仍从旧文件读。
+
+## 7. 未决 / 如实说明
+  · **npm test 全量待 Lead 开窗口**（卡片要求先问；同一时刻只允许一个 npm test）。
+  · **发现的测试隔离缺陷（不是本卡的产品问题，如实上报）**：log.ts 在模块导入期截断
+    <ROOT>/data/_app.log，而 npm test 会 import 到它（library-ipc 那条链）⇒ 任何读该文件的 e2e
+    在并发跑单测时都会读到别人的日志（本轮实测踩到）。
+    已做：把 **START-2** 的读取改成 GEMMA_APP_LOG 独立文件（进常规门禁的那条）。
+    仍待办（建议另开卡）：first-paint.spec.mjs / perf.spec.mjs / start1-probe.spec.mjs 也读共享 _app.log
+    （它们都被 GEMMA_PERF 门控、不在常规门禁里，所以不影响门禁）；根治应让 log.ts 的落点跟随 data_dir/userData，
+    或统一给这些量具用独立日志。
+  · 只切了 device 一个用户设置：USER_SETTING_KEYS 目前只有它（其余 config 键都是引导键）。
+    以后新增用户设置 = 加进这份清单 + 在调用点用 resolveUserSetting（W1/W6 会守住别自己再写一套）。
+
+## 8. 回滚方式
+  · 撤销该提交（3 个文件：library-config.ts / index.ts / wire-a test + 本证据）；
+  · 只回滚调用点 = 把 device 那 6 行换回 (config.device || webgpu 缺省)（此时 W6 会红 —— 那就是接线回退了的机械信号）；
+  · 注入副本：data/_wireA/index.bak.ts · data/_wireA/library-config.bak.ts（均已逐字节还原）。
+==============================================================================

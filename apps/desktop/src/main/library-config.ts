@@ -34,6 +34,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { classifyRootSync } from './library-availability.ts';
+// ⚠️ WIRE-A：**用户设置**的优先级只有一份实现（main/app-db.ts 的 resolveSetting）。
+//    本模块只负责「分类 + 调用」，不在这里写第二套「先看 config 再看库」的逻辑（P1）。
+import { resolveSetting } from './app-db.ts';
+import type { SqlDatabase } from './db/index.ts';
 
 /** 注册表格式版本（结构变更时递增，读端据此判断） */
 export const REGISTRY_VERSION = 1;
@@ -133,6 +137,79 @@ export interface MainConfig {
   libraries?: unknown;
   collect?: unknown;
   [key: string]: unknown;
+}
+
+/**
+ * **引导键（bootstrap）**：`app.db` **可用之前**就要读的配置 —— 库根 / 模型目录这类。
+ *
+ * 为什么它们不能走库：启动早期（`app.whenReady` 前后）app.db 还没打开、甚至还没有 userData；
+ * 而这些键正是"把应用带到能打开库"的那几条线（data_dir 决定索引自举、onnx_model_dir 决定引擎能否建起来）。
+ * ⇒ 它们**只**来自旧 `config.json` / 环境变量，**不做**库优先（那样会变成"要用库才能读库"的循环）。
+ *
+ * ⚠️ 这份清单是**可判定的**（测试与 `resolveUserSetting` 都读它）：新增配置项先在这里分类，
+ *    别在调用点各写一半（P1：同一概念不许第二份定义）。
+ */
+export const BOOTSTRAP_CONFIG_KEYS = [
+  'data_dir',
+  'library_root',
+  'lib_id',
+  'libraries',
+  'onnx_model_dir',
+  'model_cache',
+] as const;
+export type BootstrapConfigKey = (typeof BOOTSTRAP_CONFIG_KEYS)[number];
+
+/**
+ * **用户设置**：库可用之后才需要、且用户会在界面里改的值 ⇒ **库优先**（旧文件只读回退）。
+ *
+ * 优先级**不在本文件**：唯一实现在 `main/app-db.ts` 的 `resolveSetting()`（B2-6 定的口径）：
+ *   ① `app_setting` 有该键 ⇒ 用它（`source: db`）
+ *   ② 没有 ⇒ **才**回退旧 `config.json`（`source: legacy`）
+ *   ③ 都没有 ⇒ `missing`（不编默认值）
+ * ⚠️ **不回写**：读完不把旧值搬进库（否则用户删掉的键会被旧文件复活）。
+ */
+export const USER_SETTING_KEYS = ['device'] as const;
+export type UserSettingKey = (typeof USER_SETTING_KEYS)[number];
+
+/** 键是不是引导键（引导键**不许**当用户设置解析 —— 见 `resolveUserSetting` 的守卫） */
+export function isBootstrapConfigKey(key: string): boolean {
+  return (BOOTSTRAP_CONFIG_KEYS as readonly string[]).includes(key);
+}
+
+/** 键是不是用户设置（库优先的那一类） */
+export function isUserSettingKey(key: string): key is UserSettingKey {
+  return (USER_SETTING_KEYS as readonly string[]).includes(key);
+}
+
+/** 一条用户设置的解析结果（`source` 如实记来源：库 / 旧文件 / 都没有） */
+export interface UserSettingResolution {
+  key: string;
+  value: unknown;
+  source: 'db' | 'legacy' | 'missing';
+}
+
+/**
+ * 解析一条**用户设置**（库优先）。这是调用点唯一该用的入口：
+ * 它负责两件事 —— ① 分类守卫 ② 转调 `resolveSetting()`（优先级只有那一份实现）。
+ *
+ * ⚠️ 传引导键进来会**直接抛**：那是"把引导键改成库优先"的写法，会让启动链条成环
+ *    （要读库先得有库根，而库根又要从库里读）。宁可响亮失败，也不静默按错的来源答。
+ * ⚠️ 本函数**不写**任何东西（不回写 config.json，也不往 app_setting 里搬旧值）。
+ */
+export function resolveUserSetting(
+  db: SqlDatabase,
+  key: UserSettingKey,
+  legacy: MainConfig | null,
+): UserSettingResolution {
+  if (isBootstrapConfigKey(String(key))) {
+    throw new Error(
+      '配置键 ' +
+        String(key) +
+        ' 是**引导键**（启动早期、app.db 之前就要用）⇒ 只能从旧 config.json / 环境读，不许当用户设置解析',
+    );
+  }
+  // 转调唯一实现；`legacy` 允许 null（没有旧文件）—— resolveSetting 已经把 null 当"没有回退源"。
+  return resolveSetting(db, String(key), legacy as Record<string, unknown> | null);
 }
 
 /** `resolveLibraries` 的入参 */

@@ -29,8 +29,17 @@ import { test, expect } from '@playwright/test';
 import { FIXTURE_LIB } from './helpers/app.mjs';
 import { firstWindow, launchApp, ROOT } from './helpers/launch.mjs';
 
-const APP_LOG = path.join(ROOT, 'data', '_app.log');
 const BLOCK_DIR = path.join(ROOT, 'data', '_start2');
+/**
+ * ⚠️ 日志读**本 spec 自己的**一份（`GEMMA_APP_LOG`，log.ts 支持的覆盖口），不读共享的 data/_app.log。
+ *
+ * 为什么（2026-10-17 实测踩到）：`log.ts` 在**模块导入期**截断并重写日志 —— 而 `npm test` 里只要有
+ * 任何测试文件 import 到它（例如 library-ipc 那条链），就会把共享的 data/_app.log 换个内容。
+ * 于是「并行跑单测 + 跑本条 e2e」时，本 spec 读到的是**别人的日志**（实测读到过
+ * items-ipc.test.mjs / collect-ledger.test.mjs 的 argv 行）⇒ 假红。用独立日志文件把这条守卫
+ * 变成**与任何其它进程无关**的确定性断言。
+ */
+const APP_LOG = path.join(BLOCK_DIR, 'app.log');
 /** 这个目录**存在但写不了**（ACL 显式拒绝当前用户写）—— 触发器是我们造的，不是环境给的 */
 const BLOCKED_USER_DATA = path.join(BLOCK_DIR, 'ud-blocked');
 
@@ -81,7 +90,7 @@ test('START-2 ⭐ userData 不可写：不崩 + 如实记日志（单实例锁 /
   expect(denied, '触发器没生效：这个目录必须**真的写不进去**（ACL 拒绝当前用户写）').toBe(true);
 
   const app = await launchApp({
-    env: { GEMMA_CONFIG: '', GEMMA_LIB_ROOT: FIXTURE_LIB, GEMMA_FAKE: '' },
+    env: { GEMMA_CONFIG: '', GEMMA_LIB_ROOT: FIXTURE_LIB, GEMMA_FAKE: '', GEMMA_APP_LOG: APP_LOG },
     extraArgs: ['--user-data-dir=' + BLOCKED_USER_DATA],
   });
   try {
