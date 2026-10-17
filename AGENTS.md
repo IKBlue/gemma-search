@@ -1,7 +1,7 @@
 # AGENTS.md · 在这个仓库里怎么干活
 
 > **本文件只记规范与要求。** 不记状态、进度、待办、实测数字、违规史。
-> 最后核对：2026-10-14（v2 · 全量重写，不向后兼容；旧文档体系已整体清除）
+> 最后核对：2026-10-17（v2 · 全量重写，不向后兼容；旧文档体系已整体清除；本次按 U31/U34 更正模型路径顺序与 preload 源码后缀）
 
 ## 0. 四份文档的分工（**别在别处再列一遍**）
 
@@ -34,7 +34,8 @@
 
 1. **引擎（`packages/engine/`）零第三方依赖、传输无关**：只用 Node 内置能力，**不得 import `electron`**；它必须能脱离 Electron 单独测试。
 2. **契约边界用 `.ts`**（`apps/desktop/src/shared/ipc.ts`）：`.ts` 总会被类型检查，是类型门禁唯一可靠的内容来源。
-3. **preload 源码 `.js`、构建产物必须 `.cjs`**：`sandbox: true` 不加载 ESM preload。
+3. **preload 源码 `.ts`、构建产物必须 `.cjs`**：`sandbox: true` 不加载 ESM preload。
+   > 2026-10-17 更正（U34）：源码 2026-10-14 TS 迁移后是 `index.ts`，**产物仍是 `index.cjs`**（这条规则的本意是产物，不是源码后缀）；§3 目录表同步更正。
 4. **运行时依赖只在根 `package.json` 声明**；新增依赖必须写明用途，并先确认仓库里没有同功能的第二份实现。
 **框架边界（已锁定 · 2026-10-14 复核 React / Vue / Next.js）**
 
@@ -61,15 +62,15 @@
 | **文件监视** | `chokidar` | 跨平台 fs.watch 的坑很多，chokidar 是标准解 |
 | **日志** | `electron-log` | 主进程/渲染进程统一落盘，含滚动与格式化 |
 | **定时/队列** | `p-queue`（索引任务串行化） | 并发控制与取消语义自己写容易出错 |
-| **ID** | `nanoid`（事务 id、临时名） | 已实现的事务 id 生成可保留；新增处一律用它，不自己拼随机 |
+| **ID** | **`crypto.randomUUID()`**（Node 内置，零依赖） | 事务 id / batch id / export id 一律用它。**不引 `nanoid`**：它只是传递依赖、没在根 `package.json` 声明，直接 import 会违反 §1 硬约束 4（2026-10-17 更正，见 `main/app-db.ts` 与 `jobs.ts` 的注释） |
 | **动效** | `motion`（原 framer-motion）· 仅在必要时用 | HIG 要尊重 reduced-motion；手写 CSS 动画更难维护 |
 | **图表** | `recharts`（体检统计） | 可选；P2 阶段才需要 |
 | **代码质量** | `eslint` + `prettier`（开发依赖） | 主流组合，编辑器与 CI 都认 |
 **版本（2026-10-14 实测 · 本机 `npm view <pkg> version`，需联网）**
 
-- 已选定：`lucide-react@1.56.0` · `@tanstack/react-virtual@3.14.19` · `@tanstack/react-table@9.3.1` · `sonner@2.0.8` · `cmdk@1.1.1` · `react-hook-form@7.90.0` · `@hookform/resolvers@5.9.1` · `motion@14.2.0` · `yet-another-react-lightbox@3.32.2` · `pdfjs-dist@6.4.299` · `mammoth@1.13.0` · `@langchain/textsplitters@1.0.2` · `chokidar@5.0.0` · `electron-log@5.4.4` · `p-queue@10.0.0` · `nanoid@6.0.2` · `eslint@10.12.0` · `prettier@3.9.10`
+- 已选定：`lucide-react@1.56.0` · `@tanstack/react-virtual@3.14.19` · `@tanstack/react-table@9.3.1` · `sonner@2.0.8` · `cmdk@1.1.1` · `react-hook-form@7.90.0` · `@hookform/resolvers@5.9.1` · `motion@14.2.0` · `yet-another-react-lightbox@3.32.2` · `pdfjs-dist@6.4.299` · `mammoth@1.13.0` · `@langchain/textsplitters@1.0.2` · `chokidar@5.0.0` · `electron-log@5.4.4` · `p-queue@10.0.0` · `eslint@10.12.0` · `prettier@3.9.10`
 - 可选（P2）：`recharts@3.10.1` · `date-fns@4.4.0` · `@dnd-kit/core@6.3.1`
-- **不采用**：`better-sqlite3@13.0.3`（用内置 `node:sqlite`）· `drizzle-orm@0.45.4`（表结构简单，不引 ORM）· `sqlite-vec@0.1.9` / `hnswlib-node@3.0.0` / `usearch@2.26.4`（分块 <10 万前不需要 ANN）· `electron-updater@6.8.9`（P2，需要更新服务器）
+- **不采用**：`better-sqlite3@13.0.3`（用内置 `node:sqlite`）· `drizzle-orm@0.45.4`（表结构简单，不引 ORM）· `sqlite-vec@0.1.9` / `hnswlib-node@3.0.0` / `usearch@2.26.4`（分块 <10 万前不需要 ANN）· `electron-updater@6.8.9`（P2，需要更新服务器）· `nanoid`（只是传递依赖、未在根 `package.json` 声明；id 用内置 `crypto.randomUUID()`）
 - 界面层新增：`radix-ui@1.8.1`（**统一原语包**，含 55 个原语）· CLI `shadcn@4.21.4`（`npx shadcn@latest add <component>`，不是运行时依赖）
 
 **shadcn/ui 的正确用法（别装错）**
@@ -113,7 +114,7 @@ UI(组件) ──> Operation(store/hooks/utils) ──> Adapter(唯一 invoke �
 | 路径 | 管什么 |
 |---|---|
 | `apps/desktop/src/main/**` | 主进程：窗口 / IPC 分派 / 自定义协议 / 能力端口 / 日志 / 存储根解析 |
-| `apps/desktop/src/preload/index.js` | 安全桥：只暴露 `invoke` / `onEvent` / `platform` |
+| `apps/desktop/src/preload/index.ts` | 安全桥：只暴露 `invoke` / `onEvent` / `platform`（**源码 `.ts`，构建产物 `out/preload/index.cjs`**） |
 | `apps/desktop/src/renderer/**` | 界面：pages · layout · ui · search · store · hooks · utils · router · adapter · styles |
 | `apps/desktop/src/shared/ipc.ts` | **IPC 契约唯一来源**（方法白名单 + zod 校验 + 编译期类型） |
 | `packages/engine/**` | 搜索引擎本体（零依赖、传输无关）+ 单测 |
@@ -165,7 +166,7 @@ UI(组件) ──> Operation(store/hooks/utils) ──> Adapter(唯一 invoke �
 
 | 什么 | 放哪 |
 |---|---|
-| 模型（用户自备） | **程序目录**（搜索顺序：程序目录 → userData → 用户指定；启动时检测并给明确指引） |
+| 模型（用户自备） | **搜索顺序：用户指定 → 程序目录 → userData**（2026-10-17 按 U31 裁定更新；旧顺序把**显式指定**放最后 ⇒ 用户说了不算。启动时检测并给明确指引） |
 | 向量索引 | **库根**：`.gs-index.bin`（格式见 SPEC §2） |
 | 元数据 / 文档分块 / 体检台账 | **库根**：`.gs.db`（`node:sqlite`，实验性，靠薄适配层隔离） |
 | 事务日志 | **库根**：journal 目录 + `.gs-staging/`（实现已存在，语义不许改） |
