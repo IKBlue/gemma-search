@@ -92,14 +92,47 @@ const PACKED_USER_DATA: string | null = packedUserDataDir();
 export const ROOT: string = process.env.GEMMA_ROOT || detectRepoRoot(HERE) || FALLBACK_ROOT;
 
 /**
- * 日志文件：显式覆盖 > 打包态 <userData>/logs/app.log > <ROOT>/data/_app.log（源码/构建态）。
- * ⚠️ 打包态**绝不**落 asar 内 —— 那正是 T-22a 抓到的 P0。
+ * 日志文件**落点**（TESTISO-1 重写）：**按需解析 + 显式配置**，不在导入期写死一个常量。
+ *
+ * 旧行为（已删）：模块顶层算出 LOG_FILE 并**立刻** `writeFileSync(LOG_FILE, '')` 截断 ——
+ *   `npm test` 里任何 import 到 log.ts 的文件都会截断 `<ROOT>/data/_app.log`，
+ *   于是并发跑单测时**任何读这份日志的 e2e 都会假红**（WIRE-A 实测踩到）。
+ *
+ * 新口径（三条，缺一不可）：
+ *   ① **导入期零文件 I/O**：import 只登记缓冲；没有 configureLogFile 就**一个字节都不写**；
+ *   ② **落点跟随调用方**：主进程用 `<data_dir>/_app.log` 配置（data_dir 来自 config.json，
+ *      e2e 每个启动是独立 temp data_dir ⇒ 每个进程自己的日志）；
+ *   ③ **不截断**：打开时 `appendFileSync`（按需创建），同一文件里多进程写也只是追加。
  */
-export const LOG_FILE: string =
-  process.env.GEMMA_APP_LOG ||
-  (PACKED && PACKED_USER_DATA
+/** 显式覆盖（测试/排障）；优先级高于 configureLogFile 的入参（见 index.ts 的接线） */
+function envLogFile(): string | null {
+  const p = typeof process.env.GEMMA_APP_LOG === 'string' ? process.env.GEMMA_APP_LOG.trim() : '';
+  return p ? p : null;
+}
+
+/** 未配置时的默认落点：打包态 <userData>/logs/app.log（T-22a），否则 <ROOT>/data/_app.log */
+function defaultLogFile(): string {
+  return PACKED && PACKED_USER_DATA
     ? path.join(PACKED_USER_DATA, 'logs', 'app.log')
-    : path.join(ROOT, 'data', '_app.log'));
+    : path.join(ROOT, 'data', '_app.log');
+}
+
+/** 已配置的落点（null = 还没配置 ⇒ 不写任何文件） */
+let configuredFile: string | null = null;
+
+/** 配置前产生的行（含导入期头部）：有界缓冲，configureLogFile 时**按序**刷进文件 */
+const PRELOG: string[] = [];
+const PRELOG_MAX = 200;
+
+/** 当前解析到的落点（诊断/测试读；**不代表已经写过**） */
+export function resolveLogFile(): string {
+  return configuredFile ?? envLogFile() ?? defaultLogFile();
+}
+
+/** 是否已经被显式配置（false ⇒ 本进程不会写任何日志文件） */
+export function isLogFileConfigured(): boolean {
+  return configuredFile !== null;
+}
 
 const stamp = (): string => new Date().toISOString().slice(11, 23);
 
@@ -157,6 +190,10 @@ export interface LogStatus {
   failures: number;
   error: string | null;
   packed: boolean;
+  /** 是否已被显式配置（false ⇒ 本进程不写文件；TESTISO-1 新增） */
+  configured: boolean;
+  /** 还没刷进文件的缓冲行数（configured=false 时通常 > 0） */
+  pending: number;
 }
 let logOk = true;
 let logFailures = 0;
@@ -165,13 +202,16 @@ let failureAnnounced = false;
 
 /** 读当前日志落点与写入状态（N7 用；也可用于测试断言"失败可见"） */
 export function logStatus(): LogStatus {
+  const file = resolveLogFile();
   return {
-    file: LOG_FILE,
-    dir: path.dirname(LOG_FILE),
+    file,
+    dir: path.dirname(file),
     ok: logOk,
     failures: logFailures,
     error: logError,
     packed: PACKED,
+    configured: configuredFile !== null,
+    pending: PRELOG.length,
   };
 }
 
@@ -189,7 +229,7 @@ export function announceLogFailure(err: unknown): void {
     '[gemma-search] !! 日志写入失败：' +
     fmt(err) +
     ' · 目标 = ' +
-    LOG_FILE +
+    resolveLogFile() +
     ' · packed=' +
     String(PACKED) +
     ' · 后续仍会尝试写入；诊断面板可读 logStatus()';
@@ -213,14 +253,52 @@ function noteFailure(err: unknown): void {
   announceLogFailure(err);
 }
 
-/** 写一行日志：文件 + stdout，两边都失败也不能让应用崩。 */
+/** 追加一行到已配置的日志文件（**不截断**：append，按需创建） */
+function appendLine(line: string): void {
+  if (configuredFile === null) return;
+  try {
+    fs.appendFileSync(configuredFile, line, 'utf8');
+  } catch (e) {
+    noteFailure(e);
+  }
+}
+
+/**
+ * 配置日志落点（**唯一入口**；测试与主进程都走它）。
+ *
+ * · 不在导入期调用它就是"本进程不写日志文件"——这正是 TESTISO-1 要的：
+ *   单测 import log.ts 不会碰共享文件（旧行为会截断 <ROOT>/data/_app.log）。
+ * · 只创建/追加，**绝不截断**：同一文件被多个进程写时最多是追加交错，不会互相清空。
+ * · 配置前缓冲的头部行会**按序**刷进去（所以应用日志仍有 `=== gemma-search 启动 ===` 头）。
+ */
+export function configureLogFile({ path: nextPath }: { path: string }): LogStatus {
+  const p = typeof nextPath === 'string' ? nextPath.trim() : '';
+  if (!p) {
+    // 空路径 = 明确"不写文件"（保持未配置）：不静默挑一个别的落点
+    return logStatus();
+  }
+  configuredFile = p;
+  try {
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+  } catch (e) {
+    noteFailure(e);
+  }
+  // flush 缓冲（导入期头部行）：先清空再写，避免 log() 递归重复入缓冲
+  const pending = PRELOG.splice(0, PRELOG.length);
+  for (const line of pending) appendLine(line);
+  log('日志文件 =', p);
+  return logStatus();
+}
+
+/** 写一行日志：文件（**已配置时**）+ stdout，两边都失败也不能让应用崩。 */
 export function log(...args: unknown[]): void {
   assertRootOnce(); // ← 首次调用即自检（递归安全：标志已先置位）
   const line = `[` + stamp() + `] ` + args.map(fmt).join(' ') + '\n';
-  try {
-    fs.appendFileSync(LOG_FILE, line, 'utf8');
-  } catch (e) {
-    noteFailure(e);
+  if (configuredFile === null) {
+    // ⚠️ **未配置 ⇒ 不写任何文件**（只 stdout + 有界缓冲）—— 禁止导入期截断/写死落点的落点
+    if (PRELOG.length < PRELOG_MAX) PRELOG.push(line);
+  } else {
+    appendLine(line);
   }
   try {
     process.stdout.write(line);
@@ -229,20 +307,12 @@ export function log(...args: unknown[]): void {
   }
 }
 
-// ---------------------------------------------------------------- 初始化
-// ⚠️ 写不进去**必须可见**：T-22a 实测打包态这三处静默失败 ⇒ 零日志而界面一切正常（P0）。
-//    现在失败会记进 logStatus() 并大声报一次（见 announceLogFailure）。
-try {
-  fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
-} catch (e) {
-  noteFailure(e);
-}
-try {
-  fs.writeFileSync(LOG_FILE, '', 'utf8');
-} catch (e) {
-  noteFailure(e);
-}
-
+// ---------------------------------------------------------------- 导入期：**零文件 I/O**
+// ⚠️ TESTISO-1（2026-10-17）：这里**故意不再** mkdir / writeFileSync。
+//    旧行为在模块顶层截断 <ROOT>/data/_app.log —— 单测一 import 就清空 e2e 正在读的日志（假红）。
+//    现在导入期只把头部写进**内存缓冲**；真正落盘发生在 configureLogFile()（主进程按 data_dir 调）或永不发生。
+// ⚠️ 写不进去**仍必须可见**（T-22a 的 P0）：失败在 configureLogFile()/appendLine() 里记进 logStatus()
+//    并大声报一次（见 announceLogFailure）—— 而不是靠导入期那次写。
 log('=== gemma-search 启动 ===');
 log(
   'electron',
@@ -254,7 +324,7 @@ log(
 );
 log('ELECTRON_RUN_AS_NODE =', JSON.stringify(process.env.ELECTRON_RUN_AS_NODE ?? null));
 log('argv =', JSON.stringify(process.argv.slice(1)));
-log('日志文件 =', LOG_FILE);
+log('日志文件 =', resolveLogFile());
 log(
   '日志落点来源 =',
   process.env.GEMMA_APP_LOG
@@ -266,7 +336,7 @@ log(
   PACKED,
 );
 log('应用根 =', ROOT);
-if (PACKED || LOG_FILE.includes('app.asar')) {
+if (PACKED || resolveLogFile().includes('app.asar')) {
   log(
     '!! 注意：应用根落在 asar 内（HERE=' +
       HERE +

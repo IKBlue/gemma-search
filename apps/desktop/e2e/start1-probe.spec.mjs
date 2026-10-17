@@ -21,11 +21,10 @@ import { firstWindow, collectConsoleErrors, ROOT } from './helpers/launch.mjs';
 const RUNS = Number(process.env.GEMMA_PROBE_RUNS || '2');
 const say = (...a) => console.log('[start1]', ...a);
 const r1 = (x) => (x === null || x === undefined ? null : Number(Number(x).toFixed(1)));
-const APP_LOG = path.join(ROOT, 'data', '_app.log');
-
-function readLogMilestones() {
-  if (!fs.existsSync(APP_LOG)) return null;
-  const lines = fs.readFileSync(APP_LOG, 'utf8').split(/\r?\n/).filter(Boolean);
+// TESTISO-1：每个启动的日志落点跟着它自己的 data_dir（helper 返回 logPath），不读共享日志
+function readLogMilestones(appLog) {
+  if (!appLog || !fs.existsSync(appLog)) return null;
+  const lines = fs.readFileSync(appLog, 'utf8').split(/\r?\n/).filter(Boolean);
   const timeOf = (line) => {
     const m = /^\[(\d\d):(\d\d):(\d\d)\.(\d\d\d)\]/.exec(line);
     return m ? (+m[1] * 3600 + +m[2] * 60 + +m[3]) * 1000 + +m[4] : null;
@@ -69,7 +68,7 @@ test('START-1 归因：三个场景的同一段首屏计时（同一 bundle）',
         //    这里只等文档 load 完（DCL/load 是浏览器自己记的时间戳，等完才读得到）。
         await win.waitForLoadState('load', { timeout: 60_000 }).catch(() => {});
         await win.waitForTimeout(300);
-        const log = readLogMilestones();
+        const log = readLogMilestones(launched.logPath);
         const nav = await win.evaluate(() => {
           const n = performance.getEntriesByType('navigation')[0] || null;
           const paints = Object.fromEntries(

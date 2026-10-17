@@ -25,7 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { ROOT, log } from './log.ts'; // ← 必须最先导入：导入即初始化日志
+import { ROOT, log, configureLogFile } from './log.ts'; // ← 必须最先导入：日志模块（导入期零文件 I/O，见 log.ts）
 import { createEngine, UNIMPLEMENTED_METHODS } from '../../../../packages/engine/src/engine.ts';
 import { CH_INVOKE, CH_EVENT, validateCall, METHOD_NAMES } from '../shared/ipc.ts';
 import type { Envelope, MethodName, Req } from '../shared/ipc.ts';
@@ -243,6 +243,12 @@ const _cfg = loadConfig();
 const config = _cfg.data;
 const CONFIG_PATH = _cfg.path;
 const DATA_DIR: string = config.data_dir || path.join(ROOT, 'data');
+
+// TESTISO-1（2026-10-17）：日志落点**跟随 data_dir**（不是写死 <ROOT>/data）——
+// · e2e 每个启动给的 data_dir 是独立临时目录 ⇒ 每个进程自己的 app.log（并发跑单测不再互相截断）；
+// · 显式 GEMMA_APP_LOG 优先（排障/既有 spec 的覆盖口）；
+// · 只在**这里**配置 ⇒ 没配置的进程（单测）**一个字节都不写**（log.ts 导入期零文件 I/O）。
+configureLogFile({ path: process.env.GEMMA_APP_LOG || path.join(DATA_DIR, '_app.log') });
 
 // userData：`app.getPath` 在 app ready 之前不可靠，所以延到 whenReady 里再解析。
 // 但 `buildEngine()` 需要库列表，故用**惰性** getter —— 模块加载期零副作用，

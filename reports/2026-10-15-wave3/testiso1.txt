@@ -1,0 +1,94 @@
+==============================================================================
+TESTISO-1 / task-115 · 日志落点根治（禁止导入期截断 + 落点跟随 data_dir）
+日期：2026-10-17 · 执行：main-migrator · 来源：WIRE-A 的偶发红归因
+==============================================================================
+
+## 0. 改前 → 改后 → 为何非放宽
+  改前：log.ts 在**模块导入期**算出写死的 LOG_FILE，并立刻 `fs.writeFileSync(LOG_FILE, "")` **截断**
+        <ROOT>/data/_app.log。⇒ npm test 里只要任何文件 import 到 log.ts（library-ipc 那条链），
+        就会把 e2e 正在读的共享日志清空（WIRE-A 实测：START-2 收到的是 items-ipc/collect-ledger 的 argv 行）。
+  改后：
+   ① **导入期零文件 I/O**：import 只把头部行放进有界内存缓冲，不碰任何文件；
+   ② **落点跟随调用方**：主进程 index.ts 用 `configureLogFile({ path: … DATA_DIR … })` 接线，
+      日志落在 `<data_dir>/_app.log`；e2e 每个启动的 data_dir 都是独立临时目录 ⇒ **每个进程一份日志**；
+      显式 `GEMMA_APP_LOG` 仍优先（排障/既有 spec 的覆盖口）；
+   ③ **不截断**：打开时 `appendFileSync`，按需创建；配置前缓冲的头部行会按序刷进去（应用日志仍有启动头）；
+   ④ 没配置的进程（单测）**一个字节都不写**（缓冲在退出时丢弃）。
+  为何非放宽：这是**收紧**——旧行为"任何 import 都清空别人的日志"本身就是越界写；
+        断言没被放宽（log-fallback 的"写不进去必须可见"一条没删，只是失败现在发生在 configure/append 时）；
+        且新增了机械守卫（G1/G2/G3），改回去**必红**。
+
+## 1. 实现（3 个产品文件 + 4 个量具/测试文件）
+  · main/log.ts：删掉 `export const LOG_FILE` 与导入期 mkdir/writeFileSync；新增
+      resolveLogFile() / isLogFileConfigured() / configureLogFile({ path })、appendLine()、PRELOG 有界缓冲；
+      logStatus() 增加 configured / pending 两个字段（诊断仍能看到"该写哪儿/配没配"）。
+  · main/index.ts：在算出 DATA_DIR 之后**唯一一处**接线
+      configureLogFile({ path: process.env.GEMMA_APP_LOG || path.join(DATA_DIR, "_app.log") });
+  · e2e/helpers/app.mjs：四个场景 helper 都暴露 `logPath: path.join(dataDir, "_app.log")`。
+  · first-paint / perf / start1-probe：不再读共享 <ROOT>/data/_app.log，改读本次启动的日志
+      （first-paint、start1-probe 用 helper 的 logPath；perf 用自己的 work/data 下的 _app.log）。
+  · tests/log-fallback.test.mjs：L1/L2 按新口径重写（见 §3 的双向断言）。
+  · tests/testiso1-log-guard.test.mjs：**新增守卫**（G1 行为 + G2 落点 + G3 源码/接线）。
+
+## 2. 守卫写了什么（含"对象字面量调用"口径）
+  G1 ⭐ 只 import 不配置 ⇒ 共享 <ROOT>/data/_app.log **逐字节不变**（子女进程实测，含 log() 调用）；
+  G2 ⭐ configureLogFile({ path }) ⇒ 写到那个文件（含缓冲头部按序刷入），共享日志仍不动；
+  G3 ⭐ 源码守卫：
+     · log.ts（mask 注释后）不许出现 LOG_FILE 常量、不许 writeFileSync、模块顶层不许直接 fs.*；
+     · index.ts 必须以 **configureLogFile({ path: … DATA_DIR … })** 的**对象字面量调用**接线
+       （P8 教训：函数名出现在注释里不算证据）；
+     · helpers/app.mjs 必须**四处**暴露 logPath: path.join(dataDir, "_app.log")；
+     · first-paint / perf / start1-probe 不许再写死 path.join(ROOT, "data", "_app.log")。
+
+## 3. log-fallback 的两条（失败可见性没被放宽）
+  L1（新口径）：只 import 不配置 ⇒ 共享日志逐字节不变、configured=false、ok=true（没写就没失败）、log() 不抛。
+  L2（保留原意）：把落点 configure 到"父路径是个文件"的位置 ⇒ logStatus().ok=false、failures>=1、
+      stderr/stdout 有大声一行（/日志写入失败/ + /packed=/）、log() 不抛。
+  ⚠️ 唯一变化：失败时机从"导入期"挪到"configure/append 时"—— 断言强度不变（仍是"写不进去必须可见"）。
+
+## 4. 能红（把根因改回去 ⇒ 守卫必红；原文）
+  注入：在 log.ts 模块顶层加回 `export const LOG_FILE = …` + `fs.writeFileSync(LOG_FILE, "")`（旧行为）。
+  实测：
+    ✖ G1 ⭐ … AssertionError: 导入 + log() 不许动共享日志
+    ✖ G3 ⭐ … AssertionError: log.ts 不许再有 LOG_FILE 常量（落点必须按需解析）
+    ℹ tests 3 / pass 1 / fail 2（EXIT=1）；还原后 3/3 绿（副本 data/_testiso1/log.bak.ts，未用 git checkout）。
+
+## 5. 验收：并发「单测 + 读日志的 e2e」连续 3 次
+  做法：每轮先**并发启动**一个单测进程（items-ipc + collect-ledger，都会 import log.ts），
+        同时跑 first-paint.spec.mjs（GEMMA_PERF=1，6 次启动；它读**每次启动自己的** logPath）。
+  实测：
+    CONC 1/3 · unit fail0=True · e2e rc=0 ⇒ PASS
+    CONC 2/3 · unit fail0=True · e2e rc=0 ⇒ PASS
+    CONC 3/3 · unit fail0=True · e2e rc=0 ⇒ PASS
+  ⇒ 与 WIRE-A 那次"并发跑单测时 START-2 假红"是**同一条件**，现在**三次都不再假红**。
+
+## 6. 门禁
+  · tsc -p tsconfig.node.json ⇒ EXIT=0
+  · prettier --check（改过的 8 个文件）⇒ All matched files use Prettier code style!
+  · npm run build ⇒ 成功
+  · 单文件单测：testiso1-log-guard 3/3 · log-fallback 2/2 · items-ipc 15/15 · collect-ledger 7/7（全 EXIT=0）
+  · 全量 e2e：见 §6.1（本轮实测）
+  · **npm test 全量：未跑**（纪律：先问 Lead 开窗口）。
+
+## 6.1 全量 e2e（本轮实测）
+  命令：npx playwright test -c apps/desktop/e2e/playwright.config.mjs（安静树，无并发单测）
+  结果：**69 passed / 4 skipped / 0 failed（3.4m）· EXIT=0**
+  （69 = 原有 68 + START-2 那条守卫；4 skipped 仍是 GEMMA_PERF 门控的用例）
+
+## 7. 0 残留 grep（先跑后结论）
+  ① log.ts 模块顶层 `^fs\.(writeFileSync|appendFileSync|mkdirSync)` ⇒ **0 命中**（都在函数体内）；
+  ② `writeFileSync\(LOG_FILE` / `export const LOG_FILE` ⇒ **0 代码命中**（唯一命中是 log.ts:97 的**注释**，说明旧行为已删）；
+  ③ index.ts 的接线 ⇒ `configureLogFile({ path: process.env.GEMMA_APP_LOG || path.join(DATA_DIR, "_app.log") });`（对象字面量，唯一一处）；
+  ④ e2e 里写死 `path.join(ROOT, "data", "_app.log")` ⇒ **0 命中**；
+  ⑤ helpers 的 `logPath: path.join(dataDir, "_app.log")` ⇒ **4 处**（四个场景各一）。
+
+## 8. 未决 / 边界
+  · 仍未跑全量 npm test（等窗口）；本卡改动集中在 log.ts/index.ts/测试与量具，已用 4 个单文件 + 并发 3 轮 + 全量 e2e 覆盖。
+  · `GEMMA_APP_LOG` 仍是最高优先（排障口）——但它现在只影响**本进程**，不再有"写死共享文件"的路径。
+  · 打包态（asar）落点逻辑未改语义：仍 <userData>/logs/app.log（PACKED 分支原样保留），只是改为按需配置。
+
+## 9. 回滚方式
+  · 撤销该提交（log.ts / index.ts / log-fallback / testiso1-log-guard / helpers/app.mjs / 三个量具 + 本证据）；
+  · 只回滚产品 = 把 log.ts 的导入期写盘加回来 —— **但 G1/G3 会红**（那正是"根因回退了"的机械信号），不推荐。
+  · 注入副本：data/_testiso1/log.bak.ts（已逐字节还原）。
+==============================================================================

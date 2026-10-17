@@ -48,19 +48,17 @@ const median = (arr) => {
 };
 const r1 = (x) => (x === null || x === undefined ? null : Number(x.toFixed(1)));
 
-const APP_LOG = path.join(ROOT, 'data', '_app.log');
-
 /**
  * 主进程时间线（读应用自己的日志）—— 用来**归因**首屏那几秒花在哪一层。
  *
- * ⚠️ 必须**每次启动后立刻读**：`log.ts` 每次启动都会**重写** `data/_app.log`，
- *    而 playwright.config 是 `workers: 1` 串行 ⇒ 读到的一定是本次启动那一份。
+ * ⚠️ TESTISO-1（2026-10-17）：日志落点**跟着这个启动自己的 data_dir**（helper 返回 logPath），
+ *    不再读共享的 <ROOT>/data/_app.log —— 那条路会被并发的单测进程截断（假红）。
  * ⚠️ 每条 = 该行时间戳 − 日志首行时间戳。首行只是「进程起」的**代理**
  *    （真实进程创建 → 日志首行之间还有 Electron 引导时间，测不到）。
  */
-function readLogMilestones() {
-  if (!fs.existsSync(APP_LOG)) return null;
-  const lines = fs.readFileSync(APP_LOG, 'utf8').split(/\r?\n/).filter(Boolean);
+function readLogMilestones(appLog) {
+  if (!appLog || !fs.existsSync(appLog)) return null;
+  const lines = fs.readFileSync(appLog, 'utf8').split(/\r?\n/).filter(Boolean);
   const timeOf = (line) => {
     const m = /^\[(\d\d):(\d\d):(\d\d)\.(\d\d\d)\]/.exec(line);
     return m ? (+m[1] * 3600 + +m[2] * 60 + +m[3]) * 1000 + +m[4] : null;
@@ -118,7 +116,7 @@ test('PERF-1 第 0 步：首屏计时基线（多次启动取中位；只测量�
       await win.waitForSelector('#query', { timeout: 60_000 });
       const tQuery = performance.now();
       // 立刻读日志（下一次启动会覆盖它）—— 主进程时间线
-      const logMilestones = readLogMilestones();
+      const logMilestones = readLogMilestones(launched.logPath);
 
       // 浏览器自己记录的时间戳（相对 navigationStart）—— 首屏最没有争议的口径
       // ⚠️ 还抓 resource timing：**首屏那 6 秒到底花在哪**必须能归因，否则"变快/不变"无法解释。
@@ -267,7 +265,7 @@ test('PERF-1 第 0 步：首屏计时基线（多次启动取中位；只测量�
   // ── 主进程时间线（run 1）—— 把"首屏 6 秒"归因到具体一层 ─────────────────────
   const lm = (runs[0] && runs[0].logMilestones) || null;
   const lmf = (v) => (v === null || v === undefined ? '(缺)' : String(v) + ' ms');
-  say('| 主进程日志：app ready | ' + (lm ? lmf(lm.appReady) : '(没读到 data/_app.log)') + ' |');
+  say('| 主进程日志：app ready | ' + (lm ? lmf(lm.appReady) : '(没读到本进程的 _app.log)') + ' |');
   say('| 主进程日志：窗口已创建 | ' + (lm ? lmf(lm.windowCreated) : '(缺)') + ' |');
   say('| 主进程日志：引擎阶段完成 | ' + (lm ? lmf(lm.engineDone) : '(缺)') + ' |');
   say('| 主进程日志：库就绪（indexStatus ok） | ' + (lm ? lmf(lm.libReady) : '(缺)') + ' |');

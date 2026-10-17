@@ -108,6 +108,8 @@ export async function launchWithMissingLibrary() {
   return {
     app,
     missingRoot,
+    /** TESTISO-1：本进程自己的日志（落点跟随 data_dir ⇒ 每个启动一份，不与他人共享） */
+    logPath: path.join(dataDir, '_app.log'),
     cleanup: () => rmTmp(userData, dataDir, path.dirname(missingRoot)),
   };
 }
@@ -134,6 +136,8 @@ export async function launchWithoutLibrary() {
 
   return {
     app,
+    /** TESTISO-1：本进程自己的日志（落点跟随 data_dir ⇒ 每个启动一份，不与他人共享） */
+    logPath: path.join(dataDir, '_app.log'),
     cleanup: () => rmTmp(userData, dataDir),
   };
 }
@@ -177,6 +181,8 @@ export async function launchWithLibrary() {
   return {
     app,
     libRoot: FIXTURE_LIB,
+    /** TESTISO-1：本进程自己的日志（落点跟随 data_dir ⇒ 每个启动一份，不与他人共享） */
+    logPath: path.join(dataDir, '_app.log'),
     cleanup: () => rmTmp(userData, dataDir),
   };
 }
@@ -204,6 +210,8 @@ export async function launchFake() {
 
   return {
     app,
+    /** TESTISO-1：本进程自己的日志（落点跟随 data_dir ⇒ 每个启动一份，不与他人共享） */
+    logPath: path.join(dataDir, '_app.log'),
     cleanup: () => rmTmp(userData, dataDir),
   };
 }

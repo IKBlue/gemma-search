@@ -63,7 +63,8 @@ const MODEL_DIR = path.join(
   'daa72c51243991dfcaf9f9137d2c573d8f7790c0',
   'fp32',
 );
-const APP_LOG = path.join(ROOT, 'data', '_app.log');
+/** TESTISO-1：日志落点跟着本轮的 data_dir（下面 launcher 的 config 里写了 data_dir），不读共享日志 */
+let APP_LOG = null;
 const QUERY = '坦克 装甲车';
 const TEXT_RUNS = 20;
 const IMAGE_RUNS = 20;
@@ -107,6 +108,8 @@ test('T-19b 性能基线：冷启动分段 + 文本/图像检索 P50·P95 + 内�
 
   // ── 夹具：仓库内库根副本（沙箱把 electron 的写限制在仓库内；产品落点由 T-04 决定）
   const work = fs.mkdtempSync(path.join(ROOT, 'data', '_perf-'));
+  // TESTISO-1：本轮的日志落点 = 本轮 data_dir 下（见下面 config 的 data_dir），避免与其它进程共享文件
+  APP_LOG = path.join(work, 'data', '_app.log');
   const libDir = path.join(work, 'lib');
   const outDir = path.join(work, 'out');
   fs.mkdirSync(libDir, { recursive: true });
@@ -246,7 +249,7 @@ test('T-19b 性能基线：冷启动分段 + 文本/图像检索 P50·P95 + 内�
     );
 
     // 应用日志：冷启动分段
-    const logLines = (fs.existsSync(APP_LOG) ? fs.readFileSync(APP_LOG, 'utf8') : '')
+    const logLines = (APP_LOG && fs.existsSync(APP_LOG) ? fs.readFileSync(APP_LOG, 'utf8') : '')
       .split(/\r?\n/)
       .filter(Boolean);
     const timeOf = (line) => {
