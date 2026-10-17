@@ -1,0 +1,33 @@
+gemma-search · EVAL-1 召回评测集（**可提交安全状态** · 按 Lead 2026-10-17「收到安全状态就停」）· 证据（task-129）
+执行：core-migrator · 写入面：fixtures/ + apps/desktop/tests/ + reports/（**未碰检索逻辑**、未碰 indexer/encoder）
+
+【状态一句话】评测集 + 采样器 + 评分器 + 5 条测试（含**两条能红**）**已落地并全绿**；
+  **真实基线数字未落地**（跑分脚本解不了真实库里 1 张以上图片 ⇒ 已删除未验证脚本，不留半成品；阻碍与后续改法见 §4）。
+
+===== 0. 已落地清单（3 个文件，全部测过） =====
+| 文件 | 作用 | 状态 |
+|---|---|---|
+| `fixtures/eval-queries.json` | 评测集 **55 条**（50 真查询 + 5「应无匹配」）；含取样口径 `methodology` | ✅ 18.6 KB |
+| `apps/desktop/tests/helpers/eval-dataset.mjs` | 采样器 + 评分器（**唯一实现**，纯函数） | ✅ eslint 0 · prettier 0 |
+| `apps/desktop/tests/eval-recall.test.mjs` | 5 条测试：完整性 · 可复现 · **能红-1** · **能红-2** · 无匹配分离统计 | ✅ **5/5 pass** |
+
+
+===== 1. 评测集：取样口径（可复现是**机器验证**的，不是口头承诺） =====
+· 来源：`data/libraries/L1/items.json`（**3594 条**，真实库 G:\model 的索引条目；libId=L1）。
+
+
+===== 2. 能红原文（两条都在测试里，且**已跑绿**） =====
+### 能红-1：排序倒序 ⇒ 命中率必须掉（E3）
+用 6 条合成数据（每条第 1 名就是正确件）：`good.top1 === 1` → `reverseRankings()` 后 **`bad.top1 === 0`**（实测通过）。
+同时钉住定义：**分离度是分数统计量** ⇒ 单纯重排不改分数 ⇒ `bad.separation.mean === good.separation.mean`；
+再用「正确件分数压到 0.2 + 按分重排」证明 `worse.top1 === 0` 且 `worse.separation.mean < good.separation.mean`。
+### 能红-2：评测集喂空 ⇒ 必须抛（E4）
+`scoreEval([], [])` ⇒ 抛 `评测集为空 —— 0 条也报 100% 是假绿`；条数不一致 ⇒ 抛 `不一致`。
+### E5：无匹配样例不进命中率分母
+1 真 + 1 无匹配 ⇒ `n === 1`（分母只算真查询）、`noMatch.n === 1`、`noMatch.maxScoreMean === 0.05`。
+
+最终：`node --test apps/desktop/tests/eval-recall.test.mjs` ⇒ **tests 5 · pass 5 · fail 0**。
+
+
+===== 3. 未落地清单 + 阻碍（**如实**，不留半成品） =====
+1. **`fixtures/eval-baseline.json`（基线数字）未产出**。原因：真实跑分脚本在**第一步（生成裁剪图）**就崩：

@@ -1,0 +1,968 @@
+{
+  "schemaVersion": 2,
+  "purpose": "EVAL-1 召回评测集：查询=源图中心裁剪（归一化 crop），期望命中源 uid；synthetic 条目期望「无匹配」。",
+  "sampledFrom": "data/libraries/L1/items.json",
+  "indexCount": 3594,
+  "methodology": {
+    "sampler": "按 folder 分组 → 组内按 uid 升序 → 固定步长 floor(len/want) 取中点（stridePick）→ 配额 VR28/CR15/CR+VR5/其他2",
+    "crop": "中心 60%×60%（归一化 x=0.2,y=0.2,w=0.6,h=0.6）；将来框选只需替换这个矩形",
+    "excluded": [
+      "扩展名不在 .jpg/.jpeg/.png 的条目",
+      "缺 uid/relPath 的条目",
+      "**魔数不是 jpeg/png 的条目**（真实库里有一批 .jpg 实为 BMP —— SPEC §7 锚点；按引擎唯一实现 detectImageFormat 判）"
+    ],
+    "rawCount": 3594,
+    "skippedCount": 0,
+    "skippedByReason": {},
+    "note": "采样规则在 apps/desktop/tests/helpers/eval-dataset.mjs 里；测试会重跑采样并逐 uid 比对 ⇒ 可复现性是机器验证的。"
+  },
+  "trueQueries": 50,
+  "noMatchQueries": 5,
+  "entries": [
+    {
+      "id": "q001",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "04c8cbc332f2",
+      "sourceRelPath": "VR\\ID-10296883.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "04c8cbc332f2"
+        ]
+      }
+    },
+    {
+      "id": "q002",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "0caf9e6f24f1",
+      "sourceRelPath": "VR\\ID-15870725.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "0caf9e6f24f1"
+        ]
+      }
+    },
+    {
+      "id": "q003",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "15ccf260c0a2",
+      "sourceRelPath": "VR\\ID-1565608.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "15ccf260c0a2"
+        ]
+      }
+    },
+    {
+      "id": "q004",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "1f9afe3d2568",
+      "sourceRelPath": "VR\\ID-1047713.jpeg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "1f9afe3d2568"
+        ]
+      }
+    },
+    {
+      "id": "q005",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "299d11499018",
+      "sourceRelPath": "VR\\ID-685058.jpeg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "299d11499018"
+        ]
+      }
+    },
+    {
+      "id": "q006",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "322456cb23ef",
+      "sourceRelPath": "VR\\ID-1143650869.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "322456cb23ef"
+        ]
+      }
+    },
+    {
+      "id": "q007",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "3b3b27b883ad",
+      "sourceRelPath": "VR\\ID-1189445.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "3b3b27b883ad"
+        ]
+      }
+    },
+    {
+      "id": "q008",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "44429bd311a5",
+      "sourceRelPath": "VR\\ID-1168290387.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "44429bd311a5"
+        ]
+      }
+    },
+    {
+      "id": "q009",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "4cefe8888547",
+      "sourceRelPath": "VR\\ID-1106638357.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "4cefe8888547"
+        ]
+      }
+    },
+    {
+      "id": "q010",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "5441eb92b19f",
+      "sourceRelPath": "VR\\ID-15361989.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "5441eb92b19f"
+        ]
+      }
+    },
+    {
+      "id": "q011",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "5e35a6c24164",
+      "sourceRelPath": "VR\\ID-14073519.jpeg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "5e35a6c24164"
+        ]
+      }
+    },
+    {
+      "id": "q012",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "6798e993b08d",
+      "sourceRelPath": "VR\\ID-15021155.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "6798e993b08d"
+        ]
+      }
+    },
+    {
+      "id": "q013",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "6e92b0f88c58",
+      "sourceRelPath": "VR\\ID-1122506812.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "6e92b0f88c58"
+        ]
+      }
+    },
+    {
+      "id": "q014",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "77b7ac30b46f",
+      "sourceRelPath": "VR\\ID-744984.jpeg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "77b7ac30b46f"
+        ]
+      }
+    },
+    {
+      "id": "q015",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "7fe5356de529",
+      "sourceRelPath": "VR\\ID-1501265.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "7fe5356de529"
+        ]
+      }
+    },
+    {
+      "id": "q016",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "8be63f97466f",
+      "sourceRelPath": "VR\\ID-1111594754.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "8be63f97466f"
+        ]
+      }
+    },
+    {
+      "id": "q017",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "9339ed62de56",
+      "sourceRelPath": "VR\\ID-15273741.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "9339ed62de56"
+        ]
+      }
+    },
+    {
+      "id": "q018",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "9b86ece07805",
+      "sourceRelPath": "VR\\ID-110516468.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "9b86ece07805"
+        ]
+      }
+    },
+    {
+      "id": "q019",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "a4fc2f768999",
+      "sourceRelPath": "VR\\ID-1076545.jpeg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "a4fc2f768999"
+        ]
+      }
+    },
+    {
+      "id": "q020",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "aeca75daeb79",
+      "sourceRelPath": "VR\\ID-659707.jpeg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "aeca75daeb79"
+        ]
+      }
+    },
+    {
+      "id": "q021",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "b8ff0904bd05",
+      "sourceRelPath": "VR\\ID-635354.jpeg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "b8ff0904bd05"
+        ]
+      }
+    },
+    {
+      "id": "q022",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "c2680837f1b4",
+      "sourceRelPath": "VR\\ID-723150.jpeg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "c2680837f1b4"
+        ]
+      }
+    },
+    {
+      "id": "q023",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "ca3258babd4d",
+      "sourceRelPath": "VR\\ID-15479452.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "ca3258babd4d"
+        ]
+      }
+    },
+    {
+      "id": "q024",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "d39778534b76",
+      "sourceRelPath": "VR\\ID-1131816.jpeg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "d39778534b76"
+        ]
+      }
+    },
+    {
+      "id": "q025",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "dca8889180e6",
+      "sourceRelPath": "VR\\ID-1160613447.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "dca8889180e6"
+        ]
+      }
+    },
+    {
+      "id": "q026",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "e50782965db8",
+      "sourceRelPath": "VR\\ID-660227.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "e50782965db8"
+        ]
+      }
+    },
+    {
+      "id": "q027",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "ee314b74a07c",
+      "sourceRelPath": "VR\\ID-61449571852241.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "ee314b74a07c"
+        ]
+      }
+    },
+    {
+      "id": "q028",
+      "kind": "image",
+      "folder": "VR",
+      "sourceUid": "f97be760fa1b",
+      "sourceRelPath": "VR\\ID-1147793411.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "f97be760fa1b"
+        ]
+      }
+    },
+    {
+      "id": "q029",
+      "kind": "image",
+      "folder": "CR",
+      "sourceUid": "07a19201b894",
+      "sourceRelPath": "CR\\ID-1187534303.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "07a19201b894"
+        ]
+      }
+    },
+    {
+      "id": "q030",
+      "kind": "image",
+      "folder": "CR",
+      "sourceUid": "1d5b51b7b9bf",
+      "sourceRelPath": "CR\\ID-1173664183.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "1d5b51b7b9bf"
+        ]
+      }
+    },
+    {
+      "id": "q031",
+      "kind": "image",
+      "folder": "CR",
+      "sourceUid": "2e9359faa348",
+      "sourceRelPath": "CR\\ID-115895993.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "2e9359faa348"
+        ]
+      }
+    },
+    {
+      "id": "q032",
+      "kind": "image",
+      "folder": "CR",
+      "sourceUid": "4230a22405f8",
+      "sourceRelPath": "CR\\ID-16114664.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "4230a22405f8"
+        ]
+      }
+    },
+    {
+      "id": "q033",
+      "kind": "image",
+      "folder": "CR",
+      "sourceUid": "55f9139c647b",
+      "sourceRelPath": "CR\\ID-1092909.jpeg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "55f9139c647b"
+        ]
+      }
+    },
+    {
+      "id": "q034",
+      "kind": "image",
+      "folder": "CR",
+      "sourceUid": "6a91c00d8285",
+      "sourceRelPath": "CR\\ID-11413858.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "6a91c00d8285"
+        ]
+      }
+    },
+    {
+      "id": "q035",
+      "kind": "image",
+      "folder": "CR",
+      "sourceUid": "74c7875b9490",
+      "sourceRelPath": "CR\\ID-15481335.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "74c7875b9490"
+        ]
+      }
+    },
+    {
+      "id": "q036",
+      "kind": "image",
+      "folder": "CR",
+      "sourceUid": "84b7014773e5",
+      "sourceRelPath": "CR\\ID-15756812.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "84b7014773e5"
+        ]
+      }
+    },
+    {
+      "id": "q037",
+      "kind": "image",
+      "folder": "CR",
+      "sourceUid": "9614eb8ca04d",
+      "sourceRelPath": "CR\\ID-564502001.png",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "9614eb8ca04d"
+        ]
+      }
+    },
+    {
+      "id": "q038",
+      "kind": "image",
+      "folder": "CR",
+      "sourceUid": "a2215aa61488",
+      "sourceRelPath": "CR\\ID-102124949.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "a2215aa61488"
+        ]
+      }
+    },
+    {
+      "id": "q039",
+      "kind": "image",
+      "folder": "CR",
+      "sourceUid": "b262957c617a",
+      "sourceRelPath": "CR\\ID-1100770959.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "b262957c617a"
+        ]
+      }
+    },
+    {
+      "id": "q040",
+      "kind": "image",
+      "folder": "CR",
+      "sourceUid": "c726cefac1bc",
+      "sourceRelPath": "CR\\ID-1107763220.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "c726cefac1bc"
+        ]
+      }
+    },
+    {
+      "id": "q041",
+      "kind": "image",
+      "folder": "CR",
+      "sourceUid": "d80a57de0e73",
+      "sourceRelPath": "CR\\ID-1350291.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "d80a57de0e73"
+        ]
+      }
+    },
+    {
+      "id": "q042",
+      "kind": "image",
+      "folder": "CR",
+      "sourceUid": "e674f7170f5f",
+      "sourceRelPath": "CR\\ID-1114766182.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "e674f7170f5f"
+        ]
+      }
+    },
+    {
+      "id": "q043",
+      "kind": "image",
+      "folder": "CR",
+      "sourceUid": "f7dd570af52c",
+      "sourceRelPath": "CR\\ID-1061881.jpeg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "f7dd570af52c"
+        ]
+      }
+    },
+    {
+      "id": "q044",
+      "kind": "image",
+      "folder": "CR+VR",
+      "sourceUid": "264108ee27a2",
+      "sourceRelPath": "CR+VR\\ID-750571.jpeg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "264108ee27a2"
+        ]
+      }
+    },
+    {
+      "id": "q045",
+      "kind": "image",
+      "folder": "CR+VR",
+      "sourceUid": "5ef7cd77df08",
+      "sourceRelPath": "CR+VR\\ID-793733.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "5ef7cd77df08"
+        ]
+      }
+    },
+    {
+      "id": "q046",
+      "kind": "image",
+      "folder": "CR+VR",
+      "sourceUid": "8b6b11fc0e6a",
+      "sourceRelPath": "CR+VR\\ID-15085857.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "8b6b11fc0e6a"
+        ]
+      }
+    },
+    {
+      "id": "q047",
+      "kind": "image",
+      "folder": "CR+VR",
+      "sourceUid": "a2c904d2a86a",
+      "sourceRelPath": "CR+VR\\ID-116675337.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "a2c904d2a86a"
+        ]
+      }
+    },
+    {
+      "id": "q048",
+      "kind": "image",
+      "folder": "CR+VR",
+      "sourceUid": "d24bd9a224db",
+      "sourceRelPath": "CR+VR\\ID-14057636.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "d24bd9a224db"
+        ]
+      }
+    },
+    {
+      "id": "q049",
+      "kind": "image",
+      "folder": "其他",
+      "sourceUid": "40d2a04388e3",
+      "sourceRelPath": "其他\\ID-16021130.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "40d2a04388e3"
+        ]
+      }
+    },
+    {
+      "id": "q050",
+      "kind": "image",
+      "folder": "其他",
+      "sourceUid": "c2679ead28d6",
+      "sourceRelPath": "其他\\ID-231072368.jpg",
+      "crop": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6,
+        "h": 0.6
+      },
+      "expect": {
+        "uids": [
+          "c2679ead28d6"
+        ]
+      }
+    },
+    {
+      "id": "n001",
+      "kind": "synthetic",
+      "synthetic": "solid-gray",
+      "crop": null,
+      "expect": {
+        "none": true
+      }
+    },
+    {
+      "id": "n002",
+      "kind": "synthetic",
+      "synthetic": "solid-red",
+      "crop": null,
+      "expect": {
+        "none": true
+      }
+    },
+    {
+      "id": "n003",
+      "kind": "synthetic",
+      "synthetic": "checker",
+      "crop": null,
+      "expect": {
+        "none": true
+      }
+    },
+    {
+      "id": "n004",
+      "kind": "synthetic",
+      "synthetic": "gradient",
+      "crop": null,
+      "expect": {
+        "none": true
+      }
+    },
+    {
+      "id": "n005",
+      "kind": "synthetic",
+      "synthetic": "noise",
+      "crop": null,
+      "expect": {
+        "none": true
+      }
+    }
+  ]
+}
