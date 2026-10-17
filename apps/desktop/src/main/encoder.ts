@@ -30,9 +30,12 @@ import {
 } from '../../../../packages/indexer/src/bmp_decode.ts';
 import { decideDevice, UNPROBED } from './encoder-device.ts';
 import type { DeviceFallbackFact, GpuProbe, RequestedDevice } from './encoder-device.ts';
+import { IMAGE_EXT } from '../shared/image-ext.ts';
 
 export const QUERY_PREFIX = 'task: search result | query: ';
-export const IMG_EXT: ReadonlySet<string> = new Set(['.jpg', '.jpeg', '.png', '.webp', '.bmp']);
+// ⚠️ UX-1c：扩展名清单的唯一来源是 `shared/image-ext.ts`（渲染层的拖拽/粘贴判定读同一份）。
+// 这里保留 `IMG_EXT` 这个名字是给既有调用点用的**别名**，不是第二份清单。
+export const IMG_EXT: ReadonlySet<string> = IMAGE_EXT;
 
 /** 图像向量：与索引器一样，额外挂一个 `__source`（bmp-fallback / native）供诊断 */
 export interface ImageVector extends Float32Array {

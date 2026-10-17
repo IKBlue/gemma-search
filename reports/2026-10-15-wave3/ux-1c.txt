@@ -1,0 +1,51 @@
+================================================================================
+UX-1c 证据 · 拖拽 / 粘贴入窗 ⇒ 以图搜（**文件型完整**；位图粘贴受契约门控）· 2026-10-17 · Lead
+================================================================================
+卡面（HANDOFF「2026-10-17 暂停点」→ 已建未派）：
+  「粘贴/拖拽入窗口 ⇒ 以图搜；临时文件落 `os.tmpdir()`/`data/_*`，**绝不进库根**；非图片**明确拒绝**」。
+本文件覆盖能**不动契约**全部做掉的部分；需要契约变更的那一半（剪贴板位图）**如实标为待批**，不假装支持。
+
+【1. 做了什么（写入面）】
+| 文件 | 变更 |
+|---|---|
+| `apps/desktop/src/shared/image-ext.ts` | **新增**：`IMAGE_EXT` / `isImageFileName` / `imageExtOf` —— 「什么算图片扩展名」在 app 内的**唯一来源**（渲染层入窗判定与主进程解码共用；引擎侧 `fingerprint.ts` 的扫描清单用途不同，属既有架构边界） |
+| `apps/desktop/src/main/encoder.ts` | `IMG_EXT` 改为**引用** `shared/image-ext.ts`（保留旧名字当别名）；不再自己写一份字面量清单（P1） |
+| `apps/desktop/src/renderer/src/utils/image-intake.ts` | **新增**（Operation 层、纯函数）：`classifyImageFiles` —— 只收图片文件；**拿不到真实路径 ⇒ 明确拒绝**（剪贴板位图：给"先保存成文件"的可行动理由）；非图片/空列表给可显示理由 |
+| `apps/desktop/src/renderer/src/pages/SearchPage.tsx` | 窗口级监听 `dragover` / `drop` / `paste`（**只在搜索页挂载期间存在**，卸载即摘）；收下图片文件 ⇒ 切以图搜 + 设 `queryImagePath` + **立刻检索**；纯文本粘贴不抢事件 |
+| `apps/desktop/tests/image-intake.test.mjs` | **新增 6 条**单测：U1 收下真正路径（扩展名大小写不敏感）· U2 位图无路径 ⇒ `NO_PATH` + 理由含"保存成文件" · U3 非图片 ⇒ `NOT_IMAGE` + 列支持类型/点名文件 · U4 空 ⇒ `EMPTY` · U5 MIME 优先 · U6 **清单唯一性静态断言**（encoder 必须 import shared；不许再写字面量） |
+| `apps/desktop/e2e/image-intake.spec.mjs` | **新增 4 条真窗口 e2e**（模拟模式）：CI-1 粘贴图片文件 ⇒ 占位符变"已选参考图" + 立刻出结果；CI-2 `drop` 同链路；CI-3 非图片 ⇒ alert 理由（含 jpg / notes.txt）且不进入以图搜；CI-4 位图无路径 ⇒ alert"保存成文件"且不进入以图搜 |
+
+**写入纪律**：本卡**不写任何文件**——文件型输入直接用 OS 给的绝对路径当查询图（与"以图搜图"选文件同一条路）。
+因此「临时文件落 `os.tmpdir()`/`data/_*`、绝不进库根」这条在**本卡实现范围内自然成立**（零写入）；
+它真正会被用到的是**位图粘贴**那半张（见 §3），届时的落点约定就是 `data/_query-image/` 或 `os.tmpdir()`。
+
+【2. 门禁（本轮实测 · 命令 + 原始输出摘）】
+~
+npx prettier --check .   => All matched files use Prettier code style!          PRETTIER=0
+npm run lint             => LINT=0
+npm run typecheck        => TC=0
+npm test                 => ℹ tests 836 · ℹ pass 835 · ℹ fail 0 · ℹ skipped 1   TEST=0
+npm run build            => BUILD=0 · **WARNINGS=0** · 三端齐备
+npx playwright test -c … => **78 passed / 4 skipped / 0 failed** · E2E=0（4.1 min；总数 82 = 上轮 78 + 新 intake 4）
+~
+定向证据（先单跑，再全量）：
+~
+npx playwright test … image-intake => 4 passed（CI-1…CI-4）· EXIT=0
+node --test … image-intake.test.mjs => 6 / 6 pass
+~
+
+【3. 未做的一半（如实 · 需要所有者批准契约变更）】
+· **剪贴板位图（截图）粘贴**：从聊天工具/截图工具复制的图片在剪贴板里**没有文件路径**（是字节），
+  要支持它必须由**主进程**把字节落成临时文件、再把路径交给 search ⇒ 这需要**新增一个 IPC 方法**
+  （例如 `stageQueryImage`：入参限制字节长度/格式，返回绝对路径；落点 `data/_query-image/`，**绝不进库根**）。
+  ⇒ 属**契约变更**（handoff 明确「契约变更需所有者批准」；U35 同批待批），**本轮不擅自加**。
+  当前行为：**如实拒绝**并提示"先把截图保存成文件"（CI-4 钉住；不是静默失败、不是假装能搜）。
+· 多文件一次拖入：只用**第一个**文件（多选用哪张不是本卡能替用户决定的事）；批量入口未做。
+· e2e 用 `Object.defineProperty(file,'path')` 注入路径来复现"从资源管理器拖文件"的形状
+  （浏览器沙箱里造不出真 OS 拖拽）；OS→Chromium 提供 `File.path` 这件事由既有的"选文件"路径长期覆盖。
+· 未在真机上人工拖一次（本会话只有自动化证据）。
+
+【4. 结论】
+· 文件型拖拽/粘贴 ⇒ 以图搜：**完成**（判定、拒绝理由、真窗口接线、立即检索都有证据）。
+· 截图位图粘贴：**待所有者批准新增 IPC 后**再做（已留下明确的实现路径与落点约定）。
+================================================================================

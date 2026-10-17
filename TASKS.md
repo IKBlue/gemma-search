@@ -132,7 +132,7 @@
 | **UX-1b** | 复制路径（详情页两条绝对路径）+ **定位如实报错**（文件不存在 ⇒ 错误，而不是"已定位"）；不动契约 | 完成（本轮）：`utils/clipboard.ts` 唯一实现 + 6 条单测 + E9-g **读真实剪贴板** e2e + M0 真窗口"文件不存在"断言。门禁：prettier 0 · lint 0 · tsc 0 · 单测 **820/819/0/1** · build 0（WARN 0、三端齐备）· e2e **73 passed / 4 skipped / 0 failed** | `reports/2026-10-15-wave3/ux-1b.txt` |
 | **PHASH-1b** | 三通道排序接入（近重复通道） | 待做：**阈值依据已就位**（EVAL-1 基线：同图缩放汉明 max 7 / 异图 min 19 ⇒ 候选 k=13）；实现前须用**生产 nativeImage 解码**在真实条目上复核一次，且裁剪查询**不算近重复** | — |
 | **NOMATCH-1** | `no_close_match` 终态 + shortfall「最近 N 条仅供参考」 | 待做：EVAL-1 基线证明**绝对分数阈值不可行**（正确件最低 0.878 < 错件最高 0.967，空档 −0.089）⇒ 口径必须改成**相对判据**（top1−top2 间隔 / band + shortfall），属产品口径，需所有者确认后再实现 | — |
-| **UX-1c** | 粘贴 / 拖拽入窗口 ⇒ 以图搜；临时文件落 `os.tmpdir()`/`data/_*`，**绝不进库根**；非图片明确拒绝 | 待做 | — |
+| **UX-1c** | 粘贴 / 拖拽入窗口 ⇒ 以图搜；临时文件落 `os.tmpdir()`/`data/_*`，**绝不进库根**；非图片明确拒绝 | **完成（文件型）**：`shared/image-ext.ts` 唯一清单（`encoder.ts` 改为引用）· `utils/image-intake.ts` 判定/可行动拒绝理由 · 搜索页窗口级 `dragover/drop/paste` + **立刻检索** · 6 条单测 + 4 条真窗口 e2e（CI-1…CI-4）。门禁：prettier 0 · lint 0 · tsc 0 · 单测 **836/835/0/1** · build 0（WARN 0）· e2e **78 passed / 4 skipped / 0 failed**。<br>⚠️ **剪贴板位图（截图）粘贴未做**：需要主进程把字节落成临时文件 = **新增 IPC（契约变更）**，U35 同批待所有者批准；当前**如实拒绝**并提示先保存成文件（不假装支持） | `reports/2026-10-15-wave3/ux-1c.txt` |
 | **FR-012** | 搜索历史接 UI。⚠️ 复核：`recent_query` **只有读路径（HIST-1）没有写路径** ⇒ 本卡除 UI 外还要补"搜索成功后写一条" | 完成（本轮）：`app-db.insertRecentQuery`（唯一写入口）+ `main/search-history.ts`（成功才记、失败不改判）+ IPC 钩子 + store `loadRecent/runText` + SearchPage「最近搜索」+ 8 条单测 + m0-real ②c 真窗口重放。门禁：prettier 0 · lint 0 · tsc 0 · 单测 **828/827/0/1** · build 0（WARN 0）· e2e **73 passed / 4 skipped / 0 failed**（首次全量有 1 条 browse 间歇红，单跑与复跑均绿，已如实归档） | `reports/2026-10-15-wave3/fr-012.txt` |
 
 ---

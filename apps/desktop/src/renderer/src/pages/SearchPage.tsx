@@ -22,6 +22,7 @@ import SearchPanel from '../search/SearchPanel.tsx';
 import SearchSidebar from '../search/SearchSidebar.tsx';
 import { LABELS } from '../router/paths.ts';
 import { useDocumentTitle } from '../utils/useDocumentTitle.ts';
+import { classifyImageFiles } from '../utils/image-intake.ts';
 
 /** 事件流里本页用到的字段（其余原样忽略；`unknown` 下不许直接取属性） */
 type PageEvent = {
@@ -136,6 +137,61 @@ export default function SearchPage() {
     },
     [setQueryImagePath, show],
   );
+
+  /**
+   * 拖拽 / 粘贴进来的文件 ⇒ 以图搜（UX-1c）。
+   *
+   * 判定与拒绝理由都在 Operation 层（`utils/image-intake.ts`，纯函数、可单测）；这里只做三件事：
+   * 收下 → 设状态 → **立刻检索**（卡面语义是"拖进来/粘进来就能搜"，不是"拖进来还得再点一下"）。
+   * ⚠️ 剪贴板里是**位图**（截图）而不是文件时，`classifyImageFiles` 会如实拒绝并给可行动理由 ——
+   *    那种输入需要主进程先把字节落成临时文件，属**新增 IPC（契约变更）**，未获批前不假装支持。
+   */
+  const intakeFiles = useCallback(
+    (files: ArrayLike<{ name?: string; type?: string; path?: string }> | null) => {
+      const r = classifyImageFiles(files);
+      if (!r.ok) {
+        show(r.reason, 'err');
+        return;
+      }
+      setMode('image');
+      setQueryImagePath(r.path);
+      setImageName(r.name);
+      show(`已选：${r.name}`);
+      // run() 从 store 的 get() 读状态 ⇒ 上面三次 set 已同步生效，这里拿到的是新值
+      void run(show);
+    },
+    [run, setMode, setQueryImagePath, show],
+  );
+
+  // 窗口级监听（只在搜索页挂载期间存在，卸载即摘掉，不影响其它页面）。
+  useEffect(() => {
+    const hasFiles = (dt: DataTransfer | null | undefined): boolean =>
+      Boolean(dt && Array.from(dt.types ?? []).includes('Files'));
+    const onDragOver = (e: DragEvent) => {
+      // 不 preventDefault 的话，Chromium 会把整个窗口导航去打开那个文件
+      if (hasFiles(e.dataTransfer)) e.preventDefault();
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e.dataTransfer)) return;
+      e.preventDefault();
+      intakeFiles(e.dataTransfer?.files ?? null);
+    };
+    const onPaste = (e: ClipboardEvent) => {
+      const files = e.clipboardData?.files;
+      // 纯文本粘贴（files 为空）照旧交给输入框，不抢事件
+      if (!files || files.length === 0) return;
+      e.preventDefault();
+      intakeFiles(files);
+    };
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('drop', onDrop);
+    window.addEventListener('paste', onPaste);
+    return () => {
+      window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('drop', onDrop);
+      window.removeEventListener('paste', onPaste);
+    };
+  }, [intakeFiles]);
 
   const refreshStatus = useCallback(async () => {
     const r = await invoke<IndexStatusData>('indexStatus', {});
