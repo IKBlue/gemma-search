@@ -613,6 +613,19 @@ const LIBRARY_V7: readonly string[] = Object.freeze([
   'DROP TABLE IF EXISTS recent_query;',
 ]);
 
+/**
+ * v10：**感知哈希**（PHASH-1a）—— 给 `asset_file` **纯追加**一列 `phash TEXT NULL`。
+ *
+ * 三条口径（写在这里以免以后有人"顺手改语义"）：
+ *   · **NULL = 坏图/缺图/还没算**（三者在读层都当"没有哈希"处理）；**绝不用 0 哈希** ——
+ *     真实图片的 dHash 几乎不可能恰好是 64 个 0，写成 0 会让**坏图看起来和所有图都像**（汉明距离小）。
+ *   · 只**追加列**、不改写已有行：`ALTER TABLE ... ADD COLUMN`；旧行 phash 保持 NULL，由回填补齐。
+ *   · **阈值 k 不在这里定**：本层只存 64-bit hex；k 由 EVAL-1 校准（PHASH-1b 接入排序时再取）。
+ */
+const LIBRARY_V10: readonly string[] = Object.freeze([
+  'ALTER TABLE asset_file ADD COLUMN phash TEXT;',
+]);
+
 export const LIBRARY_MIGRATIONS: readonly Migration[] = Object.freeze([
   Object.freeze({ version: 1, name: 'greenfield-library-3', statements: LIBRARY_V1 }),
   Object.freeze({ version: 2, name: 'batch2-job-ledger', statements: LIBRARY_V2 }),
@@ -630,6 +643,8 @@ export const LIBRARY_MIGRATIONS: readonly Migration[] = Object.freeze([
   Object.freeze({ version: 8, name: 'batch2-tags', statements: LIBRARY_V8 }),
   // B2-7b：意图层的集合（collection + collection_item；**有序**分组，B2 系列最后一张表）
   Object.freeze({ version: 9, name: 'batch2-collections', statements: LIBRARY_V9 }),
+  // PHASH-1a：asset_file 纯追加 phash 列（NULL = 坏图/缺图/未算；绝不用 0 哈希）
+  Object.freeze({ version: 10, name: 'batch3-phash', statements: LIBRARY_V10 }),
 ]);
 
 /** 本程序知道的**库级**最高版本（从清单派生，不另写数字） */

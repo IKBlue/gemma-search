@@ -1,0 +1,43 @@
+================================================================================
+PHASH-1a 证据（**未完成 · 可提交的安全一步**）· 感知哈希：算法 + 存储 + 回填
+任务板 id: task-130   执行: db-worker   日期: 2026-10-17
+⚠️ 所有者要更新 DSH ⇒ Lead 指示收到"可提交的安全状态"即停。本卡 **task-130 保持 in_progress**（见 §4 未落地）。
+================================================================================
+
+【结论：已落地（可提交）】
+· **算法** `main/phash.ts`（纯函数）：`dHashHex(gray9x8)`（9×8 灰度 → 64-bit → 16 位小写 hex）+
+  `hammingHex(a,b)`（任一 null ⇒ **null = 未知**，不是 0 也不是 64）；解码**注入**（Lead 裁定 A），本文件不碰解码。
+  灰度系数写死 Rec.709 `0.2126R+0.7152G+0.0722B`；缩放要求解码器用**写死**参数（nativeImage resize quality:'good'）。
+· **存储** 库级迁移 **v10**（`batch3-phash`）：`ALTER TABLE asset_file ADD COLUMN phash TEXT` —— **纯追加、不改写旧行**；
+  **NULL = 坏图/缺图/未算**；**绝不用 0 哈希**（0 会让坏图和所有图都像）。
+· **存储/读/回填** `main/db/phash.ts`（**唯一写入口**）：`readPhash` / `writePhash` / `listPhashPending` /
+  `backfillPhash`（**幂等 + 可断点**：只挑 `phash IS NULL`；每处理一条回调 `onProgress`，**不静默**；返回 `{done, nulled, failed}`）。
+· **A1 文件清单登记** `db/phash.ts`（今天第三次踩同一个坑：新增 db 文件必须登记）。
+· **G7 列集断言翻转**：asset_file 8 → 9 列（+phash），翻转表写在断言里（仍是逐列相等，不是放宽）。
+· 测试 `apps/desktop/tests/phash.test.mjs` P1–P3 **全绿**。
+
+【受影响面测试（本轮实测）】
+`node --test phash.test.mjs db-schema.test.mjs app-db.test.mjs` ⇒ **24/24**；`tsc` node ⇒ **0**。
+（全量 `npm test` 未跑 —— 按 Lead 的停止指令，只跑受影响面；全量留给下一次窗口。）
+
+【能红三组（实测原文 · 全部逐字节还原）】
+① **hamming 恒 0**（`return 0`，把"不同图"也抹平）⇒ `✖ P1 … 不同图必须远大于阈值（实得 0）`
+② **坏图写 0 哈希**（卡片点名）⇒ `✖ P2 … 坏图 ⇒ NULL · actual: '0000000000000000'`
+③ **回填不筛 NULL**（重跑会重算）⇒ `✖ P3 … 全部算完后没有待办 · actual: [两条待办]`
+还原：三处用注入前原文换回；`phash.ts` / `db/phash.ts` 的 **SHA256 与注入前完全相同**；复跑 **24/24 绿**。
+
+【未落地（如实 · 这正是 task-130 不置 complete 的原因）】
+1. ⚠️ **生产解码器（`nativeImage`）接线**：解码注入接口已就绪，但 main 侧"真 JPEG → 9×8 灰度"的实现**还没写**
+   （需在 electron 入口侧用 `nativeImage.createFromPath().resize({width:9,height:8,quality:'good'})` + toBitmap + luma 转换）。
+2. ⚠️ **真窗口 e2e**（Lead 硬要求）：真实 JPEG 回填后哈希非 NULL + 同一张图两种尺寸距离 ≤2 —— **未写**；
+   正因如此，**task-130 保持 in_progress**（不冒充完成）。
+3. 阈值 k：按 Lead 要求**不在本卡定**（只出 hex 与 hammingHex；k 待 EVAL-1 校准）。
+4. 回填的调用方（谁触发/多久跑一次）：未接（本卡只管"能算、能存、能读"）。
+
+【树上状态】
+· 新增：`main/phash.ts` · `main/db/phash.ts` · `tests/phash.test.mjs`；
+· 修改：`main/db/migrations.ts`（v10 纯追加）· `tests/db-schema.test.mjs`（A1 登记 + G7 翻转）；
+· 无临时探针/无残留 mutant（SHA256 已验）；`data/_phash1/**` 由测试自清。
+· ⚠️ **跨卡观察**：`npm run lint` 报 **2 errors 在 `apps/desktop/tests/helpers/eval-dataset.mjs`**（未使用的
+  `detectImageFormat`/`readImageHead`）—— **不是本卡的文件**（我没碰它），如实上报，未擅自改。
+================================================================================

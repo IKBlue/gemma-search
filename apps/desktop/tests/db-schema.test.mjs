@@ -238,6 +238,8 @@ test('A1：db 层只有 sqlite-adapter.ts 碰 node:sqlite，且不 import electr
     'migration-engine.ts',
     'migrations.ts',
     'open.ts',
+    // PHASH-1a：asset_file.phash 的存储/读/回填（§2.3 每张表一个写入口）
+    'phash.ts',
     'row-types.ts',
     'schema-layers.ts',
     'sqlite-adapter.ts',
@@ -501,6 +503,11 @@ test('G7 ⭐ 列集 = 设计基线 §1（本批刻意不加的列一个都不许
       'rel_path',
       'discovered_at_ms',
     ]);
+    // 翻转（PHASH-1a · 所有者已批）：
+    //   改前：asset_file 8 列（设计基线 §1 的字段行；phash 当时"本批刻意不加"）
+    //   改后：+ phash（NULL = 坏图/缺图/未算；**绝不用 0 哈希**）
+    //   为什么不是放宽：仍是**逐列相等**（多一列少一列都红）；phash 是**所有者批准的追加迁移 v10**，
+    //   且行为由 phash.test.mjs 钉住（坏图 → NULL，不写 0）
     assert.deepEqual(cols('asset_file'), [
       'uid',
       'role',
@@ -510,6 +517,7 @@ test('G7 ⭐ 列集 = 设计基线 §1（本批刻意不加的列一个都不许
       'mtime_ms',
       'width',
       'height',
+      'phash',
     ]);
     assert.deepEqual(cols('asset_index_state'), [
       'uid',
