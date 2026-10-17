@@ -73,9 +73,12 @@ const KEPT_LIBRARY = [
   'asset_user_meta',
   'asset_name_fts',
   'recent_view',
-  // B2-7a：意图层的标签（多对多）
+  // B2-7a：意图层的标签（横切组织）
   'tag',
   'asset_tag',
+  // B2-7b：意图层的集合（**有序**分组 —— 与标签的差别是顺序语义，不是基数）
+  'collection',
+  'collection_item',
 ];
 // B2-5FIX：`recent_query` 从库级挪到应用级（SPEC.md:173）⇒ 出现在这一份里
 const KEPT_APP = [
@@ -86,8 +89,13 @@ const KEPT_APP = [
   'activity',
   'recent_query',
 ];
-/** 仍未建的表（随功能上线；它们现在一张都不许被建出来）—— `job`(B2-1) / `health_run`+`health_finding`(B2-2) 已建出，从本表移走 */
-const DEFERRED_TABLES = ['collection', 'collection_item'];
+/**
+ * 仍未建的表。
+ * ⚠️ **B2-7b（v9）之后这里必须为空**：B2 系列的表格到 `collection_item` 为止**全部落地**
+ *    （tag/asset_tag 在 v8、collection/collection_item 在 v9）⇒ 再往这里加名字就等于声称
+ *    "还有表没建"，那将是**新批次**的事，必须显式说明。G9 会把"它不是空的"直接变红。
+ */
+const DEFERRED_TABLES = [];
 
 let seq = 0;
 function freshDir(label) {
@@ -313,9 +321,10 @@ test('G1 ⭐ 每张建出的表都在四组里被点名，且只被点名一次'
     'DDL 落点与层分类必须一致（库级）',
   );
   assert.deepEqual(appLayerTables(), [...APP_TABLES].sort(), 'DDL 落点与层分类必须一致（应用级）');
-  // ⚠️ 清单**必须逐张列出来**（它是第二批的输入），但**长度不再断言**（ACC-1 的教训）——
-  //    改为钉两条真判据：清单不能为空 · 清单与已建表**互斥**（建出的表还留在清单里 = 清单该更新了）。
-  assert.ok(DEFERRED_TABLES.length > 0, '仍未建的清单不能为空（否则这条检查变成恒真）');
+  // ⚠️ B2-7b（v9）之后：暂缓清单**已经清空**（B2 系列表格全部落地）⇒ 旧的
+  //    "清单不能为空（否则恒真）"在这里**方向反了**，换成里程碑断言：**必须为空**。
+  //    能红的方式见 G9：谁再往清单里加名字（= 声称还有表没建），G9 立刻失败。
+  assert.deepEqual(DEFERRED_TABLES, [], '暂缓清单必须为空（B2 系列表格已全部落地）');
   assert.deepEqual(
     DEFERRED_TABLES.filter((t) => grouped.includes(t)),
     [],
@@ -451,6 +460,24 @@ test('G6 ⭐ 修正 #3：UNIQUE(lib_id, rel_path) 落在**真实列**上（asset
   } finally {
     lib.db.close();
   }
+});
+
+// ============================================================ G9 暂缓清单清空（B2 系列收尾）
+
+test('G9 ⭐ B2 系列表格**到此全部落地** ⇒ 暂缓清单必须为空（这条断言本身能红）', () => {
+  // ⚠️ 这不是"数当前张数"（ACC-1 明令禁止的那类断言），而是**里程碑**：
+  //   B2 系列的表格到 collection_item 为止全部建出（job → health → export → user_meta →
+  //   search-history → activity/app_setting/recent_query → tag/asset_tag → collection/collection_item）
+  //   ⇒ **没有任何一张表还处于"暂缓/未建"状态**。
+  // 为什么它"能红"：任何人再往 DEFERRED_TABLES 里加一个名字（= 声称还有表没建），这里立刻失败，
+  //   逼他显式说明"这是**新批次**的表"，而不是悄悄把它塞进暂缓清单里蒙混过去。
+  assert.deepEqual(DEFERRED_TABLES, [], 'B2 系列表格已全部落地 ⇒ 暂缓清单必须为空');
+  // 另一面：这些表**确实**都建出来了（清单为空不是"什么都没建"的另一种说法）
+  for (const t of [...LIBRARY_TABLES]) {
+    assert.equal(DEFERRED_TABLES.includes(t), false, t + ' 已建出，不许出现在暂缓清单里');
+  }
+  // 暂缓清单为空 + 应有清单非空 ⇒ "空"只表示"没有遗留"，不表示"没建东西"
+  assert.ok(LIBRARY_TABLES.length > 0, '库级业务表清单不能为空（否则上一条会变成恒真）');
 });
 
 // ============================================================ G7 列集以设计基线 §1 为准

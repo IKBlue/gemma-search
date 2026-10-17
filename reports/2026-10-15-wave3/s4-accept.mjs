@@ -77,6 +77,8 @@ const SECOND_BATCH_BUILT = [
   'activity',
   'tag',
   'asset_tag',
+  'collection',
+  'collection_item',
 ];
 let seq = 0;
 
@@ -182,6 +184,8 @@ runTestFile(path.join(ROOT, 'apps/desktop/tests/app-setting.test.mjs'), 'S4-U8')
 runTestFile(path.join(ROOT, 'apps/desktop/tests/activity.test.mjs'), 'S4-U9');
 // B2-7a：`tag` + `asset_tag` 的字段保真 + **多对多语义**（复合主键 · 两侧 CASCADE · 与 1:1 的对照）。
 runTestFile(path.join(ROOT, 'apps/desktop/tests/tag.test.mjs'), 'S4-U10');
+// B2-7b：`collection` + `collection_item` 的字段保真 + **有序分组**语义（顺序稳定 · 两侧 CASCADE · 与标签的边界）。
+runTestFile(path.join(ROOT, 'apps/desktop/tests/collection.test.mjs'), 'S4-U11');
 console.log('');
 
 // ================================================================ B. 验收级判据
@@ -216,10 +220,12 @@ check('S4-A14', 'DDL 建出的表 == 四层点名（双向），**张数从真�
       }
     }
 
-    // 仍未建的表：这份**清单**是第二/第三批的输入，但它的**长度不再断言**（随功能上线而变）。
-    //   改钉两条真判据：① 清单里的表一张都不许被建出来；② 已建出的表不许出现在清单里。
-    const NOT_BUILT = ['collection', 'collection_item'];
-    assert(NOT_BUILT.length > 0, '未建清单不能为空（否则这条检查变成恒真）');
+    // ⚠️ B2-7b：B2 系列的表格**到此全部落地** ⇒ 暂缓清单**必须为空**。
+    //   旧写法是 assert(NOT_BUILT.length > 0, '未建清单不能为空（否则这条检查变成恒真）') ——
+    //   那条在"清空"之后会**恒假**，而且方向错了：现在要钉的正是"没有一张表还处于暂缓状态"。
+    //   所以改成**相反方向的里程碑断言**：谁再往清单里加名字（= 声称还有表没建），这里立刻红。
+    const NOT_BUILT = [];
+    eq(NOT_BUILT.length, 0, '暂缓清单必须为空：B2 系列表格（tag/asset_tag/collection/collection_item）已全部落地');
     eq(NOT_BUILT.filter((n) => grouped.includes(n)), [], '被标为「未建」的表却已经建出来了 ⇒ 清单必须同步');
     // ⚠️ ACC-1 的教训：**不再逐个写死**（原来这里点名 `job`，B2-2 一来就得改）。
     //    改成从**同一份** SECOND_BATCH_BUILT 派生：已建的第二批表必须①被四层点名 ②不在「未建」清单里。

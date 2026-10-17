@@ -1,0 +1,128 @@
+================================================================================
+B2-7b 证据 · `collection` + `collection_item`（意图层 · **有序分组**）+ **暂缓清单清空**
+任务板 id: task-114   执行: db-worker   日期: 2026-10-17
+边界：`main/db/migrations.ts` · `main/db/schema-layers.ts` · `db-schema.test.mjs` · 测试 · 证据
+      **未加契约方法** · **未改界面**
+===============================================================================
+
+【结论】
+· 两张表落地（`collection` 5 字段 · `collection_item` 3 字段 + 复合主键 + `idx_collection_item_uid`）+ **库级链 v9**。
+· ⭐ **层级先核对了基线**：`SPEC.md:172`「库级·**意图**」+ 设计基线 `README.md:33`「**意图层（必须留）**」两处一致
+  ⇒ **库级 `.gs.db` + 意图层**（无冲突，不需要 §0 裁决）。
+· ⚠️ **一处如实更正（卡面措辞 vs 基线）**：卡面写"标签 N:M 无序、集合 **1:N** 有序"；但基线 `collection_item` 的
+  主键是 **`(collection_id, uid)` 复合主键**（§240）⇒ **在基数上集合仍是 N:M**（同一条素材能进多个集合，C3 已钉住）。
+  **真正的差别是顺序语义**：标签**无序**、集合**有位置**（`added_at_ms` 是基线明写的"默认排序键"），
+  而且位置是**每个集合各自**的 ⇒ 这才是这里该证的"边界"（§4）。
+· ⭐ **暂缓清单已清空**（B2 系列表格到此全部落地）并把"**为空**"做成**能红**的断言（G9 + G1 + s4 三处，§7）。
+· **能红四组**（§8）：① 去点名 ⇒ C6 红 + s4 `A14`/`U1`/`U11` 三条独立红 · ②a 删排序键列 ⇒ C1+C3 红 ·
+  **②b 去掉 CASCADE ⇒ C4 红（`FOREIGN KEY constraint failed`）** · ③ 给 `name` 加 UNIQUE ⇒ C2 红
+  （"好心"的约束会禁掉同名集合）· ④ 暂缓清单塞回一个名字 ⇒ G1+G9+s4 红（= 卡面要求的"为空也要能红"）。
+· 门禁（本轮实测）：受影响面 **184/184** · **s4 21/0/0**（含新增 S4-U11）· `prettier --check .` **0** · `tsc` node/web **0** · `lint` **0**。
+
+【1. ⭐ 层级核对（两处一致，无冲突）】
+| 证据 | 说法 | 采用 |
+|---|---|---|
+| `SPEC.md:172` | 「库级·**意图**：… · **collection** · **collection_item** · `asset_export`」 | ✅ |
+| 设计基线 `README.md:33` | 「**意图层（必须留）**：… · collection · collection_item · …」 | ✅ |
+⇒ 落 `.gs.db` + `tablesInLayer('intent')`。**没有需要裁决的分歧**（如实记，与 activity/recent_query 不同）。
+
+【2. 字段与"为什么"（照抄设计基线 §222 + §234-241 的「附加」）】
+| 表 | 字段 | 类型/约束 | 为什么（照抄基线） |
+|---|---|---|---|
+| `collection` | `collection_id` | TEXT **PK** | nanoid |
+| | `name` | TEXT NOT NULL（**不 UNIQUE**） | 基线原话：「**不加 UNIQUE** —— 同名集合合理（去年与今年的提案可以同名）」 |
+| | `note` | TEXT **NULL** | 集合级备注（可空） |
+| | `created_at_ms` / `updated_at_ms` | INTEGER NOT NULL | 创建 / 修改时刻 |
+| `collection_item` | `collection_id` | TEXT NOT NULL FK collection **PK(1/2) CASCADE** | 集合 |
+| | `uid` | TEXT NOT NULL FK asset.uid **PK(2/2) CASCADE** | 条目 |
+| | `added_at_ms` | INTEGER NOT NULL | 加入时刻，**也是默认排序键** |
+· §240「`PRIMARY KEY (collection_id, uid)`」= 「集合里有哪些」+ **防重复加入**；§241「`idx_collection_item_uid (uid)`」=
+  「这条被哪些集合收了」——**详情页要显示**。两条都已落地并被 C1/C8 机械钉住。
+· ⚠️ `name` **不 UNIQUE** 是**反向**证明的（C2）：两个**同名**集合必须都能建出来 —— 谁"好心"加 UNIQUE，C2 会在
+  `UNIQUE constraint failed: collection.name` 上红（§8 的注入③正是如此）。
+· ⚠️ 两列**显式 NOT NULL**：SQLite 的 rowid 表里复合主键列默认允许 NULL ⇒ 不留神能插进 `(NULL, uid)` 的"无主成员"，
+  还能重复插（NULL 互不相等）。C5 用 `PRAGMA table_info` 钉住。
+
+【3. 顺序语义怎么落地（基线**没有** `sort_order` 列 —— 不造字段）】
+· 顺序 = `added_at_ms` **升序**（基线：它是默认排序键）+ **`uid` 平局裁决**。
+· ⚠️ 为什么必须有平局裁决：只按 `added_at_ms` 排序时，两条**同一毫秒**加入的条目顺序由 SQLite 的返回顺序决定
+  （不保证稳定）⇒ 用户会看到"集合里的顺序自己变了"。加 `uid` 之后是**确定性**的。
+· C3 机械证明三件事：① 顺序 = `added_at_ms` 升序；② **重复查询结果一致**（稳定）；③ **同一毫秒**的两条由 `uid` 定序且两次一致。
+
+【4. ⚠️ 与标签的边界（**基数相同、顺序不同** —— 诚实的版本）】
+| | `asset_tag`（B2-7a） | `collection_item`（本卡） |
+|---|---|---|
+| 主键 | `(uid, tag_id)` | `(collection_id, uid)` |
+| 基数 | **N:M**（同条可挂多标签） | **N:M**（同条可进多集合 —— C3① 钉住了；卡面写的"1:N"在**基线**里其实不成立） |
+| 顺序 | **无序**（顺序没有意义） | **有位置**：`added_at_ms`（+ uid 平局）是集合内容的一部分 |
+| 位置的归属 | —— | **每个集合各自**：同一条素材在集合 A 第 3 位、在集合 B 第 1 位，互不影响（C3⑤） |
+⇒ 结论：**别用"一个 N:M、一个 1:N"糊过去**；真正的差别是**顺序语义**与"位置的归属"。这也是 §0「不许把两处各写一半」的一种：
+  卡面的措辞与基线字段表不一致时，**以基线/SPEC 为准**，并把这个差别写进注释（`T_COLLECTION`）与测试（C3）。
+
+【5. 删除语义（逐条给理由 · C4）】
+| 删谁 | item 行怎么办 | 理由 |
+|---|---|---|
+| 删**集合** | **CASCADE**（只有它的成员走，别的集合不受影响） | item 只是"哪条在哪个集合里的第几位"；集合没了，这个位置没有指代对象 |
+| 删**素材** | **CASCADE**（它在**所有**集合里的 item 都走） | 素材没了，成员资格没有意义 |
+| 为什么不用 SET NULL | —— | `(collection_id, uid)` 是复合主键、两列 NOT NULL ⇒ SET NULL 会写成非法值（被约束拒）；`(NULL, uid)` 这种"悬空成员"本身没有语义 |
+· C4 用"**没有 NULL 残留**"排除 SET NULL（不只断言"是 CASCADE"）；并反证非法引用被 `FOREIGN KEY constraint failed` 拒。
+· ⚠️ **代价如实写**：删素材会**连带**丢失它在各集合里的位置（顺序信息）。这是基线指定的 CASCADE 语义；
+  要保住"曾经的位置"需要软删除/审计表 —— 后续卡的事，本卡不加（已写进 `T_COLLECTION` 注释）。
+
+【6. 四件套与连带（改前 → 改后 → 为何非放宽）】
+| # | 位置 | 改前 | 改后 | 为什么不是放宽 |
+|---|---|---|---|---|
+| 1 | `migrations.ts` | v1–v8 | **v9 `batch2-collections`** | 加表 = 加新迁移；**不回头改 v1–v8** |
+| 2 | 派生 | —— | 两张自动进 `LIBRARY_TABLES`/`EXPECTED_TABLES`（**不写数量**） | 派生即真 |
+| 3 | `schema-layers.ts` | 意图层 4 张 | 意图层 += `collection` · `collection_item` | 按两处一致证据；G1 强制全覆盖 |
+| 4 | `db-schema.test.mjs` | `KEPT_LIBRARY` 12 名 · `DEFERRED` 仍列 `collection`/仅剩两项 | 加两名字；**`DEFERRED_TABLES = []`** + **G9 里程碑断言** | 清单跟事实走；"为空"本身成了**能红**的断言 |
+| 5 | `s4-accept.mjs` | 白名单 12 · `NOT_BUILT = ['collection','collection_item']` + "不能为空" | 白名单 += 两张；`NOT_BUILT = []`；把"不能为空"翻成"**必须为空**"；**新增 S4-U11** | 旧断言清空后会**恒假**、且方向反了 ⇒ 改成里程碑断言（能红） |
+| 6 | 测试 | —— | **新增 `collection.test.mjs` C1–C8** | 纯新增，把有序/删除/边界钉住 |
+
+【7. ⭐ 暂缓清单清空（B2 系列表格收尾）—— "为空"也做成能红】
+· `db-schema.test.mjs`：`DEFERRED_TABLES = []`；**新增 G9**（`assert.deepEqual(DEFERRED_TABLES, [], …)`
+  + 断言"清单为空不表示没建东西"：`LIBRARY_TABLES.length > 0`）；G1 里旧的"清单不能为空（否则恒真）"**翻成**
+  "暂缓清单必须为空"（旧断言在清空后恒假，且方向反了）。
+· `s4-accept.mjs`：同一条翻成 `eq(NOT_BUILT.length, 0, '暂缓清单必须为空…')`。
+· **能红**（§8 注入④）：往清单里塞回一个名字（= 声称还有表没建）⇒ `G1` + `G9` 红（`actual: ['collection'], expected: []`）
+  + s4 `U1`/`A14` 红。⇒ 这不是"数当前张数"，而是**里程碑**：谁要引入新批次的暂缓表，必须显式改这里并说明。
+
+【8. ⭐ 能红（四组 · 注入 ⇒ 必红 ⇒ 还原 ⇒ 复绿）】
+① **意图层去点名**：`✖ C6 … collection 落在库级 .gs.db  actual: false`；
+   s4 同轮 `FAIL S4-U1` + `FAIL S4-U11` + `FAIL S4-A14` ⇒ `PASS 18 · FAIL 3` ⇒ **三条守卫独立抓到**。
+②a **删掉 `added_at_ms`**（"有序"的承重列）：`✖ C1 collection_item 的列与设计基线逐字对上
+  actual: ['collection_id','uid']  expected: ['added_at_ms','collection_id','uid']` + `✖ C3` ⇒ 顺序语义直接塌。
+②b **去掉 `collection_id` 的 CASCADE**：`✖ C4 … Error: FOREIGN KEY constraint failed`（删集合被外键拦下）
+  ⇒ **CASCADE 是承重的**。
+③ **给 `name` 加 UNIQUE**（"好心"的约束）：`✖ C2 … Error: UNIQUE constraint failed: collection.name`
+  ⇒ 同名集合被禁 ⇒ **证明基线"不 UNIQUE"这条不是随便写的**。
+④ **暂缓清单塞回一个名字**：`✖ G1 … 暂缓清单必须为空（actual: ['collection'], expected: []）` + `✖ G9` + s4 `U1`/`A14` 红。
+⇒ 四组还原后：`collection 8/8` · `db-schema 13/13` · 受影响面 **184/184** · `s4 21/0/0`。
+
+【9. 0 残留 grep（先跑后结论）】
+$ `collection` / `collection_item` 在 `main/` 的落点：`db/migrations.ts`（`T_COLLECTION`/`T_COLLECTION_ITEM` DDL + 注释 + v9 入链）·
+  `db/schema-layers.ts`（意图层点名 + 注释）⇒ **没有第二份 DDL**；四支注入的 `MUTANT` 标记**全部还原**（G9/G1 也回到空清单）。
+$ 派生正证：`LIBRARY_TABLES` 含两张 · `EXPECTED_TABLES` 含 · `tablesInLayer('intent')` 含 · `appLayerTables()` 不含 ·
+  `LIBRARY_MIGRATIONS[8].name === 'batch2-collections'` · `DEFERRED_TABLES === []`。
+
+【10. 门禁（本轮实测 · 最终字节）】
+$ node --test <受影响面 20 个文件> ⇒ **184/184 · fail 0**
+$ node reports/2026-10-15-wave3/s4-accept.mjs ⇒ **PASS 21 · FAIL 0 · SKIP 0**（含新增 S4-U11）
+$ npx prettier --write <本卡改动文件> ⇒ 0 → `npx prettier --check .` ⇒ **0（All matched files use Prettier code style!）**
+$ npx tsc --noEmit -p tsconfig.node.json … ⇒ **0** ｜ tsconfig.web.json … ⇒ **0** ｜ `npm run lint` ⇒ **0**
+（全量 `npm test` 与冻结门禁由 Lead 跑 —— 纪律 6；收到「冻结开始」我会**先回执再停笔**。）
+
+【11. 未做 / 边界（如实写 · P6）】
+· **只落地表**：`collection`/`collection_item` **没有 API**（没有建集合/加入/调整顺序/读集合的函数）⇒ **界面看不到集合**。
+· 因此 `db-schema.test.mjs` 只加**关系断言**（清单/层），有序与删除语义由 `collection.test.mjs` 覆盖；
+  **集合 API 落地那张卡**应同步把 `collection_item` 的写入口钉进 D4 口径（与 `asset_tag` 同理）。
+· **没有"调整顺序"的实现**：顺序目前**只能由加入时刻决定**；若要"手动拖动排序"，需要在基线之外**新增字段**
+  （如 `sort_order`）——那是**改需求**（要动 SPEC），本卡不擅自加。
+· 没做真实"建集合 → 加入 → 按序展示"的端到端（本卡不含写入路径与界面）。
+
+【12. 回滚】
+· `migrations.ts`：删 `T_COLLECTION`/`T_COLLECTION_ITEM`/`LIBRARY_V9` 与清单里 v9 条目；`schema-layers.ts`：意图层去掉两名字；
+· `db-schema.test.mjs`：`KEPT_LIBRARY` 去掉两名字、`DEFERRED_TABLES` 恢复两项、G1/G9 的"必须为空"回到"不能为空"；
+· `s4-accept.mjs`：白名单/未建清单改回、删 S4-U11；删 `collection.test.mjs`。
+· 未跑 git（AGENTS P7）。临时物：`data/_b27b/**`（测试自清）· `data/_b27b_out.txt` · `data/_verify/*.tsbuildinfo`。
+===============================================================================

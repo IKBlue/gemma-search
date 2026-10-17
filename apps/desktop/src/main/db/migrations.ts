@@ -539,6 +539,75 @@ CREATE TABLE IF NOT EXISTS asset_tag (
  */
 const LIBRARY_V8: readonly string[] = Object.freeze([...T_TAG, ...T_ASSET_TAG]);
 
+/**
+ * **意图层** `collection` + `collection_item`（B2-7b · 集合 = **有序分组**）。
+ * 字段照抄设计基线 `reports/2026-10-15-schema-diff/SPEC-COMPACT.md` §222「collection / collection_item
+ * [本轮] · 字段 7」（含 §234-241 的三段「附加」：PK 与 `idx_collection_item_uid` 也一并照抄）。
+ *
+ * ── 层归属：**先核对了基线**（两处一致，无冲突）─────────────────────────────────
+ *   · `SPEC.md:172`「库级·**意图**：asset_user_meta · tag · asset_tag · **collection** · **collection_item** · asset_export」
+ *   · 设计基线 `README.md:33`「**意图层（必须留）**：… · collection · collection_item · …」
+ *   ⇒ 库级 `.gs.db` + **意图层**（用户自己做的组织，重建元数据绝不能抹掉）。
+ *
+ * ── ⚠️ 与 `tag`/`asset_tag` 的边界（**别用"基数"一句话糊过去**）────────────────────────
+ *   两者在**关系基数上其实一样**：`asset_tag` 的 PK 是 `(uid, tag_id)`、`collection_item` 的 PK 是
+ *   `(collection_id, uid)` ⇒ **同一条素材既能挂多个标签，也能进多个集合**（测试 C3 会把这条也钉住）。
+ *   真正的差别是**顺序语义**：
+ *     · 标签 = **无序集合**（"这条素材有哪些标签"—— 顺序没有意义，也不该有意义）；
+ *     · 集合 = **有序分组**（基线原话：`added_at_ms` **也是默认排序键**）⇒ 成员在集合里**有一个位置**，
+ *       这个位置**是内容的一部分**（"把这几条按这个顺序排进这个提案"就是用户要表达的东西）。
+ *   ⇒ DDL 上不额外造 `sort_order` 列（基线没有；造了就是**自造字段**）；顺序 = **`added_at_ms` 升序**，
+ *     并用 `uid` 做**平局裁决** ⇒ 相同时刻的条目顺序也不是随机的（`ORDER BY added_at_ms, uid`）。
+ *     ⚠️ 为什么平局裁决必须写进注释：只按 `added_at_ms` 排序时，两条**同一毫秒**加入的条目顺序由 SQLite
+ *        的返回顺序决定（不保证稳定）⇒ 用户会看到"集合里的顺序自己变了"。加 `uid` 之后是**确定性**的。
+ *
+ * ── 删除语义（逐条给理由）─────────────────────────────────────────────────────
+ *   · 删**集合** ⇒ 它的 item 行 **CASCADE**：item 只是"哪条在哪个集合里的第几位"，集合没了，这个位置就没有指代对象。
+ *   · 删**素材** ⇒ 它在**所有**集合里的 item 行 **CASCADE**：同理，素材没了，成员资格没有意义。
+ *   · **不用 SET NULL**：`(collection_id, uid)` 是复合主键、两列 NOT NULL ⇒ SET NULL 会写成非法值（会被约束拒），
+ *     而且 `(NULL, uid)` / `(collection_id, NULL)` 这种"悬空成员"本身没有语义。
+ *   · ⚠️ 代价如实写：删素材会**连带**丢失它在各集合里的位置（顺序信息）—— 这是基线指定的 CASCADE 语义；
+ *     要保住"曾经的位置"需要软删除/审计表，那是后续卡的事（本卡不加）。
+ */
+const T_COLLECTION: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS collection (
+  collection_id   TEXT    PRIMARY KEY NOT NULL,
+  name            TEXT    NOT NULL,
+  note            TEXT,
+  created_at_ms   INTEGER NOT NULL,
+  updated_at_ms   INTEGER NOT NULL
+);`,
+  // ⚠️ `name` **不加 UNIQUE**（基线原话）：「同名集合合理（去年与今年的提案可以同名）」。
+  //    测试 C2 会**从反面**钉住这条：两个同名集合必须都能建出来 —— 谁给 name 加了 UNIQUE，C2 会红。
+  // ⚠️ 本表不加额外索引：单用户、集合是**小表**（几十个），按名筛走小表扫描即可。
+];
+
+const T_COLLECTION_ITEM: readonly string[] = [
+  `
+CREATE TABLE IF NOT EXISTS collection_item (
+  collection_id TEXT    NOT NULL REFERENCES collection (collection_id) ON DELETE CASCADE,
+  uid           TEXT    NOT NULL REFERENCES asset (uid) ON DELETE CASCADE,
+  added_at_ms   INTEGER NOT NULL,
+  PRIMARY KEY (collection_id, uid)
+);`,
+  // ⚠️ 复合主键 `(collection_id, uid)` = 「集合里有哪些」+ **防重复加入**（同一条不许在一个集合里占两行）。
+  // ⚠️ 两列**显式 NOT NULL**：SQLite 的 rowid 表里复合主键列默认允许 NULL，不留神就能插进 `(NULL, uid)`
+  //    这种"不属于任何集合"的成员、还能重复插（NULL 互不相等）。
+  // ⚠️ 顺序：没有 `sort_order` 列（基线没有）；顺序 = `added_at_ms` 升序 + `uid` 平局裁决（见上面 T_COLLECTION 的说明）。
+  //
+  // `idx_collection_item_uid`：基线 §241 **点名要**它 —— 「这条被哪些集合收了」，**详情页要显示**。
+  //   复合主键的索引前缀是 `collection_id` ⇒ "集合里有哪些"走得通，但"这条素材在哪些集合里"走不到前缀 ⇒ 需要单独一条。
+  'CREATE INDEX IF NOT EXISTS idx_collection_item_uid ON collection_item (uid);',
+];
+
+/**
+ * v9：**意图层** 的集合（B2-7b：`collection` · `collection_item`）。
+ * 同一条规矩：**加表 = 加一条新迁移**，不回头改 v1–v8；本条 DDL 全部 `IF NOT EXISTS` ⇒ 可重复执行。
+ * ⚠️ 这是 B2 系列表格的**最后一张卡**（`tag`/`asset_tag` 已在 v8）⇒ 之后 `DEFERRED` 清单应为空（见 db-schema 测试）。
+ */
+const LIBRARY_V9: readonly string[] = Object.freeze([...T_COLLECTION, ...T_COLLECTION_ITEM]);
+
 const LIBRARY_V7: readonly string[] = Object.freeze([
   // 幂等：`IF EXISTS` ⇒ 全新库（跑完 v6 建出来、紧接着被 v7 删掉）与老库都能重复跑
   'DROP TABLE IF EXISTS recent_query;',
@@ -559,6 +628,8 @@ export const LIBRARY_MIGRATIONS: readonly Migration[] = Object.freeze([
   }),
   // B2-7a：意图层的标签（tag + asset_tag；多对多，删除语义见 T_ASSET_TAG 的说明）
   Object.freeze({ version: 8, name: 'batch2-tags', statements: LIBRARY_V8 }),
+  // B2-7b：意图层的集合（collection + collection_item；**有序**分组，B2 系列最后一张表）
+  Object.freeze({ version: 9, name: 'batch2-collections', statements: LIBRARY_V9 }),
 ]);
 
 /** 本程序知道的**库级**最高版本（从清单派生，不另写数字） */
