@@ -218,6 +218,13 @@ test('D4 ⭐⭐ 唯一写入口（静态）：应用级 3 张表只被 app-db.ts
   assert.deepEqual(writersOf('collect_dir'), ['app-db.ts'], 'collect_dir 的写入口只能有 app-db.ts');
   // B2-6：设置的写入也收敛在 app-db.ts（§2.3 每张表一个写入口）
   assert.deepEqual(writersOf('app_setting'), ['app-db.ts'], 'app_setting 的写入口只能有 app-db.ts');
+  // WIRE-B：`activity` 之前只有表没有写入口（B2-8 如实写过）⇒ 现在**真正接上**了，
+  //   于是这里也把它纳入「写入只许一处」：只有 app-db.ts 能写它。
+  assert.deepEqual(
+    writersOf('activity'),
+    ['app-db.ts'],
+    'activity 的写入口只能有 app-db.ts（§2.3）',
+  );
   // app_meta 的写入口**只有迁移**（§2.3）—— 迁移账本的读写就在 app-migrations.ts 里，
   // 它是"迁移"这一件事的实现，不算第二个业务写入口（业务侧一律只读：readAppMeta）。
   assert.deepEqual(

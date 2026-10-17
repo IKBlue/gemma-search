@@ -1,0 +1,129 @@
+================================================================================
+WIRE-B 证据 · `activity` + `asset_export` **真正接上写入**（取件路径 · 一次批量 = 1 行 + N 行）
+任务板 id: task-112   执行: db-worker   日期: 2026-10-17
+边界：`main/app-db.ts`（应用级写入口）· `main/db/exports.ts`（**新**：库级写入口）·
+      `main/collect-ledger.ts`（**新**：唯一的 1:N 编排）· `main/index.ts`（collect 钩子）· 测试 · 证据
+      **未碰** `main/library-config.ts`（WIRE-A 的地盘）· **未碰** `main/db/migrations.ts`（表已定）
+===============================================================================
+
+【结论】
+· 取件路径**真的开始写库了**：一次批量 ⇒ `activity` **1 行** + `asset_export` **N 行**，共用**同一个 batch id**
+  （= 引擎 collect 返回的 `jobId`）—— B2-8 机械证明过的 1:N 关系，现在由**真实写入路径**的编排函数落实（跨两个库文件）。
+· ⭐ **写入入口各一处（P1 · §2.3）**：`activity` 只由 `app-db.ts` 写（已纳入 **D4**）；`asset_export` 只由
+  **新模块 `db/exports.ts`** 写；"同时写这两张表"的编排**只有一处**（`collect-ledger.ts`，只被 index.ts 的
+  collect 钩子调用 —— L4 静态钉住，且**收紧到对象字面量调用**，注释里提到函数名不算数，见 P8）。
+· ⭐⭐ **失败不静默**：库/应用库打不开、activity 写失败、明细写失败 ⇒ **永不抛**、如实写日志、返回 `warning`
+  挂到信封 warnings 上；**绝不把"记历史失败"说成取件失败**（文件已复制的事实由引擎裁决）。
+· ⭐ **补偿**：activity 写失败 ⇒ 撤回**本次生成的** export 明细（按本次 `export_id`，不是按 batch —— 见 §7 的真缺陷）。
+· 门禁（本轮实测）：受影响面 **201/201** · **s4 21/0/0** · **关键 e2e 8 passed**（含 M0 真窗口取件）·
+  `prettier --check .` **0** · `tsc` node/web **0** · `lint` **0**。
+
+【1. 架构：三个文件、两个库、两份账本（为什么不能塞进一个函数的一次事务）】
+```
+引擎 collect（packages/engine/src/engine.ts 的 doCollect）
+   └─ 复制文件（真正的"已交付"事实；返回 jobId + succeeded/skipped/failed）
+        ↓  (只在真实模式；见 §8)
+index.ts 的 collect 钩子  ──调用──▶  collect-ledger.ts::recordCollectBatch   ← **唯一的 1:N 编排**
+                                        ├─ 库级 .gs.db   ▶  db/exports.ts::insertExportRows   （N 行，单事务）
+                                        └─ 应用级 app.db  ▶  app-db.ts::insertActivity          （1 行）
+```
+· 为什么**不**写成一个事务：`asset_export` 与 `activity` **在两个不同的数据库文件里**（库级 `.gs.db` / 应用级
+  `app.db`，schema-layers 的落点裁定）⇒ SQLite 的跨连接事务不存在。这里选择的是**顺序写 + 补偿**（§7），
+  并把"这一次到底写成了什么"如实返回（`written/exportRows/activity/warning`）。
+· 为什么两个写入口而不是一个：§2.3「每张表一个写入口」，且两张表属于**不同层的两套账本**；
+  "1:N 这个事实"由**编排**负责，不是由某张表的写入口负责。
+
+【2. ⭐⭐ 1:N 的机械证明（L1 · 跨两个库文件）】
+一次 collect（batch='j-batch-1'，3 条：copied / skipped / failed）⇒
+· `activity` **恰好 1 行**：`activity_id='j-batch-1'`、kind='collect'、lib_id='L1'、result='failed'（有 failed ⇒ 整批 failed）；
+  `detail_json` 是**结构化**的：`{target_dir, target_dir_name, bytes_total, copied:1, skipped:1, failed:1}`；
+· `asset_export` **恰好 3 行**，**三行的 `batch_id` 都是 'j-batch-1'`（两库之间**没有物理外键**，靠这个 id 关联）；
+· 逐行映射对：`a.zip/copied/null` · `b.zip/skipped/already-exists` · `c.zip/failed/'DISK_FULL: 没空间'`。
+· L1b 把 **result 判定表**也钉住：全 copied ⇒ `ok`；全 skipped ⇒ `skipped`；有 failed ⇒ `failed`。
+
+【3. uid 指向 `asset` 的"最佳努力"（L3）—— 以及为什么这是必要的】
+· 引擎的索引与 `.gs.db` 的 `asset` 是**两份来源**（索引可由 `items.json` 重建，不保证每条 uids 都在 `asset` 里落行）；
+· 外键开着的库上，硬写一个 `asset` 里没有的 uid ⇒ **整批都写不进去**（一条坏 uid 毁掉 N 条历史）；
+· ⇒ 写之前先 `SELECT uid FROM asset WHERE uid IN (…)` 过滤：认识的照写、不认识的落 **NULL**
+  （DDL 本来就允许 NULL，且有 `ON DELETE SET NULL`）——"名字/结果/时刻"照旧留下，历史仍可读，只少一个可点链接。
+· L3 钉住：known ⇒ 真 uid；unknown ⇒ NULL；且整批**仍然 written=true**（不因为一条对不上就整批失败）。
+
+【4. ⭐ 写入入口只有一处（P1）+ D4 已纳入 activity】
+· `app-db.test.mjs` 的 **D4** 新增：`writersOf('activity') === ['app-db.ts']`（B2-8 时"没有写入者 ⇒ 无从断言"，现在接上了）。
+· 新增测试 `collect-ledger.test.mjs` 的 **L4**：
+  - `INSERT INTO activity` ⇒ 只有 `app-db.ts`；
+  - `INSERT INTO asset_export` ⇒ 只有 `db/exports.ts`；
+  - `recordCollectBatch` **定义**只有 `collect-ledger.ts`、**调用**只有 `index.ts`；
+  - ⚠️ 调用扫描**收紧到 `recordCollectBatch({` 这种"对象字面量调用"** ⇒ 注释里提到函数名**不算接线证据**（P8）。
+· `db-schema.test.mjs` 的 **A1**（db 层文件精确清单）也登记了 `exports.ts` —— 新增文件必须显式加进去，
+  否则"扫描面看起来还活着却漏掉新文件"。
+
+【5. ⭐⭐ 失败不静默（L5）· 绝不改判取件成败】
+| 场景 | 结果 |
+|---|---|
+| `userDataDir` 为空（应用数据未就绪） | `written=false` + warning；**不抛** |
+| `.gs.db` 落点没解析出来 | 同上 |
+| `.gs.db` 父路径是文件（打不开） | 同上 |
+| 没有结果行 | 同上 |
+| 没有 batch id | 同上 |
+· 设计口径：**文件是否已复制出去**由引擎按真实文件操作裁决；"记历史失败"只能变成**警告**（信封 `warnings`
+  + 日志），不能把一次成功的取件说成失败 —— 否则用户会重试取件（目标已存在 ⇒ 全部 skipped，更乱）。
+· ⚠️ 用例里踩到一个**正常行为**：`openGsDb` 会**自动建父目录/建库**（这是建库的正常语义，不是缺陷）⇒
+  "打不开"必须用真正打不开的路径（父路径是**文件**）来造，否则会误判成缺陷。
+
+【6. ⭐⭐ 补偿（L6/L7）—— 以及 L7 暴露并修掉的**真缺陷**】
+· L6：先占住一个 batch id（activity 主键）⇒ 让 activity 写失败 ⇒ **这一批 export 明细被撤回**（行数 0），
+  原本那一行 activity 不受影响 ⇒ 不会留下"N 行明细却没有活动记录"的半条历史。
+· ⚠️ **真缺陷（L7 抓到，已修）**：第一版补偿是 `DELETE FROM asset_export WHERE batch_id = ?` ——
+  但同一 batch 可能被**重放**（第一次成功、第二次因 activity 主键冲突失败）⇒ 按 batch 删会把**上一次成功的那批
+  行一起删掉**（实测：重放后明细变成 0 行，期望 1 行）。改为**按本次生成的 `export_id` 删** ⇒ 只撤自己写的。
+  这条已写进 `db/exports.ts` 的注释（把踩过的坑留在代码里，而不是只留在这份证据里）。
+· L7：重放同 batch ⇒ `written=false`（activity 主键挡住）、明细**不翻倍**（1 行）、活动记录 1 行。
+
+【7. 接线点与"模拟模式不造假历史"（§8）】
+· 钩子在 `main/index.ts` 的 IPC 分派尾部：`if (!FAKE_MODE && v.method === 'collect' && res.ok)` ⇒
+  调 `recordCollectLedger(res.data, v.params)`，把返回的 warning 挂到信封（**不改判 res.ok**）。
+· ⚠️ 为什么 `!FAKE_MODE`：桩引擎的 collect 返回 `ok({succeeded: params.uids, …})` —— **没有真实文件、没有 jobId**
+  ⇒ 造出来的是**假历史**（B2 系列的教训：宁可没有，也不要假数据）。真实模式才有"文件已复制"的事实。
+· 映射口径：`assetName` 用**文件名**（失败时退回源相对路径 / uid —— 宁可退化，不要写空串，空串是无信息）。
+
+【8. ⭐ 能红（三组 · 注入 ⇒ 必红 ⇒ 还原 ⇒ 复绿）】
+① **省掉 activity 那一行**（卡面点名要求的能红方向）：
+   `✖ L1 … activity 恰好 1 行（1:N 里的"1"）  actual: 0  expected: 1` + `✖ L1b` + `✖ L6` + `✖ L7`（7 条里 4 条红）。
+② **断开关联**（activity 不再共用 batch id）：
+   `✖ L1 … activity_id 就是这个 batch id  actual: 'j-batch-1-mutant'  expected: 'j-batch-1'`。
+③ **第二处写入口**（往 `main/db/` 塞一个也写 `asset_export` 的文件）：
+   `✖ L4 … asset_export 的写入口只能是 db/exports.ts
+      actual: ['_mutant_exports.ts','exports.ts']  expected: ['exports.ts']`。
+⇒ 三组还原后：`collect-ledger 7/7` · `app-db 8/8` · 受影响面 **201/201** · `s4 21/0/0`；无 `MUTANT` 残留。
+
+【9. 0 残留 grep（先跑后结论）】
+$ `INSERT INTO activity` ⇒ `app-db.ts:531`（唯一）；
+$ `INSERT INTO asset_export` ⇒ `db/exports.ts:47`（唯一；同文件 :4 是**注释**在说"本文件是唯一写入口"）；
+$ `recordCollectBatch` ⇒ `collect-ledger.ts:73`（定义）· `index.ts:48`（import）· `index.ts:335`（唯一调用点）；
+$ `MUTANT` ⇒ 无（三组注入全部还原；注入用的临时文件已删）。
+
+【10. 门禁（本轮实测 · 最终字节）】
+$ node --test <受影响面 23 个文件> ⇒ **201/201 · fail 0**
+$ node reports/2026-10-15-wave3/s4-accept.mjs ⇒ **PASS 21 · FAIL 0 · SKIP 0**
+$ npx playwright test … confirm-dialog.spec.mjs activity.spec.mjs m0-real.spec.mjs ⇒ **8 passed (37.6s)**
+  · 含 `E7-e 确认才执行：collect 恰好一次` · `E7-f 连点两次只发一次` ·
+    **`M0 真窗口端到端：… 取件（确认框）→ 文件真的出现`**（这一条走的是**真实模式** ⇒ 本卡的写入路径在真窗口里也跑过了）
+$ npx prettier --write <本卡改动文件> ⇒ 0 → `npx prettier --check .` ⇒ **0（All matched files use Prettier code style!）**
+$ npx tsc --noEmit -p tsconfig.node.json … ⇒ **0** ｜ tsconfig.web.json … ⇒ **0** ｜ `npm run lint` ⇒ **0**
+（全量 `npm test` 与冻结门禁由 Lead 跑 —— 纪律 6；收到「冻结开始」我会**先回执再停笔**。）
+
+【11. 未做 / 边界（如实写 · P6）】
+· ⚠️ **界面仍然看不到历史**：本卡只把**写入**接通了；历史列表要「契约方法（读 activity/asset_export）+ 界面」，
+  是另一张卡。所以现在取件**会**在库里留下记录，但**用户看不见**（活动页仍是诚实态）。
+· **只有 collect 路径接了**：`deliver`（交付）目前在契约里没有独立动作（`collect` 是唯一的取件入口），
+  所以 `asset_export.kind='deliver'` 暂时没有生产者；将来有交付动作时，**复用同一个编排函数**（它的入参已经带 kind 的位置）。
+· **模拟模式不写历史**（见 §7 的理由）⇒ e2e 的 fake-mode 用例里库里不会多出记录（那也是对的）。
+· 没有做"历史列表"的读接口，也没有做 `activity` 的清理/保留策略（表会一直增长；保留策略是后续卡的事）。
+
+【12. 回滚】
+· 删 `main/collect-ledger.ts`、`main/db/exports.ts`；`main/app-db.ts` 删 `insertActivity` 与三个类型；
+· `main/index.ts` 删 import、`recordCollectLedger` 辅助函数、collect 钩子（回到 `const res = await fn(v.params)`）；
+· `tests/collect-ledger.test.mjs` 删除；`app-db.test.mjs` 的 D4 去掉 activity 那行；`db-schema.test.mjs` 的 A1 清单去掉 exports.ts。
+· 未跑 git（AGENTS P7）。临时物：`data/_wireb/**`（测试自清）· `data/_wireb_out.txt` · `data/_wireb_e2e.txt` · `data/_verify/*.tsbuildinfo`。
+===============================================================================

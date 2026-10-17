@@ -29,7 +29,7 @@ import { ROOT, log } from './log.ts'; // ← 必须最先导入：导入即初�
 import { createEngine, UNIMPLEMENTED_METHODS } from '../../../../packages/engine/src/engine.ts';
 import { CH_INVOKE, CH_EVENT, validateCall, METHOD_NAMES } from '../shared/ipc.ts';
 import type { Envelope, MethodName, Req } from '../shared/ipc.ts';
-import { resolveLibraries, registryPath } from './library-config.ts';
+import { resolveLibraries, resolveUserSetting, registryPath } from './library-config.ts';
 import type { MainConfig, ResolveLibrariesResult } from './library-config.ts';
 import {
   resolveStorageRoots,
@@ -45,6 +45,8 @@ import type { BoundsDecision } from './window-state.ts';
 import { createRevealPort } from './ports.ts';
 import { createLibraryResolverPort, createStoragePorts } from './storage-ports.ts';
 import { runLibraryHealth, runLibraryRebuild } from './library-ipc.ts';
+import { recordCollectBatch } from './collect-ledger.ts';
+import type { CollectOutcomeRow } from './collect-ledger.ts';
 import { classifyRootSync, probeRoots } from './library-availability.ts';
 import { createDialogPathGate } from './dialog-paths.ts';
 import { applyAvailability, buildLibraryRows, unavailableLibraries } from './library-view.ts';
@@ -247,6 +249,102 @@ const DATA_DIR: string = config.data_dir || path.join(ROOT, 'data');
 // 也不会"只是启动了一下"就往用户目录写东西（写注册表只发生在 libraryAdd 被调用时）。
 let USER_DATA_DIR: string | null = null;
 let RESOLVED: ResolveLibrariesResult | null = null;
+
+/**
+ * WIRE-B：把一次 collect 的引擎结果**映射成留痕行**并写库（唯一调用点）。
+ * @returns 非空 = 要挂到信封 warnings 上的警告（**不是**取件失败）
+ *
+ * ⚠️ 映射口径（三条数组 ⇒ 每一条请求的 uid 恰好落一行，N ≤ 200）：
+ *   · `succeeded` ⇒ result='copied'，assetName = 目标文件名；
+ *   · `skipped`   ⇒ result='skipped'（目标已存在，**不覆盖**），reason 原样；
+ *   · `failed`    ⇒ result='failed'，reason = "码: 文案"（错误码要在历史里看得到）。
+ * ⚠️ `assetName` 用**文件名**而不是库内相对路径：导出历史是给人看的"哪一件出去了"，
+ *   失败时没有目标文件就退回源相对路径 / uid —— 宁可退化，也不要写空字符串（那是无信息）。
+ */
+function recordCollectLedger(data: unknown, params: unknown): string | null {
+  const d = (data && typeof data === 'object' ? data : {}) as {
+    jobId?: unknown;
+    targetDir?: unknown;
+    targetDirName?: unknown;
+    bytesTotal?: unknown;
+    succeeded?: unknown;
+    skipped?: unknown;
+    failed?: unknown;
+  };
+  const p = (params && typeof params === 'object' ? params : {}) as { libId?: unknown };
+  const libId = String(p.libId ?? '');
+  const rows: CollectOutcomeRow[] = [];
+  const baseName = (s: unknown): string => {
+    const t = String(s ?? '');
+    if (!t) return '';
+    const i = Math.max(t.lastIndexOf('/'), t.lastIndexOf('\\'));
+    return i >= 0 ? t.slice(i + 1) : t;
+  };
+  for (const raw of Array.isArray(d.succeeded) ? d.succeeded : []) {
+    const r = (raw ?? {}) as { uid?: unknown; path?: unknown };
+    const uid = String(r.uid ?? '');
+    if (!uid) continue;
+    rows.push({ uid, assetName: baseName(r.path) || uid, result: 'copied', reason: null });
+  }
+  for (const raw of Array.isArray(d.skipped) ? d.skipped : []) {
+    const r = (raw ?? {}) as { uid?: unknown; path?: unknown; reason?: unknown };
+    const uid = String(r.uid ?? '');
+    if (!uid) continue;
+    rows.push({
+      uid,
+      assetName: baseName(r.path) || uid,
+      result: 'skipped',
+      reason: r.reason === undefined || r.reason === null ? null : String(r.reason),
+    });
+  }
+  for (const raw of Array.isArray(d.failed) ? d.failed : []) {
+    const r = (raw ?? {}) as {
+      uid?: unknown;
+      error?: { code?: unknown; message?: unknown; rel?: unknown };
+    };
+    const uid = String(r.uid ?? '');
+    if (!uid) continue;
+    const code = String(r.error?.code ?? '');
+    const msg = String(r.error?.message ?? '');
+    rows.push({
+      uid,
+      assetName: baseName(r.error?.rel) || uid,
+      result: 'failed',
+      reason: code || msg ? (code ? code + ': ' + msg : msg) : null,
+    });
+  }
+
+  // 库级 .gs.db 落点：解析判据只有 T-04/引擎那一份（与 buildStoragePorts 同一构造方式）。
+  let libDbPath: string | null = null;
+  try {
+    const resolver = createLibraryResolverPort({
+      libraries: (RESOLVED?.libraries ?? []).map((l) => ({
+        libId: l.libId,
+        root: l.root,
+        label: l.label,
+      })),
+      userDataDir: USER_DATA_DIR,
+      legacyLibrariesDir: path.join(DATA_DIR, 'libraries'),
+    });
+    libDbPath = resolver.storageOf(libId).dbPath;
+  } catch (e) {
+    log('!! [取件] 解析库元数据落点失败（文件已复制；导出历史没有写入）:', stackText(e));
+    return '取件文件已复制，但库元数据落点没解析出来，导出历史没有写入（详见日志）';
+  }
+
+  const r = recordCollectBatch({
+    userDataDir: USER_DATA_DIR,
+    libDbPath,
+    libId,
+    batchId: String(d.jobId ?? ''),
+    targetDir: String(d.targetDir ?? ''),
+    targetDirName:
+      d.targetDirName === undefined || d.targetDirName === null ? null : String(d.targetDirName),
+    bytesTotal: Number(d.bytesTotal ?? 0) || 0,
+    rows,
+  });
+  return r.warning;
+}
 
 /**
  * 应用级 app.db 的一次性访问（打开 → 用 → 关）。
@@ -648,9 +746,18 @@ async function loadEncoderOnce(): Promise<Encoder> {
     // 若它载入失败（原生模块缺失、路径不对…），动态导入才**catch 得到** ——
     // 静态导入会在模块实例化阶段抛出，那时连一行日志都不会留下。
     const { createEncoder } = await import('./encoder.ts');
-    // ⚠️ `config.device` 是外部 JSON 里的字符串；原实现把它原样交给编码器（后者只认这两个值），
+    // ⚠️ `device` 的值可能是外部 JSON 里的字符串；原实现把它原样交给编码器（后者只认这两个值），
     //    这里用断言保留同一行为 —— 不改写成"非法值就回退 webgpu"的静默降级。
-    const device = (config.device || 'webgpu') as 'webgpu' | 'cpu';
+    //
+    // WIRE-A（2026-10-17）：`device` 是**用户设置**（不是引导键）⇒ **库优先**：
+    //   · 有 app.db ⇒ 由 `resolveUserSetting` 转调 `resolveSetting`（`main/app-db.ts` 是优先级的**唯一**实现），
+    //     旧 `config.json` 只做**只读回退**，**不回写**（回写会让用户删掉的键复活）；
+    //   · app.db 不可用（userData 写不进去等）⇒ 退回旧文件，**不因此让引擎起不来**（START-2 那条降级路径）。
+    const devRes = withAppDb((appDb) => resolveUserSetting(appDb, 'device', config));
+    const devValue = devRes.ok ? devRes.value.value : config.device;
+    const devSource = devRes.ok ? devRes.value.source : 'legacy（app.db 不可用）';
+    log('[设置] device：来源 =', devSource, '· 值 =', String(devValue ?? '（缺省 webgpu）'));
+    const device = (devValue || 'webgpu') as 'webgpu' | 'cpu';
     // T-31：把**探测结果**喂进去 —— 设备语义的判定在 encoder-device.ts 的纯函数里，不在这里。
     const gpuProbe = await probeGpu();
     encoder = await createEncoder({ modelDir, seq: 140, device, gpuProbe, log });
@@ -798,7 +905,18 @@ function registerIpc(): void {
         },
       };
     }
-    const res = await fn(v.params);
+    // 引擎方法都是"信封生产者"（packages/engine 的 envelope()）⇒ 把 unknown 收窄回信封类型；
+    //   这**不是**放宽（处理器本来就以 Envelope 为返回契约，见函数签名）。
+    let res = (await fn(v.params)) as Envelope;
+    // WIRE-B：**取件成功后留痕**（一次批量 = activity 1 行 + asset_export N 行，同一个 batch id）。
+    // ⚠️ 只挂 warning、**绝不改判**取件的成败 —— 文件是否已经复制出去由引擎按真实文件操作裁决；
+    //    "记历史失败"不能把一次成功的取件说成失败（否则用户会重复取件、覆盖/重名）。
+    // ⚠️ **模拟模式不写历史**：桩引擎的 collect 没有真实文件、也没有 `jobId`（批量 id）⇒
+    //    造出来的「历史」是假的（B2 系列的教训：宁可没有，也不要假数据）。真实模式才有文件已复制的事实。
+    if (!FAKE_MODE && v.method === 'collect' && res.ok) {
+      const warning = recordCollectLedger(res.data, v.params);
+      if (warning) res = { ...res, warnings: [...(res.warnings ?? []), warning] };
+    }
     log(`invoke ${v.method} ${Date.now() - started}ms → ${resultCode(res)}`);
     return res;
   });

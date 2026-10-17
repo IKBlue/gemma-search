@@ -472,3 +472,72 @@ export function setDefaultCollectDir(db: SqlDatabase, dirId: string): CollectDir
   }
   return listCollectDirs(db).find((r) => r.dirId === dirId) ?? null;
 }
+
+// ---------------------------------------------------------------- 操作记录 `activity`（WIRE-B：真正接上写入）
+
+/** `activity.kind` 的合法值（与 DDL 的 CHECK 逐字一致）。写入口按它收窄，避免写进数据库会被拒的值。 */
+export type ActivityKind =
+  | 'collect'
+  | 'deliver'
+  | 'trash'
+  | 'restore'
+  | 'purge'
+  | 'tag.add'
+  | 'tag.remove'
+  | 'collection.add'
+  | 'index.exclude'
+  | 'index.in';
+
+/** `activity.subject_kind` 的合法值（与 DDL 的 CHECK 逐字一致） */
+export type ActivitySubjectKind = 'asset' | 'library' | 'tag' | 'collection' | 'app';
+
+/** `activity.result` —— 与 `asset_export.result` **同一套词**（ok/skipped/failed） */
+export type ActivityResult = 'ok' | 'skipped' | 'failed';
+
+export interface InsertActivityInput {
+  /** **一次批量操作共用一个 id**（它就是 `asset_export.batch_id`）；基线写 nanoid，本仓未装该依赖 ⇒ 由调用方用 crypto.randomUUID() 生成 */
+  activityId: string;
+  kind: ActivityKind;
+  subjectKind: ActivitySubjectKind;
+  atMs?: number;
+  /** 对象 id；**批量操作时为空**（明细在 detail 里） */
+  subjectId?: string | null;
+  /** 操作发生在哪个库；**不属于任何库的操作**（如登记库）为空 */
+  libId?: string | null;
+  result?: ActivityResult | null;
+  /**
+   * **结构化参数**（会 `JSON.stringify` 进去）—— 不存渲染好的文字。
+   * 界面那一侧才是渲染的唯一来源；这里只保证"当时的参数原样留在库里"。
+   */
+  detail?: unknown;
+}
+
+/**
+ * 写一条操作记录 —— **`activity` 的唯一写入口**（§2.3「每张表一个写入口」；D4 会静态钉住"只有本文件写它"）。
+ *
+ * 为什么不在 `db/**`（业务层）里写：`activity` 是**应用级**表（`SPEC.md:173` ⇒ 在 `app.db`），
+ *   而本文件就是应用级表的唯一写入口 —— 与 `library_registry`/`collect_dir`/`app_setting` 同一条纪律。
+ * 为什么 `detail` 存 JSON 而不是文字：渲染是界面的事；写成文字就**固化了当时的措辞**，
+ *   以后改文案要么改不动、要么得回头改数据（而且没法按参数统计）。
+ *
+ * ⚠️ 本函数**不吞错**：写失败就抛（调用方 —— `main/collect-ledger.ts` —— 会记日志并把它变成
+ *   "文件已复制，但操作记录没写成"的**非静默**警告，而不是让取件假装失败）。
+ */
+export function insertActivity(db: SqlDatabase, input: InsertActivityInput): void {
+  const atMs = typeof input.atMs === 'number' ? input.atMs : Date.now();
+  const detail =
+    input.detail === undefined || input.detail === null ? null : JSON.stringify(input.detail);
+  db.prepare(
+    'INSERT INTO activity (activity_id, at_ms, kind, subject_kind, subject_id, lib_id, result, detail_json) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(
+    input.activityId,
+    atMs,
+    input.kind,
+    input.subjectKind,
+    input.subjectId ?? null,
+    input.libId ?? null,
+    input.result ?? null,
+    detail,
+  );
+}

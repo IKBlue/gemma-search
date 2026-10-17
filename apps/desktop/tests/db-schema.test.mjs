@@ -230,6 +230,8 @@ test('A1：db 层只有 sqlite-adapter.ts 碰 node:sqlite，且不 import electr
   assert.deepEqual(files.sort(), [
     'app-migrations.ts',
     'errors.ts',
+    // WIRE-B：`asset_export` 的唯一写入口（§2.3 每张表一个写入口）
+    'exports.ts',
     'import.ts',
     'index.ts',
     'jobs.ts',
