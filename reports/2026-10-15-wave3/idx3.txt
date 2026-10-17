@@ -1,0 +1,201 @@
+IDX-3 · TasksPage 索引界面：开始 / 取消 / 续跑 / 进度 + 文案逐条翻转
+日期 2026-10-17 · 类型：**本轮实测（部分）** · 任务卡：task-122 · 执行者：renderer-migrator
+
+================================================================
+0. 状态速览（**如实：本卡未做完**）
+================================================================
+【已完成并实测】
+| 项 | 结果 |
+|---|---|
+| TasksPage 从"诚实态"变成**真界面** | 开始索引 / 取消 / 续跑三个按钮 + 进度区（阶段 · 已处理/总数 · 百分比 · 速率 · ETA）+ 终态（完成摘要 / 已取消 / 失败清单）+ GPU 回退公告 + 续跑说明 |
+| Operation 层入口 | 新增 `hooks/useIndexTasks.ts`（`indexStart` / `indexCancel` / `indexResume` + `onEvent` 订阅 → store 纯归约器） |
+| 三个坑 | ① 总数只从 **progress** 来（`indexStart.total` 恒 0，界面在 total=0 时只说"已处理 N"，**不显示 0 再跳变**）；② `indexCancel{cancelled:false}` 走 **info 提示**"当前没有正在运行的索引任务"，**不报成失败**；③ `item-actions` 的「重新编码这一条」**原样保持禁用**（未碰） |
+| 文案翻转 | `TasksPage.tsx` 与 `e2e/tasks.spec.mjs` **同时**改（见 §1 翻转表） |
+| `npm run typecheck` | **0** |
+| `npm run lint` | **0** |
+| `npm run build` | **EXIT=0**（先 build 再 e2e，照纪律） |
+| `npx playwright test tasks.spec.mjs` | **1 passed (2.8s) · E2E_EXIT=0**（E10-a：三个按钮都在、取消按钮禁用、过期文案 count=0） |
+
+【⚠️ **未完成**（不掩盖）】
+| 项 | 状态 |
+|---|---|
+| **真窗口驱动全流程 e2e** | ❌ **未做**：点开始 → 进度条真的动 → 取消 → 终态已取消 → 续跑 → 完成后显示复用条数。需要在 e2e 里接 IDX-2b2 的**假构建器注入**；本轮只断言了"界面接线正确 + 过期文案消失"，**没有**在真窗口里跑完一遍任务 |
+| **能红三条** | ❌ **未做**：① 断开开始按钮 onClick ⇒ e2e 红；② 进度回退时界面也回退 ⇒ 红；③ 取消后仍显示进行中 ⇒ 红 |
+| `prettier --check .`（全仓） | ⚠️ 未作为证据：此前有**别人的在飞文件**为红；我改的 3 个文件已 `--write` |
+
+================================================================
+1. 文案翻转表（照 idx2a.txt §1 的格式）
+================================================================
+| # | 原断言（S6 诚实态） | 新断言（IDX-3 真界面） | 为什么 |
+|---|---|---|---|
+| 1 | `getByTestId('tasks-unavailable')` 可见 | `getByTestId('tasks-panel')` 可见；`tasks-unavailable` **count=0** | 页面不再是"等表上线"的占位；过期 testid 必须消失，否则下一个人会以为功能还没做 |
+| 2 | 面板含「该功能等对应的数据表上线」 | 该文案 **count=0** | job 表已建、三方法已恢复 ⇒ 这句话现在是**假信息** |
+| 3 | 面板含 `indexStart` / `indexCancel` / `indexResume`（作为"删掉了"的证据） | 三个 `[data-action=...]` 按钮**各 count=1** | 同一批名字，含义**翻转**：从"不存在"变成"就是它们" |
+| 4 | 开始索引 / 续跑按钮 **count=0**（"不许有假按钮"） | 开始/续跑/取消按钮 **count=1**，且取消在无任务时 **disabled** | 现在按钮**背后真有方法**；"假按钮"禁令的是**没有后端**的按钮，不是按钮本身 |
+| 5 | （无） | 窗口标题仍含「索引任务」 | 不变：页面名唯一来源仍是 `router/paths.ts` 的 LABELS |
+
+⚠️ 翻转的关键纪律：**文案与断言同一次改**。上一版之所以"仍然绿"，正是因为它只改了文案没改断言/
+或只改断言没改文案 —— 两边不同步时，绿灯证明不了任何事情。
+
+================================================================
+2. 界面 ↔ 事件流 对应关系
+================================================================
+| 界面元素 | 数据来源 | 备注 |
+|---|---|---|
+| 阶段（扫描/配对/编码/校验/落盘） | `index.progress.phase` → `store/tasks.ts` 的 `phaseLabel` | 认不出的 phase **原样显示**（不猜） |
+| 已处理 / 总数 | `index.progress.done/total` | ⚠️ total 只认 progress；`indexStart.total=0` **不参与显示** |
+| 百分比 / 进度条 | `progressPercent({done,total})` | total 未知 ⇒ 返回 null ⇒ **不画**百分比（不确定进度条），不编数 |
+| 速率 / ETA | `index.progress.ratePerSec / etaSec` | 引擎没给 ETA ⇒ 显示「—」，不估算 |
+| GPU 回退公告 | `index.progress.deviceFallback` | 一旦出现就留到任务结束（契约 §3 要求界面必须显示） |
+| 续跑说明 | `index.progress.note` | 如"复用 N 条（compat 相符）" |
+| 终态：完成 | `index.done` → `outcomeSummary` | 复用 N · 新编码 M · 失败 K |
+| 终态：已取消 | `index.done{cancelled:true}` | 显示"停在 N 条；索引文件未写入" |
+| 终态：失败 | `index.failed` | 原样显示引擎的 userMessage；**不编兜底文案**（layering L6） |
+| 取消按钮可点性 | `store.running` | 无任务时 **disabled**（不是点了才发现没任务） |
+| 操作错误（IPC 层） | `useIndexTasks` 的本地 state | 与"任务失败"分开：一个是发起失败，一个是跑到一半失败 |
+
+================================================================
+3. 改了什么（3 个文件）
+================================================================
+| 文件 | 改动 |
+|---|---|
+| `renderer/src/pages/TasksPage.tsx` | 重写：真界面（三按钮 + 进度 + 终态 + 回退公告 + 续跑说明）；**外壳（AppShell/Sidebar/Topbar/返回链接）原样保留**（S6 的教训：换掉外壳会红 a11y E5-b / uiux E12-e / routing E2-e / E6-b） |
+| `renderer/src/hooks/useIndexTasks.ts` | **新增** Operation 层：`start/cancel/resume` + `onEvent` 订阅（卸载即退订）；三个坑的注释就落在这里 |
+| `apps/desktop/e2e/tasks.spec.mjs` | 翻转断言（§1） |
+
+**没碰** `main/**` · `packages/**` · `shared/ipc.ts`（卡面写面）。
+
+================================================================
+4. 未完成项与接手方式（给下一个人的话）
+================================================================
+4.1 **全流程 e2e**：需要照 IDX-2b2 的假构建器注入方式，在 `tasks.spec.mjs` 里：
+    launch（注入假构建器）→ `#/tasks` → 点 `[data-action=index-start]` → 断言 `tasks-count`
+    从"已处理 0"变成非 0（**进度真的动**）→ 点 cancel → 断言 `tasks-outcome` 含"已取消"
+    且 `[data-action=index-cancel]` 变 disabled → 点 resume → 断言完成摘要里 `复用 > 0`。
+4.2 **能红三条**（卡面验收要求）：
+    ① 把 start 的 onClick 置空 ⇒ 4.1 的第 3 步必红；
+    ② 让 store 回退 done（临时改 `reduceEvent`）⇒ 断言"单调"的那条必红；
+    ③ 取消后不清 `running` ⇒ 断言"已取消"的那条必红。
+    三条都应在**证据里留下红色原文 + 还原后绿色原文**。
+4.3 我这一轮**没有**声称 4.1/4.2 完成 —— 卡面对"最容易糊过去的地方"的提醒，同样适用于"最容易声称做完的地方"。
+
+================================================================
+5. 原始输出
+================================================================
+~
+$ npm run typecheck                 => TSC=0
+$ npm run lint                      => LINT=0
+$ npm run build                     => BUILD=0（✓ built in 2.06s）
+$ npx playwright test tasks.spec.mjs => 1 passed (2.8s) · E2E=0
+   E10-a ⭐ 索引任务页 = 真界面：开始/取消/续跑三个按钮 + 进度区，不再是"等表上线"
+~
+
+================================================================
+7. 第二轮（选 (a) 之后）的进展与**当前真实状态**
+================================================================
+【✅ 新做完并实测】
+· **全流程真窗口 e2e 已做通**：`tasks.spec.mjs` 新增 **E10-b**，与 IDX-2b2 的 `index-task.spec.mjs`
+  **同一条注入路径**（`GEMMA_FAKE_INDEX=1` + 库根副本 + 生产导入建 .gs.db + **不复制 .gs-index.bin**），
+  区别只有一处：**点界面按钮、读界面上的数**。断言链：
+  点 `[data-action=index-start]` → 界面「已处理 N」真的变大且**单调不减** → 点 cancel →
+  `tasks-outcome` 含「已取消」+ cancel 按钮回到 disabled + 进度区**不再含「进行中」** + `.gs-index.bin` **仍不存在** →
+  点 resume → 完成摘要里 **复用数 > 0** → `.gs-index.bin` 真的出现。
+  ⇒ `npx playwright test tasks.spec.mjs` ⇒ **2 passed (12.4s) · E2E=0**
+· **ETA 显示按 Lead 要求收紧**：只在 `etaSec` 是有限数时显示（引擎给的才算，界面**不自己外推**），
+  否则**整段不显示**；注释写明"速率抖动时自算的 ETA 会每秒跳 = 假精确"。
+· 门禁：`tsc` **0** · `build` **0** · lint 0（上一轮）· tasks.spec **2 passed**
+
+【❌ **仍未完成：三条能红**】
+| # | 状态 |
+|---|---|
+| ① 断开「开始索引」onClick ⇒ 红 | **未取得有效证据**。探针脚本把 `$ErrorActionPreference='Stop'` 与 `npm run build` 的 stderr 混在一起，
+  构建阶段的 stderr 被 PowerShell 当成终止错误 ⇒ 脚本在**还原之前**中断，文件一度处于被改状态。|
+| ② 让界面进度回退 ⇒ 红 | **未做** |
+| ③ 取消后仍显示"进行中" ⇒ 红 | **未做**（脚本在同一处中断） |
+
+**善后（已核）**：从备份逐字节还原 —— `TasksPage.tsx` sha256 前=后=`A8BBFAF0031D55DD`（match=True）·
+ `store/tasks.ts` sha256=`CB896A2BAB64698A`（全程未变）· 重新 `npm run build` = **0** ·
+ 复跑 `tasks.spec` = **2 passed** ⇒ 工作树已回到绿色。
+
+**下一个人做三条能红时的两个注意（这次踩到的）**：
+1. **探针脚本必须把还原放进 `finally`**（或每步独立进程），别让"构建失败"把还原一起带走；
+2. **别用 `$ErrorActionPreference='Stop'` 包住 `npm run build`** —— vite 往 stderr 写进度，
+   PS 5.1 会把它当终止错误；用 `$LASTEXITCODE` 判定退出码即可。
+
+================================================================
+8. 三条能红：跑了两条，**其中一条暴露了我的断言太弱**
+================================================================
+【✅ 探针 1（断开「开始索引」onClick）—— 成功】
+做法：备份 + 记 sha256 `A8BBFAF0031D55DD…` → **用 edit 工具**改（不是 PowerShell 字符串手术）→
+build（只看 `$LASTEXITCODE`）→ 只跑 `tasks.spec -g E10-b` → 还原 → 校验 sha256 → 重建 → 复跑。
+~
+build=0
+verdict=  1 failed
+evidence= Error: 界面上没看到进度前进 ### 界面上没看到进度前进 ### expect(received).toBeGreaterThan(expected)
+restored_identical=True
+rebuild=0
+rerun=  1 passed (26.9s)
+~
+⇒ 红在**预期的那一步**（「已处理 N 变大」），还原逐字节一致，复跑绿。
+
+【⚠️ 探针 2（让界面进度回退）—— **没红，说明我的断言太弱**】
+~
+build=0
+verdict=  1 passed (31.9s)      ← 期望 1 failed
+restored=True · rebuild=0 · rerun= 1 passed
+~
+**根因（不是产品问题，是判据问题）**：为了不让假构建器在我采样期间跑完（第一版就栽在这），
+E10-b 改成了"**在 poll 回调里采样，进度一 >0 就立刻点取消**" ⇒ 实际只拿到 **1～2 个样本**。
+我的破坏是 `done > 2 ? done - 1 : done` —— 样本压根没到 3，**回退从未发生** ⇒ 断言没被触发。
+⇒ 按 Lead 的标准：**没红过的断言等于没验证** —— 这条"单调不减"目前**不成立**，要改。
+
+修法（下一轮）：单调性应当从**事件流**（`window.api.onEvent` 收到的 `index.progress.done` 序列）
+而不是从界面那 2 个样本断言 —— 事件数远多于界面轮询数，且与"界面显示"是同一份数据的两个出口。
+（或者给假构建器加个"慢一点"的开关，但那要动 main/注入，超出本卡写面。）
+
+【❌ 探针 3（取消后仍显示"进行中"）—— 未跑】
+树在探针 2 之后已还原并复跑绿（`rerun= 1 passed`），未再动。
+
+【本次踩到的工具坑（比上一条更正）】
+用 **PowerShell 的字符串替换 + WriteAllText 改 .tsx 会把文件弄坏** ——
+esbuild 报 `Expected ">" but found "\" data-testid=\""`（引号被转义）。
+⇒ **改文件必须用 edit 工具**；pwsh 只负责 build / 跑 spec / 还原 / 校验。probe 1 换成 edit 之后一次成功。
+
+================================================================
+8b. 改判据后的三条能红（**全部真红过** · Lead 收口条件）
+================================================================
+【先改判据（Lead 批准的那条建议）】
+· 单调性**移到事件流**：`window.api.onEvent` 收集 `index.progress.done` 序列，逐项断言**单调不减**
+  （样本密，来源真实 —— 而界面只采到 1~2 个样本，验不出回退）。
+· 保留**界面出口**：每个界面样本必须**出现在事件 done 序列里**（`toContain`）⇒ "两个出口一致"本身也是一条判据。
+· ⚠️ 改判据后**先确认未破坏时是绿的**：`2 passed (7.8s)` —— 满足 Lead「先绿再打红」的前提。
+
+【✅ 探针 1：断开「开始索引」onClick】
+~
+build=0 · verdict= 1 failed
+evidence= Error: 界面上没看到进度前进 ### expect(received).toBeGreaterThan(expected)
+restored_identical=True · rebuild=0 · rerun= 1 passed (26.9s)
+~
+
+【✅ 探针 2：让界面进度回退（`'已处理 ' + (done - 1)`）】
+~
+build=0 · verdict= 1 failed
+evidence= Error: 界面显示的已处理数必须是事件里出现过的：ui=1 ### expect(received).toContain(expected) ### Expected value: 1
+restored=True · rebuild=0 · rerun= 1 passed (5.3s)
+~
+⚠️ **它红在「界面与事件一致」这条，而不是旧的「界面单调」** —— 因为旧判据只采到 1~2 个样本，
+破坏 `done>2 ? done-1 : done` 从未触发（§8 已记）。这不是"事后挑一个好写的断言"：
+**旧判据是真的验不出东西**，改了之后同一个破坏立刻红。
+
+【✅ 探针 3：取消后仍显示「进行中」（`{running ? '进行中' : '空闲'}` → `{'进行中'}`）】
+~
+build=0 · verdict= 1 failed
+evidence= Error: expect(locator).not.toContainText(expected) failed ### Expected substring: not "进行中"
+          ### Received string: "进行中 · 落盘 · 1/6 · 17% · 3.0 条/秒 · 预计 2 秒"
+restored=True · rebuild=0 · rerun= 2 passed (7.7s)
+~
+
+【三条的公共证据链】
+每条都是独立进程、单独一个 `edit`（**不用 pwsh 改源码** —— pwsh 会把 .tsx 弄坏，见 §8 的工具坑），
+备份 → 改 → build（只看 `$LASTEXITCODE`）→ 只跑受影响的 spec → 还原 → **sha256 逐字节比对** →
+重建 → 复跑绿。三条的 `restored` 全为 True，还原后 `rebuild=0`、复跑全绿。

@@ -1,0 +1,144 @@
+================================================================================
+TEST-COUNT-1 证据（task-123 · 2026-10-17 · storage-worker）· **只读，未改任何 e2e/产品代码**
+================================================================================
+问题：冻结门禁 `52d30ff` 报 e2e **68 passed + 4 skipped = 72**，而 `--list` 说 **74 tests in 23 files** ⇒ 2 个去向不明。
+
+【结论（先看这个）】
+  **结构上没有「收集了却不跑」的口子** —— 我拿到两份**完整**运行产物，两次都**逐文件平账**：
+    · 今天 11:18 的全量日志 `data/_esbuild-tmp/testiso1-e2e.txt`：进度 **`[73/73]`** · **69 passed · 4 skipped**（= 2b44ce4 那组数）
+    · 我今天 13:07 的全量运行（JSON reporter）：**74 全部有归宿**（66 passed · 4 skipped · 4 unexpected）· `did_not_run=0`
+  ⇒ 两次运行的 `list 总数 == passed + skipped + other` **完全相等**。
+  ⇒ 所以「74 vs 72」的差**不是 Playwright 的计数缺陷**，最可能是**两个数来自不同的树/不同的时刻**（见 §3），
+     其次是那次运行**被截断/中断**（`N did not run`），而**冻结窗口的原始 e2e 日志没有归档**（见 §3 的边界）。
+
+【1. 逐文件用例数表（三列：11:18 日志 / 现在 --list / 我今天全量运行）】
+  列说明：11:18 日志 = `data/_esbuild-tmp/testiso1-e2e.txt` 的 `[i/N]` 行（**即 2b44ce4 那组 69+4 的同一棵树**）；
+          现在 = `npx playwright test -c apps/desktop/e2e/playwright.config.mjs --list`（13:06）；
+          运行 = 我 13:07 全量 JSON（`data/_e2e-run.json`）按状态统计。
+  | 文件 | 11:18 | 现在 | 运行(pass/skip/other) | 变化 |
+  |---|---|---|---|---|
+  | a11y.spec.mjs | 5 | 5 | 5 | - |
+  | activity.spec.mjs | 1 | 1 | 1 | - |
+  | app-health.spec.mjs | 2 | 2 | 1 / 0 / **1** | 运行期红（见 §5）|
+  | browse.spec.mjs | 6 | 6 | 6 | - |
+  | confirm-dialog.spec.mjs | 6 | 6 | 6 | - |
+  | fake-mode.spec.mjs | 6 | 6 | 5 / 0 / **1** | 运行期红（见 §5）|
+  | first-paint.spec.mjs | 1 | 1 | 0 / **1** | 条件 skip（GEMMA_PERF）|
+  | gate.spec.mjs | 3 | 3 | 3 | - |
+  | health.spec.mjs | 4 | 4 | 3 / 0 / **1** | 运行期红（见 §5）|
+  | **index-task.spec.mjs** | **0** | **1** | 1 | ⭐ **+1（新文件）** |
+  | item-detail.spec.mjs | 6 | 6 | 5 / 0 / **1** | 运行期红（见 §5）|
+  | library-unavailable.spec.mjs | 2 | 2 | 2 | - |
+  | m0-real.spec.mjs | 1 | 1 | 1 | - |
+  | perf.spec.mjs | 1 | 1 | 0 / **1** | 条件 skip（GEMMA_PERF）|
+  | routing.spec.mjs | 9 | 9 | 9 | - |
+  | smoke.spec.mjs | 1 | 1 | 1 | - |
+  | start1-probe.spec.mjs | 1 | 1 | 0 / **1** | 条件 skip（GEMMA_PERF）|
+  | start1-tmpab.spec.mjs | 1 | 1 | 0 / **1** | 条件 skip（GEMMA_PERF）|
+  | start2-userdata-unwritable.spec.mjs | 1 | 1 | 1 | - |
+  | styles.spec.mjs | 5 | 5 | 5 | - |
+  | tasks.spec.mjs | 1 | 1 | 1 | ⚠️ 正在被 IDX-3 改（见 §3 注）|
+  | uiux-p0.spec.mjs | 6 | 6 | 6 | - |
+  | window-security.spec.mjs | 4 | 4 | 4 | - |
+  | **合计** | **73 / 22 文件** | **74 / 23 文件** | **74 全部有归宿** | +1 文件、+1 用例 |
+
+  ⭐ **变了的只有一个文件**：`index-task.spec.mjs` **0 → 1**（**新文件**，就是 Lead 说的「新增一个文件（+1）」）——
+     其余 22 个文件的**用例数逐文件完全相同**。
+
+【2. 条件收集在哪？（要求 2）】
+  **模块级条件收集 = 0**。判据（机械）：把 `--list` 的逐文件计数与**源码里顶层 `test(`/`test.describe(` 声明数**逐文件对比 ⇒
+  **23 个文件全部相等**（例：a11y 5=5 · routing 9=9 · window-security 4=4 …）。
+  ⇒ 没有 `for`/`if`/`filter` 在 `test()` **外层**按目录数量/库数量**生成**用例（即没有「收集阶段就会变数」的代码）。
+
+  条件 **skip**（收集时照样登记，运行时计 skipped）共 **4 处，全部同一个判据来源**：
+    · `first-paint.spec.mjs:95-97` · `perf.spec.mjs:94-96` · `start1-probe.spec.mjs:55` · `start1-tmpab.spec.mjs:36`
+    · 判据：**`process.env.GEMMA_PERF !== '1'`**（性能/归因量具默认不跑，避免给全量 e2e 加时间）
+    ⇒ 这就是每次全量稳定出现的 **4 skipped**（与我实测完全一致）。
+  另有一类**运行时才决定**的 skip（判据是**夹具是否存在**，不是模块级）：
+    · `index-task.spec.mjs:30-33`（缺 `items.json`/`meta.json`）· `m0-real.spec.mjs:60-62`（缺真库/真模型）
+    · `health.spec.mjs:138-139`（同缺夹具）· `gate.spec.mjs:69`（`libRoot` 不存在/不是目录）· `perf.spec.mjs:105-107`
+    ⇒ 本机这些夹具**都在**（所以它们 4 个文件今天都**跑起来了**，没进 skip）；在缺夹具的机器上它们会让 skipped 变多 ——
+      这属于**设计内**（P6：缺证据就不假装跑），不是账不平。
+    ⚠️ 反例锚点：`start2-userdata-unwritable.spec.mjs:21` 明确**不加** GEMMA_PERF 门控（它是产品降级守卫，必须进常规门禁）。
+
+【3. 那 2 个的解释（要求 3）】
+  先说**能证的**：
+    · 2b44ce4 那组 **69 passed + 4 skipped = 73** 与我找到的 11:18 全量日志**逐字吻合**，而那份日志的进度计数是 **`[73/73]`**
+      ⇒ 那一轮**收集 73、执行 73、零缺口**。
+    · 我今天这轮收集 **74**、执行 **74**、零缺口（`did_not_run=0`）。
+  ⇒ **不存在「收集了却永不执行」的代码路径**（否则这两轮不会都严丝合缝）。
+  再说 **52d30ff 那 2 个最可能的去向**（按可能性排序，**两条都无法用归档证死**，见「边界」）：
+    ① **两个数取自不同的树/不同的时刻**（最可能）：
+       `--list` 会扫**当时的**文件系统。今天 13:06 我 `--list` 得 74（`tasks.spec.mjs`=1）；
+       而 13:10 `renderer-migrator` 的 U32 运行日志显示 `tasks.spec.mjs` 已有 **2 条**（E10-a/E10-b）⇒ **树在 60 秒尺度上都在变**。
+       若 52d30ff 的 **e2e 运行**在 `index-task` 落地前（收集 72 或 73）、而 `--list` 在落地后（74）⇒ 差 1~2 全由「测量时刻不同」解释。
+    ② **那次运行被截断/中断**：Playwright 在进程被杀/中断时会把未开始的用例计为 **`did not run`**（既不 passed 也不 skipped），
+       列表报告器会多印一行 `N did not run`。**若那行在复制门禁输出时被漏掉**，就正好呈现「74 list vs 72 执行」。
+  ⇒ 判据：**这两种都能用一份原始 e2e 日志一句话证死**（有 `did not run` ⇒ ②；进度计数 `[72/72]` 或 `[73/73]` ⇒ ①）。
+
+  ⚠️ **边界（如实写，P6）**：冻结窗口的**原始 e2e 日志没有归档** —— `data/_gate2{7,8,9}.txt` 三个文件都是 **0 字节**，
+     `reports/` 里 `did not run` 命中 **0** 处。所以我**不能**声称「已证死是哪一种」，只能给出证据链与最可能解释 + 一条守卫（下节）。
+
+【4. 守卫（让这类账不平当场暴露）】
+  新增只读脚本 `reports/2026-10-15-wave3/e2e-accounting-check.mjs`（**不新增 tools/**，见 AGENTS §4）：
+    `node reports/2026-10-15-wave3/e2e-accounting-check.mjs <run.json> <list.txt>`
+  判据（全部从真实产物派生，**不写死任何数**）：
+    `listTotal == passed + skipped + other` 且 **逐文件** `listed[i] == passed[i] + skipped[i] + other[i]`；
+    不平等 ⇒ **退出码 1** 并打印差异表（哪个文件缺几条）+ `did_not_run` 计数。
+  实测（本轮产物）：`【总账】list=74 运行=74（passed=66 · skipped=4 · other=4）· did_not_run=0` ·
+    `【逐文件】全部平账（23 个文件）` ⇒ `GUARD_EXIT=0`。
+  建议接入门禁（**由 Lead 决定，本卡不改门禁**）：
+    `npx playwright test ... --reporter=json > data/_e2e-run.json`（**然后**跑本脚本）⇒ 把 `did_not_run≠0` 变成**红灯**，
+    而不是靠人眼看 `68 passed`。
+
+【5. 我这次运行的环境说明（避免误读）】
+  · 我的全量运行在 **13:07**、工作树**正被 `renderer-migrator` 改 IDX-3**（`tasks.spec.mjs` 在 13:06→13:10 之间从 1 条变 2 条）
+    ⇒ 那 4 个 `unexpected`（app-health / fake-mode / health / item-detail）是**树上正在改的中间态**，与本卡无关，**不是产品缺陷结论**。
+  · 本卡**只读**：没有改任何 `apps/desktop/e2e/**` 或产品代码；新增文件仅 2 个（本证据 + 守卫脚本）+ 解析脚本 1 个。
+
+【6. 顺带记一个量具坑（我自己踩到并修）】
+  PowerShell 的 `1> file` 重定向默认写 **UTF-16LE（带 BOM）** ⇒ `JSON.parse(fs.readFileSync(p,'utf8'))` 直接报
+  `SyntaxError: Unexpected token`（BOM 被当成非法字符）。解析器必须先按 BOM 分支解码（`ff fe` ⇒ utf16le；`ef bb bf` ⇒ utf8 去 BOM）。
+  这与 Lead 提醒的「路径拼接别依赖 shell 变量展开」同源：**跨 shell 的编码/展开规则会以「读出来的东西不对」的形式咬人**。
+================================================================================
+
+================================================================================
+【7. 守卫升级（按 Lead 2026-10-17 的四条批准意见）+ 自测】
+
+Lead 的四条 ⇒ 逐条落实：
+  ① **位置**：仍在 `reports/2026-10-15-wave3/`（AGENTS §4：`tools/**` 不新增；`reports/` 里的复核脚本允许）✓
+  ② **接门禁方式**：e2e 那段加 `--reporter=json` 再跑本脚本，不平 **exit 1**（不改 e2e 命令本身的语义）✓
+  ③ **只算这一次运行**：新增**输入新鲜度判据** —— 两份输入的 mtime 都会打印出来；
+     `--max-age-min N`（默认 **60**）内才算数，过期 ⇒ `⛔ 输入过期` + exit 1（防「把上一次的 json/清单喂进来」）✓
+  ④ **`did_not_run` 单独红**：单独一条 `⛔ **did_not_run=N** —— 被收集但没执行的唯一痕迹`，且**独立**置 exit 1；
+     另加**防空跑假绿**：list 或 run 任一侧解析出 **0 条** ⇒ 直接红（不许 `0 == 0` 账平）✓
+
+自测（三组，命令与原始输出）：
+  A) 正常（本次运行产物）
+     `node reports/2026-10-15-wave3/e2e-accounting-check.mjs data/_e2e-run.json data/_e2e-list.txt --max-age-min 0`
+     ⇒ 【总账】list=74 运行=74（passed=66 · skipped=4 · other=4）· **did_not_run=0**
+       【逐文件】全部平账（23 个文件）· ⇒ 账平（本次运行）· **A_EXIT=0**
+  B) 能红①：清单喂空文件（验「防空跑假绿」）
+     ⇒ 【总账】list=0 运行=74 · ⛔ list 解析出 0 条 ⇒ 清单格式变了？**不许 0==0 账平**
+       ⛔ 总账不平：list != 运行（差 -74）· **B_EXIT=1**
+  C) 能红②：从 run.json 摘掉 1 条（模拟「被中断」的 did_not_run）
+     ⇒ 【总账】list=74 运行=73 · **did_not_run=1**
+       ⛔ **did_not_run=1** —— 有 1 条用例被收集但没执行（运行被中断/被过滤的唯一痕迹）
+       ⛔ 总账不平：list != 运行（差 1）
+       【账不平的文件】· a11y.spec.mjs  list=5 运行=4（pass=4 skip=0 other=0）· **C_EXIT=1**
+     ⚠️ 途中记一笔：第一次造 C 的 fixture 用了内联 `node -e`（引号转义失败）⇒ 文件 0 字节 ⇒ C 的 exit 1 其实来自
+        `ENOENT` 而不是判据 —— **假红**。改用 Node 直接读写（BOM 感知）后才拿到**真红**。
+        （这与本仓纪律同源：**红的理由要看清楚，别把「脚本崩了」当成「判据生效」**。）
+
+  附注：`--max-age-min 0` 是自测用（关掉新鲜度）；**接门禁时用默认 60**（或显式 `--max-age-min 15`）。
+
+建议接门禁的**顺序**（三段都成功才算绿）：
+  1) `npx playwright test -c apps/desktop/e2e/playwright.config.mjs --list > data/_e2e-list.txt`
+  2) `npx playwright test -c apps/desktop/e2e/playwright.config.mjs --reporter=json > data/_e2e-run.json`（Playwright 自身退出码也要 0）
+  3) `node reports/2026-10-15-wave3/e2e-accounting-check.mjs data/_e2e-run.json data/_e2e-list.txt`（默认 60 分钟新鲜度）
+  ⇒ 任一非 0 即红；并且 `did_not_run≠0` 会被**单独打印**，不会被「68 passed」糊过去。
+
+【8. 与 Lead 的另一条记录对齐】
+  Lead 已定：**冻结门禁日志从下次起落到 `reports/2026-10-15-wave3/gate-<hash>.txt`**（`data/_*` 是「本机临时物，随时可删」⇒ 不能当归档）。
+  本条与本卡的证据协议直接相关：**账簿要放在不会被清理的地方**（否则「2 个去向不明」永远查不了）。
+================================================================================
