@@ -159,3 +159,14 @@ reports/**/_run.*
 data/libraries/
 reports/**/_*.out
 reports/**/_*.err
+
+# ---------- e2e 夹具目录里的**运行期产物**（FIXTURE-DB-1 / task-124·2026-10-17）----------
+# 理由：`apps/desktop/e2e/fixtures/**` 是**被跟踪的契约夹具**（仓库输入，不是运行状态）。
+# 产品把 `.gs.db` 写进**库根**是合规的（SPEC §3）—— 问题是 e2e 曾把夹具目录当库根。
+# ⇒ 真正的修法在 `helpers/app.mjs` 的 `makeFixtureLibCopy()`（库根用**副本**）。
+# 下面只是**兜底**（万一有 spec 又指回夹具，至少不会误提交）；判据口径 = 引擎的
+# `packages/engine/src/gs-names.ts`（`.gs-*` 前缀 ∪ `.gs.db` 家族 ∪ staging）：
+#   · `.gs-*` 一并覆盖 `.gs-index.bin` · `.gs-journal/` · `.gs-staging/` · `.gs-write-probe-*`
+#   · `.gs.db*` 覆盖 `.gs.db` 与其 `-wal` / `-shm` / `-journal` 边车
+apps/desktop/e2e/fixtures/**/.gs-*
+apps/desktop/e2e/fixtures/**/.gs.db*

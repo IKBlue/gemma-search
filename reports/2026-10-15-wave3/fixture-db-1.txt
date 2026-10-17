@@ -1,0 +1,146 @@
+================================================================================
+FIXTURE-DB-1 取证（task-124 · 2026-10-17 · storage-worker）· **只读，未改任何文件**
+================================================================================
+背景：今天工作树里冒出一个未跟踪的 `.gs.db`，差点被 `git add -A` 误提交。本报告**只给事实 + 建议**，等你点头再动手。
+
+【一、它是什么 / 在哪（事实）】
+  真实路径：**`apps/desktop/e2e/fixtures/lib-mini/.gs.db`** —— 注意**不是**仓库根的 `fixtures/lib-mini/`
+  大小：**208,896 B** · mtime **2026-10-17 13:08** · **只有一个文件**，当前**没有** `.gs.db-wal` / `.gs.db-shm`。
+  ⭐ mtime 13:08 = **我刚才那次全量 e2e**（13:07 起跑）⇒ **一次 e2e 运行就会生成/重写它**，可稳定复现。
+
+  它就是 SPEC §5 说的「元数据 / 文档分块 / 体检台账」那类**库根派生数据**（`.gs.db` 家族，可重建，不进事务）。
+  同目录内容（全部是 10-14 16:39 的**被跟踪夹具**）：`manifest.json` + `CR/`（2 图 + 1 zip）+ `VR/`（3 图 + 1 zip）。
+
+【二、从哪来（机制，有代码位置）】
+  ① `apps/desktop/e2e/helpers/app.mjs:24`：`FIXTURE_LIB = ../fixtures/lib-mini`（= 上面对那个**被跟踪**目录）
+  ② `helpers/app.mjs:149-188` `launchWithLibrary()`：`env: { GEMMA_LIB_ROOT: FIXTURE_LIB, GEMMA_FAKE: '' }`（:177）
+     ⇒ 它把这个**夹具目录直接当库根**交给主进程（还把它作为 `libRoot` 返回给 spec 用，:183）。
+  ③ 主进程按 SPEC §3 把 `.gs.db` 写在**库根**下（`resolveLibraryStorage` 的 `db = root/.gs.db`）⇒ 于是写进了被跟踪目录。
+  ④ 调用面：`launchWithLibrary()` 被 **11 个 spec 文件**调用（routing 9 · confirm-dialog 6 · a11y 5 · styles 5 · uiux 6 ·
+     window-security 4 · gate 3-ish · library-unavailable · fake-mode · app-health · health · first-paint …），
+     另有 `start1-probe`/`start1-tmpab` 与 `start2-userdata-unwritable` 直接引用 `FIXTURE_LIB` 当库根。
+     ⇒ **不是某一条用例的偶发行为，而是「有库」场景的通用启动方式**。
+
+【三、口径对照（AGENTS §5 + fixtures 的职责）】
+  · 产品侧：`.gs.db` 在**保留命名空间**内（`.gs.db` 家族）⇒ 产品往库根写它是**合规**的，不是 bug。
+  · 夹具侧：`AGENTS §3`/§7 把 `fixtures/**` 定义为**契约夹具**（「路径由契约指定，别挪」）⇒ 它是**仓库输入**，不是运行状态。
+  ⇒ 冲突点：**产品把「库根」当成自己的数据目录**（正确），而 e2e 把「被跟踪的夹具目录」当库根（问题在这）。
+     ⇒ 结论：**是 e2e 的启动方式让运行期产物落进了仓库**，不是产品写错了地方。
+
+【四、还有没有别的运行期产物会落进夹具/仓库（你补的第 4 条）】
+  · 当前实测扫描（`apps/**` · `packages/**` · `fixtures/**` · `tools/**` · `docs/**`，排除 node_modules/out/data，
+    匹配 `.gs-*` · `*.db` · `*.db-*` · `thumb*`）：**只有这一个** `.gs.db`（其余命中都是源码文件名，如 `thumb-cache.ts`）。
+  · **但结构上不止一个**：库根下按 SPEC §3/§5 还可能生成 —— `.gs.db` 家族（`-wal`/`-shm`/`-journal`，**崩溃/被杀时才会留下**）、
+    `.gs-journal/`（事务日志）、`.gs-staging/`（两段式写入暂存）、`.gs-index.bin`（建索引时）。
+    今天只出现 `.gs.db`，是因为 e2e 只**打开**库、**不做**索引与写入事务；一旦将来有 spec 真写事务，产物会更多。
+  · `.gitignore` **现状：没有任何 `db` 相关规则**（`grep 'gs\.db|\*\.db|\.gs-' .gitignore` ⇒ **0 命中**）⇒ 它**未跟踪** ⇒ 正是误提交的风险面。
+  ⚠️ 边界（如实说）：我是 **worker，禁止跑任何 git 命令** ⇒ 无法给你 `git status --ignored` 的权威清单；
+     上面是**读 `.gitignore` 全文 + 文件系统扫描**得出的近似。要权威清单请你在收尾时跑一次 `git status --ignored --short`。
+
+【五、建议（**等你点头**，我没有动手）】
+  我建议 **(A) 为主 + (B) 作兜底**，理由如下：
+
+  ⭐ (A) 治因：**e2e 不该把被跟踪的夹具目录当库根**
+     · 改法（一处）：`launchWithLibrary()` 里先把 `fixtures/lib-mini` **复制**到 `E2E_TMP_ROOT`（= `data/_e2e-tmp/`，已被 .gitignore 覆盖）
+       下的 `lib-mini-XXXX/`，再把 `GEMMA_LIB_ROOT` 与返回的 `libRoot` 都指向**副本**；夹具本体保持只读。
+     · 成本：夹具只有 **6 个文件 / 4 张图**，复制可忽略；改**一个函数**，11 个 spec 无需改动。
+     · 兼容性：`gate.spec.mjs:64` 断的是侧栏文本含 `lib-mini` —— 副本名 `lib-mini-XXXX` **仍包含** `lib-mini` ⇒ 断言不受影响。
+     · **额外收益（这条比「干净」更重要）**：现在每次运行都在**同一个** `.gs.db` 上叠加，跨 run 状态会被带进下一次；
+       用副本 ⇒ **每次都是全新库**（不可能因上一轮留下的半写事务/旧 schema 出现假绿或假红）。
+
+  (B) 兜底（**只防误提交，不治因**）：在 `.gitignore` 加 `apps/desktop/e2e/fixtures/**/.gs.db*` 等规则 + 一行「为什么」。
+     但它**治不了**两个问题：① 目录仍在运行期被改写（状态污染）；② 需要**逐条列**所有可能产物（`.gs-journal/`、`.gs-staging/`、`.gs-index.bin`…），
+     **漏一条就漏一条** —— 正是你说的「下个月又冒一个」。
+
+  ⭐ 机械守卫（**比 gitignore 可靠，建议随 (A) 一起加**）：一条单测（node:test，跑得快）扫描**被跟踪的夹具目录**，
+     断言其中**不存在保留命名空间**的文件（`.gs-*` / `.gs.db` 家族 / staging 目录）—— 判据直接用引擎的 `gs-names.ts` 单一来源（P1）。
+     这样：任何 spec 若又把库根指回夹具目录 ⇒ **单测当场红**，而且**新产物类型自动被覆盖**，不需要维护一张 ignore 清单。
+
+  如果你更倾向只做 (B)（最小改动），我也照办，但请把上面「状态污染 + 清单漏项」两个风险记在卡里。
+
+【六、我不动的东西】
+  · 那个 `.gs.db` 我**没有删**（删文件也是写操作；且要不要保留它当「现场」由你定）；
+  · `.gitignore`、helper、任何测试 —— **一个字没改**；本卡到目前为止只读。
+================================================================================
+
+================================================================================
+【七、落地记录（Lead 2026-10-17 点头：A + 机械守卫 + B 兜底）】
+
+已完成的改动（均在 task-124 的 writeScopes 内：`apps/desktop/e2e` · `.gitignore`）
+
+1) `apps/desktop/e2e/helpers/app.mjs`
+   · 新增 `makeFixtureLibCopy()`：`fs.cpSync(FIXTURE_LIB, <E2E_TMP_ROOT>/lib-mini-XXXX/lib-mini, { recursive: true })`
+     ⇒ 每轮**唯一副本**；返回 `{ root, cleanup }`。
+   · `launchWithLibrary()`：`GEMMA_LIB_ROOT` 与返回的 `libRoot` 都改指 **`lib.root`**（副本），
+     `cleanup` 里一并 `lib.cleanup()`。**夹具本体保持只读**。
+   · 副本 basename 仍是 `lib-mini` ⇒ `gate.spec.mjs:64` 断侧栏含 `lib-mini` 的行为不变。
+2) 另两处**直接引 `FIXTURE_LIB` 当库根**的 spec（不改就会继续往夹具写）：
+   · `start2-userdata-unwritable.spec.mjs`：改 `makeFixtureLibCopy()`，`finally` 里 `lib.cleanup()`；
+   · `start1-tmpab.spec.mjs`：`FIXTURE = makeFixtureLibCopy()`，`test.afterAll(() => FIXTURE.cleanup())`，`GEMMA_LIB_ROOT: FIXTURE.root`。
+3) `.gitignore` 兜底（按 `gs-names.ts` 的口径，**不只 `.gs.db*`**）：
+   · `apps/desktop/e2e/fixtures/**/.gs-*` —— 一并覆盖 `.gs-index.bin` · `.gs-journal/` · `.gs-staging/` · `.gs-write-probe-*`；
+   · `apps/desktop/e2e/fixtures/**/.gs.db*` —— 覆盖 `.gs.db` 与 `-wal` / `-shm` / `-journal` 边车。
+   · 注释写明「真正的修法在 `makeFixtureLibCopy()`；本规则只是兜底」。
+4) **删除了残留的 `apps/desktop/e2e/fixtures/lib-mini/.gs.db`**（Lead 已授权：它是运行期产物，不是夹具内容）。
+
+验证（原始输出）
+  · 子集 e2e（`gate` + `start2`，两者都走 `launchWithLibrary`）⇒ **4 passed (20.9s) · E2E_EXIT=0**；
+    跑完再看夹具目录 ⇒ **只剩 `CR` / `VR` / `manifest.json`（`.gs.db` 没再出现）**。
+  · `data/_e2e-tmp/lib-mini-*` 无残留 ⇒ 临时副本按 cleanup 正常删除。
+  · `npx prettier --check apps/desktop/e2e/helpers/app.mjs` ⇒ **0（All matched）**；
+    `node --check` 两个改过的 spec ⇒ **SYNTAX=0**。
+  · 全量 e2e（后台跑完，原始输出落 `data/_e2e-after-fix.txt`）：
+    E2E_EXIT=1
+        Error Context: apps\desktop\test-results\fake-mode-E8-f-⭐-真实模式下-ind-09eab-（INTERNAL-说明-IDX-2b），绝不静默成功\error-context.md
+      1 failed
+        apps\desktop\e2e\fake-mode.spec.mjs:126:1 › E8-f ⭐ 真实模式下 indexStart **如实报未接线**（INTERNAL + 说明 IDX-2b），绝不静默成功 
+      4 skipped
+      70 passed (4.3m)
+      CR
+      VR
+      manifest.json
+
+================================================================================
+【八、机械守卫 + 能红（Lead 授权 scope：`apps/desktop/tests`，只写这一个文件）】
+
+1) 守卫落地：`apps/desktop/tests/fixture-runtime-artifacts.test.mjs`（2 条）
+   · FX1：递归扫 `fixtures/` 与 `apps/desktop/e2e/fixtures/`，判据 **`isReservedLibraryName`**（引擎 `gs-names.ts` 单一来源）
+     ⇒ `.gs-*` · `.gs.db` 家族 · staging **自动全覆盖**（将来新增产物类型不用维护清单）；
+   · FX2 **防空跑假绿**：断言 `lib-mini` 存在且 >= 3 张图（否则 FX1 会在空目录上白过）。
+   实测：**tests 2 / pass 2 / fail 0 · exit 0**。
+
+2) 能红（**两段，如实记录**）
+   (a) **端到端尝试 = 负结果（没有造红）**：
+       注入旧行为（`launchWithLibrary` 的 `GEMMA_LIB_ROOT` 改回 `FIXTURE_LIB`，已确认注入生效）
+       ⇒ 跑**全量 e2e** ⇒ **71 passed / 0 failed / 4 skipped（3.6m）· E2E_EXIT=0**
+       ⇒ **夹具目录里没有生成 `.gs.db`** ⇒ 守卫**不红**（2/2 绿）。
+       ⚠️ 这不是守卫失效，而是：**13:08 那个 208,896 B 的 `.gs.db` 来自之后被改掉的代码路径**
+          （IDX-3 在 13:08 之后落地）；子集实验也一致 —— `gate`（只读侧栏）/`health`+`app-health`（只读/桩）/
+          `tasks`+`activity`+`browse`（各自启动路径，不走 `launchWithLibrary`）**都不写库根**。
+       ⇒ **我没有为了贴卡面去造一个红**；把「改回库根 ⇒ 守卫红」这条**当前树上复现不出**如实报给 Lead。
+   (b) **守卫检测能力的红证明（文件级）**：
+       在 `apps/desktop/e2e/fixtures/lib-mini/` 放一个 `.gs.db` ⇒
+         `✖ FX1 …` · `AssertionError: 夹具目录里出现了保留命名空间文件/目录（运行期产物）：`
+         `  apps\desktop\e2e\fixtures\lib-mini\.gs.db` · **GUARD_EXIT=1**（pass 1 / fail 1）
+       删除该文件 ⇒ **tests 2 / pass 2 / fail 0 · GUARD_EXIT=0**（还原也复验，纪律 20）。
+       ⇒ 判据命中、报错**点名到具体路径**、且给出修法提示 ——「谁把库根指回夹具，单测就当场红」。
+
+3) 两次全量 e2e 的数字（**归属与新树状态写清**）
+   · 修后（`lib.root` 副本）：**70 passed / 1 failed / 4 skipped（4.3m）**
+     failed = `apps/desktop/e2e/fake-mode.spec.mjs:126 › E8-f 真实模式下 indexStart 如实报未接线（INTERNAL + 说明 IDX-2b）`
+     ⇒ ⚠️ **这一条正是 Lead 说的 E2E-RED-1 两条之一（fake-mode）**；`health` 在我这两次里是**绿的**（未复现）。
+   · 注入态（旧行为）：**71 passed / 0 failed / 4 skipped（3.6m）** ⇒ 该 fake-mode 失败**未复现**（树在动：IDX-3 刚落地）。
+   ⇒ 两次都**没有**生成 `.gs.db`；两次的 skipped 恒为 4（= GEMMA_PERF 门控，见 test-count-1.txt §2）。
+
+4) 收尾状态（实测）
+   · 全仓（排除 `data/` 与 `out/`）`.gs.db*` 扫描 ⇒ **0 个**；
+   · 夹具目录只剩 `CR/` · `VR/` · `manifest.json`；
+   · `prettier --check apps/desktop/e2e/helpers/app.mjs` ⇒ **0**；两个改过的 spec `node --check` ⇒ **0**；
+   · 守卫 ⇒ **2/2 绿**；
+   · ⏸ **未跑全量 `npm test`**（按纪律先问 Lead；且守卫新增 2 条会把总数从 770 抬到 772 —— 由冻结窗口给权威数字）。
+
+5) 遗留（如实写）
+   · 「产品自己写 `.gs.db` 到夹具目录」这条**当前树已无法复现**（见 2a），所以守卫目前主要防的是**别的/future 路径**
+     与**手动误放**；若将来某条路径重新产生它，守卫会**自动**覆盖（判据来自 `gs-names`）。
+   · `.gitignore` 兜底仍在（规则按 `gs-names` 口径），与守卫**双保险**。
+================================================================================

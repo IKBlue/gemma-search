@@ -54,6 +54,26 @@ function tmpDir(tag) {
   return fs.mkdtempSync(path.join(E2E_TMP_ROOT, `${tag}-`));
 }
 
+// FIXTURE-DB-1（task-124·2026-10-17）：把**被跟踪的夹具库**复制成本轮**临时库**。
+//
+// 为什么必须复制：产品按 SPEC §3 把 `.gs.db` 写在**库根**下 —— 这没错；错的是 e2e 把
+// `apps/desktop/e2e/fixtures/lib-mini`（**仓库里被跟踪的契约夹具**）直接当库根：
+//   ⇒ 每轮 e2e 都会在那个目录里生成/重写 `.gs.db`（未跟踪 ⇒ `git add -A` 误提交风险），
+//      而且 11 个 spec 每轮都在**同一个** `.gs.db` 上叠加 ⇒ **跨 run 状态污染**（旧 schema /
+//      半写事务会被带进下一轮，可能让测试假绿或假红）。
+// 修法：复制到 `E2E_TMP_ROOT`（`data/_e2e-tmp/`，已被 .gitignore 覆盖）下的 `lib-mini-XXXX/lib-mini/`，
+//   库根指副本 ⇒ 夹具本体**只读**，且**每轮都是全新库**。
+// ⚠️ 副本的 basename 仍是 `lib-mini`（`gate.spec.mjs` 断侧栏文本含 `lib-mini` ⇒ 行为不变）。
+/**
+ * 复制夹具库到本轮临时目录；调用方负责调 `cleanup()`（或把它并进别人的 finally）。
+ */
+export function makeFixtureLibCopy() {
+  const parent = tmpDir('lib-mini');
+  const root = path.join(parent, 'lib-mini');
+  fs.cpSync(FIXTURE_LIB, root, { recursive: true });
+  return { root, cleanup: () => rmTmp(parent) };
+}
+
 /** 建一份"只有 data_dir、没有任何库来源"的临时配置 */
 function writeBareConfig(userData, dataDir) {
   const p = path.join(userData, 'config.json');
@@ -169,21 +189,26 @@ export async function launchWithLibrary() {
   const userData = tmpDir('userdata');
   const dataDir = tmpDir('data');
   const cfgPath = writeBareConfig(userData, dataDir);
+  // FIXTURE-DB-1：库根用**副本**（夹具本体只读；每轮全新库，避免跨 run 状态污染）
+  const lib = makeFixtureLibCopy();
 
   const app = await launchApp({
     // ⚠️ `GEMMA_FAKE: ''` 见 `launchWithoutLibrary` 的注释 —— 这里是**最要紧**的一处：
     //    同一个 spec 文件里前几条用例用 `launchFake()`，这条用的是真实模式；
     //    不显式置空的话，"真实模式"那条会静默跑成模拟模式（`E10-f` 实测出现过这种假绿/假红）。
-    env: { GEMMA_CONFIG: cfgPath, GEMMA_LIB_ROOT: FIXTURE_LIB, GEMMA_FAKE: '' },
+    env: { GEMMA_CONFIG: cfgPath, GEMMA_LIB_ROOT: lib.root, GEMMA_FAKE: '' },
     extraArgs: [`--user-data-dir=${userData}`],
   });
 
   return {
     app,
-    libRoot: FIXTURE_LIB,
+    libRoot: lib.root,
     /** TESTISO-1：本进程自己的日志（落点跟随 data_dir ⇒ 每个启动一份，不与他人共享） */
     logPath: path.join(dataDir, '_app.log'),
-    cleanup: () => rmTmp(userData, dataDir),
+    cleanup: () => {
+      rmTmp(userData, dataDir);
+      lib.cleanup();
+    },
   };
 }
 

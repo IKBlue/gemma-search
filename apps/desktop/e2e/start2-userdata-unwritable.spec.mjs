@@ -26,7 +26,7 @@ import path from 'node:path';
 
 import { test, expect } from '@playwright/test';
 
-import { FIXTURE_LIB } from './helpers/app.mjs';
+import { makeFixtureLibCopy } from './helpers/app.mjs';
 import { firstWindow, launchApp, ROOT } from './helpers/launch.mjs';
 
 const BLOCK_DIR = path.join(ROOT, 'data', '_start2');
@@ -89,8 +89,10 @@ test('START-2 ⭐ userData 不可写：不崩 + 如实记日志（单实例锁 /
   }
   expect(denied, '触发器没生效：这个目录必须**真的写不进去**（ACL 拒绝当前用户写）').toBe(true);
 
+  // FIXTURE-DB-1：库根用**副本**（不要把 .gs.db 写进被跟踪的夹具目录）
+  const lib = makeFixtureLibCopy();
   const app = await launchApp({
-    env: { GEMMA_CONFIG: '', GEMMA_LIB_ROOT: FIXTURE_LIB, GEMMA_FAKE: '', GEMMA_APP_LOG: APP_LOG },
+    env: { GEMMA_CONFIG: '', GEMMA_LIB_ROOT: lib.root, GEMMA_FAKE: '', GEMMA_APP_LOG: APP_LOG },
     extraArgs: ['--user-data-dir=' + BLOCKED_USER_DATA],
   });
   try {
@@ -129,6 +131,7 @@ test('START-2 ⭐ userData 不可写：不崩 + 如实记日志（单实例锁 /
     );
   } finally {
     await app.close().catch(() => {});
+    lib.cleanup();
     setWritable(BLOCKED_USER_DATA, true);
     fs.rmSync(BLOCK_DIR, { recursive: true, force: true });
   }

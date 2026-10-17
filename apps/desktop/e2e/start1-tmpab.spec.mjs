@@ -17,10 +17,14 @@ import path from 'node:path';
 import { test, expect } from '@playwright/test';
 
 import { firstWindow, collectConsoleErrors, launchApp, ROOT } from './helpers/launch.mjs';
+import { makeFixtureLibCopy } from './helpers/app.mjs';
 
 const say = (...a) => console.log('[tmpab]', ...a);
 const r1 = (x) => (x === null || x === undefined ? null : Number(Number(x).toFixed(1)));
-const FIXTURE = path.join(ROOT, 'apps', 'desktop', 'e2e', 'fixtures', 'lib-mini');
+// FIXTURE-DB-1：库根用**副本**（不要把 .gs.db 写进被跟踪的夹具目录）
+const FIXTURE = makeFixtureLibCopy();
+// 副本在整个 spec 结束后才清理（CONFIGS 循环里多次复用它）
+test.afterAll(() => FIXTURE.cleanup());
 const TMP_IN = path.join(ROOT, 'data', '_tmpab-in');
 const TMP_OUT = 'D:\\_tmpab-out';
 
@@ -44,7 +48,7 @@ test('START-1 归因：TEMP × userData 四组对照', async () => {
     const app = await launchApp({
       env: {
         GEMMA_CONFIG: '',
-        GEMMA_LIB_ROOT: FIXTURE,
+        GEMMA_LIB_ROOT: FIXTURE.root,
         GEMMA_FAKE: '',
         TEMP: cfg.temp,
         TMP: cfg.temp,
