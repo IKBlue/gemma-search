@@ -404,8 +404,9 @@ indexStart  { libId?, device?, seq?, rebuild? }  →  { jobId, total, phase, reu
 indexCancel { jobId? }  →  {}
   取消任务；jobId 省略 = 取消当前任务。取消在**阶段边界**生效（不打断正在写的那一批）。
 
-indexResume { jobId? }  →  { jobId, total, phase, reused? }
-  续跑。能否复用已有结果由引擎按 **compat** 判定：不等则**不复用**并在返回/事件里说明原因。
+indexResume { jobId?, libId? }  →  { jobId, total, phase, reused? }
+  续跑。能否复用已有结果由**构建器**按 **compat** 判定，引擎只转发；不等则**不复用**并在返回/事件里说明原因。
+  `libId` 是**可选新增**（2026-10-17）：引擎无持久状态，**跨重启**续跑必须带（否则 `BAD_REQUEST` 并说明原因）；同进程续跑可只给 jobId。
 `
 
 · **方法计数 22 → 25**（`shared/ipc.ts` 白名单仍是唯一来源）；
