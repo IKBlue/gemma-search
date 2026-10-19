@@ -53,6 +53,7 @@ import { createIndexingPorts } from './index-adapter.ts';
 import { createIndexJobRecorder } from './index-jobs.ts';
 import { backfillPhash } from './db/phash.ts';
 import { bgraToGray, PHASH_GRAY_BYTES, PHASH_H, PHASH_W } from './phash.ts';
+import { gray9x8FromFallbackDecoder } from './phash-fallback.ts';
 import { openGsDb } from './db/open.ts';
 import type { CollectOutcomeRow } from './collect-ledger.ts';
 import { classifyRootSync, probeRoots } from './library-availability.ts';
@@ -571,10 +572,18 @@ const phashBackfillInFlight = new Set<string>();
 /**
  * 生产解码器：`nativeImage` → 9×8 → BGRA → Rec.709 灰度。
  * 坏图/缺图/形状不对 ⇒ **null**（绝不伪造；NULL 在库里表示"坏图/缺图/未算"三态）。
+ *
+ * ⚠️ `nativeImage` **不支持 BMP**（2026-10-19 实测：库里 20 张「.jpg 实为 24 位 BI_RGB BMP」
+ *    在 byPath / 改 .bmp / createFromBuffer 三种方式下都 isEmpty）⇒ 解不了时回退到
+ *    应用唯一的回退解码器（`bmp_decode.ts`）再取灰度；否则那 20 条会**静默没有 phash**
+ *    （近重复通道对它们失效）。见 `main/phash-fallback.ts` 的口径说明。
  */
 async function decodeGray9x8(absPath: string): Promise<Uint8Array | null> {
   const img = nativeImage.createFromPath(absPath);
-  if (img.isEmpty()) return null;
+  if (img.isEmpty()) {
+    const fallback = await gray9x8FromFallbackDecoder(absPath);
+    return fallback ? fallback.gray : null;
+  }
   // 缩放参数**写死**（quality:'good'）：dHash 比较的是相邻像素的相对大小 ⇒ 不同滤波会改 bit；
   // 不许依赖运行时默认值（不同 Electron 版本默认值可能漂移）。
   const small = img.resize({ width: PHASH_W, height: PHASH_H, quality: 'good' });

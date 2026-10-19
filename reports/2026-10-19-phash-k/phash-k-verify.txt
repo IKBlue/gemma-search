@@ -1,0 +1,98 @@
+================================================================================
+PHASH-1b 前置证据 · 生产解码复核阈值 k + BMP 解码覆盖 · 2026-10-19 · Lead
+================================================================================
+卡面（HANDOFF）：「PHASH-1b 三通道排序接入，但**阈值必须等 EVAL-1 基线**」；
+上一轮补齐基线后留下的待办原话：「阈值候选 13 来自 `sharp` 近似校准，需先用**生产 nativeImage 解码**
+在真实条目上复核后再定稿」。本文件把「阈值复核」与复核中暴露的**解码覆盖缺口**一起关掉。
+
+【0. 结论速览】
+1. **生产解码下 k = 10**（不是 13）。同图缩放汉明 max **7**；异图最小汉明 **12**。
+   `sharp` 近似基线给的 13 会**超过异图最小距离 12** ⇒ 会把一对不同的图判成近重复。以生产解码为准。
+2. **发现并修掉一个真实缺口**：Electron 的 `nativeImage` **不支持 BMP**（byPath / 改 .bmp / createFromBuffer
+   三种方式都 isEmpty），而真实库有 **20 张「.jpg 实为 24 位 BI_RGB BMP」**（meta.json `bmpFallbackUsed: 20`）。
+   原 PHASH 解码只走 nativeImage ⇒ 这 20 条会**静默留 NULL**（近重复通道对它们失效）。
+   已加回退：nativeImage 解不了 ⇒ 走应用**唯一的** BMP 回退解码器（`bmp_decode.ts` via `readImageAny`），
+   **不写第二份解码器**。实测 **20/20 全部可解且哈希互不相同**。
+3. 近重复通道**结果呈现**（接到 search 结果/详情页）**未做**：它要动契约（结果字段或新只读方法）
+   与 SPEC 呈现口径 ⇒ 待所有者批准（见 TASKS 的 U37 提议）。本卡只交付"数据可用 + 阈值有据"。
+
+【1. 阈值复核（生产 nativeImage 解码 · 本轮实测）】
+命令：
+~
+node reports/2026-10-19-phash-k/phash-k-verify.mjs
+~
+做法：起真 Electron（生产解码器在主进程），`app.evaluate` 只做「nativeImage 解码 + 9×8 缩放 → 原始 BGRA 字节」，
+字节带回 Node 后用**生产纯函数** `bgraToGray` / `dHashHex` / `hammingHex` 计算（算法不复制）。
+原始输出：
+~
+[k] 样本：评测源图 50 条 · BMP 5 条 · 库根 G:\model
+===== PHASH-1b 阈值复核（生产 nativeImage 解码） =====
+解码失败：6 → q015,bmp-2f6ecb3c660a,bmp-8051978aaefb,bmp-b5eb7fa1e56b,bmp-ba51c7762c23,bmp-2b340d3eec19
+近重复（同图缩放到 256）：{"n":49,"min":0,"median":0,"p95":3,"max":7}
+参考（BMP 回退样本）：{"n":0,...}          ← 此时回退尚未接入（见 §2）
+异图：{"n":196,"min":12,"median":32,"p95":42,"max":46}
+sharp 近似基线（引用既有证据 fixtures/eval-baseline.json）：近重复 max 7 · 异图 min 19 · k=13
+⇒ 生产解码下的候选 k = 10
+~
+解释：
+· 生产解码的「同图不同尺寸」比 sharp 近似更稳（median 0 / p95 3）；但「异图最近的一对」是 **12**
+  （sharp 近似当时是 19）⇒ 阈值必须往小取，取空档中点 **10**（同图 max 7 ≤ 10 < 异图 min 12）。
+· q015 的「解码失败」不是坏图：它是 BMP（见 §2），验证了原解码链的盲区。
+· 异图最近一对 12 是否其实是"视觉上很像的两件商品"未逐对人工核（判断，非实测）；
+  这也是不建议把 k 取到 12 以上的原因（宁可漏判近重复，也不要把两件不同素材说成同一件）。
+
+【2. BMP 解码缺口与修复（本轮实测）】
+· 探针（真 Electron 主进程，对 q015 = 350×350 24 位 BI_RGB BMP）：
+~
+byPathJpg  = { empty: true }   // .jpg 扩展名、内容 BMP
+byPathBmp  = { empty: true }   // 把同一文件复制成 .bmp 也一样
+byBuffer   = { empty: true }   // createFromBuffer 原始字节也一样
+bpp=24 compression=0 offset=54 width=350 height=350
+~
+⇒ 结论：**nativeImage 不支持 BMP**（不是扩展名嗅探问题，也不是这一个文件坏了）。
+· 回退实现：`main/phash-fallback.ts` 的 `gray9x8FromFallbackDecoder` —— 复用
+  `main/encoder.ts` 的 `readImageAny`（唯一解码入口，BMP 走 `bmp_decode.ts`），取 9×8 灰度；
+  动态 import（encoder 带 transformers，很重，只在回退时加载 ⇒ 构建警告 0）。
+  `main/index.ts` 的 `decodeGray9x8`：nativeImage 为空 ⇒ 回退；仍为空 ⇒ NULL（坏图/缺图）。
+· 真实库覆盖（本轮实测）：
+~
+库内 BMP 总数: 20
+decoded ok: 20 / 20
+distinct hashes: 20
+~
+· 单测：`apps/desktop/tests/phash-fallback.test.mjs` 4 条（合成 BMP 有灰度+合法 dHash · 坏图 null ·
+  缺图 null 不抛 · PNG 同链可用）。
+· 真窗口 e2e：`apps/desktop/e2e/phash.spec.mjs` 增加一行合成 BMP 预览 ⇒
+  回填后 phash 非空且非 0 哈希；日志 `done=3`（2 PNG + 1 BMP）`nulled=1`（坏图）。
+  实测：`npx playwright test -c … phash` ⇒ **1 passed**。
+
+【3. 门禁（本轮实测 · 全量）】
+~
+npx prettier --check .   => All matched files use Prettier code style!        PRETTIER=0
+npm run lint             => LINT=0
+npm run typecheck        => TC=0
+npm test                 => ℹ tests 840 · ℹ pass 839 · ℹ fail 0 · ℹ skipped 1  TEST=0
+npm run build            => BUILD=0 · **WARNINGS=0** · 三端齐备
+npx playwright test -c … => **78 passed / 4 skipped / 0 failed** · E2E=0（5.9 min）
+node reports/…/s4-accept.mjs => PASS 21 · FAIL 0 · SKIP 0 · S4=0
+~
+
+【4. 写入面】
+| 文件 | 变更 |
+|---|---|
+| `apps/desktop/src/main/phash-fallback.ts` | **新增**：nativeImage 解不了时的回退解码（复用 readImageAny，动态 import） |
+| `apps/desktop/src/main/index.ts` | `decodeGray9x8`：解不了 ⇒ 回退；注释写明实测结论与为什么不写第二份解码器 |
+| `apps/desktop/src/main/encoder.ts` | `ReadImageResult.image` 由 `unknown` 收紧为 `RawImage`（类型收紧，无运行时变化） |
+| `apps/desktop/tests/phash-fallback.test.mjs` | **新增** 4 条单测 |
+| `apps/desktop/e2e/phash.spec.mjs` | 增加 BMP 预览行 + `done=3` / BMP 非 0 哈希断言 |
+| `reports/2026-10-19-phash-k/phash-k-verify.mjs` · `.json` | **新增**：阈值复核脚本（可复跑）与原始数据 |
+
+【5. 边界（如实）】
+· **阈值 k=10 是"生产解码 + 本次 50 条真实素材"的候选值**，尚未冻结成产品常量：它要随
+  PHASH-1b 的结果呈现一起定稿（届时还需决定：k 按"两图缩放"口径，**裁剪查询不算近重复**，见 EVAL-1 基线）。
+· 回退路径的 9×8 缩放用 sharp `fit:'fill'`（主路径是 nativeImage `quality:'good'`）——
+  两者都"写死参数 + 强制 9×8"，但滤波实现不同；影响面只有 nativeImage 解不了的格式（实测=BMP）。
+  这类条目的哈希与主路径**不是同一把尺子**，PHASH-1b 若对 BMP 条目做跨图比较，需认识这一点。
+· `thumb://` 对 BMP 仍返回 415（`nativeImage` 同样解不了）—— 那是**既有**现象，不在本卡范围；
+  若要修，可复用同一条回退链（另开卡）。
+================================================================================

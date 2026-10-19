@@ -159,5 +159,12 @@ build 0（WARNINGS=0 · 三端齐备）· e2e 74 passed / 4 skipped / 0 failed �
 ### 2026-10-17 补充（同一会话 · 第 2 轮）
 · **UX-1c（文件型）完成**：拖拽/粘贴图片文件 ⇒ 以图搜（判定纯函数 + 立刻检索 + 真窗口 e2e）；扩展名清单收成
   `shared/image-ext.ts` 单一来源（`main/encoder.ts` 改为引用）。
-· **剪贴板位图（截图）粘贴**：所有者 **2026-10-17 裁定「暂不批准」**新增 IPC（见 TASKS U36）⇒ UX-1c 停在文件型；当前如实拒绝并提示先保存成文件。
+· **剪贴板位图（截图）粘贴**：所有者 **2026-10-17 裁定「暂不批准」**新增 IPC（见 TASKS U37）⇒ UX-1c 停在文件型；当前如实拒绝并提示先保存成文件。
 · 门禁（本轮）：prettier 0 · lint 0 · tsc 0 · 单测 **836/835/0/1** · build 0（WARN 0）· e2e **78 passed / 4 skipped / 0 failed**。
+
+### 2026-10-19 补充（PHASH-1b 前置 + BMP 解码覆盖）
+
+· **阈值复核（生产 nativeImage 解码）**：k = **10**（同图缩放汉明 max 7 · 异图 min 12）；EVAL-1 基线里 sharp 近似算出的 **13 作废**（13 会越过异图最小距离 12）。证据 `reports/2026-10-19-phash-k/`。
+· **发现并修掉一个真实缺口**：`nativeImage` **不支持 BMP**（byPath / 改 .bmp / createFromBuffer 都 isEmpty），而真实库有 20 张「.jpg 实为 24 位 BI_RGB BMP」⇒ 原 PHASH 解码会让它们静默 NULL。已加回退（复用 `readImageAny` 唯一代码路径，动态 import，构建警告 0），实测 **20/20 可解且哈希互异**。
+· 门禁（2026-10-19）：prettier 0 · lint 0 · tsc 0 · 单测 **840/839/0/1** · build 0（WARN 0）· e2e **78 passed / 4 skipped / 0 failed** · s4 21/0/0。
+· **待裁（新增）**：**U38** NOMATCH-1 口径（绝对阈值与单纯间隔都不干净，选项 A/B/C）· **U39** PHASH-1b 结果呈现（是否批准契约兼容新增）。**U30 回收站口径仍未裁**。

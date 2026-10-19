@@ -93,8 +93,8 @@ function errMessage(e: unknown): string {
 // 现在那一份实现直接**拒绝**全零；本文件只 import，两个调用点写法保持不变（E-1 守着）。
 
 /** `readImageAny` 的返回：图（RawImage 形状）与它的来源标签 */
-interface ReadImageResult {
-  image: unknown;
+export interface ReadImageResult {
+  image: RawImage;
   source: string;
 }
 
