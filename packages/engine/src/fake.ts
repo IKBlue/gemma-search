@@ -399,6 +399,8 @@ export function createFakeKit({
   function doSearch(req: FakeSearchRequest = {}): OkEnvelope<unknown> {
     const mode = req.mode || 'text';
     const topK = Math.max(1, Math.min(200, Number(req.topK) || 50));
+    // NOMATCH-1（U38）演示钩子：查询词含 `__lowband__` ⇒ 分数全压到 low 档（见下面的注释）
+    const lowband = typeof req.text === 'string' && req.text.includes('__lowband__');
     const only =
       req.libIds && req.libIds.length ? req.libIds : (data.libs || []).map((l) => l.libId);
     const libsUsed: string[] = [];
@@ -427,9 +429,12 @@ export function createFakeKit({
       }
       libsUsed.push(libId);
       const items = itemsByLib.get(libId) || [];
-      // 固定顺序：按 fixture 顺序，分数线性递减 —— **可复现**，测试才能断言
+      // 固定顺序：按 fixture 顺序，分数线性递减 —— **可复现**，测试才能断言。
+      // 「弱匹配」演示 token（NOMATCH-1 · U38）：查询词含 `__lowband__` ⇒ 所有分数压到 0.5
+      // （text 的 low 档 <0.65 / image 的 low 档 <0.8 都成立）⇒ 界面能**确定地**演示
+      // "库里没有很接近的结果，以下仅供参考"这一形态；与 `__empty__` 同属模拟模式的演示钩子。
       items.forEach((it, i) => {
-        const score = Number(Math.max(0.5, 0.99 - i * 0.01).toFixed(6));
+        const score = lowband ? 0.5 : Number(Math.max(0.5, 0.99 - i * 0.01).toFixed(6));
         scored.push({ libId, item: it, score });
       });
     }

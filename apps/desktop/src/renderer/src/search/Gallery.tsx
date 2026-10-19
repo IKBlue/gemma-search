@@ -27,6 +27,10 @@ export type GalleryProps = {
   onLocate?: (item: SearchItem) => void;
   onCollect?: (item: SearchItem) => void;
   onClear?: () => void;
+  /** 弱匹配提示（NOMATCH-1 · U38 口径 A）：非空时在结果上方显示（"以下最近 N 条仅供参考"） */
+  notice?: string;
+  /** 与 notice 配套：只展示最近 N 条（未给 = 展示全部） */
+  maxItems?: number;
 };
 
 export default function Gallery({
@@ -37,6 +41,8 @@ export default function Gallery({
   onLocate,
   onCollect,
   onClear,
+  notice,
+  maxItems,
 }: GalleryProps) {
   if (loading) {
     return (
@@ -67,8 +73,18 @@ export default function Gallery({
   }
   if (!results) return null;
 
+  // U38：弱匹配时只展示"最近 N 条"（N 由 Operation 层按 band 判定，界面不自算阈值）
+  const shown = typeof maxItems === 'number' && maxItems > 0 ? results.slice(0, maxItems) : results;
+
   return (
     <>
+      {notice ? (
+        // 提示不是错误：弱匹配仍然是"有结果"，所以走 status 而不是 alert（与 useToast 的 V-16 口径一致）。
+        // 视觉复用既有 `.hint`（tokens.css 的次要文字色）—— 不为它新增一套样式/令牌。
+        <p className="hint" role="status" data-testid="shortfall-notice">
+          {notice}
+        </p>
+      ) : null}
       <div className="row mb-4">
         <div>
           <b>搜索结果</b> <span className="muted small">{results.length} 套素材</span>
@@ -76,7 +92,7 @@ export default function Gallery({
         <Button onClick={onClear}>清除选择</Button>
       </div>
       <div className="gallery">
-        {results.map((item) => (
+        {shown.map((item) => (
           <PhotoCard key={item.uid} item={item} onLocate={onLocate} onCollect={onCollect} />
         ))}
       </div>

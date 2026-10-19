@@ -25,6 +25,8 @@ export type SearchResult = {
   libId?: string;
   stem?: string;
   score?: number;
+  /** 引擎给的档位（high/mid/low/unknown）；界面**只用它**做弱匹配判定，不自算阈值 */
+  band?: string;
   archive?: unknown;
   exists?: { image?: boolean; archive?: boolean } | null;
 };

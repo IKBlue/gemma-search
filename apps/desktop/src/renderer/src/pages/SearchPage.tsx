@@ -23,6 +23,7 @@ import SearchSidebar from '../search/SearchSidebar.tsx';
 import { LABELS } from '../router/paths.ts';
 import { useDocumentTitle } from '../utils/useDocumentTitle.ts';
 import { classifyImageFiles } from '../utils/image-intake.ts';
+import { decideShortfall } from '../utils/shortfall.ts';
 
 /** 事件流里本页用到的字段（其余原样忽略；`unknown` 下不许直接取属性） */
 type PageEvent = {
@@ -91,6 +92,9 @@ export default function SearchPage() {
   // 排序是**派生**的（纯函数），不进 store —— 否则 rawResults / sort / results 三者
   // 要手工保持同步，那是典型的「同一份事实两处存」。
   const results = useMemo(() => sortResults(rawResults, sort), [rawResults, sort]);
+  // ⚠️ 用**引擎原序**（rawResults）判定弱匹配：用户切了"按文件名"排序后，第一条不再是"最相关"，
+  //    但仍然要按相关性判断"库里有没有接近的"。
+  const shortfall = useMemo(() => decideShortfall(rawResults), [rawResults]);
 
   const [device, setDevice] = useState('');
   const [imageName, setImageName] = useState('');
@@ -334,6 +338,9 @@ export default function SearchPage() {
               results={results}
               error={error}
               loading={busy}
+              // NOMATCH-1（U38 口径 A）：弱匹配只做提示 + shortfall，不硬判 no_close_match
+              notice={shortfall.note || undefined}
+              maxItems={shortfall.show ? shortfall.limit : undefined}
               onLocate={(item) => reveal(item, show)}
               // ⚠️ 不再直接 `collect` —— 取件会**写文件**，先经「请求 → 确认」（T4）
               onCollect={requestCollect}

@@ -152,6 +152,22 @@ test('F2b `__empty__` 触发「无结果」分支；compat 不符与索引损坏
   }
 });
 
+test('F2c `__lowband__` 触发「弱匹配」演示：有结果但每条 band 都是 low（NOMATCH-1 · U38）', async () => {
+  const { engine } = fakeEngine();
+  try {
+    const r = await engine.search({ mode: 'text', text: '__lowband__', topK: 12 });
+    assert.ok(r.data.results.length > 0, '弱匹配不是"无结果"：必须有结果（否则演示的是空态）');
+    for (const it of r.data.results) {
+      assert.equal(it.band, 'low', '每一条都必须是 low 档（界面据此显示"仅供参考"）');
+      assert.ok(it.score < 0.65, 'text 的 low 档阈值 <0.65（BANDS 不是界面自算的）');
+    }
+    const normal = await engine.search({ mode: 'text', text: '正常查询', topK: 3 });
+    assert.equal(normal.data.results[0].band, 'high', '不含 token 时仍是正常的高分档位');
+  } finally {
+    engine._fake.__dispose();
+  }
+});
+
 // ============================================================ ③ item vs itemPaths
 
 test('F3 `item` **不**返回绝对路径；`itemPaths` 才是要路径的地方（所有者决定）', async () => {
