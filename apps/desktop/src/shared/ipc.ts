@@ -35,6 +35,10 @@ export const CH_EVENT = 'engine:event';
  *     · `collectDirAdd`：没有选择器 ⇒ 只能退到「存在且是目录」（**已知缺口**，写在那里，不假装防住）。
  */
 export const Methods = {
+  // ⚠️ `search` 的**响应**（不是入参）在 2026-10-19 起可能多两个**只读**字段（PHASH-1b 呈现 · U39 口径 B）：
+  //    · `results[].phashDistance: number | null` —— 与查询图的 dHash 汉明距离；null = 未知；
+  //    · `results[].nearDuplicate: boolean` —— 主进程按 k=10 判好的近重复标记（界面不得重算）。
+  //    只在 `mode='image'` 时出现；属**兼容新增**（老客户端忽略未知字段即可），SPEC §3 F1 已记录。
   search: z
     .object({
       mode: z.enum(['text', 'image', 'vector']),

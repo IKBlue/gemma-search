@@ -11,7 +11,13 @@ import { after, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { openGsDb } from '../src/main/db/open.ts';
-import { backfillPhash, listPhashPending, readPhash, writePhash } from '../src/main/db/phash.ts';
+import {
+  backfillPhash,
+  listPhashPending,
+  readPhash,
+  readPhashMap,
+  writePhash,
+} from '../src/main/db/phash.ts';
 import { dHashHex, hammingHex, bgraToGray, PHASH_GRAY_BYTES } from '../src/main/phash.ts';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -160,4 +166,29 @@ test('P5 ⭐ 整链等价：把同一张图的灰度写成 BGRA ⇒ bgraToGray �
   const back = bgraToGray(bgra);
   assert.deepEqual(Array.from(back), Array.from(rampGray), '灰度写入再读出必须逐字节相同');
   assert.equal(dHashHex(back), dHashHex(rampGray), '同一画面 ⇒ 同一个哈希');
+});
+
+test('P6 ⭐ 批量读 readPhashMap：一条 SQL 取回；NULL 保留为 null；查不到的 uid 不凭空出现', () => {
+  const lib = freshLib('P6');
+  try {
+    lib.add('aa0000000001', 'CR/a.jpg');
+    lib.add('aa0000000002', 'CR/b.jpg');
+    lib.add('aa0000000003', 'CR/c.jpg');
+    const h = dHashHex(ramp(0));
+    writePhash(lib.opened.db, 'aa0000000001', h);
+    writePhash(lib.opened.db, 'aa0000000002', null); // 显式"算不出来"
+    const m = readPhashMap(lib.opened.db, [
+      'aa0000000001',
+      'aa0000000002',
+      'ffffffffffff',
+      'aa0000000001',
+    ]);
+    assert.equal(m.get('aa0000000001'), h);
+    assert.equal(m.get('aa0000000002'), null, 'NULL 要如实保留（不是缺键、更不是 0）');
+    assert.equal(m.has('ffffffffffff'), false, '库里没有的 uid 不许凭空出现');
+    assert.equal(m.size, 2, '重复 uid 去重后只填实际存在的行');
+    assert.equal(readPhashMap(lib.opened.db, []).size, 0, '空列表 ⇒ 空 Map（不发 SQL）');
+  } finally {
+    lib.opened.db.close();
+  }
 });

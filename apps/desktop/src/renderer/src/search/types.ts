@@ -13,6 +13,10 @@ export type SearchItem = {
   folder?: string | null;
   score?: number;
   band?: string;
+  /** U39：与查询图的 dHash 汉明距离；null/缺省 = 未知（不是"不重复"） */
+  phashDistance?: number | null;
+  /** U39：是否近重复（**主进程**按 k=10 判好；界面只显示，不重算阈值） */
+  nearDuplicate?: boolean;
   vectorSource?: string;
   imageSize?: number | null;
   imageMtime?: number | null;

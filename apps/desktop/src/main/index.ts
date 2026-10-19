@@ -51,9 +51,10 @@ import { recordCollectBatch } from './collect-ledger.ts';
 import { recordSearchQuery } from './search-history.ts';
 import { createIndexingPorts } from './index-adapter.ts';
 import { createIndexJobRecorder } from './index-jobs.ts';
-import { backfillPhash } from './db/phash.ts';
-import { bgraToGray, PHASH_GRAY_BYTES, PHASH_H, PHASH_W } from './phash.ts';
+import { backfillPhash, readPhashMap } from './db/phash.ts';
+import { bgraToGray, dHashHex, PHASH_GRAY_BYTES, PHASH_H, PHASH_W } from './phash.ts';
 import { gray9x8FromFallbackDecoder } from './phash-fallback.ts';
+import { annotateNearDuplicates } from './near-dup.ts';
 import { openGsDb } from './db/open.ts';
 import type { CollectOutcomeRow } from './collect-ledger.ts';
 import { classifyRootSync, probeRoots } from './library-availability.ts';
@@ -590,6 +591,82 @@ async function decodeGray9x8(absPath: string): Promise<Uint8Array | null> {
   const bgra = small.toBitmap();
   if (!bgra || bgra.length !== PHASH_GRAY_BYTES * 4) return null;
   return bgraToGray(bgra);
+}
+
+// ---------------------------------------------------------------- 检索结果的近重复标注（PHASH-1b · U39 口径 B）
+//
+// 所有者 2026-10-19 裁 B：给以图搜图的结果标「近重复」（判据 = dHash 汉明 ≤ k=10，阈值来自生产解码复核）。
+// ⚠️ 三条纪律：
+//   ① **只标注、不改判**：分数/排序/条数一个字不动；标注失败**绝不影响检索结果**（只记日志）；
+//   ② 查询图 phash 的来源：`queryImagePath` 直接解；`imageRef`（库内以图搜）经引擎 `absPathFor` 解析；
+//      其它 mode（text/vector）不标注；
+//   ③ 结果的 phash 从**库自己的 `.gs.db`** 只读查（缺库/缺行 ⇒ 未知，不是"不重复"）。
+async function queryImagePhash(
+  eng: EngineApi,
+  params: Record<string, unknown>,
+): Promise<string | null> {
+  try {
+    let abs: string | null = null;
+    if (typeof params.queryImagePath === 'string' && params.queryImagePath) {
+      abs = params.queryImagePath;
+    } else if (params.imageRef && typeof params.imageRef === 'object') {
+      const ref = params.imageRef as { libId?: unknown; uid?: unknown };
+      if (typeof ref.libId === 'string' && typeof ref.uid === 'string') {
+        abs = eng.absPathFor(ref.libId, ref.uid); // 内含库根包含 + 符号链接校验
+      }
+    }
+    if (!abs) return null;
+    const gray = await decodeGray9x8(abs);
+    return gray ? dHashHex(gray) : null;
+  } catch (e) {
+    log('!! [近重复] 计算查询图 phash 失败（本次不标注）:', stackText(e));
+    return null;
+  }
+}
+
+/**
+ * 给一次**成功的以图搜图**结果加 `phashDistance` / `nearDuplicate`。
+ * @returns 新 data（未改动入参）；不需要/无法标注时返回 null（调用方原样返回）
+ */
+async function annotateSearchNearDuplicates(
+  eng: EngineApi,
+  params: Record<string, unknown>,
+  data: unknown,
+): Promise<unknown | null> {
+  if (params.mode !== 'image') return null;
+  const d = data && typeof data === 'object' ? (data as { results?: unknown }) : {};
+  const results = Array.isArray(d.results)
+    ? (d.results as Array<{ uid?: string; libId?: string }>)
+    : [];
+  if (results.length === 0) return null;
+  const queryPhash = await queryImagePhash(eng, params);
+  if (!queryPhash) return null;
+
+  // 结果可能跨库：逐库只读打开一次，批量取 phash（一个库失败不影响别的库）
+  const byLib = new Map<string, Map<string, string | null>>();
+  const libIds = [...new Set(results.map((r) => String(r.libId ?? '')).filter(Boolean))];
+  for (const libId of libIds) {
+    try {
+      const dbPath = libDbPathOf(libId);
+      if (!dbPath || !fs.existsSync(dbPath)) continue;
+      const opened = openGsDb({ dbPath, readOnly: true });
+      try {
+        const uids = results
+          .filter((r) => String(r.libId) === libId)
+          .map((r) => String(r.uid ?? ''));
+        byLib.set(libId, readPhashMap(opened.db, uids));
+      } finally {
+        opened.db.close();
+      }
+    } catch (e) {
+      log('!! [近重复] 读取库 phash 失败（该库本次不标注）:', libId, stackText(e));
+    }
+  }
+  const phashOf = (libId: string, uid: string): string | null => byLib.get(libId)?.get(uid) ?? null;
+  return {
+    ...(d as Record<string, unknown>),
+    results: annotateNearDuplicates(results, queryPhash, phashOf),
+  };
 }
 
 /** 排一次回填（多次调用合并成一趟；不阻塞调用方） */
@@ -1135,6 +1212,20 @@ function registerIpc(): void {
         params: v.params,
       });
       if (warning) res = { ...res, warnings: [...(res.warnings ?? []), warning] };
+    }
+    // PHASH-1b / U39（所有者 2026-10-19 裁 B）：以图搜图的结果加「近重复」标注。
+    // ⚠️ 只标注、不改判：分数/排序/条数不动；标注失败也只记日志（检索结果照常返回）。
+    if (!FAKE_MODE && v.method === 'search' && res.ok) {
+      try {
+        const params =
+          v.params && typeof v.params === 'object'
+            ? (v.params as Record<string, unknown>)
+            : Object.create(null);
+        const annotated = await annotateSearchNearDuplicates(eng, params, res.data);
+        if (annotated) res = { ...res, data: annotated };
+      } catch (e) {
+        log('!! [近重复] 标注失败（**检索结果不受影响**）:', stackText(e));
+      }
     }
     log(`invoke ${v.method} ${Date.now() - started}ms → ${resultCode(res)}`);
     return res;

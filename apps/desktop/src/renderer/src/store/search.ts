@@ -27,6 +27,10 @@ export type SearchResult = {
   score?: number;
   /** 引擎给的档位（high/mid/low/unknown）；界面**只用它**做弱匹配判定，不自算阈值 */
   band?: string;
+  /** U39：与查询图的 dHash 汉明距离；null/缺省 = 未知（不是"不重复"） */
+  phashDistance?: number | null;
+  /** U39：是否近重复（主进程按 k=10 判定；界面只负责显示，不重算） */
+  nearDuplicate?: boolean;
   archive?: unknown;
   exists?: { image?: boolean; archive?: boolean } | null;
 };

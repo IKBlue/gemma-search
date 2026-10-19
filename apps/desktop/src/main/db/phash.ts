@@ -42,6 +42,28 @@ export function readPhash(db: SqlDatabase, uid: string): string | null {
 }
 
 /**
+ * 批量读（一次 SQL，给"检索结果近重复标注"用）。
+ *
+ * @returns `uid -> phash|null`；**查不到的 uid 不出现在 Map 里**（调用方把它当"未知"，不是 0）
+ */
+export function readPhashMap(db: SqlDatabase, uids: readonly string[]): Map<string, string | null> {
+  const out = new Map<string, string | null>();
+  const list = [...new Set(uids.filter((u) => typeof u === 'string' && u))];
+  if (list.length === 0) return out;
+  const holes = list.map(() => '?').join(',');
+  const rows = db
+    .prepare("SELECT uid, phash FROM asset_file WHERE role = 'preview' AND uid IN (" + holes + ')')
+    .all(...list);
+  for (const row of rows) {
+    out.set(
+      String(row.uid),
+      row.phash === null || row.phash === undefined ? null : String(row.phash),
+    );
+  }
+  return out;
+}
+
+/**
  * 写一条（`phash = null` 也允许：显式记"这条算不出来"）。
  * @returns 是否真的有行被更新（没有该 uid 的预览行 ⇒ false，不伪造）
  */

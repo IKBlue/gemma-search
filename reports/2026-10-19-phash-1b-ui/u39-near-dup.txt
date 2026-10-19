@@ -1,0 +1,59 @@
+================================================================================
+U39 · PHASH-1b 结果呈现（口径 B：结果卡「近重复」角标）· 2026-10-19 · Lead
+================================================================================
+所有者 2026-10-19 裁定：**B —— 结果卡加「近重复」角标**（`search` 结果加只读字段，属契约兼容新增）。
+判据用 PHASH-1a 的 dHash 与 PHASH-1b 复核出的阈值 **k=10**
+（生产 nativeImage 解码：同图缩放汉明 max 7 · 异图 min 12；`sharp` 近似的 13 已作废）。
+
+【1. 契约（兼容新增，向后兼容）】
+`search` 的**响应**里（仅 `mode='image'`）每条结果多两个**只读**字段：
+  · `phashDistance: number | null` —— 与**查询图**的 dHash 汉明距离；`null` = 未知（查询图或该条没有可用 phash）
+  · `nearDuplicate: boolean` —— **主进程**按 k=10 判好的近重复标记
+落点：
+  · `apps/desktop/src/shared/ipc.ts`（`search` schema 上方注释，写明"响应字段/兼容新增"）
+  · `SPEC.md` §3 F1「输出」行（写清字段、`null=未知`、"界面只显示不重算"）
+⚠️ 入参 zod **一个字未改**（响应不在 zod 校验面内）；属 §9.1「新增字段=兼容」。
+
+【2. 实现（写入面）】
+| 文件 | 变更 |
+|---|---|
+| `main/phash.ts` | 新增 `PHASH_NEAR_DUP_K = 10`（注释直接指向证据与"为什么不是 13"） |
+| `main/db/phash.ts` | 新增 `readPhashMap(db, uids)`：一条 SQL 批量读（`NULL` 如实保留；查不到的 uid 不凭空出现） |
+| `main/near-dup.ts` | **新增纯函数** `annotateNearDuplicates(rows, queryPhash, phashOf, k)`：不修改入参/不重排；未知 ⇒ `null/false`；注入 reader ⇒ 可单测 |
+| `main/index.ts` | 检索成功后（**仅真实模式 + image**）：算查询图 phash（`queryImagePath` 直接解；`imageRef` 经引擎 `absPathFor`）→ 逐库**只读**打开 `.gs.db` 批量读结果 phash → 标注。⚠️ 只标注、**不改分数/排序**；任何失败只记日志，检索结果照常返回 |
+| `renderer/src/search/PhotoCard.tsx` | 角标 `data-testid="near-dup"`（文案「近重复」；距离放 `title` 与 `data-distance`，界面**不重算阈值**） |
+| `renderer/src/{store/search.ts,search/types.ts}` | 类型补 `phashDistance` / `nearDuplicate`（可选；缺失=未知） |
+
+【3. 测试（本轮实测）】
+· 单测 `apps/desktop/tests/near-dup.test.mjs`（6 条）：阈值边界 0/10 真、11 假（且断言常量=10）；未知≠不同
+  （查不到 phash ⇒ null/false 且**不去读库**）；不修改入参、不重排；多库不串库；可注入 k；空/缺 uid 安全。
+· 单测 `phash.test.mjs` 新增 **P6**：`readPhashMap` 批量读（NULL 保留、缺 uid 不出现、重复去重、空列表不发 SQL）。
+· **真窗口 e2e** `apps/desktop/e2e/near-dup.spec.mjs`（确定性做法，不是"看起来像"）：
+  1. 用真实库的索引/条目建临时库（同 m0-real 的做法并 `importItemsFromJson`）；
+  2. 启动应用 → 用**主进程 nativeImage** 算查询图的 dHash；
+  3. 等启动回填那一趟结束（避免互相踩），把**同一个哈希**写进该 uid 的 `asset_file.phash` ⇒ 距离必然 0；
+  4. 用 UX-1c 的粘贴入口触发以图搜 → 断言**同源那张卡**出现「近重复」且 `data-distance="0"`。
+  实测：`npx playwright test -c … near-dup` ⇒ **1 passed（8.9 s）**。
+· 依赖：真实库/模型缺失时该 spec **跳过**（与 m0-real 同一约定）。
+
+【4. 门禁（本轮实测 · 全量 · 最终代码状态）】
+~
+npx prettier --check .   => All matched files use Prettier code style!        PRETTIER=0
+npm run lint             => LINT=0
+npm run typecheck        => TC=0
+npm test                 => ℹ tests 853 · ℹ pass 852 · ℹ fail 0 · ℹ skipped 1  TEST=0
+npm run build            => BUILD=0 · **WARNINGS=0** · 三端齐备
+npx playwright test -c … => **80 passed / 4 skipped / 0 failed** · E2E=0（4.4 min）
+node reports/…/s4-accept.mjs => PASS 21 · FAIL 0 · SKIP 0 · S4=0
+~
+（第一次全量门禁 lint=1：e2e spec 里一个未使用的 `T0` 常量。删掉后**整套重跑**得上表；没有放宽任何规则。）
+
+【5. 边界（如实 · P6）】
+· 只在 **image 模式**标注；text/vector 不标注（没有查询图可对齐）。
+· phash 缺失（未回填/坏图）⇒ `phashDistance=null, nearDuplicate=false` —— **未知不是"不重复"**；
+  因此"没有角标"只代表"没证据说它重复"，不代表"断言它不重复"。
+· **裁剪查询不算近重复**（裁剪 vs 原图 17–43）：只有整图对整图的比较才用 k=10；框选若将来接入，需另定口径。
+· BMP 条目已能参与（PHASH-1a 的回退解码，20/20 可解）；其灰度由 sharp `fit:fill` 近似，
+  与主路径 nativeImage 的滤波不同 —— 对"同一画面缩放"的影响已在阈值复核里给了余量（7 ≤ 10）。
+· 角标不参与排序（U39 只批准了"呈现"；"三通道排序"若要做，需另定产品口径）。
+================================================================================

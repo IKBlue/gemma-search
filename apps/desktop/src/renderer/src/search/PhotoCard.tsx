@@ -90,6 +90,22 @@ export default function PhotoCard({ item, onLocate, onCollect }: PhotoCardProps)
             band={item.band}
             size={archive ? archive.size : item.imageSize}
           />
+          {/* U39（PHASH-1b 呈现 · 所有者 2026-10-19 裁 B）：近重复角标。
+              阈值 k=10 由**主进程**判好（生产解码复核过），界面不重算；距离只放 title 供排查。 */}
+          {item.nearDuplicate ? (
+            <span
+              className="tag"
+              data-testid="near-dup"
+              data-distance={item.phashDistance ?? ''}
+              title={
+                typeof item.phashDistance === 'number'
+                  ? `与查询图画面高度相似（dHash 汉明距离 ${item.phashDistance}）`
+                  : '与查询图画面高度相似'
+              }
+            >
+              近重复
+            </span>
+          ) : null}
         </div>
       </div>
     </article>

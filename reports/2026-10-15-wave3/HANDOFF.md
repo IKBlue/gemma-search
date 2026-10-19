@@ -177,3 +177,10 @@ build 0（WARNINGS=0 · 三端齐备）· e2e 74 passed / 4 skipped / 0 failed �
 · **U39（PHASH-1b 呈现 · 口径 B）已批准、待实现**：结果卡「近重复」角标（契约兼容新增只读字段）。
 · 门禁（2026-10-19）：prettier 0 · lint 0 · tsc 0 · 单测 **846/845/0/1** · build 0（WARN 0）· e2e **79 passed / 4 skipped / 0 failed** · s4 21/0/0。
 · 中途作废过一版实现：把弱匹配 e2e 塞进 m0-real（真模型无意义查询实测 top1 **0.7182 = mid 档** ⇒ 提示不出现）⇒ 判定"真模型无法确定制造 low 档"，改用模拟演示钩子并把 m0-real 插桩整体回退（git diff 为空）。
+
+### 2026-10-19 补充（U39 落地 · TRASH-1 排期 · AGENTS 同步）
+
+· **U39（PHASH-1b 呈现 · 口径 B）已实现**：`search` 响应（仅 image）加只读 `phashDistance` / `nearDuplicate`；结果卡「近重复」角标；主进程按 **k=10** 标注（**只标注、不改分数/排序**，失败只记日志）。测试：6 条单测（阈值边界/未知≠不同/不重排/多库/可注入 k/空行）+ `readPhashMap` P6 + **确定性真窗口 e2e**（主进程 nativeImage 算查询图哈希 → 同一值写库 → 粘贴以图搜 → 同源卡 `data-distance=0`）。证据 `reports/2026-10-19-phash-1b-ui/u39-near-dup.txt`。
+· **TRASH-1 已排期**（所有者 2026-10-19 说"排期"）：位置在 **U39 之后、FRMAP 下一批（截图/框选/托盘）之前**。落地清单已写进 TASKS 卡面：`gs-names.ts` + `errors.ts` + SPEC §5.2 + s4-A18（28→30）**同一提交**；删除/恢复**新增 IPC 方法属契约变更，仍需单独裁定**。
+· **AGENTS 已同步**（所有者批准）：§5 保留命名空间与写入不变式、§8-P4 都加了 `.gs-trash/`。
+· 门禁（2026-10-19 · 最终代码状态）：prettier 0 · lint 0 · tsc 0 · 单测 **853/852/0/1** · build 0（WARN 0）· e2e **80 passed / 4 skipped / 0 failed** · s4 21/0/0。

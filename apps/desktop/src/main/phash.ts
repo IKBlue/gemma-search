@@ -22,6 +22,19 @@ export const PHASH_W = 9;
 export const PHASH_H = 8;
 export const PHASH_GRAY_BYTES = PHASH_W * PHASH_H;
 
+/**
+ * 近重复阈值 k（汉明距离 ≤ k 视为"同一画面的近重复"）。
+ *
+ * 依据（`reports/2026-10-19-phash-k/phash-k-verify.txt`，**生产 nativeImage 解码**实测）：
+ *   · 同一张图缩放后再算哈希：汉明 min 0 / median 0 / p95 3 / **max 7**；
+ *   · 不同图之间：**min 12** / median 32 / max 46。
+ * ⇒ 取两侧空档中点 **10**（7 ≤ 10 < 12）。
+ * ⚠️ 早先 `sharp` 近似基线给的 13 **已作废**：13 会越过"异图最小距离 12"，
+ *    把两件不同素材判成近重复（宁可漏判，也不要把不同素材说成同一件）。
+ * ⚠️ 这个口径只适用于**完整画面**的比较：中心裁剪查询（框选）不是近重复（裁剪 vs 原图 17–43）。
+ */
+export const PHASH_NEAR_DUP_K = 10;
+
 /** dHash → 16 位小写 hex（输入必须是 72 字节；坏输入直接抛，不静默产出垃圾哈希） */
 export function dHashHex(gray: Uint8Array): string {
   if (!(gray instanceof Uint8Array) || gray.length !== PHASH_GRAY_BYTES) {
