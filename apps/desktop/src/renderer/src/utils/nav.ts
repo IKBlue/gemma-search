@@ -51,9 +51,10 @@ export const NAV: readonly NavEntry[] = Object.freeze([
     label: '文档',
     reason: 'F7 门控：需先取得 10–30 份真实文档并确认格式分布（条件不满足就不开工）',
   }),
-  // 2026-10-15（T-15b）：诊断页**真的可达**（体检 + 重建元数据）⇒ 给它 to；「设置」仍是门控项
+  // 2026-10-15（T-15b）：诊断页**真的可达**（体检 + 重建元数据）⇒ 给它 to；
+  // 2026-10-19（SETTINGS-1）：设置页也落地（库/模型/索引 + 可选能力说明）⇒ 从门控项改为可达。
   Object.freeze({ key: 'health', icon: '⚕', label: '诊断与重建', to: '/health' }),
-  Object.freeze({ key: 'settings', icon: '⚙', label: '设置', reason: 'P3d' }),
+  Object.freeze({ key: 'settings', icon: '⚙', label: '设置', to: '/settings' }),
 ]);
 
 /** 一条项是不是**已实现**（有路由） */

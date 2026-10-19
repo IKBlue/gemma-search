@@ -101,6 +101,8 @@ export async function searchOnce(app, win) {
   });
 
   const input = win.locator('#query');
+  // PRD-1：默认是本地检索 L0（localSearch）；桩引擎只会应答 `search` ⇒ 先显式切「智能检索」。
+  await win.getByRole('button', { name: '智能检索' }).click();
   await input.fill('吊灯');
   await input.press('Enter');
 

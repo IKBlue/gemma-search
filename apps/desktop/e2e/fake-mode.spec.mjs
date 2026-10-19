@@ -38,6 +38,8 @@ test('E8-b ⭐ 模拟模式能搜出结果（P3c/P3d 需要"有结果"这个状�
     const win = await firstWindow(app);
     const input = win.locator('#query');
     await expect(input).toBeVisible({ timeout: 20_000 });
+    // PRD-1：默认本地检索 L0；这条 e2e 验的是**模拟模式下的语义检索** ⇒ 先切「智能检索」
+    await win.getByRole('button', { name: '智能检索' }).click();
     await input.fill('吊灯');
     await input.press('Enter');
 

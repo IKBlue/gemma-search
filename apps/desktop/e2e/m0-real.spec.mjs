@@ -118,6 +118,8 @@ test('M0 ⭐⭐ 真窗口端到端：启动 → 库就绪 → 检索 → 详情 
     await expect(input).toBeVisible({ timeout: 30_000 });
 
     // ② 库就绪 → 检索（真编码器：首次调用才载模型）
+    //    PRD-1（所有者 2026-10-19）：默认是**本地检索 L0**；语义检索是可选模式 ⇒ 先显式切到「智能检索」。
+    await win.getByRole('button', { name: '智能检索' }).click();
     await input.fill('坦克 装甲车');
     await input.press('Enter');
     const cards = win.locator('article.photo-card');

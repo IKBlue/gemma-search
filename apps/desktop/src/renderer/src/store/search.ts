@@ -24,9 +24,18 @@ export type SearchResult = {
   uid?: string;
   libId?: string;
   stem?: string;
+  displayName?: string;
+  relPath?: string;
+  folder?: string | null;
+  imageSize?: number | null;
   score?: number;
   /** 引擎给的档位（high/mid/low/unknown）；界面**只用它**做弱匹配判定，不自算阈值 */
   band?: string;
+  /**
+   * PRD-1 · LOCAL-1/LOCAL-2：本地检索 L0 的**命中类型**（`localSearch` 返回）。
+   * 有它 ⇒ 这条来自 L0（没有 score/band）；没有 ⇒ 来自引擎的语义/以图搜图。
+   */
+  hit?: 'uid' | 'ext' | 'name' | 'path';
   /** U39：与查询图的 dHash 汉明距离；null/缺省 = 未知（不是"不重复"） */
   phashDistance?: number | null;
   /** U39：是否近重复（主进程按 k=10 判定；界面只负责显示，不重算） */
@@ -83,7 +92,31 @@ export type ToastTone = 'info' | 'err';
 export type ToastFn = (msg: unknown, tone?: ToastTone) => void;
 
 /** 检索模式 */
-export type SearchMode = 'text' | 'image';
+/**
+ * 检索模式（PRD-1）：默认 **`local`**（L0，本地 SQL，零模型）；
+ * `text` = 语义文本检索（可选）、`image` = 以图搜图（可选）—— 后两者都需要模型+索引。
+ */
+export type SearchMode = 'local' | 'text' | 'image';
+
+/** `localSearch`（L0）的响应形状 —— 契约见 `shared/ipc.ts` 与 SPEC §5.1 */
+export type LocalSearchData = {
+  query: string;
+  total: number;
+  results: Array<{
+    uid: string;
+    libId: string;
+    folder: string;
+    stem: string;
+    displayName: string;
+    relPath: string;
+    ext: string | null;
+    sizeBytes: number | null;
+    mtimeMs: number | null;
+    width: number | null;
+    height: number | null;
+    hit: 'uid' | 'ext' | 'name' | 'path';
+  }>;
+};
 
 /** store 的状态部分 */
 export type SearchState = {
@@ -114,7 +147,8 @@ export type SearchState = {
 };
 
 const initial: SearchState = {
-  mode: 'text',
+  // PRD-1：默认 L0（本地检索）。语义/以图搜图是可选模式（需要模型+索引）。
+  mode: 'local',
   query: '',
   folder: '全部',
   sort: 'score',
@@ -136,6 +170,8 @@ export type SearchStore = SearchState & {
   setQueryImagePath: (p: string | null) => void;
   clear: () => void;
   run: (onToast?: ToastFn) => Promise<void>;
+  /** L0 本地检索（PRD-1）：零模型、只读；`run()` 在 mode==='local' 时会转到这里 */
+  runLocal: (onToast?: ToastFn) => Promise<void>;
   reveal: (item: SearchResult, onToast?: ToastFn) => Promise<void>;
   collect: (item: SearchResult, onToast?: ToastFn) => Promise<void>;
   /** 只给测试用：把 store 回到初始态（避免测试之间互相污染） */
@@ -166,10 +202,17 @@ export const useSearchStore = create<SearchStore>()((set, get) => ({
   /**
    * 跑一次检索。参数拼装在这里（此前散在 hook 里）。
    * `onToast` 可选 —— 校验失败时要告诉用户，但 store 不 import 任何 UI。
+   *
+   * ⚠️ PRD-1：`mode === 'local'` 时走 **L0**（`localSearch`，零模型、只读 SQL），
+   *    不进 `search`（后者要模型+索引）。默认模式就是 local ⇒ 缺模型时主流程仍可用。
    */
   run: async (onToast) => {
     const { busy, mode, query, folder, queryImagePath } = get();
     if (busy) return;
+    if (mode === 'local') {
+      await get().runLocal(onToast);
+      return;
+    }
 
     const params: Record<string, unknown> = {
       mode,
@@ -212,6 +255,43 @@ export const useSearchStore = create<SearchStore>()((set, get) => ({
     const skipped = r.data.libsSkipped || [];
     if (skipped.length && onToast)
       onToast(`有 ${skipped.length} 个库被跳过：${skipped[0].reason.userMessage}`);
+  },
+
+  /**
+   * L0 本地检索（PRD-1 · LOCAL-2）。零模型、只读 SQL；缺库/坏库如实报。
+   * ⚠️ 与 `run` 的区别：**不写搜索历史**（`localSearch` 是只读方法；历史要写需要另一条契约，见 TASKS）。
+   */
+  runLocal: async (onToast) => {
+    const { busy, query } = get();
+    if (busy) return;
+    const text = query.trim();
+    if (!text) {
+      if (onToast) onToast('请输入 ID、文件名或关键词');
+      return;
+    }
+    set({ busy: true, meta: '本地检索中…', error: null });
+    const r = await apiInvoke<LocalSearchData>('localSearch', { query: text, limit: 60 });
+    if (!r.ok) {
+      set({ busy: false, meta: '', rawResults: [], error: r.error });
+      console.log('[ui] localSearch 失败', JSON.stringify(r.error));
+      return;
+    }
+    const list: SearchResult[] = r.data.results.map((row) => ({
+      uid: row.uid,
+      libId: row.libId,
+      stem: row.displayName || row.stem,
+      displayName: row.displayName,
+      relPath: row.relPath,
+      folder: row.folder,
+      imageSize: row.width && row.height ? row.width * row.height : null,
+      hit: row.hit,
+    }));
+    set({
+      busy: false,
+      rawResults: list,
+      meta: `${list.length} 条 · 共 ${r.data.total} 条（本地检索）`,
+    });
+    console.log(`[ui] localSearch "${text}" → ${list.length}/${r.data.total} 条`);
   },
 
   reveal: async (item, onToast) => {

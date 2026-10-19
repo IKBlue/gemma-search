@@ -211,15 +211,12 @@ export default function SearchPage() {
     [show],
   );
 
-  const placeholder = useMemo(
-    () =>
-      mode === 'text'
-        ? '试试：玻璃球多头吊灯 / 中古风木质吸顶灯 / 花卉图案装饰画'
-        : imageName
-          ? `已选参考图：${imageName}`
-          : '点「以图搜图」选一张参考图后搜索',
-    [mode, imageName],
-  );
+  const placeholder = useMemo(() => {
+    if (mode === 'local')
+      return '输入 ID（12 位 hex，可只写 4–11 位前缀）、文件名或关键词，回车检索；不需要模型';
+    if (mode === 'text') return '试试：玻璃球多头吊灯 / 中古风木质吸顶灯 / 花卉图案装饰画';
+    return imageName ? `已选参考图：${imageName}` : '点「以图搜图」选一张参考图后搜索';
+  }, [mode, imageName]);
 
   const showHint = results === null && !error && !busy;
 
@@ -299,6 +296,8 @@ export default function SearchPage() {
                 if (v === 'recent') show('「最近添加」需要索引提供 mtime，P3b 再补');
               }}
               mode={mode}
+              source={mode === 'local' ? 'local' : 'smart'}
+              onSourceChange={(s) => setMode(s === 'local' ? 'local' : 'text')}
               onPickImage={() => {
                 setMode('image');
                 pickImage();
@@ -329,8 +328,18 @@ export default function SearchPage() {
 
             {showHint ? (
               <p className="hint">
-                <b>输入描述后回车即可检索。</b>
-                分数只在本查询方式内有意义；缩略图由本机按需生成，不上传任何数据。
+                {mode === 'local' ? (
+                  <>
+                    <b>输入 ID、文件名或关键词，回车即可检索。</b>
+                    本地检索不需要模型：ID 支持 12 位精确或 4–11 位前缀（ID 前可加“#”）， 也可以输入{' '}
+                    <code>ext:psd</code> 或直接写文件名/目录关键词。
+                  </>
+                ) : (
+                  <>
+                    <b>输入描述后回车即可检索。</b>
+                    分数只在本查询方式内有意义；缩略图由本机按需生成，不上传任何数据。
+                  </>
+                )}
               </p>
             ) : null}
 
@@ -348,8 +357,11 @@ export default function SearchPage() {
             />
 
             <p className="muted small mt-4">
-              结果来自本机索引{lib ? `（${lib.libId} · dim ${lib.dim} · seq140）` : ''}；
-              分类来自素材库目录，不是内容标签。
+              {mode === 'local'
+                ? '结果来自本机元数据（.gs.db）的字面匹配：ID / 文件名 / 路径；不上传任何数据。'
+                : '结果来自本机索引'}
+              {mode === 'local' ? '' : lib ? `（${lib.libId} · dim ${lib.dim} · seq140）` : ''}
+              {mode === 'local' ? '' : '；分类来自素材库目录，不是内容标签。'}
             </p>
           </div>
 

@@ -115,8 +115,8 @@ test('CI-3 ⭐ 非图片 ⇒ 明确拒绝（alert 提示，含支持的类型与
     await expect(toast(win)).toContainText('不是图片');
     await expect(toast(win)).toContainText('jpg');
     await expect(toast(win)).toContainText('notes.txt');
-    // 没有切到以图搜：占位符仍是文字检索的提示
-    await expect(query(win)).toHaveAttribute('placeholder', /试试：/);
+    // 没有切到以图搜：仍是**本地检索**（PRD-1 默认；aria-label 由模式决定，比占位符文案稳）
+    await expect(query(win)).toHaveAttribute('aria-label', '本地检索');
   } finally {
     await app.close();
     cleanup();
@@ -134,7 +134,7 @@ test('CI-4 ⭐⭐ 剪贴板位图（图片但**没有文件路径**）⇒ 如实
     await expect(toast(win)).toContainText('保存成文件');
     await expect(toast(win)).toContainText('不是文件');
     // 仍然没有进入以图搜（没有可用的 queryImagePath，不许假装能搜）
-    await expect(query(win)).toHaveAttribute('placeholder', /试试：/);
+    await expect(query(win)).toHaveAttribute('aria-label', '本地检索');
   } finally {
     await app.close();
     cleanup();

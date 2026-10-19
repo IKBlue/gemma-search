@@ -60,6 +60,7 @@ const LOADERS = {
   activity: () => import('../pages/ActivityPage.tsx'),
   health: () => import('../pages/DiagnosticsPage.tsx'),
   browse: () => import('../pages/BrowsePage.tsx'),
+  settings: () => import('../pages/SettingsPage.tsx'),
 } satisfies Record<string, () => Promise<unknown>>;
 
 /**
@@ -73,6 +74,7 @@ const PAGES = {
   activity: lazy(LOADERS.activity),
   health: lazy(LOADERS.health),
   browse: lazy(LOADERS.browse),
+  settings: lazy(LOADERS.settings),
 };
 
 // 启动期断言：表里有 key 却没有组件 ⇒ 立刻炸，别留白屏

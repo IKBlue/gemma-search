@@ -19,6 +19,8 @@ test('U38 ⭐⭐ 弱匹配：band 全 low ⇒ 提示"仅供参考"且只展示�
     const input = win.locator('#query');
     const cards = win.locator('article.photo-card');
     await expect(input).toBeVisible({ timeout: 20_000 });
+    // PRD-1：默认本地检索 L0；shortfall 是**语义检索**的呈现口径 ⇒ 先切「智能检索」
+    await win.getByRole('button', { name: '智能检索' }).click();
 
     // ① 演示钩子：每条都落在 low 档 ⇒ shortfall 形态
     await input.fill('__lowband__');

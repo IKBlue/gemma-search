@@ -169,6 +169,22 @@ export const Methods = {
     })
     .strict(),
 
+  // 2026-10-19 · PRD-1 / M1（所有者已批形态 A）：**本地检索 L0**（零模型、零索引、只读）。
+  // 为什么单独一个方法而不是扩展 `search`：`search` 的 text/image 都走模型+索引，
+  //   而 L0 必须在缺模型时也 100% 可用；混进 `search` 会把"空查询 BAD_REQUEST"等既有语义搅乱。
+  // 匹配口径：`#?[0-9a-f]{4,12}` ⇒ uid（12 精确 / 4–11 前缀）；`ext:psd` ⇒ 扩展名；
+  //   其余 ⇒ display_name/stem/rel_path 子串（大小写不敏感）。只读、分页、按库合并。
+  localSearch: z
+    .object({
+      query: z.string().min(1).max(200),
+      libIds: z.array(LibId).max(32).optional(),
+      folder: z.string().max(128).optional(),
+      ext: z.string().max(16).optional(),
+      offset: z.number().int().min(0).max(1_000_000).optional(),
+      limit: z.number().int().min(1).max(200).optional(),
+    })
+    .strict(),
+
   indexStatus: z.object({}).strict(),
 
   scan: z.object({ libId: LibId }).strict(),

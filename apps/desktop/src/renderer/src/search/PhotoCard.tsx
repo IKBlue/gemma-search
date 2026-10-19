@@ -21,6 +21,14 @@ import type { SearchItem } from './types.ts';
 /** 压缩包（引擎给的对象形状；`archive` 是 `unknown`，故在这里窄化一次） */
 type Archive = { name?: string; ext?: string; size?: number };
 
+/** PRD-1 · L0 命中类型的中文标签（显示用；判定在主进程） */
+const HIT_LABEL: Readonly<Record<NonNullable<SearchItem['hit']>, string>> = Object.freeze({
+  uid: 'ID',
+  ext: '扩展名',
+  name: '文件名',
+  path: '路径',
+});
+
 function archiveOf(item: SearchItem): Archive | null {
   const a = item.archive;
   return a && typeof a === 'object' ? (a as Archive) : null;
@@ -84,12 +92,20 @@ export default function PhotoCard({ item, onLocate, onCollect }: PhotoCardProps)
           <span>
             <Tag folder={item.folder} />
           </span>
-          {/* band 由**引擎**给（按模态分的档位）。界面不自己算阈值 —— 见 Score.jsx 顶部注释 */}
-          <Score
-            score={item.score ?? 0}
-            band={item.band}
-            size={archive ? archive.size : item.imageSize}
-          />
+          {/* PRD-1：L0 结果没有 score/band（字面匹配不分档）⇒ 显示**命中类型**，
+              避免把"文件名命中"伪装成语义分数；语义/以图搜图结果仍走 Score。 */}
+          {item.hit ? (
+            <span className="tag" data-testid="hit-type" data-hit={item.hit}>
+              {HIT_LABEL[item.hit]}
+            </span>
+          ) : (
+            // band 由**引擎**给（按模态分的档位）。界面不自己算阈值 —— 见 Score.tsx 顶部注释
+            <Score
+              score={item.score ?? 0}
+              band={item.band}
+              size={archive ? archive.size : item.imageSize}
+            />
+          )}
           {/* U39（PHASH-1b 呈现 · 所有者 2026-10-19 裁 B）：近重复角标。
               阈值 k=10 由**主进程**判好（生产解码复核过），界面不重算；距离只放 title 供排查。 */}
           {item.nearDuplicate ? (

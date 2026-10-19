@@ -122,6 +122,7 @@ test('Z5：⭐ run() 的筛选参数：「全部」发四个目录，单选发�
   // ⚠️ 必须先给 query：空查询会被校验挡下、**根本不发 IPC**（见 Z8）——
   // 一开始漏了这句，本条直接失败，正说明那条校验是真的。
   let calls = fakeBridge(() => OK({ results: [], tookMs: 1 }));
+  S().setMode('text'); // PRD-1：默认是 L0（local）⇒ 本组验的是**引擎 search**，必须显式切模式
   S().setQuery('灯');
   await S().run();
   assert.deepEqual(calls[0].params.filters, { folders: FOLDERS });
@@ -134,6 +135,7 @@ test('Z5：⭐ run() 的筛选参数：「全部」发四个目录，单选发�
 
 test('Z6：run() 成功 ⇒ 存结果与耗时、busy 归 false', async () => {
   fakeBridge(() => OK({ results: [{ uid: 'a' }, { uid: 'b' }], tookMs: 42 }));
+  S().setMode('text');
   S().setQuery('灯');
   await S().run();
   assert.equal(S().busy, false);
@@ -145,6 +147,7 @@ test('Z6：run() 成功 ⇒ 存结果与耗时、busy 归 false', async () => {
 test('Z7：⭐ run() 失败 ⇒ error 是**已归一化的信封**、rawResults 变 []（而不是留着旧结果）', async () => {
   useSearchStore.setState({ rawResults: [{ uid: 'stale' }] });
   fakeBridge(() => FAIL({ code: 'LIB_NOT_FOUND', message: 'm', userMessage: '找不到这个库。' }));
+  S().setMode('text');
   S().setQuery('灯');
   await S().run();
   assert.equal(S().busy, false);
@@ -160,6 +163,7 @@ test('Z8：⭐ 空查询 / 缺参考图 **不发 IPC**（白跑一次引擎是�
   const calls = fakeBridge(() => OK({ results: [] }));
   const toasts = [];
 
+  S().setMode('text');
   S().setQuery('   '); // 只有空白
   await S().run((m) => toasts.push(m));
   assert.equal(calls.length, 0, '空查询不该发 IPC');
@@ -183,6 +187,7 @@ test('Z9：busy 时重复调用被挡住（不会并发发两次检索）', asyn
       platform: 'win32',
     },
   };
+  S().setMode('text');
   S().setQuery('灯');
   const first = S().run();
   await S().run(); // busy=true ⇒ 立即返回，不会覆盖
@@ -355,4 +360,75 @@ test('Z21：runText 空文本 ⇒ 一个 IPC 都不发，只提示', async () =>
   await S().runText('   ', (m, t) => toasts.push([m, t]));
   assert.equal(calls.length, 0);
   assert.equal(toasts.length, 1);
+});
+
+// ============================================================ L0（PRD-1）：默认检索 = localSearch
+
+test('Z22 ⭐⭐ 默认模式是 L0；run() 在 local 下发 localSearch（不是 search），并保留命中类型', async () => {
+  assert.equal(S().mode, 'local', 'PRD-1：默认就是本地检索（零模型可用）');
+  const calls = fakeBridge(() =>
+    OK({
+      query: 'a1b2',
+      total: 2,
+      results: [
+        {
+          uid: 'a00000000001',
+          libId: 'L1',
+          folder: 'VR',
+          stem: 'VR-101',
+          displayName: 'VR-101.jpg',
+          relPath: 'VR\\VR-101.jpg',
+          ext: '.jpg',
+          sizeBytes: 10,
+          mtimeMs: 1,
+          width: 64,
+          height: 64,
+          hit: 'uid',
+        },
+        {
+          uid: 'a00000000002',
+          libId: 'L1',
+          folder: 'VR',
+          stem: 'VR-102',
+          displayName: 'VR-102.jpg',
+          relPath: 'VR\\VR-102.jpg',
+          ext: '.jpg',
+          sizeBytes: 10,
+          mtimeMs: 1,
+          width: null,
+          height: null,
+          hit: 'name',
+        },
+      ],
+    }),
+  );
+  S().setQuery(' a1b2 ');
+  await S().run();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].method, 'localSearch', 'local 模式绝不能去调需要模型的 search');
+  assert.equal(calls[0].params.query, 'a1b2', '要 trim');
+  assert.equal(calls[0].params.limit, 60);
+  assert.equal(S().busy, false);
+  assert.equal(S().rawResults.length, 2);
+  assert.equal(S().rawResults[0].hit, 'uid', '命中类型要透传给卡片');
+  assert.match(S().meta, /共 2 条（本地检索）/);
+});
+
+test('Z23 ⭐ local 的空查询/失败：空查询不发 IPC 且用 L0 文案；失败不改判成功', async () => {
+  let calls = fakeBridge(() => OK({ results: [] }));
+  const toasts = [];
+  S().setQuery('   ');
+  await S().run((m) => toasts.push(m));
+  assert.equal(calls.length, 0);
+  assert.deepEqual(toasts, ['请输入 ID、文件名或关键词']);
+
+  calls = fakeBridge(() =>
+    FAIL({ code: 'DB_MISSING', message: 'm', userMessage: '这个库还没有元数据。' }),
+  );
+  S().setQuery('VR-101');
+  await S().run();
+  assert.equal(calls[0].method, 'localSearch');
+  assert.equal(S().error.code, 'DB_MISSING');
+  assert.deepEqual(S().rawResults, []);
+  assert.equal(S().meta, '');
 });

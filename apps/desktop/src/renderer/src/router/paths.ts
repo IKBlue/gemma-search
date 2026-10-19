@@ -16,6 +16,8 @@ export const PATHS = Object.freeze({
   activity: '/activity',
   health: '/health',
   browse: '/browse',
+  // PRD-1 · SETTINGS-1（所有者 2026-10-19 批「先做最小设置页」）：缺模型/索引时的引导+管理落点
+  settings: '/settings',
 });
 
 /**
@@ -47,6 +49,7 @@ export const LABELS = Object.freeze({
   activity: '操作记录',
   health: '诊断与重建',
   browse: '浏览图库',
+  settings: '设置',
 });
 
 /**
@@ -69,6 +72,7 @@ export const ROUTES: readonly RouteEntry[] = Object.freeze([
   Object.freeze({ key: 'activity', path: PATHS.activity, label: LABELS.activity }),
   Object.freeze({ key: 'health', path: PATHS.health, label: LABELS.health }),
   Object.freeze({ key: 'browse', path: PATHS.browse, label: LABELS.browse }),
+  Object.freeze({ key: 'settings', path: PATHS.settings, label: LABELS.settings }),
 ]);
 
 /** 应用名 —— 窗口标题的后缀，与 `index.html` / 主进程建窗时的 title 保持一致 */

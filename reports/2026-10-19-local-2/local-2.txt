@@ -1,0 +1,65 @@
+================================================================================
+LOCAL-2 · 渲染层接默认「本地检索 L0」· PRD-1 / M1 第二张卡 · 2026-10-19 · Lead
+================================================================================
+按所有者 2026-10-19 的口径（文本搜索=L0 关键词；ID=uid 12 hex / 4–11 前缀 + 文件名；
+语义与以图搜图默认关）把 L0 接进界面，并让**默认模式**就是它。
+
+【1. 默认形态（界面）】
+· `SearchPanel` 增加「检索方式」切换（`本地检索` 默认 / `智能检索` 可选）；本地模式下：
+  · 隐藏「以图搜图」按钮（它需要模型+索引，属可选层）；
+  · 主按钮文案 = 「检索」；输入框 aria-label / placeholder / 提示语都改为 L0 口径；
+  · 仍显示「智能检索」入口（**不隐藏**，P6：可选能力要可见、可切）；
+· 默认模式 `local`（store `SearchMode` 增加 `'local'`）：Enter ⇒ `runLocal` ⇒ `localSearch`，
+  **不进 `search`**（后者需要模型+索引）。
+· 结果卡：L0 结果没有 score/band（字面匹配不分档）⇒ 显示**命中类型**角标
+  `data-testid="hit-type"`（ID / 文件名 / 扩展名 / 路径），而不是伪装成语义分数；语义结果仍走 `Score`。
+· 无命中：沿用 Gallery 的「没有匹配的素材」；**不自动回退**到语义检索（输错 ID 不该看到不相关图）。
+· 页面底部说明按模式区分：「结果来自本机元数据（.gs.db）的字面匹配：ID / 文件名 / 路径」。
+
+【2. 实现（写入面）】
+| 文件 | 变更 |
+|---|---|
+| `renderer/src/store/search.ts` | `SearchMode` 增 `'local'`（默认）；`LocalSearchData` 类型；`runLocal` 动作（`localSearch`，limit 60，映射 `hit/displayName`）；`run()` 在 mode=local 时转 `runLocal` |
+| `renderer/src/search/SearchPanel.tsx` | 「检索方式」两枚 Chip（aria-pressed 可断言）+ 本地模式隐藏以图搜图按钮 + 文案分叉 |
+| `renderer/src/pages/SearchPage.tsx` | `source`/`onSourceChange` 接线；placeholder/提示/底部说明按模式；派生 `shortfall` 仅对语义结果有意义（L0 无 band，不触发） |
+| `renderer/src/search/PhotoCard.tsx` | `hit` 角标（ID/文件名/扩展名/路径）；有 `hit` ⇒ 不渲染 `Score` |
+| `renderer/src/search/types.ts` | `SearchItem` 增 `hit` / `displayName` |
+| `main/local-search.ts` | **`runFakeLocalSearch`**：模拟模式（无 `.gs.db`）用 `fixtures/sample-index.json` 在内存按同一口径过滤（契约 §8 演示模式）——否则 fake e2e 会被 `DB_MISSING` 挡住 |
+| `main/index.ts` | `localSearch` 分支：`FAKE_MODE` ⇒ fake 实现；真实模式走 SQL |
+| `e2e/helpers/engine-stub.mjs` · `m0-real.spec.mjs` · `fake-mode.spec.mjs` · `shortfall.spec.mjs` | 这些用例验的是**语义/以图搜图** ⇒ 显式点「智能检索」再输入（默认已改为 L0） |
+| `e2e/image-intake.spec.mjs` | 「没切到以图搜」的判据由占位符文案改为 `aria-label=本地检索`（占位符文案随默认模式变了） |
+
+【3. 测试（本轮实测）】
+· 单测 `search-store.test.mjs` 新增 **2 条**：Z22（默认 local ⇒ `localSearch`、参数 trim/limit、hit 透传）、
+  Z23（local 空查询不发 IPC + L0 文案；失败不改判成功）。既有 Z5–Z9 显式 `setMode('text')`（默认改了，不能靠隐式）。
+· 单测 `local-search.test.mjs` 新增 **2 条**：L12（fake 演示实现与 SQL 同口径：前缀/文件名/ext/路径/排序）、
+  L13（fake 空 query ⇒ BAD_REQUEST）。
+· **真窗口 e2e** `local-search.spec.mjs`（模拟模式，零模型/零索引/零 .gs.db）：
+  默认是本地检索（aria-pressed 断言）→ 文件名命中 `hit=name` → 12 位 uid `hit=uid` →
+  前缀 30 条 → `ext:PNG` 2 条 `hit=ext` → 目录关键词 4 条 `hit=path` → 无命中显示"没有匹配"。
+  实测：**1 passed（2.9 s）**。
+· 受影响用例回归：`fake-mode` · `shortfall` · `uiux-p0`（13 passed）；`image-intake`（4 passed）。
+
+【4. 门禁（本轮实测 · 全量）】
+~
+npx prettier --check .   => All matched files use Prettier code style!（见下"如实记录"）  PRETTIER=0
+npm run lint             => LINT=0
+npm run typecheck        => TC=0（prettier 修复后另跑 tsc-web 复检 = 0）
+npm test                 => ℹ tests 868 · ℹ pass 867 · ℹ fail 0 · ℹ skipped 1  TEST=0
+npm run build            => BUILD=0 · **WARNINGS=0** · 三端齐备
+npx playwright test -c … => **81 passed / 4 skipped / 0 failed** · E2E=0（4.8 min）
+node reports/…/s4-accept.mjs => PASS 21 · FAIL 0 · SKIP 0 · S4=0
+~
+· **如实记录（一次返工）**：第一次全量跑 `PRETTIER=1`（`SearchPage.tsx` 一处换行不满足 prettier），
+  其余门禁当时已全绿（868/867/0/1 · build 0/WARN0 · e2e 81/4/0 · s4 21/0/0）。
+  已 `prettier --write` 后复检 **0**，并重跑 `tsc-web` **0**；格式化不改语义，故其余结果沿用同次运行。
+· 另：首轮 e2e 有两处红（CI-3/CI-4 断言"占位符仍是文字检索提示"），是**默认模式改变**导致的断言过期；
+  已改为断言 `aria-label=本地检索`（比文案稳），复跑 4 passed。
+
+【5. 边界（如实 · P6）】
+· **默认落地页**仍是搜索页，不是 PRD 说的"库浏览"——已拆 **HOME-1**（未做）。本卡只把**检索默认**改成 L0。
+· L0 **不写搜索历史**（`localSearch` 是只读方法；历史写入需要另一条契约，已登记 SEARCH-2 待批）。
+· **尚未做真模式"无模型"e2e**：需要构造"模型确实不存在"的确定性夹具（模型搜索顺序 3 处都可能命中），
+  留到 M1 验收卡（LOCAL-3）。
+· **10k 性能基准未跑**（PRD N3 目标）：不能声称 P95 ≤100ms；已登记 PERF-1。
+================================================================================

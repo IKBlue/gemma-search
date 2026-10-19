@@ -63,6 +63,8 @@ import { applyAvailability, buildLibraryRows, unavailableLibraries } from './lib
 import type { LibraryView } from './library-view.ts';
 import { runItemsQuery } from './items-ipc.ts';
 import type { ItemsQueryParams } from './items-ipc.ts';
+import { runFakeLocalSearch, runLocalSearch } from './local-search.ts';
+import type { LocalSearchParams } from './local-search.ts';
 import { crashUnhealthyState, installCrashPolicy } from './crash-policy.ts';
 import { queryAppHealth } from './app-health.ts';
 import {
@@ -1116,6 +1118,8 @@ function registerIpc(): void {
     //    main/app-db.ts（应用级唯一写入口）与 main/library-ipc.ts（体检/重建）。
     if (
       v.method === 'items' ||
+      // PRD-1 / LOCAL-1（所有者 2026-10-19 批形态 A）：本地检索 L0（零模型，只读）
+      v.method === 'localSearch' ||
       v.method === 'libraryList' ||
       v.method === 'libraryAdd' ||
       v.method === 'libraryPickDir' ||
@@ -1253,6 +1257,24 @@ async function handleLibraryMethod(method: MethodName, params: unknown): Promise
     return runItemsQuery(
       {
         libId: String(p.libId),
+        libraries: r.libraries.map((l) => ({ libId: l.libId, root: l.root })),
+        userDataDir: USER_DATA_DIR,
+        legacyLibrariesDir: path.join(DATA_DIR, 'libraries'),
+      },
+      p,
+    );
+  }
+
+  // ---- localSearch：本地检索 L0（PRD-1 · 所有者 2026-10-19 批形态 A）----
+  // 实现体在 main/local-search.ts（不 import electron ⇒ 可被 node:test 直接覆盖）。
+  // 只读、零模型；缺库如实报（DB_MISSING / LIB_NOT_FOUND），绝不代建。
+  if (method === 'localSearch') {
+    const p = (params && typeof params === 'object' ? params : {}) as LocalSearchParams;
+    // 模拟模式没有 `.gs.db`：用样例索引在内存里按同一口径过滤（契约 §8 演示模式；LOCAL-2 的要求）
+    if (FAKE_MODE) return runFakeLocalSearch(loadFakeFixture().items ?? [], p);
+    const r = librariesResolved();
+    return runLocalSearch(
+      {
         libraries: r.libraries.map((l) => ({ libId: l.libId, root: l.root })),
         userDataDir: USER_DATA_DIR,
         legacyLibrariesDir: path.join(DATA_DIR, 'libraries'),

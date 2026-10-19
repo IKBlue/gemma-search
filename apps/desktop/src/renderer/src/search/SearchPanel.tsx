@@ -26,6 +26,9 @@ export type SearchPanelProps = {
   sort?: string;
   onSortChange: (sort: string) => void;
   mode?: string;
+  /** PRD-1：检索来源。`local` = L0 本地检索（零模型，默认）；`smart` = 语义/以图搜图（可选，需模型+索引） */
+  source?: 'local' | 'smart';
+  onSourceChange?: (source: 'local' | 'smart') => void;
   onPickImage: () => void;
   imageName?: string;
 };
@@ -42,11 +45,28 @@ export default function SearchPanel({
   sort,
   onSortChange,
   mode,
+  source = 'local',
+  onSourceChange,
   onPickImage,
   imageName,
 }: SearchPanelProps) {
+  const local = source === 'local';
   return (
     <div className="panel">
+      {/* PRD-1（所有者 2026-10-19）：默认「本地检索」（ID / 文件名 / 路径，零模型、离线即时）；
+          「智能检索」是可选层 —— 缺模型/索引时由页面接到设置引导（M3），这里只负责切换。 */}
+      <div className="filter-row" data-testid="search-source">
+        <span className="muted small">检索方式</span>
+        <Chip active={local} onClick={() => onSourceChange?.('local')}>
+          本地检索
+        </Chip>
+        <Chip active={!local} onClick={() => onSourceChange?.('smart')}>
+          智能检索
+        </Chip>
+        <span className="muted small">
+          {local ? 'ID / 文件名 / 路径关键词 · 不需要模型' : '语义文本 / 以图搜图 · 需要模型与索引'}
+        </span>
+      </div>
       <div className="row wrap">
         <SearchBox
           ref={inputRef}
@@ -56,13 +76,15 @@ export default function SearchPanel({
             if (e.key === 'Enter') onSubmit();
           }}
           placeholder={placeholder}
-          ariaLabel="自然语言搜索"
+          ariaLabel={local ? '本地检索' : '自然语言搜索'}
         />
-        <Button onClick={onPickImage} title="选一张库外参考图，按图搜图">
-          ◫ {mode === 'image' && imageName ? '换参考图' : '以图搜图'}
-        </Button>
+        {local ? null : (
+          <Button onClick={onPickImage} title="选一张库外参考图，按图搜图">
+            ◫ {mode === 'image' && imageName ? '换参考图' : '以图搜图'}
+          </Button>
+        )}
         <Button variant="primary" disabled={busy} onClick={onSubmit}>
-          搜索图片 →
+          {local ? '检索' : '搜索图片'} →
         </Button>
       </div>
 

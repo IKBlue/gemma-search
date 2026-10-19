@@ -1,0 +1,68 @@
+================================================================================
+LOCAL-1 · 本地检索 L0（`localSearch`）· PRD-1 / M1 第一张卡 · 2026-10-19 · Lead
+================================================================================
+卡片来源：`reports/2026-10-19-prd-eagle/PRD-asset-first.md`（所有者 2026-10-19 已确认口径：
+文本搜索 = L0 关键词匹配；ID = uid 12 hex / 4–11 位前缀 + 文件名；可选能力默认关）。
+所有者同日选定 **形态 A：新增 `localSearch` 方法**（而不是扩展 `search` 的 mode）⇒ 本卡落地契约 + 主进程实现。
+
+【1. 契约变更（兼容新增 · 所有者已批形态 A）】
+`shared/ipc.ts` 新增方法 `localSearch`（**只读**，第 31 个方法）：
+  `localSearch { query, libIds?, folder?, ext?, offset?, limit? }` →
+  `{ query, total, results: [{ uid, libId, folder, stem, displayName, relPath, ext, sizeBytes, mtimeMs, width, height, hit }] }`
+· 翻转表（`tests/ipc-contract-s6.test.mjs` C1 已同步，仍为**集合相等**）：30 → **31**，`+localSearch`；
+· SPEC §5.1 已补签名与匹配口径（含与 `search` 的边界：L0 **不自动回退**语义检索）；
+· 入参 zod 为 `.strict()`（多塞字段被拒，证明不是"登记了个空壳"）。
+
+【2. 实现（`main/local-search.ts`，不 import electron ⇒ node:test 可直接覆盖）】
+匹配口径（全部参数化 SQL，值不拼字符串）：
+· `#?[0-9a-f]{4,12}` ⇒ ID：12 位 `uid = ?` 精确；4–11 位 `uid LIKE ? || '%'` 前缀，`hit='uid'`；
+· `ext:psd` ⇒ 扩展名（大小写不敏感；输入可为 `ext:png` / `ext:.png`，统一成库里的 `.png` 形），`hit='ext'`；
+· 其余 ⇒ 关键词：`display_name` / `stem` / `rel_path` 子串（大小写不敏感；`%`/`_`/`\` 按**字面**转义，
+  否则用户输入 `%` 会静默变成"匹配全部"），`hit='name'`（名称/主干命中）或 `hit='path'`（仅路径命中），
+  排序：名称命中优先 → 路径长度 → 字典序 → uid（稳定分页）。
+· 过滤：`folder`、`ext` 可与任一匹配模式组合；`libIds` 限定库。
+· 多库：默认合并全部已登记库；`total` = 各库筛选后计数之和；`offset/limit` 在合并结果上分页（每库取 offset+limit 行足够）。
+· 只读纪律：`.gs.db` 一律 `openGsDb({ readOnly: true })`；只 `SELECT`；**缺库不代建**：
+  - 某库 `.gs.db` 不存在 ⇒ 跳过该库；若所有目标库都没有 ⇒ `DB_MISSING`；
+  - `libIds` 指向不存在的库 ⇒ `LIB_NOT_FOUND`；
+  - 空 query ⇒ `BAD_REQUEST`；
+  - **永不抛**（异常转成结构化错误；userMessage 恒非空）。
+
+【3. 测试（本轮实测）】
+· 新增 `apps/desktop/tests/local-search.test.mjs`（**11 条**）：
+  L1 uid 精确 · L2 uid 前缀（`#`/大小写）· L3 关键词命中类型与排序（name 优先于 path）·
+  L4 大小写不敏感 + `%` 按字面 · L5 ext: 与 ext 筛选组合 · L6 folder 组合 · L7 分页（越界 total 如实）·
+  L8 多库合并与 libIds 限定 · L9 无命中（ok=true/total=0）· L10 缺库 ⇒ DB_MISSING（不假装空库）·
+  L11 空 query ⇒ BAD_REQUEST、未知库 ⇒ LIB_NOT_FOUND、均不抛。
+· 契约测试 `ipc-contract-s6.test.mjs` C1 集合相等（31）绿灯。
+· 运行：`node --test --isolation=none apps/desktop/tests/local-search.test.mjs` ⇒ 11/11 pass。
+
+【4. 门禁（本轮实测 · 全量）】
+~
+npx prettier --check .   => All matched files use Prettier code style!        PRETTIER=0
+npm run lint             => LINT=0
+npm run typecheck        => TC=0
+npm test                 => ℹ tests 864 · ℹ pass 863 · ℹ fail 0 · ℹ skipped 1  TEST=0
+npm run build            => BUILD=0 · **WARNINGS=0** · 三端齐备
+npx playwright test -c … => 全量首跑 79 passed / 4 skipped / **1 failed**（U18-b，见下）
+                           单 spec 复跑 U18-b ⇒ **2 passed**；全量复跑 ⇒ 结果见文末补记
+node reports/…/s4-accept.mjs => PASS 21 · FAIL 0 · SKIP 0 · S4=0
+~
+· 首跑失败的 **U18-b（库根可用时不渲染不可用横幅）**：报错是 `browse-library` 节点 20s 内未出现；
+  单 spec 复跑 **2 passed**。本卡**没有改浏览页/库可用性横幅**（diff 只含 localSearch 相关文件 + 文档），
+  判定为**间歇性**（与 2026-10-17 browse E14-d 同类现象），已如实记录，不写成"全绿"。
+  【判断，非实测】这类间歇更可能来自首次渲染时序/CI 负载，而不是本卡逻辑；若再复现需单独立案排查。
+
+【5. 边界（如实 · P6）】
+· **本卡只到主进程**：渲染层尚未调用 `localSearch`（LOCAL-2 才接默认搜索框/首页），因此**没有 UI e2e**；
+  契约方法在 trace 矩阵里短暂 e2e=0 是事实，LOCAL-2 会补齐。
+· **fake（模拟）模式**：没有真实 `.gs.db` ⇒ `localSearch` 按设计返回 `DB_MISSING`（不伪造结果）。
+  LOCAL-2 接 UI 时必须同时给 fake 模式一个**明确的演示实现**（否则 fake e2e 会被"缺库"挡住）——已列为下一张卡的前置。
+· 性能：本卡未做 10k 基准（PRD N3 目标）；SQL 已用索引列（`uid` PK / `rel_path` / `folder`），
+  但 `display_name LIKE '%x%'` 是扫描；10k 量级的实测留到 LOCAL-2 的基准脚本（不许声称"P95 ≤100ms"未测）。
+· 未改 AGENTS/PLAN；SPEC 只加了 §5.1 的方法条目（所有者已批形态 A）。
+================================================================================
+（补记：全量 e2e 复跑结果）
+· **全量复跑（同一代码、同一构建）**：`80 passed / 4 skipped / 0 failed` · E2E_RERUN=0（5.9 min）。
+  ⇒ 首跑的 U18-b 是**间歇**（单 spec 2 passed + 全量 0 failed 两次证据）；本卡未触碰该路径。
+  最终门禁：prettier 0 · lint 0 · tsc 0 · 单测 **864/863/0/1** · build 0（WARN 0）· e2e **80/4/0** · s4 21/0/0。
